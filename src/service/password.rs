@@ -74,7 +74,8 @@ impl AuthService {
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
         let username = normalize_username(username).map_err(|_| AuthError::InvalidCredentials)?;
-        self.enforce_rate_limit(&username).await?;
+        self.enforce_rate_limit(&username, ip_address.as_deref())
+            .await?;
         let user = self.store.find_user_by_username(&username).await?;
         let password_hash = match &user {
             Some(user) => self.store.find_password_hash(user.id).await?,
@@ -82,13 +83,16 @@ impl AuthService {
         };
         let password_valid = verify_password(password, password_hash).await?;
         let Some(user) = user.filter(|_| password_valid) else {
-            self.record_failure(&username).await;
+            self.record_failure(&username, ip_address.as_deref())
+                .await?;
             return Err(AuthError::InvalidCredentials);
         };
         if user.banned && user.ban_expires.is_none_or(|expires| expires > Utc::now()) {
             return Err(AuthError::AccountDisabled);
         }
-        self.failures.lock().await.remove(&username);
+        self.store
+            .clear_auth_failures(&super::account_limit_key(&username))
+            .await?;
         let assurance = if self.store.list_passkeys(user.id).await?.is_empty() {
             Assurance::Password
         } else {
@@ -353,5 +357,80 @@ mod tests {
                 .await
                 .is_ok()
         );
+    }
+
+    #[tokio::test]
+    async fn account_throttling_survives_service_recreation() {
+        let store = Arc::new(MemoryStore::default());
+        let mut config = AuthConfig::new([61_u8; 32]).unwrap();
+        config.max_attempts = 3;
+        let service = AuthService::new(store.clone(), config.clone());
+        service
+            .provision_password_user(NewPasswordUser {
+                username: "luna".into(),
+                name: "Luna".into(),
+                email: None,
+                password: "correct-password".into(),
+                role: "owner".into(),
+            })
+            .await
+            .unwrap();
+        for _ in 0..3 {
+            assert!(matches!(
+                service
+                    .sign_in_username("luna", "wrong-password".into(), None, None)
+                    .await,
+                Err(AuthError::InvalidCredentials)
+            ));
+        }
+
+        let restarted = AuthService::new(store, config);
+        assert!(matches!(
+            restarted
+                .sign_in_username("luna", "correct-password".into(), None, None)
+                .await,
+            Err(AuthError::RateLimited)
+        ));
+    }
+
+    #[tokio::test]
+    async fn ip_throttling_spans_multiple_account_names() {
+        let mut config = AuthConfig::new([71_u8; 32]).unwrap();
+        config.max_ip_attempts = 3;
+        let service = AuthService::new(Arc::new(MemoryStore::default()), config);
+        service
+            .provision_password_user(NewPasswordUser {
+                username: "luna".into(),
+                name: "Luna".into(),
+                email: None,
+                password: "correct-password".into(),
+                role: "owner".into(),
+            })
+            .await
+            .unwrap();
+        for username in ["first", "second", "third"] {
+            assert!(matches!(
+                service
+                    .sign_in_username(
+                        username,
+                        "wrong-password".into(),
+                        Some("192.0.2.4".into()),
+                        None,
+                    )
+                    .await,
+                Err(AuthError::InvalidCredentials)
+            ));
+        }
+        assert!(matches!(
+            service
+                .sign_in_username(
+                    "luna",
+                    "correct-password".into(),
+                    Some("192.0.2.4".into()),
+                    None,
+                )
+                .await,
+            Err(AuthError::RateLimited)
+        ));
     }
 }

@@ -78,6 +78,23 @@ pub(super) fn user_agent(headers: &HeaderMap) -> Option<String> {
         .map(|value| value.chars().take(512).collect())
 }
 
+pub(super) fn client_ip(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next_back())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+        .map(|value| value.chars().take(64).collect())
+}
+
 fn session_cookie(value: &str, max_age_seconds: i64, secure: bool, persistent: bool) -> String {
     named_cookie(
         SESSION_COOKIE_NAME,
@@ -281,5 +298,15 @@ mod tests {
             cookie,
             "better-auth.session_token=token.signature; HttpOnly; SameSite=Lax; Path=/; Max-Age=300"
         );
+    }
+
+    #[test]
+    fn client_ip_uses_the_proxy_appended_address() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("198.51.100.2, 100.64.0.7"),
+        );
+        assert_eq!(client_ip(&headers).as_deref(), Some("100.64.0.7"));
     }
 }

@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 /// Persistence boundary required by [`crate::AuthService`].
 #[async_trait]
-pub trait AuthStore: AccessStore + Send + Sync {
+pub trait AuthStore: AccessStore + SecurityStore + Send + Sync {
     async fn create_password_user(
         &self,
         user: AuthUser,
@@ -67,6 +67,26 @@ pub trait AuthStore: AccessStore + Send + Sync {
         &self,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), AuthError>;
+}
+
+/// Durable security state shared by every authentication service instance.
+#[async_trait]
+pub trait SecurityStore: Send + Sync {
+    async fn rate_limit_exceeded(
+        &self,
+        key: &str,
+        now: chrono::DateTime<chrono::Utc>,
+        max_attempts: usize,
+    ) -> Result<bool, AuthError>;
+
+    async fn record_auth_failure(
+        &self,
+        key: &str,
+        now: chrono::DateTime<chrono::Utc>,
+        window: chrono::Duration,
+    ) -> Result<(), AuthError>;
+
+    async fn clear_auth_failures(&self, key: &str) -> Result<(), AuthError>;
 }
 
 /// Administrative, authorization and audit persistence kept separate from login storage.

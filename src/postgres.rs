@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 mod access;
 mod migrate;
+mod security;
 mod user;
 
 /// PostgreSQL/SQLx persistence adapter.

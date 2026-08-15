@@ -17,6 +17,7 @@ The initial compatibility target is Better Auth `1.6.29` and covers:
 - admin session revocation and bounded impersonation
 - owner-issued, time-bounded guest capability grants and security audit events
 - optional HIBP Pwned Passwords screening with Better Auth-compatible errors
+- durable account and client-address sign-in throttling through the configured store
 - Better Auth session cookies and response shapes
 
 The library keeps authentication protocol details separate from host-product

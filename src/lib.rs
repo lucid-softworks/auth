@@ -23,4 +23,4 @@ pub use model::{
 pub use service::{
     AuthConfig, AuthService, HashedPasswordUser, PasskeyConfig, PasswordChangeResult, SignInResult,
 };
-pub use store::{AccessStore, AuthStore};
+pub use store::{AccessStore, AuthStore, SecurityStore};

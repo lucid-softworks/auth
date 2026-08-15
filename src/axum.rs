@@ -24,7 +24,7 @@ mod http;
 
 pub use self::http::session_token;
 use self::http::{
-    auth_error, challenge_token, clear_session_cookie, current_session, user_agent,
+    auth_error, challenge_token, clear_session_cookie, client_ip, current_session, user_agent,
     with_challenge_cookie, with_session_cookie,
 };
 
@@ -87,7 +87,12 @@ async fn sign_in_username(
 ) -> Response {
     let callback_url = input.callback_url.clone();
     match service
-        .sign_in_username(&input.username, input.password, None, user_agent(&headers))
+        .sign_in_username(
+            &input.username,
+            input.password,
+            client_ip(&headers),
+            user_agent(&headers),
+        )
         .await
     {
         Ok(result) => {
@@ -109,7 +114,10 @@ async fn sign_in_anonymous(
     Extension(service): Extension<Arc<AuthService>>,
     headers: HeaderMap,
 ) -> Response {
-    match service.sign_in_anonymous(None, user_agent(&headers)).await {
+    match service
+        .sign_in_anonymous(client_ip(&headers), user_agent(&headers))
+        .await
+    {
         Ok(result) => {
             let response = AnonymousSignInResponse {
                 token: result.token.clone(),

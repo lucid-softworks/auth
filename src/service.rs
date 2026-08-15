@@ -13,10 +13,7 @@ use hmac::{Hmac, Mac};
 use passkey::PasskeyCeremony;
 use session::{hash_token, random_token};
 use sha2::Sha256;
-use std::{
-    collections::{HashMap, VecDeque},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -33,6 +30,7 @@ pub struct AuthConfig {
     pub allow_anonymous: bool,
     pub development_bypass: bool,
     pub max_attempts: usize,
+    pub max_ip_attempts: usize,
     pub lockout_window: Duration,
     pub passkeys: Option<PasskeyConfig>,
     pub password_breach_checker: Option<Arc<dyn PasswordBreachChecker>>,
@@ -61,6 +59,7 @@ impl AuthConfig {
             allow_anonymous: false,
             development_bypass: false,
             max_attempts: 5,
+            max_ip_attempts: 15,
             lockout_window: Duration::minutes(5),
             passkeys: None,
             password_breach_checker: None,
@@ -88,7 +87,6 @@ pub struct HashedPasswordUser {
 pub struct AuthService {
     store: Arc<dyn AuthStore>,
     config: Arc<AuthConfig>,
-    failures: Arc<Mutex<HashMap<String, VecDeque<DateTime<Utc>>>>>,
     passkey_ceremonies: Arc<Mutex<HashMap<String, PasskeyCeremony>>>,
 }
 
@@ -97,7 +95,6 @@ impl AuthService {
         Self {
             store,
             config: Arc::new(config),
-            failures: Arc::new(Mutex::new(HashMap::new())),
             passkey_ceremonies: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -299,27 +296,49 @@ impl AuthService {
         })
     }
 
-    async fn enforce_rate_limit(&self, username: &str) -> Result<(), AuthError> {
+    async fn enforce_rate_limit(
+        &self,
+        username: &str,
+        ip_address: Option<&str>,
+    ) -> Result<(), AuthError> {
         let now = Utc::now();
-        let cutoff = now - self.config.lockout_window;
-        let mut failures = self.failures.lock().await;
-        let attempts = failures.entry(username.to_owned()).or_default();
-        while attempts.front().is_some_and(|failure| *failure <= cutoff) {
-            attempts.pop_front();
-        }
-        if attempts.len() >= self.config.max_attempts {
+        let account_limited = self
+            .store
+            .rate_limit_exceeded(&account_limit_key(username), now, self.config.max_attempts)
+            .await?;
+        let ip_limited = match ip_address {
+            Some(address) => {
+                self.store
+                    .rate_limit_exceeded(&ip_limit_key(address), now, self.config.max_ip_attempts)
+                    .await?
+            }
+            None => false,
+        };
+        if account_limited || ip_limited {
             return Err(AuthError::RateLimited);
         }
         Ok(())
     }
 
-    async fn record_failure(&self, username: &str) {
-        self.failures
-            .lock()
-            .await
-            .entry(username.to_owned())
-            .or_default()
-            .push_back(Utc::now());
+    async fn record_failure(
+        &self,
+        username: &str,
+        ip_address: Option<&str>,
+    ) -> Result<(), AuthError> {
+        let now = Utc::now();
+        self.store
+            .record_auth_failure(
+                &account_limit_key(username),
+                now,
+                self.config.lockout_window,
+            )
+            .await?;
+        if let Some(address) = ip_address {
+            self.store
+                .record_auth_failure(&ip_limit_key(address), now, self.config.lockout_window)
+                .await?;
+        }
+        Ok(())
     }
 
     fn sign(&self, value: &[u8]) -> String {
@@ -328,6 +347,14 @@ impl AuthService {
         mac.update(value);
         URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
     }
+}
+
+fn account_limit_key(username: &str) -> String {
+    format!("sign-in:account:{}", hash_token(username))
+}
+
+fn ip_limit_key(address: &str) -> String {
+    format!("sign-in:ip:{}", hash_token(address))
 }
 
 #[cfg(test)]
