@@ -1,10 +1,8 @@
-use super::{AuthService, SignInResult};
+use super::{AuthService, SignInResult, user::validate_managed_role};
 use crate::{Assurance, AuditEvent, AuthError, AuthSession, AuthUser, SessionWithUser};
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use uuid::Uuid;
-
-const MANAGED_ROLES: [&str; 3] = ["owner", "member", "viewer"];
 
 impl AuthService {
     pub async fn list_users(
@@ -27,11 +25,7 @@ impl AuthService {
         role: &str,
     ) -> Result<AuthUser, AuthError> {
         require_owner(actor)?;
-        if !MANAGED_ROLES.contains(&role) {
-            return Err(AuthError::InvalidRequest(
-                "role must be owner, member, or viewer".into(),
-            ));
-        }
+        validate_managed_role(role)?;
         let target = self
             .store
             .find_user_by_id(user_id)
@@ -250,7 +244,7 @@ impl AuthService {
         self.store.list_audit_events(limit.clamp(1, 200)).await
     }
 
-    async fn protect_final_owner(
+    pub(super) async fn protect_final_owner(
         &self,
         target: &AuthUser,
         removing_owner: bool,

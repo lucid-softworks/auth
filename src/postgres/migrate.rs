@@ -1,7 +1,7 @@
 use super::{PostgresStore, storage_error};
 use crate::AuthError;
 
-const MIGRATIONS: [(i64, &str, &str); 3] = [
+const MIGRATIONS: [(i64, &str, &str); 4] = [
     (
         1,
         "initial authentication schema",
@@ -16,6 +16,11 @@ const MIGRATIONS: [(i64, &str, &str); 3] = [
         3,
         "access administration and audit",
         include_str!("../../migrations/0003_access_audit.sql"),
+    ),
+    (
+        4,
+        "user deletion cascades",
+        include_str!("../../migrations/0004_user_deletion.sql"),
     ),
 ];
 

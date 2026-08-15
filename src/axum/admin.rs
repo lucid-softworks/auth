@@ -1,6 +1,6 @@
 use super::http::{auth_error, current_session, user_agent, with_session_cookie};
 use crate::{
-    AuthError, AuthService,
+    AuthError, AuthService, NewPasswordUser,
     protocol::better_auth::{BetterAuthSession, BetterAuthUser, SessionResponse, SuccessResponse},
 };
 use axum::{
@@ -12,6 +12,7 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -21,6 +22,9 @@ where
 {
     Router::new()
         .route("/api/auth/admin/list-users", get(list_users))
+        .route("/api/auth/admin/create-user", post(create_user))
+        .route("/api/auth/admin/set-user-password", post(set_user_password))
+        .route("/api/auth/admin/remove-user", post(remove_user))
         .route("/api/auth/admin/set-role", post(set_role))
         .route("/api/auth/admin/ban-user", post(ban_user))
         .route("/api/auth/admin/unban-user", post(unban_user))
@@ -85,6 +89,23 @@ struct UserRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct CreateUserRequest {
+    email: String,
+    password: Option<String>,
+    name: String,
+    role: Option<RoleInput>,
+    data: Option<serde_json::Map<String, Value>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetUserPasswordRequest {
+    user_id: String,
+    new_password: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct BanUserRequest {
     user_id: String,
     ban_reason: Option<String>,
@@ -135,6 +156,91 @@ async fn list_users(
         .into_response(),
         Err(error) => auth_error(error),
     }
+}
+
+async fn create_user(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Json(mut input): Json<CreateUserRequest>,
+) -> Response {
+    let Some(actor) = current_session(&service, &headers).await else {
+        return auth_error(AuthError::InvalidSession);
+    };
+    let result = async {
+        let role = input
+            .role
+            .map(RoleInput::one)
+            .transpose()?
+            .unwrap_or_else(|| "viewer".into());
+        let username = input
+            .data
+            .as_mut()
+            .and_then(|data| data.remove("username"))
+            .and_then(|value| value.as_str().map(str::to_owned))
+            .or_else(|| {
+                input
+                    .email
+                    .split_once('@')
+                    .map(|(local, _)| local.to_owned())
+            })
+            .ok_or_else(|| AuthError::InvalidRequest("username is required".into()))?;
+        let password = input
+            .password
+            .ok_or_else(|| AuthError::InvalidRequest("password is required".into()))?;
+        service
+            .create_user(
+                &actor,
+                NewPasswordUser {
+                    username,
+                    name: input.name,
+                    email: Some(input.email),
+                    password,
+                    role,
+                },
+            )
+            .await
+    }
+    .await;
+    user_response(result)
+}
+
+async fn set_user_password(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Json(input): Json<SetUserPasswordRequest>,
+) -> Response {
+    let Some(actor) = current_session(&service, &headers).await else {
+        return auth_error(AuthError::InvalidSession);
+    };
+    let result = match parse_uuid(&input.user_id) {
+        Ok(user_id) => {
+            service
+                .set_user_password(&actor, user_id, input.new_password)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    match result {
+        Ok(()) => {
+            Json(crate::protocol::better_auth::StatusResponse { status: true }).into_response()
+        }
+        Err(error) => auth_error(error),
+    }
+}
+
+async fn remove_user(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Json(input): Json<UserRequest>,
+) -> Response {
+    let Some(actor) = current_session(&service, &headers).await else {
+        return auth_error(AuthError::InvalidSession);
+    };
+    let result = match parse_uuid(&input.user_id) {
+        Ok(user_id) => service.remove_user(&actor, user_id).await,
+        Err(error) => Err(error),
+    };
+    success_response(result)
 }
 
 async fn set_role(

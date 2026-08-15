@@ -13,6 +13,8 @@ pub enum AuthError {
     AccountDisabled,
     #[error("the requested authentication resource was not found")]
     NotFound,
+    #[error("a user with that username or email already exists")]
+    UserAlreadyExists,
     #[error("the credential account was not found")]
     CredentialAccountNotFound,
     #[error("the current password is incorrect")]

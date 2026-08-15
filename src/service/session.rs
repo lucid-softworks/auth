@@ -1,7 +1,10 @@
 use super::AuthService;
 use crate::{AuthError, AuthSession, SessionWithUser};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::Utc;
+use rand::RngExt;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 impl AuthService {
@@ -79,6 +82,15 @@ fn require_account_session(session: &SessionWithUser) -> Result<(), AuthError> {
         return Err(AuthError::Forbidden);
     }
     Ok(())
+}
+
+pub(super) fn random_token() -> String {
+    let bytes: [u8; 32] = rand::rng().random();
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
+pub(super) fn hash_token(token: &str) -> String {
+    hex::encode(Sha256::digest(token.as_bytes()))
 }
 
 #[cfg(test)]

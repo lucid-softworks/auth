@@ -3,14 +3,15 @@ mod guest;
 mod passkey;
 mod password;
 mod session;
+mod user;
 
 use crate::{Assurance, AuthError, AuthSession, AuthStore, AuthUser, Principal, SessionWithUser};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Duration, Utc};
 use hmac::{Hmac, Mac};
 use passkey::PasskeyCeremony;
-use rand::RngExt;
-use sha2::{Digest, Sha256};
+use session::{hash_token, random_token};
+use sha2::Sha256;
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
@@ -324,15 +325,6 @@ impl AuthService {
         mac.update(value);
         URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
     }
-}
-
-fn random_token() -> String {
-    let bytes: [u8; 32] = rand::rng().random();
-    URL_SAFE_NO_PAD.encode(bytes)
-}
-
-fn hash_token(token: &str) -> String {
-    hex::encode(Sha256::digest(token.as_bytes()))
 }
 
 #[cfg(test)]

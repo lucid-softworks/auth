@@ -142,6 +142,18 @@ impl AccessStore for PostgresStore {
             .ok_or(AuthError::NotFound)
     }
 
+    async fn delete_user(&self, user_id: Uuid) -> Result<(), AuthError> {
+        let result = sqlx::query("DELETE FROM lucid_auth_users WHERE id = $1")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(storage_error)?;
+        if result.rows_affected() == 0 {
+            return Err(AuthError::NotFound);
+        }
+        Ok(())
+    }
+
     async fn list_sessions(&self, user_id: Uuid) -> Result<Vec<AuthSession>, AuthError> {
         sqlx::query_as::<_, SessionRow>(
             "SELECT id, user_id, token_hash, actor_user_id, guest_grant_id, assurance, \

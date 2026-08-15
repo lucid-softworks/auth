@@ -5,6 +5,12 @@ use uuid::Uuid;
 /// Persistence boundary required by [`crate::AuthService`].
 #[async_trait]
 pub trait AuthStore: AccessStore + Send + Sync {
+    async fn create_password_user(
+        &self,
+        user: AuthUser,
+        password_hash: String,
+    ) -> Result<AuthUser, AuthError>;
+
     async fn upsert_password_user(
         &self,
         user: AuthUser,
@@ -18,6 +24,12 @@ pub trait AuthStore: AccessStore + Send + Sync {
     async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError>;
 
     async fn update_password_hash(
+        &self,
+        user_id: Uuid,
+        password_hash: String,
+    ) -> Result<(), AuthError>;
+
+    async fn set_password_hash(
         &self,
         user_id: Uuid,
         password_hash: String,
@@ -75,6 +87,8 @@ pub trait AccessStore: Send + Sync {
         reason: Option<String>,
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<AuthUser, AuthError>;
+
+    async fn delete_user(&self, user_id: Uuid) -> Result<(), AuthError>;
 
     async fn list_sessions(&self, user_id: Uuid) -> Result<Vec<AuthSession>, AuthError>;
 

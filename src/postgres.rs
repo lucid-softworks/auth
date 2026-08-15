@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 mod access;
 mod migrate;
+mod user;
 
 /// PostgreSQL/SQLx persistence adapter.
 #[derive(Clone)]
@@ -19,16 +20,7 @@ impl PostgresStore {
     }
 
     async fn load_user_by_id(&self, id: Uuid) -> Result<Option<AuthUser>, AuthError> {
-        sqlx::query_as::<_, UserRow>(
-            "SELECT id, username, display_username, name, email, email_verified, image, role, \
-             is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at \
-             FROM lucid_auth_users WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map(|row| row.map(AuthUser::from))
-        .map_err(storage_error)
+        user::load_by_id(&self.pool, id).await
     }
 }
 
@@ -131,6 +123,14 @@ impl From<SessionRow> for AuthSession {
 
 #[async_trait]
 impl AuthStore for PostgresStore {
+    async fn create_password_user(
+        &self,
+        user: AuthUser,
+        password_hash: String,
+    ) -> Result<AuthUser, AuthError> {
+        user::create_password_user(&self.pool, user, password_hash).await
+    }
+
     async fn upsert_password_user(
         &self,
         user: AuthUser,
@@ -245,6 +245,14 @@ impl AuthStore for PostgresStore {
             return Err(AuthError::CredentialAccountNotFound);
         }
         Ok(())
+    }
+
+    async fn set_password_hash(
+        &self,
+        user_id: Uuid,
+        password_hash: String,
+    ) -> Result<(), AuthError> {
+        user::set_password_hash(&self.pool, user_id, password_hash).await
     }
 
     async fn save_passkey(&self, passkey: StoredPasskey) -> Result<StoredPasskey, AuthError> {

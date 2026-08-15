@@ -11,6 +11,11 @@ The initial compatibility target is Better Auth `1.6.29` and covers:
 - sign-out
 - anonymous guest sign-in
 - passkey enrollment, listing and sign-in through `@better-auth/passkey`
+- password changes plus current-user session listing and revocation
+- passkey rename and removal
+- admin user listing, creation, role assignment, disabling, password reset and removal
+- admin session revocation and bounded impersonation
+- owner-issued, time-bounded guest capability grants and security audit events
 - Better Auth session cookies and response shapes
 
 The library keeps authentication protocol details separate from host-product

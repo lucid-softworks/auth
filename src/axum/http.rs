@@ -142,6 +142,7 @@ pub(super) fn auth_error(error: AuthError) -> Response {
         ),
         AuthError::Forbidden
         | AuthError::NotFound
+        | AuthError::UserAlreadyExists
         | AuthError::LastOwner
         | AuthError::InvalidGuestGrant
         | AuthError::InvalidRequest(_) => access_error_details(&error),
@@ -181,6 +182,11 @@ fn access_error_details(error: &AuthError) -> ErrorDetails {
             StatusCode::NOT_FOUND,
             "NOT_FOUND",
             "The requested authentication resource was not found",
+        ),
+        AuthError::UserAlreadyExists => (
+            StatusCode::BAD_REQUEST,
+            "USER_ALREADY_EXISTS",
+            "A user with that username or email already exists",
         ),
         AuthError::LastOwner => (
             StatusCode::CONFLICT,

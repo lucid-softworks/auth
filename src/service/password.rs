@@ -119,12 +119,7 @@ impl AuthService {
         if session.user.is_anonymous || session.session.actor_user_id.is_some() {
             return Err(AuthError::Forbidden);
         }
-        if new_password.len() < 8 {
-            return Err(AuthError::PasswordTooShort);
-        }
-        if new_password.len() > 128 {
-            return Err(AuthError::PasswordTooLong);
-        }
+        validate_password(&new_password)?;
         let current_hash = self
             .store
             .find_password_hash(session.user.id)
@@ -169,7 +164,7 @@ impl AuthService {
     }
 }
 
-fn normalize_username(value: &str) -> Result<String, AuthError> {
+pub(super) fn normalize_username(value: &str) -> Result<String, AuthError> {
     let value = value.trim().to_lowercase();
     if !(3..=30).contains(&value.len())
         || !value
@@ -203,7 +198,17 @@ async fn verify_password(
     .map_err(|_| AuthError::Worker)
 }
 
-async fn hash_password(password: String) -> Result<String, AuthError> {
+pub(super) fn validate_password(password: &str) -> Result<(), AuthError> {
+    if password.len() < 8 {
+        return Err(AuthError::PasswordTooShort);
+    }
+    if password.len() > 128 {
+        return Err(AuthError::PasswordTooLong);
+    }
+    Ok(())
+}
+
+pub(super) async fn hash_password(password: String) -> Result<String, AuthError> {
     tokio::task::spawn_blocking(move || {
         let salt = SaltString::generate(&mut OsRng);
         Argon2::default()

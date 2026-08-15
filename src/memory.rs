@@ -26,6 +26,30 @@ pub struct MemoryStore {
 
 #[async_trait]
 impl AuthStore for MemoryStore {
+    async fn create_password_user(
+        &self,
+        user: AuthUser,
+        password_hash: String,
+    ) -> Result<AuthUser, AuthError> {
+        let username = user
+            .username
+            .as_ref()
+            .ok_or_else(|| AuthError::Storage("password user requires a username".into()))?;
+        let mut state = self.state.write().await;
+        if state.usernames.contains_key(username)
+            || state
+                .users
+                .values()
+                .any(|stored| stored.email == user.email)
+        {
+            return Err(AuthError::UserAlreadyExists);
+        }
+        state.usernames.insert(username.clone(), user.id);
+        state.passwords.insert(user.id, password_hash);
+        state.users.insert(user.id, user.clone());
+        Ok(user)
+    }
+
     async fn upsert_password_user(
         &self,
         user: AuthUser,
@@ -86,6 +110,19 @@ impl AuthStore for MemoryStore {
             .get_mut(&user_id)
             .ok_or(AuthError::CredentialAccountNotFound)?;
         *stored = password_hash;
+        Ok(())
+    }
+
+    async fn set_password_hash(
+        &self,
+        user_id: Uuid,
+        password_hash: String,
+    ) -> Result<(), AuthError> {
+        let mut state = self.state.write().await;
+        if !state.users.contains_key(&user_id) {
+            return Err(AuthError::NotFound);
+        }
+        state.passwords.insert(user_id, password_hash);
         Ok(())
     }
 
@@ -246,6 +283,43 @@ impl AccessStore for MemoryStore {
         user.ban_expires = expires_at;
         user.updated_at = Utc::now();
         Ok(user.clone())
+    }
+
+    async fn delete_user(&self, user_id: Uuid) -> Result<(), AuthError> {
+        let mut state = self.state.write().await;
+        let user = state.users.remove(&user_id).ok_or(AuthError::NotFound)?;
+        if let Some(username) = user.username {
+            state.usernames.remove(&username);
+        }
+        state.passwords.remove(&user_id);
+        state
+            .passkeys
+            .retain(|_, passkey| passkey.user_id != user_id);
+        let removed_grants: Vec<_> = state
+            .guest_grants
+            .values()
+            .filter(|grant| grant.created_by == user_id)
+            .map(|grant| grant.id)
+            .collect();
+        state
+            .guest_grants
+            .retain(|_, grant| grant.created_by != user_id);
+        state.sessions.retain(|_, session| {
+            session.user_id != user_id
+                && session.actor_user_id != Some(user_id)
+                && session
+                    .guest_grant_id
+                    .is_none_or(|grant_id| !removed_grants.contains(&grant_id))
+        });
+        for event in &mut state.audit_events {
+            if event.actor_user_id == Some(user_id) {
+                event.actor_user_id = None;
+            }
+            if event.subject_user_id == Some(user_id) {
+                event.subject_user_id = None;
+            }
+        }
+        Ok(())
     }
 
     async fn list_sessions(&self, user_id: Uuid) -> Result<Vec<AuthSession>, AuthError> {
