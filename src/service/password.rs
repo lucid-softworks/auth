@@ -19,11 +19,7 @@ impl AuthService {
         input: NewPasswordUser,
     ) -> Result<AuthUser, AuthError> {
         normalize_username(&input.username)?;
-        if input.password.is_empty() {
-            return Err(AuthError::InvalidConfiguration(
-                "password must not be empty".into(),
-            ));
-        }
+        self.validate_new_password(&input.password).await?;
         let password_hash = hash_password(input.password).await?;
         self.provision_password_hash_user(HashedPasswordUser {
             username: input.username,
@@ -119,7 +115,7 @@ impl AuthService {
         if session.user.is_anonymous || session.session.actor_user_id.is_some() {
             return Err(AuthError::Forbidden);
         }
-        validate_password(&new_password)?;
+        self.validate_new_password(&new_password).await?;
         let current_hash = self
             .store
             .find_password_hash(session.user.id)
@@ -161,6 +157,18 @@ impl AuthService {
             user: session.user.clone(),
             replacement_session,
         })
+    }
+}
+
+impl AuthService {
+    pub(super) async fn validate_new_password(&self, password: &str) -> Result<(), AuthError> {
+        validate_password(password)?;
+        if let Some(checker) = &self.config.password_breach_checker
+            && checker.is_compromised(password).await?
+        {
+            return Err(AuthError::PasswordCompromised);
+        }
+        Ok(())
     }
 }
 
@@ -223,8 +231,36 @@ pub(super) async fn hash_password(password: String) -> Result<String, AuthError>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AuthConfig, MemoryStore};
+    use crate::{AuthConfig, MemoryStore, PasswordBreachChecker};
+    use async_trait::async_trait;
     use std::sync::Arc;
+
+    struct Compromised;
+
+    #[async_trait]
+    impl PasswordBreachChecker for Compromised {
+        async fn is_compromised(&self, _: &str) -> Result<bool, AuthError> {
+            Ok(true)
+        }
+    }
+
+    #[tokio::test]
+    async fn rejects_a_compromised_password_before_hashing() {
+        let mut config = AuthConfig::new([51_u8; 32]).unwrap();
+        config.password_breach_checker = Some(Arc::new(Compromised));
+        let service = AuthService::new(Arc::new(MemoryStore::default()), config);
+        let error = service
+            .provision_password_user(NewPasswordUser {
+                username: "luna".into(),
+                name: "Luna".into(),
+                email: None,
+                password: "compromised-password".into(),
+                role: "owner".into(),
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(error, AuthError::PasswordCompromised));
+    }
 
     #[tokio::test]
     async fn reprovisioning_preserves_an_account_owned_password() {

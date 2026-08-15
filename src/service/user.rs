@@ -1,7 +1,7 @@
 use super::{
     AuthService,
     access::require_owner,
-    password::{hash_password, normalize_username, validate_password},
+    password::{hash_password, normalize_username},
 };
 use crate::{AuthError, AuthUser, NewPasswordUser, SessionWithUser};
 use chrono::Utc;
@@ -18,7 +18,7 @@ impl AuthService {
     ) -> Result<AuthUser, AuthError> {
         require_owner(actor)?;
         validate_managed_role(&input.role)?;
-        validate_password(&input.password)?;
+        self.validate_new_password(&input.password).await?;
         let username = normalize_username(&input.username).map_err(|_| {
             AuthError::InvalidRequest(
                 "username must contain 3-30 ASCII letters, numbers, dots or underscores".into(),
@@ -79,7 +79,7 @@ impl AuthService {
         password: String,
     ) -> Result<(), AuthError> {
         require_owner(actor)?;
-        validate_password(&password)?;
+        self.validate_new_password(&password).await?;
         let target = self
             .store
             .find_user_by_id(user_id)

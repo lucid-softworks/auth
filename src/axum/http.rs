@@ -149,7 +149,8 @@ pub(super) fn auth_error(error: AuthError) -> Response {
         AuthError::CredentialAccountNotFound
         | AuthError::InvalidPassword
         | AuthError::PasswordTooShort
-        | AuthError::PasswordTooLong => password_error_details(&error),
+        | AuthError::PasswordTooLong
+        | AuthError::PasswordCompromised => password_error_details(&error),
         AuthError::PasskeyNotFound
         | AuthError::PasskeyDisabled
         | AuthError::PasskeyChallengeExpired
@@ -160,7 +161,10 @@ pub(super) fn auth_error(error: AuthError) -> Response {
             "INVALID_SESSION",
             "The session is invalid or expired",
         ),
-        AuthError::InvalidConfiguration(_) | AuthError::Storage(_) | AuthError::Worker => (
+        AuthError::InvalidConfiguration(_)
+        | AuthError::Storage(_)
+        | AuthError::Worker
+        | AuthError::PasswordCheckUnavailable => (
             StatusCode::INTERNAL_SERVER_ERROR,
             "INTERNAL_SERVER_ERROR",
             "Authentication failed",
@@ -222,6 +226,11 @@ fn password_error_details(error: &AuthError) -> ErrorDetails {
             StatusCode::BAD_REQUEST,
             "PASSWORD_TOO_SHORT",
             "The new password must contain at least 8 characters",
+        ),
+        AuthError::PasswordCompromised => (
+            StatusCode::BAD_REQUEST,
+            "PASSWORD_COMPROMISED",
+            "The password has been compromised. Choose a different password",
         ),
         _ => (
             StatusCode::BAD_REQUEST,

@@ -1,5 +1,6 @@
 //! Native authentication with a Better Auth-compatible HTTP surface.
 
+mod breached_password;
 mod error;
 mod memory;
 mod model;
@@ -12,6 +13,7 @@ pub mod axum;
 pub mod postgres;
 pub mod protocol;
 
+pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use error::AuthError;
 pub use memory::MemoryStore;
 pub use model::{

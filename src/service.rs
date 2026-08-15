@@ -5,6 +5,7 @@ mod password;
 mod session;
 mod user;
 
+use crate::PasswordBreachChecker;
 use crate::{Assurance, AuthError, AuthSession, AuthStore, AuthUser, Principal, SessionWithUser};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Duration, Utc};
@@ -34,6 +35,7 @@ pub struct AuthConfig {
     pub max_attempts: usize,
     pub lockout_window: Duration,
     pub passkeys: Option<PasskeyConfig>,
+    pub password_breach_checker: Option<Arc<dyn PasswordBreachChecker>>,
 }
 
 /// Stable relying-party settings used for WebAuthn ceremonies.
@@ -61,6 +63,7 @@ impl AuthConfig {
             max_attempts: 5,
             lockout_window: Duration::minutes(5),
             passkeys: None,
+            password_breach_checker: None,
         })
     }
 }

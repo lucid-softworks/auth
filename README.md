@@ -16,6 +16,7 @@ The initial compatibility target is Better Auth `1.6.29` and covers:
 - admin user listing, creation, role assignment, disabling, password reset and removal
 - admin session revocation and bounded impersonation
 - owner-issued, time-bounded guest capability grants and security audit events
+- optional HIBP Pwned Passwords screening with Better Auth-compatible errors
 - Better Auth session cookies and response shapes
 
 The library keeps authentication protocol details separate from host-product
