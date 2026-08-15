@@ -77,6 +77,10 @@ impl AuthStore for MemoryStore {
         let mut state = self.state.write().await;
         let existing_id = state.usernames.get(&username).copied();
         let stored = if let Some(id) = existing_id {
+            let configured_hash_is_active = state
+                .passwords
+                .get(&id)
+                .is_some_and(|stored| stored == &password_hash);
             let existing = state
                 .users
                 .get_mut(&id)
@@ -84,6 +88,9 @@ impl AuthStore for MemoryStore {
             existing.name = user.name;
             existing.email = user.email;
             existing.role = user.role;
+            if user.must_change_password && configured_hash_is_active {
+                existing.must_change_password = true;
+            }
             existing.updated_at = user.updated_at;
             existing.clone()
         } else {
@@ -124,6 +131,10 @@ impl AuthStore for MemoryStore {
             .get_mut(&user_id)
             .ok_or(AuthError::CredentialAccountNotFound)?;
         *stored = password_hash;
+        if let Some(user) = state.users.get_mut(&user_id) {
+            user.must_change_password = false;
+            user.updated_at = Utc::now();
+        }
         Ok(())
     }
 
@@ -137,6 +148,10 @@ impl AuthStore for MemoryStore {
             return Err(AuthError::NotFound);
         }
         state.passwords.insert(user_id, password_hash);
+        if let Some(user) = state.users.get_mut(&user_id) {
+            user.must_change_password = true;
+            user.updated_at = Utc::now();
+        }
         Ok(())
     }
 

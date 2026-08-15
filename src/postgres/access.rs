@@ -70,7 +70,7 @@ impl From<AuditEventRow> for AuditEvent {
 }
 
 const USER_COLUMNS: &str = "id, username, display_username, name, email, email_verified, image, \
-    role, is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at";
+    role, is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at";
 const GRANT_COLUMNS: &str = "id, label, token_hash, permissions, resource_scopes, valid_from, \
     expires_at, max_uses, uses, created_by, revoked_at, created_at";
 

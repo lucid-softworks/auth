@@ -20,6 +20,7 @@ The initial compatibility target is Better Auth `1.6.29` and covers:
 - owner-issued, time-bounded guest capability grants and security audit events
 - optional HIBP Pwned Passwords screening with Better Auth-compatible errors
 - durable account and client-address sign-in throttling through the configured store
+- enforced password replacement for administrator-created and reset credentials
 - Better Auth session cookies and response shapes
 
 The library keeps authentication protocol details separate from host-product
@@ -41,6 +42,13 @@ strong authentication. Required-MFA accounts cannot remove their final passkey,
 and deleting the final optional passkey also clears now-unusable recovery codes.
 These lifecycle checks are atomic in both stores. An administrative password reset clears sessions,
 passkeys, and recovery codes so the account can enroll again.
+
+Accounts created by an owner and passwords reset by an owner are marked
+`must_change_password`. The Better Auth-compatible user response exposes that
+state as `mustChangePassword`; hosts must allow the official change-password
+route while denying application and administrative access until the account
+chooses a replacement. Configured bootstrap users may opt into the same state,
+which is reapplied only while the configured password hash remains active.
 
 WebAuthn relying-party configuration is explicit and must use HTTPS except for
 the browser's `localhost` development exception.

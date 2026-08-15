@@ -125,6 +125,7 @@ impl AuthService {
 
 fn require_strong_account_session(session: &SessionWithUser) -> Result<(), AuthError> {
     if session.user.is_anonymous
+        || session.user.must_change_password
         || session.session.actor_user_id.is_some()
         || !matches!(
             session.session.assurance,

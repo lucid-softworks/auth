@@ -27,6 +27,7 @@ impl AuthService {
             email: input.email,
             password_hash,
             role: input.role,
+            must_change_password: false,
         })
         .await
     }
@@ -55,6 +56,7 @@ impl AuthService {
                     image: None,
                     role: input.role,
                     is_anonymous: false,
+                    must_change_password: input.must_change_password,
                     banned: false,
                     ban_reason: None,
                     ban_expires: None,
@@ -137,12 +139,15 @@ impl AuthService {
         self.store
             .update_password_hash(session.user.id, password_hash)
             .await?;
+        let mut updated_user = session.user.clone();
+        updated_user.must_change_password = false;
+        updated_user.updated_at = Utc::now();
 
         let replacement_session = if revoke_other_sessions {
             self.store.delete_user_sessions(session.user.id).await?;
             Some(
                 self.create_session(
-                    session.user.clone(),
+                    updated_user.clone(),
                     session.session.assurance,
                     None,
                     None,
@@ -163,7 +168,7 @@ impl AuthService {
         )
         .await?;
         Ok(PasswordChangeResult {
-            user: session.user.clone(),
+            user: updated_user,
             replacement_session,
         })
     }

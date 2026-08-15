@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use lucid_auth::{
-    AuthConfig, AuthError, AuthService, MemoryStore, NewPasswordUser, PasswordBreachChecker,
+    AuthConfig, AuthError, AuthService, HashedPasswordUser, MemoryStore, NewPasswordUser,
+    PasswordBreachChecker,
 };
 use std::sync::Arc;
 
@@ -100,6 +101,7 @@ async fn changes_a_password_and_rotates_other_sessions() {
         )
         .await
         .unwrap();
+    assert!(!changed.user.must_change_password);
 
     assert!(service.session(&current.token).await.unwrap().is_none());
     assert!(service.session(&other.token).await.unwrap().is_none());
@@ -122,6 +124,49 @@ async fn changes_a_password_and_rotates_other_sessions() {
             .await
             .is_ok()
     );
+}
+
+#[tokio::test]
+async fn configured_temporary_password_is_required_only_while_its_hash_is_active() {
+    let service = AuthService::new(
+        Arc::new(MemoryStore::default()),
+        AuthConfig::new([42_u8; 32]).unwrap(),
+    );
+    let configured = HashedPasswordUser {
+        username: "luna".into(),
+        name: "Luna".into(),
+        email: None,
+        password_hash: "$argon2id$v=19$m=19456,t=2,p=1$oCThfRxLJ+EvNQSxRPZ5Wg$fJ6qIbG36O+GIC8aaFkx6F+bEh5B/n9MITs2dUrg1Ss".into(),
+        role: "owner".into(),
+        must_change_password: true,
+    };
+    let user = service
+        .provision_password_hash_user(configured.clone())
+        .await
+        .unwrap();
+    assert!(user.must_change_password);
+    let signed_in = service
+        .sign_in_username("luna", "password".into(), None, None)
+        .await
+        .unwrap();
+    let changed = service
+        .change_password(
+            &signed_in.session,
+            "password".into(),
+            "private-password".into(),
+            true,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(!changed.user.must_change_password);
+
+    let reprovisioned = service
+        .provision_password_hash_user(configured)
+        .await
+        .unwrap();
+    assert!(!reprovisioned.must_change_password);
 }
 
 #[tokio::test]

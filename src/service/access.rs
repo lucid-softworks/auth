@@ -284,6 +284,7 @@ impl AuthService {
 pub(super) fn require_owner(session: &SessionWithUser) -> Result<(), AuthError> {
     if session.user.role != "owner"
         || session.user.is_anonymous
+        || session.user.must_change_password
         || session.session.actor_user_id.is_some()
         || session.session.assurance == Assurance::PasswordPendingPasskey
         || account_is_banned(&session.user)

@@ -86,6 +86,7 @@ async fn official_admin_client_contract_manages_an_account_lifecycle() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(created["user"]["username"], "casey");
     assert_eq!(created["user"]["role"], "member");
+    assert_eq!(created["user"]["mustChangePassword"], true);
     let user_id = created["user"]["id"].as_str().unwrap();
     assert_eq!(
         sign_in(&app, "casey", "initial-password").await.0,

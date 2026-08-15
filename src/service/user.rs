@@ -51,6 +51,7 @@ impl AuthService {
                     image: None,
                     role: input.role,
                     is_anonymous: false,
+                    must_change_password: true,
                     banned: false,
                     ban_reason: None,
                     ban_expires: None,

@@ -58,6 +58,7 @@ pub struct AuthUser {
     pub image: Option<String>,
     pub role: String,
     pub is_anonymous: bool,
+    pub must_change_password: bool,
     pub banned: bool,
     pub ban_reason: Option<String>,
     pub ban_expires: Option<DateTime<Utc>>,
@@ -168,6 +169,7 @@ pub struct Principal {
     pub guest_grant_id: Option<Uuid>,
     pub permissions: Vec<String>,
     pub resource_scopes: Vec<String>,
+    pub must_change_password: bool,
     /// When the credentials establishing the current assurance were verified.
     pub authenticated_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
@@ -184,6 +186,7 @@ impl SessionWithUser {
             guest_grant_id: self.session.guest_grant_id,
             permissions: Vec::new(),
             resource_scopes: Vec::new(),
+            must_change_password: self.user.must_change_password,
             authenticated_at: self.session.created_at,
             expires_at: self.session.expires_at,
         }

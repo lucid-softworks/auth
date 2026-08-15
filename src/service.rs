@@ -90,6 +90,7 @@ pub struct HashedPasswordUser {
     pub email: Option<String>,
     pub password_hash: String,
     pub role: String,
+    pub must_change_password: bool,
 }
 
 #[derive(Clone)]
@@ -146,6 +147,7 @@ impl AuthService {
                 image: None,
                 role: "owner".into(),
                 is_anonymous: false,
+                must_change_password: false,
                 banned: false,
                 ban_reason: None,
                 ban_expires: None,
@@ -177,6 +179,7 @@ impl AuthService {
                 image: None,
                 role: "guest".into(),
                 is_anonymous: true,
+                must_change_password: false,
                 banned: false,
                 ban_reason: None,
                 ban_expires: None,

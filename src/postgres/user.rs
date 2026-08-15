@@ -10,7 +10,7 @@ pub(super) async fn load_by_id(
 ) -> Result<Option<AuthUser>, AuthError> {
     sqlx::query_as::<_, UserRow>(
         "SELECT id, username, display_username, name, email, email_verified, image, role, \
-         is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at \
+         is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at \
          FROM lucid_auth_users WHERE id = $1",
     )
     .bind(user_id)
@@ -29,10 +29,10 @@ pub(super) async fn create_password_user(
     let stored = sqlx::query_as::<_, UserRow>(
         "INSERT INTO lucid_auth_users \
          (id, username, display_username, name, email, email_verified, image, role, \
-          is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) \
+          is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) \
          RETURNING id, username, display_username, name, email, email_verified, image, role, \
-           is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at",
+           is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at",
     )
     .bind(user.id)
     .bind(&user.username)
@@ -43,6 +43,7 @@ pub(super) async fn create_password_user(
     .bind(&user.image)
     .bind(&user.role)
     .bind(user.is_anonymous)
+    .bind(user.must_change_password)
     .bind(user.banned)
     .bind(&user.ban_reason)
     .bind(user.ban_expires)
@@ -73,6 +74,7 @@ pub(super) async fn set_password_hash(
     user_id: Uuid,
     password_hash: String,
 ) -> Result<(), AuthError> {
+    let mut transaction = pool.begin().await.map_err(storage_error)?;
     sqlx::query(
         "INSERT INTO lucid_auth_accounts \
          (id, user_id, provider_id, account_id, password_hash, created_at, updated_at) \
@@ -84,10 +86,21 @@ pub(super) async fn set_password_hash(
     .bind(user_id)
     .bind(user_id.to_string())
     .bind(password_hash)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await
-    .map(|_| ())
-    .map_err(storage_error)
+    .map_err(storage_error)?;
+    let result = sqlx::query(
+        "UPDATE lucid_auth_users SET must_change_password = TRUE, updated_at = NOW() \
+         WHERE id = $1",
+    )
+    .bind(user_id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(storage_error)?;
+    if result.rows_affected() == 0 {
+        return Err(AuthError::NotFound);
+    }
+    transaction.commit().await.map_err(storage_error)
 }
 
 fn user_insert_error(error: sqlx::Error) -> AuthError {
