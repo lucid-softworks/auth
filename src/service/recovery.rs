@@ -201,10 +201,17 @@ mod tests {
             .await
             .unwrap();
 
-        let recovered = service
-            .verify_recovery_code(&pending.session, &codes[0].to_lowercase(), None, None)
-            .await
-            .unwrap();
+        let normalized = codes[0].to_lowercase();
+        let (first, second) = tokio::join!(
+            service.verify_recovery_code(&pending.session, &normalized, None, None),
+            service.verify_recovery_code(&pending.session, &normalized, None, None),
+        );
+        assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+        assert!(
+            matches!(&first, Err(AuthError::InvalidRecoveryCode))
+                || matches!(&second, Err(AuthError::InvalidRecoveryCode))
+        );
+        let recovered = first.or(second).unwrap();
         assert_eq!(recovered.session.session.assurance, Assurance::Recovery);
         assert!(service.session(&pending.token).await.unwrap().is_none());
         assert_eq!(

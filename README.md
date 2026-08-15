@@ -43,6 +43,9 @@ and deleting the final optional passkey also clears now-unusable recovery codes.
 These lifecycle checks are atomic in both stores. An administrative password reset clears sessions,
 passkeys, and recovery codes so the account can enroll again.
 
+The session response includes `stepUpRequired` so an official Better Auth client
+can prompt for passkey authentication before submitting sensitive changes.
+
 Accounts created by an owner and passwords reset by an owner are marked
 `must_change_password`. The Better Auth-compatible user response exposes that
 state as `mustChangePassword`; hosts must allow the official change-password

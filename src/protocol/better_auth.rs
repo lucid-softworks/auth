@@ -59,6 +59,7 @@ pub struct BetterAuthSession {
     pub impersonated_by: Option<String>,
     pub assurance: String,
     pub guest_grant_id: Option<String>,
+    pub step_up_required: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -227,6 +228,7 @@ impl BetterAuthSession {
             impersonated_by: session.actor_user_id.map(|id| id.to_string()),
             assurance: session.assurance.as_str().into(),
             guest_grant_id: session.guest_grant_id.map(|id| id.to_string()),
+            step_up_required: false,
         }
     }
 }
@@ -237,5 +239,10 @@ impl SessionResponse {
             session: BetterAuthSession::from_session(&value.session, token),
             user: BetterAuthUser::from(&value.user),
         }
+    }
+
+    pub fn with_step_up_required(mut self, required: bool) -> Self {
+        self.session.step_up_required = required;
+        self
     }
 }

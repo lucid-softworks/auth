@@ -145,7 +145,13 @@ async fn get_session(
 ) -> Response {
     let mut response = match session_token(&service, &headers) {
         Some(token) => match service.session(&token).await {
-            Ok(Some(session)) => Json(Some(SessionResponse::new(&session, token))).into_response(),
+            Ok(Some(session)) => {
+                let step_up_required = service.step_up_required(&session.principal());
+                Json(Some(
+                    SessionResponse::new(&session, token).with_step_up_required(step_up_required),
+                ))
+                .into_response()
+            }
             Ok(None) => Json::<Option<SessionResponse>>(None).into_response(),
             Err(error) => return auth_error(error),
         },
