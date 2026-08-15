@@ -2,6 +2,7 @@ mod access;
 mod guest;
 mod passkey;
 mod password;
+mod session;
 
 use crate::{Assurance, AuthError, AuthSession, AuthStore, AuthUser, Principal, SessionWithUser};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -16,6 +17,8 @@ use std::{
 };
 use tokio::sync::Mutex;
 use uuid::Uuid;
+
+pub use password::PasswordChangeResult;
 
 type HmacSha256 = Hmac<Sha256>;
 

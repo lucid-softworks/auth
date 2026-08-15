@@ -13,6 +13,16 @@ pub enum AuthError {
     AccountDisabled,
     #[error("the requested authentication resource was not found")]
     NotFound,
+    #[error("the credential account was not found")]
+    CredentialAccountNotFound,
+    #[error("the current password is incorrect")]
+    InvalidPassword,
+    #[error("the new password is too short")]
+    PasswordTooShort,
+    #[error("the new password is too long")]
+    PasswordTooLong,
+    #[error("the passkey was not found")]
+    PasskeyNotFound,
     #[error("the current account is not permitted to perform this action")]
     Forbidden,
     #[error("the final owner account cannot be removed or disabled")]

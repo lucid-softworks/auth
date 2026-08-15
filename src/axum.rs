@@ -1,8 +1,9 @@
 use crate::{
     AuthError, AuthService,
     protocol::better_auth::{
-        AnonymousSignInResponse, BetterAuthPasskey, BetterAuthUser, SessionResponse,
-        SignInResponse, SuccessResponse, UsernameAvailabilityRequest, UsernameAvailabilityResponse,
+        AnonymousSignInResponse, BetterAuthPasskey, BetterAuthUser, DeletePasskeyRequest,
+        SessionResponse, SignInResponse, StatusResponse, SuccessResponse, UpdatePasskeyRequest,
+        UpdatePasskeyResponse, UsernameAvailabilityRequest, UsernameAvailabilityResponse,
         UsernameSignInRequest,
     },
 };
@@ -16,6 +17,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 use webauthn_rs::prelude::{PublicKeyCredential, RegisterPublicKeyCredential};
 
+mod account;
 mod admin;
 mod guest;
 mod http;
@@ -59,6 +61,9 @@ where
             "/api/auth/passkey/list-user-passkeys",
             get(list_user_passkeys),
         )
+        .route("/api/auth/passkey/delete-passkey", post(delete_passkey))
+        .route("/api/auth/passkey/update-passkey", post(update_passkey))
+        .merge(account::router())
         .merge(admin::router())
         .merge(guest::router())
         .layer(Extension(service))
@@ -241,6 +246,46 @@ async fn list_user_passkeys(
                 .map(BetterAuthPasskey::from)
                 .collect::<Vec<_>>(),
         )
+        .into_response(),
+        Err(error) => auth_error(error),
+    }
+}
+
+async fn delete_passkey(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Json(input): Json<DeletePasskeyRequest>,
+) -> Response {
+    let Some(session) = current_session(&service, &headers).await else {
+        return auth_error(AuthError::InvalidSession);
+    };
+    let Ok(passkey_id) = input.id.parse() else {
+        return auth_error(AuthError::PasskeyNotFound);
+    };
+    match service.delete_passkey(&session, passkey_id).await {
+        Ok(()) => Json(StatusResponse { status: true }).into_response(),
+        Err(error) => auth_error(error),
+    }
+}
+
+async fn update_passkey(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Json(input): Json<UpdatePasskeyRequest>,
+) -> Response {
+    let Some(session) = current_session(&service, &headers).await else {
+        return auth_error(AuthError::InvalidSession);
+    };
+    let Ok(passkey_id) = input.id.parse() else {
+        return auth_error(AuthError::PasskeyNotFound);
+    };
+    match service
+        .rename_passkey(&session, passkey_id, &input.name)
+        .await
+    {
+        Ok(passkey) => Json(UpdatePasskeyResponse {
+            passkey: BetterAuthPasskey::from(&passkey),
+        })
         .into_response(),
         Err(error) => auth_error(error),
     }

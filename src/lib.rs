@@ -18,5 +18,7 @@ pub use model::{
     Assurance, AuditEvent, AuthSession, AuthUser, GuestGrant, IssuedGuestGrant, NewGuestGrant,
     NewPasswordUser, Principal, SessionWithUser, StoredPasskey,
 };
-pub use service::{AuthConfig, AuthService, HashedPasswordUser, PasskeyConfig, SignInResult};
+pub use service::{
+    AuthConfig, AuthService, HashedPasswordUser, PasskeyConfig, PasswordChangeResult, SignInResult,
+};
 pub use store::{AccessStore, AuthStore};

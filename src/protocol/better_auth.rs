@@ -88,6 +88,46 @@ pub struct SuccessResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct StatusResponse {
+    pub status: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangePasswordRequest {
+    pub new_password: String,
+    pub current_password: String,
+    pub revoke_other_sessions: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ChangePasswordResponse {
+    pub token: Option<String>,
+    pub user: BetterAuthUser,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RevokeSessionRequest {
+    pub token: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeletePasskeyRequest {
+    pub id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdatePasskeyRequest {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UpdatePasskeyResponse {
+    pub passkey: BetterAuthPasskey,
+}
+
+#[derive(Debug, Serialize)]
 pub struct ErrorResponse {
     pub code: &'static str,
     pub message: &'static str,
@@ -101,6 +141,7 @@ pub struct BetterAuthPasskey {
     pub user_id: String,
     pub credential_id: String,
     pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 impl From<&StoredPasskey> for BetterAuthPasskey {
@@ -111,6 +152,7 @@ impl From<&StoredPasskey> for BetterAuthPasskey {
             user_id: passkey.user_id.to_string(),
             credential_id: passkey.credential_id.clone(),
             created_at: passkey.created_at,
+            updated_at: passkey.updated_at,
         }
     }
 }

@@ -1,9 +1,17 @@
 use super::{AuthService, HashedPasswordUser, SignInResult};
-use crate::{Assurance, AuthError, AuthUser, NewPasswordUser};
+use crate::{Assurance, AuthError, AuthUser, NewPasswordUser, SessionWithUser};
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use chrono::Utc;
 use rand_core::OsRng;
+use serde_json::json;
 use uuid::Uuid;
+
+/// A password change and an optional replacement for the current session.
+#[derive(Debug, Clone)]
+pub struct PasswordChangeResult {
+    pub user: AuthUser,
+    pub replacement_session: Option<SignInResult>,
+}
 
 impl AuthService {
     pub async fn provision_password_user(
@@ -16,16 +24,7 @@ impl AuthService {
                 "password must not be empty".into(),
             ));
         }
-        let password = input.password;
-        let password_hash = tokio::task::spawn_blocking(move || {
-            let salt = SaltString::generate(&mut OsRng);
-            Argon2::default()
-                .hash_password(password.as_bytes(), &salt)
-                .map(|hash| hash.to_string())
-                .map_err(|error| AuthError::Storage(error.to_string()))
-        })
-        .await
-        .map_err(|_| AuthError::Worker)??;
+        let password_hash = hash_password(input.password).await?;
         self.provision_password_hash_user(HashedPasswordUser {
             username: input.username,
             name: input.name,
@@ -107,6 +106,67 @@ impl AuthService {
         let username = normalize_username(username)?;
         Ok(self.store.find_user_by_username(&username).await?.is_none())
     }
+
+    pub async fn change_password(
+        &self,
+        session: &SessionWithUser,
+        current_password: String,
+        new_password: String,
+        revoke_other_sessions: bool,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+    ) -> Result<PasswordChangeResult, AuthError> {
+        if session.user.is_anonymous || session.session.actor_user_id.is_some() {
+            return Err(AuthError::Forbidden);
+        }
+        if new_password.len() < 8 {
+            return Err(AuthError::PasswordTooShort);
+        }
+        if new_password.len() > 128 {
+            return Err(AuthError::PasswordTooLong);
+        }
+        let current_hash = self
+            .store
+            .find_password_hash(session.user.id)
+            .await?
+            .ok_or(AuthError::CredentialAccountNotFound)?;
+        if !verify_password(current_password, Some(current_hash)).await? {
+            return Err(AuthError::InvalidPassword);
+        }
+        let password_hash = hash_password(new_password).await?;
+        self.store
+            .update_password_hash(session.user.id, password_hash)
+            .await?;
+
+        let replacement_session = if revoke_other_sessions {
+            self.store.delete_user_sessions(session.user.id).await?;
+            Some(
+                self.create_session(
+                    session.user.clone(),
+                    session.session.assurance,
+                    None,
+                    None,
+                    ip_address,
+                    user_agent,
+                )
+                .await?,
+            )
+        } else {
+            None
+        };
+        self.audit(
+            session.user.id,
+            Some(session.user.id),
+            "password.changed",
+            None,
+            json!({ "revokedOtherSessions": revoke_other_sessions }),
+        )
+        .await?;
+        Ok(PasswordChangeResult {
+            user: session.user.clone(),
+            replacement_session,
+        })
+    }
 }
 
 fn normalize_username(value: &str) -> Result<String, AuthError> {
@@ -141,6 +201,18 @@ async fn verify_password(
     })
     .await
     .map_err(|_| AuthError::Worker)
+}
+
+async fn hash_password(password: String) -> Result<String, AuthError> {
+    tokio::task::spawn_blocking(move || {
+        let salt = SaltString::generate(&mut OsRng);
+        Argon2::default()
+            .hash_password(password.as_bytes(), &salt)
+            .map(|hash| hash.to_string())
+            .map_err(|error| AuthError::Storage(error.to_string()))
+    })
+    .await
+    .map_err(|_| AuthError::Worker)?
 }
 
 #[cfg(test)]
@@ -179,6 +251,66 @@ mod tests {
                 .sign_in_username("luna", "configured-replacement".into(), None, None)
                 .await
                 .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn changes_a_password_and_rotates_other_sessions() {
+        let service = AuthService::new(
+            Arc::new(MemoryStore::default()),
+            AuthConfig::new([41_u8; 32]).unwrap(),
+        );
+        service
+            .provision_password_user(NewPasswordUser {
+                username: "luna".into(),
+                name: "Luna".into(),
+                email: None,
+                password: "old-password".into(),
+                role: "owner".into(),
+            })
+            .await
+            .unwrap();
+        let current = service
+            .sign_in_username("luna", "old-password".into(), None, None)
+            .await
+            .unwrap();
+        let other = service
+            .sign_in_username("luna", "old-password".into(), None, None)
+            .await
+            .unwrap();
+
+        let changed = service
+            .change_password(
+                &current.session,
+                "old-password".into(),
+                "new-password".into(),
+                true,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert!(service.session(&current.token).await.unwrap().is_none());
+        assert!(service.session(&other.token).await.unwrap().is_none());
+        assert!(
+            service
+                .session(&changed.replacement_session.unwrap().token)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            service
+                .sign_in_username("luna", "old-password".into(), None, None)
+                .await
+                .is_err()
+        );
+        assert!(
+            service
+                .sign_in_username("luna", "new-password".into(), None, None)
+                .await
+                .is_ok()
         );
     }
 }

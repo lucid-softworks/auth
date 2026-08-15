@@ -1,6 +1,7 @@
 use super::{AuthService, SignInResult, random_token};
 use crate::{Assurance, AuthError, AuthUser, SessionWithUser, StoredPasskey};
 use chrono::{DateTime, Duration, Utc};
+use serde_json::json;
 use uuid::Uuid;
 use webauthn_rs::prelude::{
     CreationChallengeResponse, Passkey, PasskeyAuthentication, PasskeyRegistration,
@@ -26,6 +27,54 @@ pub(super) enum PasskeyCeremony {
 impl AuthService {
     pub async fn list_passkeys(&self, user_id: Uuid) -> Result<Vec<StoredPasskey>, AuthError> {
         self.store.list_passkeys(user_id).await
+    }
+
+    pub async fn rename_passkey(
+        &self,
+        actor: &SessionWithUser,
+        passkey_id: Uuid,
+        name: &str,
+    ) -> Result<StoredPasskey, AuthError> {
+        require_account_session(actor)?;
+        let name: String = name.trim().chars().take(80).collect();
+        if name.is_empty() {
+            return Err(AuthError::InvalidRequest(
+                "passkey name must not be empty".into(),
+            ));
+        }
+        let passkey = self
+            .store
+            .update_passkey_name(actor.user.id, passkey_id, name.clone())
+            .await?
+            .ok_or(AuthError::PasskeyNotFound)?;
+        self.audit(
+            actor.user.id,
+            Some(actor.user.id),
+            "passkey.renamed",
+            Some(passkey_id.to_string()),
+            json!({ "name": name }),
+        )
+        .await?;
+        Ok(passkey)
+    }
+
+    pub async fn delete_passkey(
+        &self,
+        actor: &SessionWithUser,
+        passkey_id: Uuid,
+    ) -> Result<(), AuthError> {
+        require_account_session(actor)?;
+        if !self.store.delete_passkey(actor.user.id, passkey_id).await? {
+            return Err(AuthError::PasskeyNotFound);
+        }
+        self.audit(
+            actor.user.id,
+            Some(actor.user.id),
+            "passkey.deleted",
+            Some(passkey_id.to_string()),
+            json!({}),
+        )
+        .await
     }
 
     pub async fn start_passkey_registration(
@@ -203,6 +252,13 @@ impl AuthService {
     }
 }
 
+fn require_account_session(session: &SessionWithUser) -> Result<(), AuthError> {
+    if session.user.is_anonymous || session.session.actor_user_id.is_some() {
+        return Err(AuthError::Forbidden);
+    }
+    Ok(())
+}
+
 fn deserialize_passkeys(stored: &[StoredPasskey]) -> Result<Vec<Passkey>, AuthError> {
     stored
         .iter()
@@ -218,4 +274,60 @@ fn credential_id(passkey: &Passkey) -> Result<String, AuthError> {
         .ok()
         .and_then(|value| value.as_str().map(str::to_owned))
         .ok_or_else(|| AuthError::Storage("passkey credential ID was not serializable".into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AuthConfig, AuthStore, MemoryStore, NewPasswordUser};
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn an_account_can_rename_and_delete_its_own_passkey() {
+        let store = Arc::new(MemoryStore::default());
+        let service = AuthService::new(store.clone(), AuthConfig::new([47_u8; 32]).unwrap());
+        service
+            .provision_password_user(NewPasswordUser {
+                username: "luna".into(),
+                name: "Luna".into(),
+                email: None,
+                password: "password".into(),
+                role: "owner".into(),
+            })
+            .await
+            .unwrap();
+        let session = service
+            .sign_in_username("luna", "password".into(), None, None)
+            .await
+            .unwrap()
+            .session;
+        let now = Utc::now();
+        let passkey = store
+            .save_passkey(StoredPasskey {
+                id: Uuid::new_v4(),
+                user_id: session.user.id,
+                name: Some("Original".into()),
+                credential_id: "credential".into(),
+                credential: json!({}),
+                created_at: now,
+                updated_at: now,
+            })
+            .await
+            .unwrap();
+
+        let renamed = service
+            .rename_passkey(&session, passkey.id, " Security key ")
+            .await
+            .unwrap();
+        assert_eq!(renamed.name.as_deref(), Some("Security key"));
+
+        service.delete_passkey(&session, passkey.id).await.unwrap();
+        assert!(
+            service
+                .list_passkeys(session.user.id)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
 }

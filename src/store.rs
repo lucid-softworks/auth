@@ -17,6 +17,12 @@ pub trait AuthStore: AccessStore + Send + Sync {
 
     async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError>;
 
+    async fn update_password_hash(
+        &self,
+        user_id: Uuid,
+        password_hash: String,
+    ) -> Result<(), AuthError>;
+
     async fn save_passkey(&self, passkey: StoredPasskey) -> Result<StoredPasskey, AuthError>;
 
     async fn list_passkeys(&self, user_id: Uuid) -> Result<Vec<StoredPasskey>, AuthError>;
@@ -24,6 +30,15 @@ pub trait AuthStore: AccessStore + Send + Sync {
     async fn list_all_passkeys(&self) -> Result<Vec<StoredPasskey>, AuthError>;
 
     async fn update_passkey(&self, passkey: StoredPasskey) -> Result<(), AuthError>;
+
+    async fn update_passkey_name(
+        &self,
+        user_id: Uuid,
+        passkey_id: Uuid,
+        name: String,
+    ) -> Result<Option<StoredPasskey>, AuthError>;
+
+    async fn delete_passkey(&self, user_id: Uuid, passkey_id: Uuid) -> Result<bool, AuthError>;
 
     async fn find_user_by_id(&self, user_id: Uuid) -> Result<Option<AuthUser>, AuthError>;
 

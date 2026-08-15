@@ -227,6 +227,26 @@ impl AuthStore for PostgresStore {
         .map_err(storage_error)
     }
 
+    async fn update_password_hash(
+        &self,
+        user_id: Uuid,
+        password_hash: String,
+    ) -> Result<(), AuthError> {
+        let result = sqlx::query(
+            "UPDATE lucid_auth_accounts SET password_hash = $2, updated_at = NOW() \
+             WHERE user_id = $1 AND provider_id = 'credential'",
+        )
+        .bind(user_id)
+        .bind(password_hash)
+        .execute(&self.pool)
+        .await
+        .map_err(storage_error)?;
+        if result.rows_affected() == 0 {
+            return Err(AuthError::CredentialAccountNotFound);
+        }
+        Ok(())
+    }
+
     async fn save_passkey(&self, passkey: StoredPasskey) -> Result<StoredPasskey, AuthError> {
         sqlx::query_as::<_, PasskeyRow>(
             "INSERT INTO lucid_auth_passkeys \
@@ -292,6 +312,36 @@ impl AuthStore for PostgresStore {
         .await
         .map(|_| ())
         .map_err(storage_error)
+    }
+
+    async fn update_passkey_name(
+        &self,
+        user_id: Uuid,
+        passkey_id: Uuid,
+        name: String,
+    ) -> Result<Option<StoredPasskey>, AuthError> {
+        sqlx::query_as::<_, PasskeyRow>(
+            "UPDATE lucid_auth_passkeys SET name = $3, updated_at = NOW() \
+             WHERE id = $1 AND user_id = $2 \
+             RETURNING id, user_id, name, credential_id, credential, created_at, updated_at",
+        )
+        .bind(passkey_id)
+        .bind(user_id)
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await
+        .map(|row| row.map(StoredPasskey::from))
+        .map_err(storage_error)
+    }
+
+    async fn delete_passkey(&self, user_id: Uuid, passkey_id: Uuid) -> Result<bool, AuthError> {
+        sqlx::query("DELETE FROM lucid_auth_passkeys WHERE id = $1 AND user_id = $2")
+            .bind(passkey_id)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map(|result| result.rows_affected() > 0)
+            .map_err(storage_error)
     }
 
     async fn find_user_by_id(&self, user_id: Uuid) -> Result<Option<AuthUser>, AuthError> {

@@ -75,6 +75,20 @@ impl AuthStore for MemoryStore {
         Ok(self.state.read().await.passwords.get(&user_id).cloned())
     }
 
+    async fn update_password_hash(
+        &self,
+        user_id: Uuid,
+        password_hash: String,
+    ) -> Result<(), AuthError> {
+        let mut state = self.state.write().await;
+        let stored = state
+            .passwords
+            .get_mut(&user_id)
+            .ok_or(AuthError::CredentialAccountNotFound)?;
+        *stored = password_hash;
+        Ok(())
+    }
+
     async fn save_passkey(&self, passkey: StoredPasskey) -> Result<StoredPasskey, AuthError> {
         let mut state = self.state.write().await;
         if state
@@ -111,6 +125,37 @@ impl AuthStore for MemoryStore {
             .passkeys
             .insert(passkey.id, passkey);
         Ok(())
+    }
+
+    async fn update_passkey_name(
+        &self,
+        user_id: Uuid,
+        passkey_id: Uuid,
+        name: String,
+    ) -> Result<Option<StoredPasskey>, AuthError> {
+        let mut state = self.state.write().await;
+        let Some(passkey) = state
+            .passkeys
+            .get_mut(&passkey_id)
+            .filter(|passkey| passkey.user_id == user_id)
+        else {
+            return Ok(None);
+        };
+        passkey.name = Some(name);
+        passkey.updated_at = Utc::now();
+        Ok(Some(passkey.clone()))
+    }
+
+    async fn delete_passkey(&self, user_id: Uuid, passkey_id: Uuid) -> Result<bool, AuthError> {
+        let mut state = self.state.write().await;
+        let owned = state
+            .passkeys
+            .get(&passkey_id)
+            .is_some_and(|passkey| passkey.user_id == user_id);
+        if owned {
+            state.passkeys.remove(&passkey_id);
+        }
+        Ok(owned)
     }
 
     async fn find_user_by_id(&self, user_id: Uuid) -> Result<Option<AuthUser>, AuthError> {

@@ -119,7 +119,7 @@ fn with_cookie(body: impl IntoResponse, cookie: String) -> Response {
 }
 
 pub(super) fn auth_error(error: AuthError) -> Response {
-    let (status, code, message) = match error {
+    let (status, code, message) = match &error {
         AuthError::InvalidCredentials => (
             StatusCode::UNAUTHORIZED,
             "INVALID_USERNAME_OR_PASSWORD",
@@ -140,6 +140,38 @@ pub(super) fn auth_error(error: AuthError) -> Response {
             "USER_BANNED",
             "The account is disabled",
         ),
+        AuthError::Forbidden
+        | AuthError::NotFound
+        | AuthError::LastOwner
+        | AuthError::InvalidGuestGrant
+        | AuthError::InvalidRequest(_) => access_error_details(&error),
+        AuthError::CredentialAccountNotFound
+        | AuthError::InvalidPassword
+        | AuthError::PasswordTooShort
+        | AuthError::PasswordTooLong => password_error_details(&error),
+        AuthError::PasskeyNotFound
+        | AuthError::PasskeyDisabled
+        | AuthError::PasskeyChallengeExpired
+        | AuthError::PasskeyVerificationFailed
+        | AuthError::CredentialAlreadyRegistered => passkey_error_details(&error),
+        AuthError::InvalidSession => (
+            StatusCode::UNAUTHORIZED,
+            "INVALID_SESSION",
+            "The session is invalid or expired",
+        ),
+        AuthError::InvalidConfiguration(_) | AuthError::Storage(_) | AuthError::Worker => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_SERVER_ERROR",
+            "Authentication failed",
+        ),
+    };
+    (status, Json(ErrorResponse { code, message })).into_response()
+}
+
+type ErrorDetails = (StatusCode, &'static str, &'static str);
+
+fn access_error_details(error: &AuthError) -> ErrorDetails {
+    match error {
         AuthError::Forbidden => (
             StatusCode::FORBIDDEN,
             "FORBIDDEN",
@@ -160,10 +192,45 @@ pub(super) fn auth_error(error: AuthError) -> Response {
             "INVALID_GUEST_GRANT",
             "The guest grant is invalid, expired, exhausted, or revoked",
         ),
-        AuthError::InvalidRequest(_) => (
+        _ => (
             StatusCode::BAD_REQUEST,
             "INVALID_REQUEST",
             "The authentication request is invalid",
+        ),
+    }
+}
+
+fn password_error_details(error: &AuthError) -> ErrorDetails {
+    match error {
+        AuthError::CredentialAccountNotFound => (
+            StatusCode::BAD_REQUEST,
+            "CREDENTIAL_ACCOUNT_NOT_FOUND",
+            "The credential account was not found",
+        ),
+        AuthError::InvalidPassword => (
+            StatusCode::BAD_REQUEST,
+            "INVALID_PASSWORD",
+            "The current password is incorrect",
+        ),
+        AuthError::PasswordTooShort => (
+            StatusCode::BAD_REQUEST,
+            "PASSWORD_TOO_SHORT",
+            "The new password must contain at least 8 characters",
+        ),
+        _ => (
+            StatusCode::BAD_REQUEST,
+            "PASSWORD_TOO_LONG",
+            "The new password must contain at most 128 characters",
+        ),
+    }
+}
+
+fn passkey_error_details(error: &AuthError) -> ErrorDetails {
+    match error {
+        AuthError::PasskeyNotFound => (
+            StatusCode::NOT_FOUND,
+            "PASSKEY_NOT_FOUND",
+            "The passkey was not found",
         ),
         AuthError::PasskeyDisabled => (
             StatusCode::NOT_IMPLEMENTED,
@@ -180,23 +247,12 @@ pub(super) fn auth_error(error: AuthError) -> Response {
             "AUTHENTICATION_FAILED",
             "Passkey verification failed",
         ),
-        AuthError::CredentialAlreadyRegistered => (
+        _ => (
             StatusCode::BAD_REQUEST,
             "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED",
             "The passkey is already registered",
         ),
-        AuthError::InvalidSession => (
-            StatusCode::UNAUTHORIZED,
-            "INVALID_SESSION",
-            "The session is invalid or expired",
-        ),
-        AuthError::InvalidConfiguration(_) | AuthError::Storage(_) | AuthError::Worker => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "INTERNAL_SERVER_ERROR",
-            "Authentication failed",
-        ),
-    };
-    (status, Json(ErrorResponse { code, message })).into_response()
+    }
 }
 
 #[cfg(test)]

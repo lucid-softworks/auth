@@ -8,6 +8,7 @@ use lucid_auth::{AuthConfig, AuthService, MemoryStore, NewPasswordUser, PasskeyC
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
+use uuid::Uuid;
 
 async fn application() -> Router {
     let mut config = AuthConfig::new([19_u8; 32]).unwrap();
@@ -163,6 +164,87 @@ async fn official_anonymous_client_contract_creates_a_guest() {
         serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
     assert_eq!(body["user"]["role"], "guest");
     assert_eq!(body["user"]["isAnonymous"], true);
+}
+
+#[tokio::test]
+async fn official_account_security_contract_changes_passwords_and_manages_sessions() {
+    let app = application().await;
+    let (current_cookie, _) = sign_in(&app, "luna").await;
+    let (other_cookie, _) = sign_in(&app, "luna").await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/api/auth/list-sessions")
+                .header(header::COOKIE, &current_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let sessions = response_json(response).await;
+    assert_eq!(sessions.as_array().unwrap().len(), 2);
+    assert!(Uuid::parse_str(sessions[0]["token"].as_str().unwrap()).is_ok());
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/auth/revoke-other-sessions")
+                .header(header::COOKIE, &current_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response_json(response).await["status"], true);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/api/auth/get-session")
+                .header(header::COOKIE, other_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(response_json(response).await.is_null());
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/auth/change-password")
+                .header(header::COOKIE, current_cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "currentPassword": "password",
+                        "newPassword": "new-password",
+                        "revokeOtherSessions": true
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response.headers().contains_key(header::SET_COOKIE));
+    let changed = response_json(response).await;
+    assert_eq!(changed["user"]["username"], "luna");
+    assert!(changed["token"].as_str().is_some());
+
+    let response = app
+        .oneshot(
+            Request::post("/api/auth/sign-in/username")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({ "username": "luna", "password": "new-password" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[tokio::test]
