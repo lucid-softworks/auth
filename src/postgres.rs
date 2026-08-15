@@ -16,10 +16,41 @@ impl PostgresStore {
     }
 
     pub async fn migrate(&self) -> Result<(), AuthError> {
-        sqlx::migrate!("./migrations")
-            .run(&self.pool)
+        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('lucid-auth-migrations'))")
+            .execute(&mut *transaction)
             .await
-            .map_err(storage_error)
+            .map_err(storage_error)?;
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS lucid_auth_migrations (\
+               version BIGINT PRIMARY KEY, \
+               description TEXT NOT NULL, \
+               applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\
+             )",
+        )
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage_error)?;
+        let applied = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM lucid_auth_migrations WHERE version = 1)",
+        )
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage_error)?;
+        if !applied {
+            sqlx::raw_sql(include_str!("../migrations/0001_auth.sql"))
+                .execute(&mut *transaction)
+                .await
+                .map_err(storage_error)?;
+            sqlx::query(
+                "INSERT INTO lucid_auth_migrations (version, description) \
+                 VALUES (1, 'initial authentication schema')",
+            )
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage_error)?;
+        }
+        transaction.commit().await.map_err(storage_error)
     }
 
     async fn find_user_by_id(&self, id: Uuid) -> Result<Option<AuthUser>, AuthError> {

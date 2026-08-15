@@ -79,7 +79,13 @@ async fn get_session(
             Ok(None) => Json::<Option<SessionResponse>>(None).into_response(),
             Err(error) => return auth_error(error),
         },
-        None => Json::<Option<SessionResponse>>(None).into_response(),
+        None => Json(
+            service
+                .development_session()
+                .as_ref()
+                .map(|session| SessionResponse::new(session, "development-bypass")),
+        )
+        .into_response(),
     };
     response
         .headers_mut()

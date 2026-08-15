@@ -27,6 +27,7 @@ pub struct AuthConfig {
     pub session_ttl: Duration,
     pub cookie_secure: bool,
     pub allow_anonymous: bool,
+    pub development_bypass: bool,
     pub max_attempts: usize,
     pub lockout_window: Duration,
 }
@@ -44,6 +45,7 @@ impl AuthConfig {
             session_ttl: Duration::days(7),
             cookie_secure: false,
             allow_anonymous: false,
+            development_bypass: false,
             max_attempts: 5,
             lockout_window: Duration::minutes(5),
         })
@@ -54,6 +56,16 @@ impl AuthConfig {
 pub struct SignInResult {
     pub token: String,
     pub session: SessionWithUser,
+}
+
+/// Closed-registration account provisioned from an existing Argon2 password hash.
+#[derive(Debug, Clone)]
+pub struct HashedPasswordUser {
+    pub username: String,
+    pub name: String,
+    pub email: Option<String>,
+    pub password_hash: String,
+    pub role: String,
 }
 
 #[derive(Clone)]
@@ -80,11 +92,50 @@ impl AuthService {
         self.config.cookie_secure
     }
 
+    pub fn development_session(&self) -> Option<SessionWithUser> {
+        if !self.config.development_bypass {
+            return None;
+        }
+        let now = Utc::now();
+        let id = Uuid::nil();
+        Some(SessionWithUser {
+            session: AuthSession {
+                id,
+                user_id: id,
+                token_hash: String::new(),
+                actor_user_id: None,
+                guest_grant_id: None,
+                assurance: Assurance::Password,
+                expires_at: now + Duration::days(1),
+                created_at: now,
+                updated_at: now,
+                ip_address: None,
+                user_agent: None,
+            },
+            user: AuthUser {
+                id,
+                username: Some("local".into()),
+                display_username: Some("Local development".into()),
+                name: "Local Haven".into(),
+                email: "local@users.localhost".into(),
+                email_verified: false,
+                image: None,
+                role: "owner".into(),
+                is_anonymous: false,
+                banned: false,
+                ban_reason: None,
+                ban_expires: None,
+                created_at: now,
+                updated_at: now,
+            },
+        })
+    }
+
     pub async fn provision_password_user(
         &self,
         input: NewPasswordUser,
     ) -> Result<AuthUser, AuthError> {
-        let username = normalize_username(&input.username)?;
+        normalize_username(&input.username)?;
         if input.password.is_empty() {
             return Err(AuthError::InvalidConfiguration(
                 "password must not be empty".into(),
@@ -100,6 +151,24 @@ impl AuthService {
         })
         .await
         .map_err(|_| AuthError::Worker)??;
+        self.provision_password_hash_user(HashedPasswordUser {
+            username: input.username,
+            name: input.name,
+            email: input.email,
+            password_hash,
+            role: input.role,
+        })
+        .await
+    }
+
+    pub async fn provision_password_hash_user(
+        &self,
+        input: HashedPasswordUser,
+    ) -> Result<AuthUser, AuthError> {
+        PasswordHash::new(&input.password_hash).map_err(|error| {
+            AuthError::InvalidConfiguration(format!("invalid password hash: {error}"))
+        })?;
+        let username = normalize_username(&input.username)?;
         let now = Utc::now();
         let email = input
             .email
@@ -122,7 +191,7 @@ impl AuthService {
                     created_at: now,
                     updated_at: now,
                 },
-                password_hash,
+                input.password_hash,
             )
             .await
     }
