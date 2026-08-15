@@ -142,3 +142,43 @@ async fn verify_password(
     .await
     .map_err(|_| AuthError::Worker)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AuthConfig, MemoryStore};
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn reprovisioning_preserves_an_account_owned_password() {
+        let service = AuthService::new(
+            Arc::new(MemoryStore::default()),
+            AuthConfig::new([31_u8; 32]).unwrap(),
+        );
+        for password in ["original-password", "configured-replacement"] {
+            service
+                .provision_password_user(NewPasswordUser {
+                    username: "luna".into(),
+                    name: "Luna".into(),
+                    email: None,
+                    password: password.into(),
+                    role: "owner".into(),
+                })
+                .await
+                .unwrap();
+        }
+
+        assert!(
+            service
+                .sign_in_username("luna", "original-password".into(), None, None)
+                .await
+                .is_ok()
+        );
+        assert!(
+            service
+                .sign_in_username("luna", "configured-replacement".into(), None, None)
+                .await
+                .is_err()
+        );
+    }
+}

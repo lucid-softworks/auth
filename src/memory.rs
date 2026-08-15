@@ -53,7 +53,7 @@ impl AuthStore for MemoryStore {
             state.users.insert(user.id, user.clone());
             user
         };
-        state.passwords.insert(stored.id, password_hash);
+        state.passwords.entry(stored.id).or_insert(password_hash);
         Ok(stored)
     }
 

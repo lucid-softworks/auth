@@ -169,8 +169,7 @@ impl AuthStore for PostgresStore {
             "INSERT INTO lucid_auth_accounts \
              (id, user_id, provider_id, account_id, password_hash, created_at, updated_at) \
              VALUES ($1, $2, 'credential', $3, $4, $5, $5) \
-             ON CONFLICT (user_id, provider_id) DO UPDATE SET \
-               password_hash = EXCLUDED.password_hash, updated_at = EXCLUDED.updated_at",
+             ON CONFLICT (user_id, provider_id) DO NOTHING",
         )
         .bind(Uuid::new_v4())
         .bind(stored.id)
