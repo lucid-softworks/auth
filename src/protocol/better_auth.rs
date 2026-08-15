@@ -67,6 +67,7 @@ pub struct SessionResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SignInResponse {
     pub redirect: bool,
     pub token: String,

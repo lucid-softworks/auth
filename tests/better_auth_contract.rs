@@ -60,6 +60,7 @@ async fn official_username_and_session_contract_round_trip() {
     let body: Value =
         serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
     assert_eq!(body["redirect"], false);
+    assert_eq!(body["twoFactorRedirect"], false);
     assert_eq!(body["user"]["username"], "luna");
     assert_eq!(body["user"]["role"], "owner");
 
