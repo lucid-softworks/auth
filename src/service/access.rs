@@ -28,7 +28,7 @@ impl AuthService {
     ) -> Result<AuthUser, AuthError> {
         require_owner(actor)?;
         if !MANAGED_ROLES.contains(&role) {
-            return Err(AuthError::InvalidConfiguration(
+            return Err(AuthError::InvalidRequest(
                 "role must be owner, member, or viewer".into(),
             ));
         }

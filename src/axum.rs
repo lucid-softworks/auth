@@ -16,6 +16,8 @@ use serde::Deserialize;
 use std::sync::Arc;
 use webauthn_rs::prelude::{PublicKeyCredential, RegisterPublicKeyCredential};
 
+mod admin;
+mod guest;
 mod http;
 
 pub use self::http::session_token;
@@ -57,6 +59,8 @@ where
             "/api/auth/passkey/list-user-passkeys",
             get(list_user_passkeys),
         )
+        .merge(admin::router())
+        .merge(guest::router())
         .layer(Extension(service))
 }
 

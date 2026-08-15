@@ -160,6 +160,11 @@ pub(super) fn auth_error(error: AuthError) -> Response {
             "INVALID_GUEST_GRANT",
             "The guest grant is invalid, expired, exhausted, or revoked",
         ),
+        AuthError::InvalidRequest(_) => (
+            StatusCode::BAD_REQUEST,
+            "INVALID_REQUEST",
+            "The authentication request is invalid",
+        ),
         AuthError::PasskeyDisabled => (
             StatusCode::NOT_IMPLEMENTED,
             "PASSKEY_NOT_CONFIGURED",

@@ -19,6 +19,8 @@ pub enum AuthError {
     LastOwner,
     #[error("the guest grant is invalid, expired, exhausted, or revoked")]
     InvalidGuestGrant,
+    #[error("the authentication request is invalid: {0}")]
+    InvalidRequest(String),
     #[error("passkey support is not configured")]
     PasskeyDisabled,
     #[error("a passkey ceremony is missing or expired")]

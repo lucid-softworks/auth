@@ -198,7 +198,7 @@ fn normalize(values: &mut Vec<String>) {
 }
 
 fn invalid_grant<T>(message: &str) -> Result<T, AuthError> {
-    Err(AuthError::InvalidConfiguration(message.into()))
+    Err(AuthError::InvalidRequest(message.into()))
 }
 
 #[cfg(test)]
