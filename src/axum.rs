@@ -1,9 +1,10 @@
 use crate::{
     AuthError, AuthService,
     protocol::better_auth::{
-        AnonymousSignInResponse, BetterAuthUser, ErrorResponse, SESSION_COOKIE_NAME,
-        SessionResponse, SignInResponse, SuccessResponse, UsernameAvailabilityRequest,
-        UsernameAvailabilityResponse, UsernameSignInRequest,
+        AnonymousSignInResponse, BetterAuthPasskey, BetterAuthUser, ErrorResponse,
+        PASSKEY_CHALLENGE_COOKIE_NAME, SESSION_COOKIE_NAME, SessionResponse, SignInResponse,
+        SuccessResponse, UsernameAvailabilityRequest, UsernameAvailabilityResponse,
+        UsernameSignInRequest,
     },
 };
 use axum::{
@@ -12,7 +13,9 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use serde::Deserialize;
 use std::sync::Arc;
+use webauthn_rs::prelude::{PublicKeyCredential, RegisterPublicKeyCredential};
 
 pub fn router<S>(service: Arc<AuthService>) -> Router<S>
 where
@@ -27,7 +30,38 @@ where
             "/api/auth/is-username-available",
             post(is_username_available),
         )
+        .route(
+            "/api/auth/passkey/generate-register-options",
+            get(generate_passkey_registration_options),
+        )
+        .route(
+            "/api/auth/passkey/verify-registration",
+            post(verify_passkey_registration),
+        )
+        .route(
+            "/api/auth/passkey/generate-authenticate-options",
+            get(generate_passkey_authentication_options),
+        )
+        .route(
+            "/api/auth/passkey/verify-authentication",
+            post(verify_passkey_authentication),
+        )
+        .route(
+            "/api/auth/passkey/list-user-passkeys",
+            get(list_user_passkeys),
+        )
         .layer(Extension(service))
+}
+
+#[derive(Debug, Deserialize)]
+struct VerifyRegistrationRequest {
+    response: RegisterPublicKeyCredential,
+    name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct VerifyAuthenticationRequest {
+    response: PublicKeyCredential,
 }
 
 async fn sign_in_username(
@@ -121,6 +155,116 @@ async fn is_username_available(
     }
 }
 
+async fn generate_passkey_registration_options(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(session) = current_session(&service, &headers).await else {
+        return auth_error(AuthError::InvalidSession);
+    };
+    match service.start_passkey_registration(&session.user).await {
+        Ok((token, options)) => with_challenge_cookie(&service, &token, Json(options.public_key)),
+        Err(error) => auth_error(error),
+    }
+}
+
+async fn verify_passkey_registration(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Json(input): Json<VerifyRegistrationRequest>,
+) -> Response {
+    let Some(session) = current_session(&service, &headers).await else {
+        return auth_error(AuthError::InvalidSession);
+    };
+    let Some(challenge) = challenge_token(&service, &headers) else {
+        return auth_error(AuthError::PasskeyChallengeExpired);
+    };
+    match service
+        .finish_passkey_registration(&challenge, session.user.id, input.response, input.name)
+        .await
+    {
+        Ok(passkey) => Json(BetterAuthPasskey::from(&passkey)).into_response(),
+        Err(error) => auth_error(error),
+    }
+}
+
+async fn generate_passkey_authentication_options(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+) -> Response {
+    let session = current_session(&service, &headers).await;
+    match service.start_passkey_authentication(session.as_ref()).await {
+        Ok((token, options)) => with_challenge_cookie(&service, &token, Json(options.public_key)),
+        Err(error) => auth_error(error),
+    }
+}
+
+async fn verify_passkey_authentication(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Json(input): Json<VerifyAuthenticationRequest>,
+) -> Response {
+    let Some(challenge) = challenge_token(&service, &headers) else {
+        return auth_error(AuthError::PasskeyChallengeExpired);
+    };
+    match service
+        .finish_passkey_authentication(&challenge, input.response, None, user_agent(&headers))
+        .await
+    {
+        Ok(result) => {
+            let response = SessionResponse::new(&result.session, result.token.clone());
+            with_session_cookie(&service, &result.token, Some(true), Json(response))
+        }
+        Err(error) => auth_error(error),
+    }
+}
+
+async fn list_user_passkeys(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(session) = current_session(&service, &headers).await else {
+        return auth_error(AuthError::InvalidSession);
+    };
+    match service.list_passkeys(session.user.id).await {
+        Ok(passkeys) => Json(
+            passkeys
+                .iter()
+                .map(BetterAuthPasskey::from)
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
+        Err(error) => auth_error(error),
+    }
+}
+
+async fn current_session(
+    service: &AuthService,
+    headers: &HeaderMap,
+) -> Option<crate::SessionWithUser> {
+    let token = session_token(service, headers)?;
+    service.session(&token).await.ok().flatten()
+}
+
+fn challenge_token(service: &AuthService, headers: &HeaderMap) -> Option<String> {
+    signed_cookie_token(service, headers, PASSKEY_CHALLENGE_COOKIE_NAME)
+}
+
+fn with_challenge_cookie(service: &AuthService, token: &str, body: impl IntoResponse) -> Response {
+    let mut response = body.into_response();
+    let cookie = named_cookie(
+        PASSKEY_CHALLENGE_COOKIE_NAME,
+        &service.signed_cookie_value(token),
+        300,
+        service.cookie_secure(),
+        true,
+    );
+    if let Ok(value) = HeaderValue::from_str(&cookie) {
+        response.headers_mut().insert(header::SET_COOKIE, value);
+    }
+    response
+}
+
 fn with_session_cookie(
     service: &AuthService,
     token: &str,
@@ -146,13 +290,17 @@ fn with_session_cookie(
 }
 
 pub fn session_token(service: &AuthService, headers: &HeaderMap) -> Option<String> {
+    signed_cookie_token(service, headers, SESSION_COOKIE_NAME)
+}
+
+fn signed_cookie_token(service: &AuthService, headers: &HeaderMap, name: &str) -> Option<String> {
     let cookie_value = headers
         .get(header::COOKIE)?
         .to_str()
         .ok()?
         .split(';')
         .map(str::trim)
-        .find_map(|cookie| cookie.strip_prefix(&format!("{SESSION_COOKIE_NAME}=")))?;
+        .find_map(|cookie| cookie.strip_prefix(&format!("{name}=")))?;
     service.verify_cookie_value(cookie_value)
 }
 
@@ -164,7 +312,23 @@ fn user_agent(headers: &HeaderMap) -> Option<String> {
 }
 
 fn session_cookie(value: &str, max_age_seconds: i64, secure: bool, persistent: bool) -> String {
-    let mut cookie = format!("{SESSION_COOKIE_NAME}={value}; HttpOnly; SameSite=Lax; Path=/");
+    named_cookie(
+        SESSION_COOKIE_NAME,
+        value,
+        max_age_seconds,
+        secure,
+        persistent,
+    )
+}
+
+fn named_cookie(
+    name: &str,
+    value: &str,
+    max_age_seconds: i64,
+    secure: bool,
+    persistent: bool,
+) -> String {
+    let mut cookie = format!("{name}={value}; HttpOnly; SameSite=Lax; Path=/");
     if persistent {
         cookie.push_str(&format!("; Max-Age={max_age_seconds}"));
     }
@@ -199,6 +363,26 @@ fn auth_error(error: AuthError) -> Response {
             StatusCode::FORBIDDEN,
             "USER_BANNED",
             "The account is disabled",
+        ),
+        AuthError::PasskeyDisabled => (
+            StatusCode::NOT_IMPLEMENTED,
+            "PASSKEY_NOT_CONFIGURED",
+            "Passkey authentication is not configured",
+        ),
+        AuthError::PasskeyChallengeExpired => (
+            StatusCode::BAD_REQUEST,
+            "CHALLENGE_NOT_FOUND",
+            "The passkey challenge is missing or expired",
+        ),
+        AuthError::PasskeyVerificationFailed => (
+            StatusCode::UNAUTHORIZED,
+            "AUTHENTICATION_FAILED",
+            "Passkey verification failed",
+        ),
+        AuthError::CredentialAlreadyRegistered => (
+            StatusCode::BAD_REQUEST,
+            "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED",
+            "The passkey is already registered",
         ),
         AuthError::InvalidSession => (
             StatusCode::UNAUTHORIZED,

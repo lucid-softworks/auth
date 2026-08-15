@@ -1,4 +1,4 @@
-use crate::{AuthError, AuthSession, AuthStore, AuthUser};
+use crate::{AuthError, AuthSession, AuthStore, AuthUser, StoredPasskey};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::{collections::HashMap, sync::Arc};
@@ -11,6 +11,7 @@ struct MemoryState {
     usernames: HashMap<String, Uuid>,
     passwords: HashMap<Uuid, String>,
     sessions: HashMap<String, AuthSession>,
+    passkeys: HashMap<Uuid, StoredPasskey>,
 }
 
 /// In-memory adapter for tests and explicitly non-persistent development use.
@@ -68,6 +69,48 @@ impl AuthStore for MemoryStore {
 
     async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError> {
         Ok(self.state.read().await.passwords.get(&user_id).cloned())
+    }
+
+    async fn save_passkey(&self, passkey: StoredPasskey) -> Result<StoredPasskey, AuthError> {
+        let mut state = self.state.write().await;
+        if state
+            .passkeys
+            .values()
+            .any(|stored| stored.credential_id == passkey.credential_id)
+        {
+            return Err(AuthError::CredentialAlreadyRegistered);
+        }
+        state.passkeys.insert(passkey.id, passkey.clone());
+        Ok(passkey)
+    }
+
+    async fn list_passkeys(&self, user_id: Uuid) -> Result<Vec<StoredPasskey>, AuthError> {
+        Ok(self
+            .state
+            .read()
+            .await
+            .passkeys
+            .values()
+            .filter(|passkey| passkey.user_id == user_id)
+            .cloned()
+            .collect())
+    }
+
+    async fn list_all_passkeys(&self) -> Result<Vec<StoredPasskey>, AuthError> {
+        Ok(self.state.read().await.passkeys.values().cloned().collect())
+    }
+
+    async fn update_passkey(&self, passkey: StoredPasskey) -> Result<(), AuthError> {
+        self.state
+            .write()
+            .await
+            .passkeys
+            .insert(passkey.id, passkey);
+        Ok(())
+    }
+
+    async fn find_user_by_id(&self, user_id: Uuid) -> Result<Option<AuthUser>, AuthError> {
+        Ok(self.state.read().await.users.get(&user_id).cloned())
     }
 
     async fn create_session(&self, session: AuthSession) -> Result<(), AuthError> {

@@ -1,4 +1,4 @@
-use crate::{Assurance, AuthError, AuthSession, AuthStore, AuthUser};
+use crate::{Assurance, AuthError, AuthSession, AuthStore, AuthUser, StoredPasskey};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::{FromRow, PgPool};
@@ -50,10 +50,29 @@ impl PostgresStore {
             .await
             .map_err(storage_error)?;
         }
+        let passkeys_applied = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM lucid_auth_migrations WHERE version = 2)",
+        )
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage_error)?;
+        if !passkeys_applied {
+            sqlx::raw_sql(include_str!("../migrations/0002_passkeys.sql"))
+                .execute(&mut *transaction)
+                .await
+                .map_err(storage_error)?;
+            sqlx::query(
+                "INSERT INTO lucid_auth_migrations (version, description) \
+                 VALUES (2, 'WebAuthn passkeys')",
+            )
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage_error)?;
+        }
         transaction.commit().await.map_err(storage_error)
     }
 
-    async fn find_user_by_id(&self, id: Uuid) -> Result<Option<AuthUser>, AuthError> {
+    async fn load_user_by_id(&self, id: Uuid) -> Result<Option<AuthUser>, AuthError> {
         sqlx::query_as::<_, UserRow>(
             "SELECT id, username, display_username, name, email, email_verified, image, role, \
              is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at \
@@ -64,6 +83,31 @@ impl PostgresStore {
         .await
         .map(|row| row.map(AuthUser::from))
         .map_err(storage_error)
+    }
+}
+
+#[derive(FromRow)]
+struct PasskeyRow {
+    id: Uuid,
+    user_id: Uuid,
+    name: Option<String>,
+    credential_id: String,
+    credential: serde_json::Value,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+impl From<PasskeyRow> for StoredPasskey {
+    fn from(row: PasskeyRow) -> Self {
+        Self {
+            id: row.id,
+            user_id: row.user_id,
+            name: row.name,
+            credential_id: row.credential_id,
+            credential: row.credential,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
     }
 }
 
@@ -238,6 +282,77 @@ impl AuthStore for PostgresStore {
         .map_err(storage_error)
     }
 
+    async fn save_passkey(&self, passkey: StoredPasskey) -> Result<StoredPasskey, AuthError> {
+        sqlx::query_as::<_, PasskeyRow>(
+            "INSERT INTO lucid_auth_passkeys \
+             (id, user_id, name, credential_id, credential, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7) \
+             RETURNING id, user_id, name, credential_id, credential, created_at, updated_at",
+        )
+        .bind(passkey.id)
+        .bind(passkey.user_id)
+        .bind(&passkey.name)
+        .bind(&passkey.credential_id)
+        .bind(&passkey.credential)
+        .bind(passkey.created_at)
+        .bind(passkey.updated_at)
+        .fetch_one(&self.pool)
+        .await
+        .map(StoredPasskey::from)
+        .map_err(|error| {
+            if error
+                .as_database_error()
+                .is_some_and(|database| database.is_unique_violation())
+            {
+                AuthError::CredentialAlreadyRegistered
+            } else {
+                storage_error(error)
+            }
+        })
+    }
+
+    async fn list_passkeys(&self, user_id: Uuid) -> Result<Vec<StoredPasskey>, AuthError> {
+        sqlx::query_as::<_, PasskeyRow>(
+            "SELECT id, user_id, name, credential_id, credential, created_at, updated_at \
+             FROM lucid_auth_passkeys WHERE user_id = $1 ORDER BY created_at",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map(|rows| rows.into_iter().map(StoredPasskey::from).collect())
+        .map_err(storage_error)
+    }
+
+    async fn list_all_passkeys(&self) -> Result<Vec<StoredPasskey>, AuthError> {
+        sqlx::query_as::<_, PasskeyRow>(
+            "SELECT id, user_id, name, credential_id, credential, created_at, updated_at \
+             FROM lucid_auth_passkeys ORDER BY created_at",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map(|rows| rows.into_iter().map(StoredPasskey::from).collect())
+        .map_err(storage_error)
+    }
+
+    async fn update_passkey(&self, passkey: StoredPasskey) -> Result<(), AuthError> {
+        sqlx::query(
+            "UPDATE lucid_auth_passkeys SET name = $2, credential = $3, updated_at = $4 \
+             WHERE id = $1",
+        )
+        .bind(passkey.id)
+        .bind(&passkey.name)
+        .bind(&passkey.credential)
+        .bind(passkey.updated_at)
+        .execute(&self.pool)
+        .await
+        .map(|_| ())
+        .map_err(storage_error)
+    }
+
+    async fn find_user_by_id(&self, user_id: Uuid) -> Result<Option<AuthUser>, AuthError> {
+        self.load_user_by_id(user_id).await
+    }
+
     async fn create_session(&self, session: AuthSession) -> Result<(), AuthError> {
         sqlx::query(
             "INSERT INTO lucid_auth_sessions \
@@ -279,7 +394,7 @@ impl AuthStore for PostgresStore {
         let Some(session) = session else {
             return Ok(None);
         };
-        let user = self.find_user_by_id(session.user_id).await?;
+        let user = self.load_user_by_id(session.user_id).await?;
         Ok(user.map(|user| (session, user)))
     }
 

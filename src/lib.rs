@@ -14,6 +14,8 @@ pub mod protocol;
 
 pub use error::AuthError;
 pub use memory::MemoryStore;
-pub use model::{Assurance, AuthSession, AuthUser, NewPasswordUser, Principal, SessionWithUser};
-pub use service::{AuthConfig, AuthService, HashedPasswordUser, SignInResult};
+pub use model::{
+    Assurance, AuthSession, AuthUser, NewPasswordUser, Principal, SessionWithUser, StoredPasskey,
+};
+pub use service::{AuthConfig, AuthService, HashedPasswordUser, PasskeyConfig, SignInResult};
 pub use store::AuthStore;

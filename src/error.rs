@@ -11,6 +11,14 @@ pub enum AuthError {
     InvalidSession,
     #[error("the account is disabled")]
     AccountDisabled,
+    #[error("passkey support is not configured")]
+    PasskeyDisabled,
+    #[error("a passkey ceremony is missing or expired")]
+    PasskeyChallengeExpired,
+    #[error("passkey verification failed")]
+    PasskeyVerificationFailed,
+    #[error("the passkey is already registered")]
+    CredentialAlreadyRegistered,
     #[error("authentication configuration is invalid: {0}")]
     InvalidConfiguration(String),
     #[error("authentication storage failed: {0}")]

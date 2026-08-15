@@ -1,9 +1,10 @@
-use crate::{AuthSession, AuthUser, SessionWithUser};
+use crate::{AuthSession, AuthUser, SessionWithUser, StoredPasskey};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 pub const COMPATIBLE_BETTER_AUTH_VERSION: &str = "1.6.29";
 pub const SESSION_COOKIE_NAME: &str = "better-auth.session_token";
+pub const PASSKEY_CHALLENGE_COOKIE_NAME: &str = "better-auth.better-auth-passkey";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -88,6 +89,28 @@ pub struct SuccessResponse {
 pub struct ErrorResponse {
     pub code: &'static str,
     pub message: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BetterAuthPasskey {
+    pub id: String,
+    pub name: Option<String>,
+    pub user_id: String,
+    pub credential_id: String,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<&StoredPasskey> for BetterAuthPasskey {
+    fn from(passkey: &StoredPasskey) -> Self {
+        Self {
+            id: passkey.id.to_string(),
+            name: passkey.name.clone(),
+            user_id: passkey.user_id.to_string(),
+            credential_id: passkey.credential_id.clone(),
+            created_at: passkey.created_at,
+        }
+    }
 }
 
 impl From<&AuthUser> for BetterAuthUser {

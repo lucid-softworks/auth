@@ -64,6 +64,18 @@ pub struct NewPasswordUser {
     pub role: String,
 }
 
+/// A persisted WebAuthn credential owned by one account.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StoredPasskey {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub name: Option<String>,
+    pub credential_id: String,
+    pub credential: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 /// Server-side session metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthSession {
