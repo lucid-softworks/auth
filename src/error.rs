@@ -11,6 +11,14 @@ pub enum AuthError {
     InvalidSession,
     #[error("the account is disabled")]
     AccountDisabled,
+    #[error("the requested authentication resource was not found")]
+    NotFound,
+    #[error("the current account is not permitted to perform this action")]
+    Forbidden,
+    #[error("the final owner account cannot be removed or disabled")]
+    LastOwner,
+    #[error("the guest grant is invalid, expired, exhausted, or revoked")]
+    InvalidGuestGrant,
     #[error("passkey support is not configured")]
     PasskeyDisabled,
     #[error("a passkey ceremony is missing or expired")]

@@ -1,10 +1,8 @@
 use super::{AuthService, HashedPasswordUser, SignInResult};
 use crate::{Assurance, AuthError, AuthUser, NewPasswordUser};
-use argon2::{
-    Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
-    password_hash::{SaltString, rand_core::OsRng},
-};
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use chrono::Utc;
+use rand_core::OsRng;
 use uuid::Uuid;
 
 impl AuthService {

@@ -1,3 +1,5 @@
+mod access;
+mod guest;
 mod passkey;
 mod password;
 
@@ -196,10 +198,23 @@ impl AuthService {
     }
 
     pub async fn principal(&self, token: &str) -> Result<Option<Principal>, AuthError> {
-        Ok(self
-            .session(token)
-            .await?
-            .map(|session| session.principal()))
+        let Some(session) = self.session(token).await? else {
+            return Ok(None);
+        };
+        let mut principal = session.principal();
+        if let Some(grant_id) = session.session.guest_grant_id {
+            let Some(grant) = self.store.find_guest_grant(grant_id).await? else {
+                return Ok(None);
+            };
+            let now = Utc::now();
+            if grant.revoked_at.is_some() || grant.valid_from > now || grant.expires_at <= now {
+                self.store.delete_session_by_id(session.session.id).await?;
+                return Ok(None);
+            }
+            principal.permissions = grant.permissions;
+            principal.resource_scopes = grant.resource_scopes;
+        }
+        Ok(Some(principal))
     }
 
     pub async fn sign_out(&self, token: &str) -> Result<(), AuthError> {
@@ -229,6 +244,29 @@ impl AuthService {
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
+        self.create_session_until(
+            user,
+            assurance,
+            actor_user_id,
+            guest_grant_id,
+            None,
+            ip_address,
+            user_agent,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn create_session_until(
+        &self,
+        user: AuthUser,
+        assurance: Assurance,
+        actor_user_id: Option<Uuid>,
+        guest_grant_id: Option<Uuid>,
+        expires_at: Option<DateTime<Utc>>,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+    ) -> Result<SignInResult, AuthError> {
         let token = random_token();
         let now = Utc::now();
         let session = AuthSession {
@@ -238,7 +276,9 @@ impl AuthService {
             actor_user_id,
             guest_grant_id,
             assurance,
-            expires_at: now + self.config.session_ttl,
+            expires_at: expires_at
+                .unwrap_or(now + self.config.session_ttl)
+                .min(now + self.config.session_ttl),
             created_at: now,
             updated_at: now,
             ip_address,

@@ -1,10 +1,10 @@
-use crate::{AuthError, AuthSession, AuthUser, StoredPasskey};
+use crate::{AuditEvent, AuthError, AuthSession, AuthUser, GuestGrant, StoredPasskey};
 use async_trait::async_trait;
 use uuid::Uuid;
 
 /// Persistence boundary required by [`crate::AuthService`].
 #[async_trait]
-pub trait AuthStore: Send + Sync {
+pub trait AuthStore: AccessStore + Send + Sync {
     async fn upsert_password_user(
         &self,
         user: AuthUser,
@@ -40,4 +40,52 @@ pub trait AuthStore: Send + Sync {
         &self,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), AuthError>;
+}
+
+/// Administrative, authorization and audit persistence kept separate from login storage.
+#[async_trait]
+pub trait AccessStore: Send + Sync {
+    async fn list_users(&self, limit: usize, offset: usize) -> Result<Vec<AuthUser>, AuthError>;
+
+    async fn count_users(&self) -> Result<i64, AuthError>;
+
+    async fn count_users_by_role(&self, role: &str) -> Result<i64, AuthError>;
+
+    async fn update_user_role(&self, user_id: Uuid, role: &str) -> Result<AuthUser, AuthError>;
+
+    async fn update_user_ban(
+        &self,
+        user_id: Uuid,
+        banned: bool,
+        reason: Option<String>,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<AuthUser, AuthError>;
+
+    async fn list_sessions(&self, user_id: Uuid) -> Result<Vec<AuthSession>, AuthError>;
+
+    async fn delete_session_by_id(&self, session_id: Uuid) -> Result<(), AuthError>;
+
+    async fn delete_user_sessions(&self, user_id: Uuid) -> Result<(), AuthError>;
+
+    async fn create_guest_grant(&self, grant: GuestGrant) -> Result<GuestGrant, AuthError>;
+
+    async fn consume_guest_grant(
+        &self,
+        token_hash: &str,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<GuestGrant>, AuthError>;
+
+    async fn find_guest_grant(&self, grant_id: Uuid) -> Result<Option<GuestGrant>, AuthError>;
+
+    async fn list_guest_grants(&self) -> Result<Vec<GuestGrant>, AuthError>;
+
+    async fn revoke_guest_grant(
+        &self,
+        grant_id: Uuid,
+        revoked_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), AuthError>;
+
+    async fn append_audit_event(&self, event: AuditEvent) -> Result<(), AuthError>;
+
+    async fn list_audit_events(&self, limit: usize) -> Result<Vec<AuditEvent>, AuthError>;
 }

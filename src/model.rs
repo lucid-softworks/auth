@@ -79,6 +79,54 @@ pub struct StoredPasskey {
     pub updated_at: DateTime<Utc>,
 }
 
+/// A time-bounded capability grant that can be exchanged for a guest session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GuestGrant {
+    pub id: Uuid,
+    pub label: String,
+    #[serde(skip_serializing)]
+    pub token_hash: Option<String>,
+    pub permissions: Vec<String>,
+    pub resource_scopes: Vec<String>,
+    pub valid_from: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub max_uses: Option<i32>,
+    pub uses: i32,
+    pub created_by: Uuid,
+    pub revoked_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Input for issuing an owner-controlled guest capability.
+#[derive(Debug, Clone)]
+pub struct NewGuestGrant {
+    pub label: String,
+    pub permissions: Vec<String>,
+    pub resource_scopes: Vec<String>,
+    pub valid_from: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub max_uses: Option<i32>,
+}
+
+/// A guest grant plus its one-time-visible bearer token.
+#[derive(Debug, Clone)]
+pub struct IssuedGuestGrant {
+    pub grant: GuestGrant,
+    pub token: String,
+}
+
+/// Security-relevant action retained for owner review.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AuditEvent {
+    pub id: Uuid,
+    pub actor_user_id: Option<Uuid>,
+    pub subject_user_id: Option<Uuid>,
+    pub action: String,
+    pub target: Option<String>,
+    pub metadata: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
 /// Server-side session metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthSession {
@@ -110,6 +158,8 @@ pub struct Principal {
     pub role: String,
     pub assurance: Assurance,
     pub guest_grant_id: Option<Uuid>,
+    pub permissions: Vec<String>,
+    pub resource_scopes: Vec<String>,
     pub expires_at: DateTime<Utc>,
 }
 
@@ -122,6 +172,8 @@ impl SessionWithUser {
             role: self.user.role.clone(),
             assurance: self.session.assurance,
             guest_grant_id: self.session.guest_grant_id,
+            permissions: Vec::new(),
+            resource_scopes: Vec::new(),
             expires_at: self.session.expires_at,
         }
     }
