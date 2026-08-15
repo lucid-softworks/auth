@@ -193,7 +193,7 @@ async fn generate_passkey_registration_options(
     let Some(session) = current_session(&service, &headers).await else {
         return auth_error(AuthError::InvalidSession);
     };
-    match service.start_passkey_registration(&session.user).await {
+    match service.start_passkey_registration(&session).await {
         Ok((token, options)) => with_challenge_cookie(&service, &token, Json(options.public_key)),
         Err(error) => auth_error(error),
     }

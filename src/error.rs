@@ -29,6 +29,8 @@ pub enum AuthError {
     PasswordCheckUnavailable,
     #[error("the passkey was not found")]
     PasskeyNotFound,
+    #[error("an MFA-required account must keep at least one passkey")]
+    LastPasskey,
     #[error("the current account is not permitted to perform this action")]
     Forbidden,
     #[error("recent multi-factor authentication is required for this action")]

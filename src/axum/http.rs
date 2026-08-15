@@ -170,6 +170,7 @@ pub(super) fn auth_error(error: AuthError) -> Response {
         | AuthError::PasswordTooLong
         | AuthError::PasswordCompromised => password_error_details(&error),
         AuthError::PasskeyNotFound
+        | AuthError::LastPasskey
         | AuthError::PasskeyDisabled
         | AuthError::PasskeyChallengeExpired
         | AuthError::PasskeyVerificationFailed
@@ -272,6 +273,11 @@ fn passkey_error_details(error: &AuthError) -> ErrorDetails {
             StatusCode::NOT_FOUND,
             "PASSKEY_NOT_FOUND",
             "The passkey was not found",
+        ),
+        AuthError::LastPasskey => (
+            StatusCode::CONFLICT,
+            "LAST_PASSKEY",
+            "An MFA-required account must keep at least one passkey",
         ),
         AuthError::PasskeyDisabled => (
             StatusCode::NOT_IMPLEMENTED,

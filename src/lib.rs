@@ -24,4 +24,4 @@ pub use service::{
     AuthConfig, AuthService, HashedPasswordUser, PasskeyConfig, PasskeyRegistrationResult,
     PasswordChangeResult, RecoveryCodeStatus, SignInResult,
 };
-pub use store::{AccessStore, AuthStore, SecurityStore};
+pub use store::{AccessStore, AuthStore, PasskeyDeleteOutcome, SecurityStore};

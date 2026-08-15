@@ -2,6 +2,14 @@ use crate::{AuditEvent, AuthError, AuthSession, AuthUser, GuestGrant, StoredPass
 use async_trait::async_trait;
 use uuid::Uuid;
 
+/// Result of atomically removing a passkey while preserving a configured minimum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasskeyDeleteOutcome {
+    Deleted { remaining: usize },
+    NotFound,
+    MinimumRequired,
+}
+
 /// Persistence boundary required by [`crate::AuthService`].
 #[async_trait]
 pub trait AuthStore: AccessStore + SecurityStore + Send + Sync {
@@ -50,7 +58,12 @@ pub trait AuthStore: AccessStore + SecurityStore + Send + Sync {
         name: String,
     ) -> Result<Option<StoredPasskey>, AuthError>;
 
-    async fn delete_passkey(&self, user_id: Uuid, passkey_id: Uuid) -> Result<bool, AuthError>;
+    async fn delete_passkey(
+        &self,
+        user_id: Uuid,
+        passkey_id: Uuid,
+        minimum_remaining: usize,
+    ) -> Result<PasskeyDeleteOutcome, AuthError>;
 
     async fn delete_user_passkeys(&self, user_id: Uuid) -> Result<(), AuthError>;
 

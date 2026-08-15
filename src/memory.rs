@@ -1,4 +1,7 @@
-use crate::{AuditEvent, AuthError, AuthSession, AuthStore, AuthUser, GuestGrant, StoredPasskey};
+use crate::{
+    AuditEvent, AuthError, AuthSession, AuthStore, AuthUser, GuestGrant, PasskeyDeleteOutcome,
+    StoredPasskey,
+};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::{
@@ -194,16 +197,34 @@ impl AuthStore for MemoryStore {
         Ok(Some(passkey.clone()))
     }
 
-    async fn delete_passkey(&self, user_id: Uuid, passkey_id: Uuid) -> Result<bool, AuthError> {
+    async fn delete_passkey(
+        &self,
+        user_id: Uuid,
+        passkey_id: Uuid,
+        minimum_remaining: usize,
+    ) -> Result<PasskeyDeleteOutcome, AuthError> {
         let mut state = self.state.write().await;
         let owned = state
             .passkeys
             .get(&passkey_id)
             .is_some_and(|passkey| passkey.user_id == user_id);
-        if owned {
-            state.passkeys.remove(&passkey_id);
+        if !owned {
+            return Ok(PasskeyDeleteOutcome::NotFound);
         }
-        Ok(owned)
+        let count = state
+            .passkeys
+            .values()
+            .filter(|passkey| passkey.user_id == user_id)
+            .count();
+        if count <= minimum_remaining {
+            return Ok(PasskeyDeleteOutcome::MinimumRequired);
+        }
+        state.passkeys.remove(&passkey_id);
+        let remaining = count - 1;
+        if remaining == 0 {
+            state.recovery_codes.remove(&user_id);
+        }
+        Ok(PasskeyDeleteOutcome::Deleted { remaining })
     }
 
     async fn delete_user_passkeys(&self, user_id: Uuid) -> Result<(), AuthError> {

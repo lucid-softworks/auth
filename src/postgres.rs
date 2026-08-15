@@ -1,4 +1,4 @@
-use crate::{AuthError, AuthSession, AuthStore, AuthUser, StoredPasskey};
+use crate::{AuthError, AuthSession, AuthStore, AuthUser, PasskeyDeleteOutcome, StoredPasskey};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -249,14 +249,55 @@ impl AuthStore for PostgresStore {
         .map_err(storage_error)
     }
 
-    async fn delete_passkey(&self, user_id: Uuid, passkey_id: Uuid) -> Result<bool, AuthError> {
+    async fn delete_passkey(
+        &self,
+        user_id: Uuid,
+        passkey_id: Uuid,
+        minimum_remaining: usize,
+    ) -> Result<PasskeyDeleteOutcome, AuthError> {
+        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
+        sqlx::query("SELECT id FROM lucid_auth_users WHERE id = $1 FOR UPDATE")
+            .bind(user_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage_error)?;
+        let owned = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM lucid_auth_passkeys WHERE id = $1 AND user_id = $2)",
+        )
+        .bind(passkey_id)
+        .bind(user_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage_error)?;
+        if !owned {
+            return Ok(PasskeyDeleteOutcome::NotFound);
+        }
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM lucid_auth_passkeys WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage_error)?;
+        if count <= i64::try_from(minimum_remaining).unwrap_or(i64::MAX) {
+            return Ok(PasskeyDeleteOutcome::MinimumRequired);
+        }
         sqlx::query("DELETE FROM lucid_auth_passkeys WHERE id = $1 AND user_id = $2")
             .bind(passkey_id)
             .bind(user_id)
-            .execute(&self.pool)
+            .execute(&mut *transaction)
             .await
-            .map(|result| result.rows_affected() > 0)
-            .map_err(storage_error)
+            .map_err(storage_error)?;
+        let remaining = usize::try_from(count - 1).unwrap_or(usize::MAX);
+        if remaining == 0 {
+            sqlx::query("DELETE FROM lucid_auth_recovery_codes WHERE user_id = $1")
+                .bind(user_id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(storage_error)?;
+        }
+        transaction.commit().await.map_err(storage_error)?;
+        Ok(PasskeyDeleteOutcome::Deleted { remaining })
     }
 
     async fn delete_user_passkeys(&self, user_id: Uuid) -> Result<(), AuthError> {

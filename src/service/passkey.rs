@@ -1,5 +1,5 @@
 use super::{AuthService, SignInResult, random_token};
-use crate::{Assurance, AuthError, AuthUser, SessionWithUser, StoredPasskey};
+use crate::{Assurance, AuthError, PasskeyDeleteOutcome, SessionWithUser, StoredPasskey};
 use chrono::{DateTime, Duration, Utc};
 use serde_json::json;
 use uuid::Uuid;
@@ -69,26 +69,37 @@ impl AuthService {
         actor: &SessionWithUser,
         passkey_id: Uuid,
     ) -> Result<(), AuthError> {
-        require_account_session(actor)?;
-        if !self.store.delete_passkey(actor.user.id, passkey_id).await? {
-            return Err(AuthError::PasskeyNotFound);
-        }
+        self.require_recent_strong_account(actor)?;
+        let minimum_remaining = usize::from(self.requires_mfa(&actor.user));
+        let remaining = match self
+            .store
+            .delete_passkey(actor.user.id, passkey_id, minimum_remaining)
+            .await?
+        {
+            PasskeyDeleteOutcome::Deleted { remaining } => remaining,
+            PasskeyDeleteOutcome::NotFound => return Err(AuthError::PasskeyNotFound),
+            PasskeyDeleteOutcome::MinimumRequired => return Err(AuthError::LastPasskey),
+        };
         self.audit(
             actor.user.id,
             Some(actor.user.id),
             "passkey.deleted",
             Some(passkey_id.to_string()),
-            json!({}),
+            json!({ "remaining": remaining }),
         )
         .await
     }
 
     pub async fn start_passkey_registration(
         &self,
-        user: &AuthUser,
+        actor: &SessionWithUser,
     ) -> Result<(String, CreationChallengeResponse), AuthError> {
+        require_account_session(actor)?;
         let webauthn = self.webauthn()?;
-        let stored = self.store.list_passkeys(user.id).await?;
+        let stored = self.store.list_passkeys(actor.user.id).await?;
+        if !stored.is_empty() {
+            self.require_recent_strong_account(actor)?;
+        }
         let passkeys = deserialize_passkeys(&stored)?;
         let exclude = (!passkeys.is_empty()).then(|| {
             passkeys
@@ -96,15 +107,15 @@ impl AuthService {
                 .map(|passkey| passkey.cred_id().clone())
                 .collect()
         });
-        let username = user.username.as_deref().unwrap_or(&user.email);
+        let username = actor.user.username.as_deref().unwrap_or(&actor.user.email);
         let (options, state) = webauthn
-            .start_passkey_registration(user.id, username, &user.name, exclude)
+            .start_passkey_registration(actor.user.id, username, &actor.user.name, exclude)
             .map_err(|_| AuthError::PasskeyVerificationFailed)?;
         let token = random_token();
         self.passkey_ceremonies.lock().await.insert(
             token.clone(),
             PasskeyCeremony::Registration {
-                user_id: user.id,
+                user_id: actor.user.id,
                 state,
                 expires_at: Utc::now() + Duration::minutes(5),
             },
@@ -129,6 +140,9 @@ impl AuthService {
             || actor.session.actor_user_id.is_some()
         {
             return Err(AuthError::InvalidSession);
+        }
+        if !self.store.list_passkeys(user_id).await?.is_empty() {
+            self.require_recent_strong_account(actor)?;
         }
         let passkey = self
             .webauthn()?
@@ -280,6 +294,16 @@ impl AuthService {
             .map_err(|_| AuthError::InvalidConfiguration("invalid passkey relying party".into()))
     }
 
+    fn require_recent_strong_account(&self, session: &SessionWithUser) -> Result<(), AuthError> {
+        require_account_session(session)?;
+        if !session.session.assurance.is_strong()
+            || session.session.created_at + self.config.step_up_ttl <= Utc::now()
+        {
+            return Err(AuthError::StepUpRequired);
+        }
+        Ok(())
+    }
+
     async fn consume_passkey_ceremony(&self, token: &str) -> Result<PasskeyCeremony, AuthError> {
         let now = Utc::now();
         let mut ceremonies = self.passkey_ceremonies.lock().await;
@@ -320,7 +344,7 @@ fn credential_id(passkey: &Passkey) -> Result<String, AuthError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AuthConfig, AuthStore, MemoryStore, NewPasswordUser};
+    use crate::{AuthConfig, AuthStore, MemoryStore, NewPasswordUser, SecurityStore};
     use std::sync::Arc;
 
     #[tokio::test]
@@ -337,11 +361,12 @@ mod tests {
             })
             .await
             .unwrap();
-        let session = service
+        let mut session = service
             .sign_in_username("luna", "password".into(), None, None)
             .await
             .unwrap()
             .session;
+        session.session.assurance = Assurance::PasswordAndPasskey;
         let now = Utc::now();
         let passkey = store
             .save_passkey(StoredPasskey {
@@ -362,6 +387,10 @@ mod tests {
             .unwrap();
         assert_eq!(renamed.name.as_deref(), Some("Security key"));
 
+        store
+            .replace_recovery_codes(session.user.id, vec!["stale-code".into()])
+            .await
+            .unwrap();
         service.delete_passkey(&session, passkey.id).await.unwrap();
         assert!(
             service
@@ -370,5 +399,61 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+        assert_eq!(store.recovery_code_count(session.user.id).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn required_mfa_preserves_one_passkey_under_concurrent_deletion() {
+        let store = Arc::new(MemoryStore::default());
+        let mut config = AuthConfig::new([48_u8; 32]).unwrap();
+        config.required_mfa_roles = vec!["owner".into()];
+        let service = AuthService::new(store.clone(), config);
+        service
+            .provision_password_user(NewPasswordUser {
+                username: "luna".into(),
+                name: "Luna".into(),
+                email: None,
+                password: "password".into(),
+                role: "owner".into(),
+            })
+            .await
+            .unwrap();
+        let mut session = service
+            .sign_in_username("luna", "password".into(), None, None)
+            .await
+            .unwrap()
+            .session;
+        session.session.assurance = Assurance::PasswordAndPasskey;
+        let now = Utc::now();
+        let first = test_passkey(session.user.id, "first", now);
+        let second = test_passkey(session.user.id, "second", now);
+        store.save_passkey(first.clone()).await.unwrap();
+        store.save_passkey(second.clone()).await.unwrap();
+
+        let (left, right) = tokio::join!(
+            service.delete_passkey(&session, first.id),
+            service.delete_passkey(&session, second.id)
+        );
+        assert_eq!(usize::from(left.is_ok()) + usize::from(right.is_ok()), 1);
+        assert!(
+            matches!(left, Err(AuthError::LastPasskey))
+                || matches!(right, Err(AuthError::LastPasskey))
+        );
+        assert_eq!(
+            service.list_passkeys(session.user.id).await.unwrap().len(),
+            1
+        );
+    }
+
+    fn test_passkey(user_id: Uuid, credential_id: &str, now: DateTime<Utc>) -> StoredPasskey {
+        StoredPasskey {
+            id: Uuid::new_v4(),
+            user_id,
+            name: Some(credential_id.into()),
+            credential_id: credential_id.into(),
+            credential: json!({}),
+            created_at: now,
+            updated_at: now,
+        }
     }
 }

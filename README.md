@@ -36,7 +36,10 @@ it to `password_and_passkey` or a one-time recovery code upgrades it to
 configured to require MFA. Security-sensitive owner operations additionally
 require strong authentication no older than `AuthConfig::step_up_ttl`. Recovery
 codes are only shown when generated, stored as keyed hashes, replaced as a set,
-and consumed atomically. An administrative password reset clears sessions,
+and consumed atomically. Adding another passkey or removing one requires recent
+strong authentication. Required-MFA accounts cannot remove their final passkey,
+and deleting the final optional passkey also clears now-unusable recovery codes.
+These lifecycle checks are atomic in both stores. An administrative password reset clears sessions,
 passkeys, and recovery codes so the account can enroll again.
 
 WebAuthn relying-party configuration is explicit and must use HTTPS except for
