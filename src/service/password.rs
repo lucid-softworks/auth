@@ -93,13 +93,18 @@ impl AuthService {
         self.store
             .clear_auth_failures(&super::account_limit_key(&username))
             .await?;
-        let assurance = if self.store.list_passkeys(user.id).await?.is_empty() {
-            Assurance::Password
-        } else {
+        let has_passkeys = !self.store.list_passkeys(user.id).await?.is_empty();
+        let mfa_setup_required = self.requires_mfa(&user) && !has_passkeys;
+        let assurance = if has_passkeys || mfa_setup_required {
             Assurance::PasswordPendingPasskey
+        } else {
+            Assurance::Password
         };
-        self.create_session(user, assurance, None, None, ip_address, user_agent)
-            .await
+        let mut result = self
+            .create_session(user, assurance, None, None, ip_address, user_agent)
+            .await?;
+        result.mfa_setup_required = mfa_setup_required;
+        Ok(result)
     }
 
     pub async fn username_available(&self, username: &str) -> Result<bool, AuthError> {
@@ -190,7 +195,7 @@ pub(super) fn normalize_username(value: &str) -> Result<String, AuthError> {
     Ok(value)
 }
 
-async fn verify_password(
+pub(super) async fn verify_password(
     password: String,
     password_hash: Option<String>,
 ) -> Result<bool, AuthError> {

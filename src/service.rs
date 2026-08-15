@@ -2,6 +2,7 @@ mod access;
 mod guest;
 mod passkey;
 mod password;
+mod recovery;
 mod session;
 mod user;
 
@@ -17,7 +18,9 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+pub use passkey::PasskeyRegistrationResult;
 pub use password::PasswordChangeResult;
+pub use recovery::RecoveryCodeStatus;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -34,6 +37,7 @@ pub struct AuthConfig {
     pub lockout_window: Duration,
     pub passkeys: Option<PasskeyConfig>,
     pub password_breach_checker: Option<Arc<dyn PasswordBreachChecker>>,
+    pub required_mfa_roles: Vec<String>,
 }
 
 /// Stable relying-party settings used for WebAuthn ceremonies.
@@ -63,6 +67,7 @@ impl AuthConfig {
             lockout_window: Duration::minutes(5),
             passkeys: None,
             password_breach_checker: None,
+            required_mfa_roles: Vec::new(),
         })
     }
 }
@@ -71,6 +76,7 @@ impl AuthConfig {
 pub struct SignInResult {
     pub token: String,
     pub session: SessionWithUser,
+    pub mfa_setup_required: bool,
 }
 
 /// Closed-registration account provisioned from an existing Argon2 password hash.
@@ -293,6 +299,7 @@ impl AuthService {
         Ok(SignInResult {
             token,
             session: SessionWithUser { session, user },
+            mfa_setup_required: false,
         })
     }
 
@@ -346,6 +353,10 @@ impl AuthService {
             .expect("HMAC accepts arbitrary key lengths");
         mac.update(value);
         URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
+    }
+
+    fn requires_mfa(&self, user: &AuthUser) -> bool {
+        self.config.required_mfa_roles.contains(&user.role)
     }
 }
 
@@ -440,6 +451,34 @@ mod tests {
             result.session.session.assurance,
             Assurance::PasswordPendingPasskey
         );
+        assert!(!result.mfa_setup_required);
+    }
+
+    #[tokio::test]
+    async fn configured_roles_must_enroll_a_passkey_after_password() {
+        let mut config = AuthConfig::new([17_u8; 32]).unwrap();
+        config.required_mfa_roles = vec!["owner".into()];
+        let service = AuthService::new(Arc::new(MemoryStore::default()), config);
+        service
+            .provision_password_user(NewPasswordUser {
+                username: "luna".into(),
+                name: "Luna".into(),
+                email: None,
+                password: "password".into(),
+                role: "owner".into(),
+            })
+            .await
+            .unwrap();
+
+        let result = service
+            .sign_in_username("luna", "password".into(), None, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            result.session.session.assurance,
+            Assurance::PasswordPendingPasskey
+        );
+        assert!(result.mfa_setup_required);
     }
 
     #[test]

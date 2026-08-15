@@ -353,6 +353,15 @@ impl AuthStore for PostgresStore {
             .map_err(storage_error)
     }
 
+    async fn delete_user_passkeys(&self, user_id: Uuid) -> Result<(), AuthError> {
+        sqlx::query("DELETE FROM lucid_auth_passkeys WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map(|_| ())
+            .map_err(storage_error)
+    }
+
     async fn find_user_by_id(&self, user_id: Uuid) -> Result<Option<AuthUser>, AuthError> {
         self.load_user_by_id(user_id).await
     }

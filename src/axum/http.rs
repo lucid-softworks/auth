@@ -173,6 +173,9 @@ pub(super) fn auth_error(error: AuthError) -> Response {
         | AuthError::PasskeyChallengeExpired
         | AuthError::PasskeyVerificationFailed
         | AuthError::CredentialAlreadyRegistered => passkey_error_details(&error),
+        AuthError::RecoveryCodesNotEnabled | AuthError::InvalidRecoveryCode => {
+            recovery_error_details(&error)
+        }
         AuthError::InvalidSession => (
             StatusCode::UNAUTHORIZED,
             "INVALID_SESSION",
@@ -283,6 +286,21 @@ fn passkey_error_details(error: &AuthError) -> ErrorDetails {
             StatusCode::BAD_REQUEST,
             "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED",
             "The passkey is already registered",
+        ),
+    }
+}
+
+fn recovery_error_details(error: &AuthError) -> ErrorDetails {
+    match error {
+        AuthError::RecoveryCodesNotEnabled => (
+            StatusCode::BAD_REQUEST,
+            "BACKUP_CODES_NOT_ENABLED",
+            "Recovery codes are not enabled for this account",
+        ),
+        _ => (
+            StatusCode::UNAUTHORIZED,
+            "INVALID_BACKUP_CODE",
+            "The recovery code is invalid",
         ),
     }
 }

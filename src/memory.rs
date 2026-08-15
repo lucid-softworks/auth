@@ -4,7 +4,10 @@ use crate::{
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -18,6 +21,7 @@ struct MemoryState {
     guest_grants: HashMap<Uuid, GuestGrant>,
     audit_events: Vec<AuditEvent>,
     rate_limits: HashMap<String, RateLimitWindow>,
+    recovery_codes: HashMap<Uuid, HashSet<String>>,
 }
 
 struct RateLimitWindow {
@@ -202,6 +206,15 @@ impl AuthStore for MemoryStore {
         Ok(owned)
     }
 
+    async fn delete_user_passkeys(&self, user_id: Uuid) -> Result<(), AuthError> {
+        self.state
+            .write()
+            .await
+            .passkeys
+            .retain(|_, passkey| passkey.user_id != user_id);
+        Ok(())
+    }
+
     async fn find_user_by_id(&self, user_id: Uuid) -> Result<Option<AuthUser>, AuthError> {
         Ok(self.state.read().await.users.get(&user_id).cloned())
     }
@@ -285,6 +298,48 @@ impl SecurityStore for MemoryStore {
 
     async fn clear_auth_failures(&self, key: &str) -> Result<(), AuthError> {
         self.state.write().await.rate_limits.remove(key);
+        Ok(())
+    }
+
+    async fn replace_recovery_codes(
+        &self,
+        user_id: Uuid,
+        code_hashes: Vec<String>,
+    ) -> Result<(), AuthError> {
+        self.state
+            .write()
+            .await
+            .recovery_codes
+            .insert(user_id, code_hashes.into_iter().collect());
+        Ok(())
+    }
+
+    async fn consume_recovery_code(
+        &self,
+        user_id: Uuid,
+        code_hash: &str,
+    ) -> Result<bool, AuthError> {
+        Ok(self
+            .state
+            .write()
+            .await
+            .recovery_codes
+            .get_mut(&user_id)
+            .is_some_and(|codes| codes.remove(code_hash)))
+    }
+
+    async fn recovery_code_count(&self, user_id: Uuid) -> Result<usize, AuthError> {
+        Ok(self
+            .state
+            .read()
+            .await
+            .recovery_codes
+            .get(&user_id)
+            .map_or(0, HashSet::len))
+    }
+
+    async fn delete_recovery_codes(&self, user_id: Uuid) -> Result<(), AuthError> {
+        self.state.write().await.recovery_codes.remove(&user_id);
         Ok(())
     }
 }

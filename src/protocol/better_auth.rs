@@ -74,6 +74,39 @@ pub struct SignInResponse {
     pub url: Option<String>,
     pub user: BetterAuthUser,
     pub two_factor_redirect: bool,
+    pub two_factor_methods: Vec<String>,
+    pub mfa_setup_required: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GenerateBackupCodesRequest {
+    pub password: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateBackupCodesResponse {
+    pub status: bool,
+    pub backup_codes: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerifyBackupCodeRequest {
+    pub code: String,
+    pub disable_session: Option<bool>,
+    pub trust_device: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VerifyBackupCodeResponse {
+    pub token: String,
+    pub user: BetterAuthUser,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecoveryCodeStatusResponse {
+    pub remaining: usize,
 }
 
 #[derive(Debug, Serialize)]

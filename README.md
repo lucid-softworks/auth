@@ -11,6 +11,8 @@ The initial compatibility target is Better Auth `1.6.29` and covers:
 - sign-out
 - anonymous guest sign-in
 - passkey enrollment, listing and sign-in through `@better-auth/passkey`
+- passkey MFA enforcement by role and one-time recovery codes through Better Auth's
+  official `twoFactorClient`
 - password changes plus current-user session listing and revocation
 - passkey rename and removal
 - admin user listing, creation, role assignment, disabling, password reset and removal
@@ -25,11 +27,17 @@ authorization. Applications provide their own permission vocabulary while
 using the authenticated principal's role, actor, subject, guest grant and
 assurance metadata.
 
-Passkey enrollment requires an existing session. After enrollment, password
-verification produces `password_pending_passkey` assurance until the passkey
-ceremony upgrades it to `password_and_passkey`. Hosts must deny protected
-operations to pending sessions. WebAuthn relying-party
-configuration is explicit and must use HTTPS except for the browser's
-`localhost` development exception.
+Passkey enrollment requires an existing session. Roles listed in
+`AuthConfig::required_mfa_roles` must enroll a passkey during their next
+password sign-in. Once enrolled, password verification produces
+`password_pending_passkey` assurance until either the passkey ceremony upgrades
+it to `password_and_passkey` or a one-time recovery code upgrades it to
+`recovery`. Hosts must deny protected operations to pending sessions. Recovery
+codes are only shown when generated, stored as keyed hashes, replaced as a set,
+and consumed atomically. An administrative password reset clears sessions,
+passkeys, and recovery codes so the account can enroll again.
+
+WebAuthn relying-party configuration is explicit and must use HTTPS except for
+the browser's `localhost` development exception.
 
 This project is not affiliated with Better Auth.

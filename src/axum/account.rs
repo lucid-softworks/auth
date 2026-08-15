@@ -1,5 +1,5 @@
 use super::http::{
-    auth_error, clear_session_cookie, current_session, user_agent, with_session_cookie,
+    auth_error, clear_session_cookie, client_ip, current_session, user_agent, with_session_cookie,
 };
 use crate::{AuthError, AuthService};
 use axum::{
@@ -13,7 +13,8 @@ use uuid::Uuid;
 
 use crate::protocol::better_auth::{
     BetterAuthSession, BetterAuthUser, ChangePasswordRequest, ChangePasswordResponse,
-    RevokeSessionRequest, StatusResponse,
+    GenerateBackupCodesRequest, GenerateBackupCodesResponse, RevokeSessionRequest, StatusResponse,
+    VerifyBackupCodeRequest, VerifyBackupCodeResponse,
 };
 
 pub(super) fn router<S>() -> Router<S>
@@ -29,6 +30,67 @@ where
             post(revoke_other_sessions),
         )
         .route("/api/auth/revoke-sessions", post(revoke_sessions))
+        .route(
+            "/api/auth/two-factor/generate-backup-codes",
+            post(generate_backup_codes),
+        )
+        .route(
+            "/api/auth/two-factor/verify-backup-code",
+            post(verify_backup_code),
+        )
+}
+
+async fn generate_backup_codes(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Json(input): Json<GenerateBackupCodesRequest>,
+) -> Response {
+    let Some(session) = current_session(&service, &headers).await else {
+        return auth_error(AuthError::InvalidSession);
+    };
+    match service
+        .generate_recovery_codes(&session, input.password)
+        .await
+    {
+        Ok(backup_codes) => Json(GenerateBackupCodesResponse {
+            status: true,
+            backup_codes,
+        })
+        .into_response(),
+        Err(error) => auth_error(error),
+    }
+}
+
+async fn verify_backup_code(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Json(input): Json<VerifyBackupCodeRequest>,
+) -> Response {
+    let Some(session) = current_session(&service, &headers).await else {
+        return auth_error(AuthError::InvalidSession);
+    };
+    match service
+        .verify_recovery_code(
+            &session,
+            &input.code,
+            client_ip(&headers),
+            user_agent(&headers),
+        )
+        .await
+    {
+        Ok(result) => {
+            let body = Json(VerifyBackupCodeResponse {
+                token: result.token.clone(),
+                user: BetterAuthUser::from(&result.session.user),
+            });
+            if input.disable_session == Some(true) {
+                body.into_response()
+            } else {
+                with_session_cookie(&service, &result.token, Some(true), body)
+            }
+        }
+        Err(error) => auth_error(error),
+    }
 }
 
 async fn change_password(

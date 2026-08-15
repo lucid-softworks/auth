@@ -24,6 +24,12 @@ pub(super) enum PasskeyCeremony {
     },
 }
 
+#[derive(Debug, Clone)]
+pub struct PasskeyRegistrationResult {
+    pub passkey: StoredPasskey,
+    pub replacement_session: Option<SignInResult>,
+}
+
 impl AuthService {
     pub async fn list_passkeys(&self, user_id: Uuid) -> Result<Vec<StoredPasskey>, AuthError> {
         self.store.list_passkeys(user_id).await
@@ -109,16 +115,19 @@ impl AuthService {
     pub async fn finish_passkey_registration(
         &self,
         token: &str,
-        current_user_id: Uuid,
+        actor: &SessionWithUser,
         response: RegisterPublicKeyCredential,
         name: Option<String>,
-    ) -> Result<StoredPasskey, AuthError> {
+    ) -> Result<PasskeyRegistrationResult, AuthError> {
         let PasskeyCeremony::Registration { user_id, state, .. } =
             self.consume_passkey_ceremony(token).await?
         else {
             return Err(AuthError::PasskeyChallengeExpired);
         };
-        if user_id != current_user_id {
+        if user_id != actor.user.id
+            || actor.user.is_anonymous
+            || actor.session.actor_user_id.is_some()
+        {
             return Err(AuthError::InvalidSession);
         }
         let passkey = self
@@ -126,7 +135,8 @@ impl AuthService {
             .finish_passkey_registration(&response, &state)
             .map_err(|_| AuthError::PasskeyVerificationFailed)?;
         let now = Utc::now();
-        self.store
+        let stored = self
+            .store
             .save_passkey(StoredPasskey {
                 id: Uuid::new_v4(),
                 user_id,
@@ -137,7 +147,38 @@ impl AuthService {
                 created_at: now,
                 updated_at: now,
             })
-            .await
+            .await?;
+        let replacement_session = if matches!(
+            actor.session.assurance,
+            Assurance::Password | Assurance::PasswordPendingPasskey
+        ) {
+            let session = self
+                .create_session(
+                    actor.user.clone(),
+                    Assurance::PasswordAndPasskey,
+                    None,
+                    None,
+                    actor.session.ip_address.clone(),
+                    actor.session.user_agent.clone(),
+                )
+                .await?;
+            self.store.delete_session_by_id(actor.session.id).await?;
+            Some(session)
+        } else {
+            None
+        };
+        self.audit(
+            actor.user.id,
+            Some(actor.user.id),
+            "passkey.enrolled",
+            Some(stored.id.to_string()),
+            json!({}),
+        )
+        .await?;
+        Ok(PasskeyRegistrationResult {
+            passkey: stored,
+            replacement_session,
+        })
     }
 
     pub async fn start_passkey_authentication(

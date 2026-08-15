@@ -45,6 +45,10 @@ pub enum AuthError {
     PasskeyVerificationFailed,
     #[error("the passkey is already registered")]
     CredentialAlreadyRegistered,
+    #[error("recovery codes are not enabled for this account")]
+    RecoveryCodesNotEnabled,
+    #[error("the recovery code is invalid")]
+    InvalidRecoveryCode,
     #[error("authentication configuration is invalid: {0}")]
     InvalidConfiguration(String),
     #[error("authentication storage failed: {0}")]

@@ -103,6 +103,16 @@ async fn sign_in_username(
                 user: BetterAuthUser::from(&result.session.user),
                 two_factor_redirect: result.session.session.assurance
                     == crate::Assurance::PasswordPendingPasskey,
+                two_factor_methods: if result.mfa_setup_required {
+                    vec!["passkey".into()]
+                } else if result.session.session.assurance
+                    == crate::Assurance::PasswordPendingPasskey
+                {
+                    vec!["passkey".into(), "backup_code".into()]
+                } else {
+                    Vec::new()
+                },
+                mfa_setup_required: result.mfa_setup_required,
             };
             with_session_cookie(&service, &result.token, input.remember_me, Json(response))
         }
@@ -201,10 +211,17 @@ async fn verify_passkey_registration(
         return auth_error(AuthError::PasskeyChallengeExpired);
     };
     match service
-        .finish_passkey_registration(&challenge, session.user.id, input.response, input.name)
+        .finish_passkey_registration(&challenge, &session, input.response, input.name)
         .await
     {
-        Ok(passkey) => Json(BetterAuthPasskey::from(&passkey)).into_response(),
+        Ok(result) => {
+            let body = Json(BetterAuthPasskey::from(&result.passkey));
+            if let Some(replacement) = result.replacement_session {
+                with_session_cookie(&service, &replacement.token, Some(true), body)
+            } else {
+                body.into_response()
+            }
+        }
         Err(error) => auth_error(error),
     }
 }
@@ -229,7 +246,12 @@ async fn verify_passkey_authentication(
         return auth_error(AuthError::PasskeyChallengeExpired);
     };
     match service
-        .finish_passkey_authentication(&challenge, input.response, None, user_agent(&headers))
+        .finish_passkey_authentication(
+            &challenge,
+            input.response,
+            client_ip(&headers),
+            user_agent(&headers),
+        )
         .await
     {
         Ok(result) => {

@@ -92,12 +92,14 @@ impl AuthService {
             .set_password_hash(user_id, hash_password(password).await?)
             .await?;
         self.store.delete_user_sessions(user_id).await?;
+        self.store.delete_user_passkeys(user_id).await?;
+        self.store.delete_recovery_codes(user_id).await?;
         self.audit(
             actor.user.id,
             Some(user_id),
             "password.reset_by_owner",
             Some(user_id.to_string()),
-            json!({ "revokedSessions": true }),
+            json!({ "revokedSessions": true, "resetMfa": true }),
         )
         .await
     }
