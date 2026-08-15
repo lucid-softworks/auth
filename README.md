@@ -18,9 +18,10 @@ authorization. Applications provide their own permission vocabulary while
 using the authenticated principal's role, actor, subject, guest grant and
 assurance metadata.
 
-Passkey enrollment requires an existing session. Authenticating a passkey
-from a password session produces `password_and_passkey` assurance, allowing a
-host to require step-up MFA for sensitive operations. WebAuthn relying-party
+Passkey enrollment requires an existing session. After enrollment, password
+verification produces `password_pending_passkey` assurance until the passkey
+ceremony upgrades it to `password_and_passkey`. Hosts must deny protected
+operations to pending sessions. WebAuthn relying-party
 configuration is explicit and must use HTTPS except for the browser's
 `localhost` development exception.
 

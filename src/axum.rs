@@ -80,6 +80,8 @@ async fn sign_in_username(
                 token: result.token.clone(),
                 url: callback_url,
                 user: BetterAuthUser::from(&result.session.user),
+                two_factor_redirect: result.session.session.assurance
+                    == crate::Assurance::PasswordPendingPasskey,
             };
             with_session_cookie(&service, &result.token, input.remember_me, Json(response))
         }

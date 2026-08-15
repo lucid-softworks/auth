@@ -251,15 +251,13 @@ impl AuthService {
             return Err(AuthError::AccountDisabled);
         }
         self.failures.lock().await.remove(&username);
-        self.create_session(
-            user,
-            Assurance::Password,
-            None,
-            None,
-            ip_address,
-            user_agent,
-        )
-        .await
+        let assurance = if self.store.list_passkeys(user.id).await?.is_empty() {
+            Assurance::Password
+        } else {
+            Assurance::PasswordPendingPasskey
+        };
+        self.create_session(user, assurance, None, None, ip_address, user_agent)
+            .await
     }
 
     pub async fn username_available(&self, username: &str) -> Result<bool, AuthError> {
@@ -701,6 +699,45 @@ mod tests {
         assert!(result.session.user.is_anonymous);
         assert_eq!(result.session.user.role, "guest");
         assert_eq!(result.session.principal().assurance, Assurance::Anonymous);
+    }
+
+    #[tokio::test]
+    async fn enrolled_accounts_require_passkey_completion_after_password() {
+        let store = Arc::new(MemoryStore::default());
+        let service = AuthService::new(store.clone(), AuthConfig::new([7_u8; 32]).unwrap());
+        let user = service
+            .provision_password_user(NewPasswordUser {
+                username: "luna".into(),
+                name: "Luna".into(),
+                email: None,
+                password: "password".into(),
+                role: "owner".into(),
+            })
+            .await
+            .unwrap();
+        let now = Utc::now();
+        store
+            .save_passkey(StoredPasskey {
+                id: Uuid::new_v4(),
+                user_id: user.id,
+                name: Some("Test passkey".into()),
+                credential_id: "test-credential".into(),
+                credential: serde_json::json!({}),
+                created_at: now,
+                updated_at: now,
+            })
+            .await
+            .unwrap();
+
+        let result = service
+            .sign_in_username("luna", "password".into(), None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result.session.session.assurance,
+            Assurance::PasswordPendingPasskey
+        );
     }
 
     #[test]

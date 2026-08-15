@@ -8,6 +8,7 @@ use uuid::Uuid;
 pub enum Assurance {
     Anonymous,
     Password,
+    PasswordPendingPasskey,
     Passkey,
     PasswordAndPasskey,
     Recovery,
@@ -18,6 +19,7 @@ impl Assurance {
         match self {
             Self::Anonymous => "anonymous",
             Self::Password => "password",
+            Self::PasswordPendingPasskey => "password_pending_passkey",
             Self::Passkey => "passkey",
             Self::PasswordAndPasskey => "password_and_passkey",
             Self::Recovery => "recovery",
@@ -28,6 +30,7 @@ impl Assurance {
         match value {
             "anonymous" => Self::Anonymous,
             "passkey" => Self::Passkey,
+            "password_pending_passkey" => Self::PasswordPendingPasskey,
             "password_and_passkey" => Self::PasswordAndPasskey,
             "recovery" => Self::Recovery,
             _ => Self::Password,

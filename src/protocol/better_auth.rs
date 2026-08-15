@@ -72,6 +72,7 @@ pub struct SignInResponse {
     pub token: String,
     pub url: Option<String>,
     pub user: BetterAuthUser,
+    pub two_factor_redirect: bool,
 }
 
 #[derive(Debug, Serialize)]
