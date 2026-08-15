@@ -1,0 +1,113 @@
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+/// How strongly a session's subject was authenticated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Assurance {
+    Anonymous,
+    Password,
+    Passkey,
+    PasswordAndPasskey,
+    Recovery,
+}
+
+impl Assurance {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Anonymous => "anonymous",
+            Self::Password => "password",
+            Self::Passkey => "passkey",
+            Self::PasswordAndPasskey => "password_and_passkey",
+            Self::Recovery => "recovery",
+        }
+    }
+
+    pub(crate) fn parse(value: &str) -> Self {
+        match value {
+            "anonymous" => Self::Anonymous,
+            "passkey" => Self::Passkey,
+            "password_and_passkey" => Self::PasswordAndPasskey,
+            "recovery" => Self::Recovery,
+            _ => Self::Password,
+        }
+    }
+}
+
+/// A user account independent of any HTTP or application framework.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthUser {
+    pub id: Uuid,
+    pub username: Option<String>,
+    pub display_username: Option<String>,
+    pub name: String,
+    pub email: String,
+    pub email_verified: bool,
+    pub image: Option<String>,
+    pub role: String,
+    pub is_anonymous: bool,
+    pub banned: bool,
+    pub ban_reason: Option<String>,
+    pub ban_expires: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Input used by a host to provision or update a closed-registration account.
+#[derive(Debug, Clone)]
+pub struct NewPasswordUser {
+    pub username: String,
+    pub name: String,
+    pub email: Option<String>,
+    pub password: String,
+    pub role: String,
+}
+
+/// Server-side session metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthSession {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub token_hash: String,
+    pub actor_user_id: Option<Uuid>,
+    pub guest_grant_id: Option<Uuid>,
+    pub assurance: Assurance,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionWithUser {
+    pub session: AuthSession,
+    pub user: AuthUser,
+}
+
+/// Identity information passed to the host application's authorizer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Principal {
+    pub actor_id: Uuid,
+    pub subject_id: Uuid,
+    pub session_id: Uuid,
+    pub role: String,
+    pub assurance: Assurance,
+    pub guest_grant_id: Option<Uuid>,
+    pub expires_at: DateTime<Utc>,
+}
+
+impl SessionWithUser {
+    pub fn principal(&self) -> Principal {
+        Principal {
+            actor_id: self.session.actor_user_id.unwrap_or(self.user.id),
+            subject_id: self.user.id,
+            session_id: self.session.id,
+            role: self.user.role.clone(),
+            assurance: self.session.assurance,
+            guest_grant_id: self.session.guest_grant_id,
+            expires_at: self.session.expires_at,
+        }
+    }
+}

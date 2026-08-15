@@ -1,0 +1,38 @@
+[package]
+name = "lucid-auth"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+description = "Native Rust authentication with Better Auth client compatibility"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lucid-softworks/auth"
+keywords = ["authentication", "better-auth", "axum", "passkey"]
+categories = ["authentication", "web-programming"]
+
+[features]
+default = ["axum"]
+axum = ["dep:axum"]
+postgres = ["dep:sqlx"]
+
+[dependencies]
+argon2 = "0.5"
+async-trait = "0.1"
+axum = { version = "0.8", optional = true }
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+hex = "0.4"
+hmac = "0.12"
+rand = "0.10"
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+sqlx = { version = "0.8", optional = true, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt", "sync"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+axum = "0.8"
+http-body-util = "0.1"
+serde_json = "1"
+tower = { version = "0.5", features = ["util"] }
