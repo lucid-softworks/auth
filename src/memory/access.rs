@@ -194,4 +194,40 @@ impl AccessStore for MemoryStore {
             .cloned()
             .collect())
     }
+
+    async fn recover_sole_owner(
+        &self,
+        user_id: Uuid,
+        password_hash: String,
+        event: AuditEvent,
+    ) -> Result<bool, AuthError> {
+        let mut state = self.state.write().await;
+        let owners: Vec<_> = state
+            .users
+            .values()
+            .filter(|user| !user.is_anonymous && user.role == "owner")
+            .map(|user| user.id)
+            .collect();
+        if owners.as_slice() != [user_id] {
+            return Ok(false);
+        }
+        let Some(user) = state.users.get_mut(&user_id) else {
+            return Ok(false);
+        };
+        user.must_change_password = true;
+        user.banned = false;
+        user.ban_reason = None;
+        user.ban_expires = None;
+        user.updated_at = Utc::now();
+        state.passwords.insert(user_id, password_hash);
+        state
+            .sessions
+            .retain(|_, session| session.user_id != user_id);
+        state
+            .passkeys
+            .retain(|_, passkey| passkey.user_id != user_id);
+        state.recovery_codes.remove(&user_id);
+        state.audit_events.push(event);
+        Ok(true)
+    }
 }

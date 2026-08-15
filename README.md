@@ -50,6 +50,12 @@ route while denying application and administrative access until the account
 chooses a replacement. Configured bootstrap users may opt into the same state,
 which is reapplied only while the configured password hash remains active.
 
+`AuthService::local_recover_sole_owner` is an explicitly out-of-band operator
+primitive for a host CLI. It atomically refuses multi-owner installations,
+replaces the sole owner's password, clears bans, sessions, passkeys, and recovery
+codes, marks the password temporary, and appends an actorless audit event. It is
+not routed by the crate's Axum compatibility surface.
+
 WebAuthn relying-party configuration is explicit and must use HTTPS except for
 the browser's `localhost` development exception.
 

@@ -1,10 +1,56 @@
-use super::{AuthService, SignInResult, user::validate_managed_role};
+use super::{
+    AuthService, SignInResult,
+    password::{hash_password, normalize_username},
+    user::validate_managed_role,
+};
 use crate::{Assurance, AuditEvent, AuthError, AuthSession, AuthUser, SessionWithUser};
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
 impl AuthService {
+    /// Resets the sole owner's password and MFA state for a local operator.
+    ///
+    /// Hosts must expose this only through an out-of-band local command, never a
+    /// remotely reachable endpoint.
+    pub async fn local_recover_sole_owner(
+        &self,
+        username: &str,
+        password: String,
+    ) -> Result<(), AuthError> {
+        let username = normalize_username(username)?;
+        self.validate_new_password(&password).await?;
+        let target = self
+            .store
+            .find_user_by_username(&username)
+            .await?
+            .filter(|user| !user.is_anonymous && user.role == "owner")
+            .ok_or(AuthError::SoleOwnerRecoveryUnavailable)?;
+        let event = AuditEvent {
+            id: Uuid::new_v4(),
+            actor_user_id: None,
+            subject_user_id: Some(target.id),
+            action: "owner.recovered_locally".into(),
+            target: Some(target.id.to_string()),
+            metadata: json!({
+                "sessionsRevoked": true,
+                "mfaReset": true,
+                "passwordChangeRequired": true,
+            }),
+            created_at: Utc::now(),
+        };
+        let recovered = self
+            .store
+            .recover_sole_owner(target.id, hash_password(password).await?, event)
+            .await?;
+        if !recovered {
+            return Err(AuthError::SoleOwnerRecoveryUnavailable);
+        }
+        self.store
+            .clear_auth_failures(&super::account_limit_key(&username))
+            .await
+    }
+
     pub async fn list_users(
         &self,
         actor: &SessionWithUser,
@@ -301,7 +347,7 @@ fn account_is_banned(user: &AuthUser) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AuthConfig, MemoryStore, NewPasswordUser};
+    use crate::{AuthConfig, MemoryStore, NewPasswordUser, StoredPasskey};
     use std::sync::Arc;
 
     async fn owner_and_member() -> (AuthService, SignInResult, AuthUser) {
@@ -398,5 +444,86 @@ mod tests {
             .set_user_role(&owner.session, member.id, "viewer")
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn local_recovery_resets_only_the_sole_owner_and_records_it() {
+        let (service, owner, _) = owner_and_member().await;
+        let now = Utc::now();
+        service
+            .store
+            .save_passkey(StoredPasskey {
+                id: Uuid::new_v4(),
+                user_id: owner.session.user.id,
+                name: Some("Lost key".into()),
+                credential_id: "lost-credential".into(),
+                credential: json!({}),
+                created_at: now,
+                updated_at: now,
+            })
+            .await
+            .unwrap();
+        service
+            .store
+            .replace_recovery_codes(owner.session.user.id, vec!["lost-code".into()])
+            .await
+            .unwrap();
+
+        service
+            .local_recover_sole_owner("owner", "recovered-password".into())
+            .await
+            .unwrap();
+
+        assert!(service.session(&owner.token).await.unwrap().is_none());
+        assert!(
+            service
+                .list_passkeys(owner.session.user.id)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            service
+                .store
+                .recovery_code_count(owner.session.user.id)
+                .await
+                .unwrap(),
+            0
+        );
+        let recovered = service
+            .sign_in_username("owner", "recovered-password".into(), None, None)
+            .await
+            .unwrap();
+        assert!(recovered.session.user.must_change_password);
+        let event = service
+            .store
+            .list_audit_events(1)
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert_eq!(event.action, "owner.recovered_locally");
+        assert!(event.actor_user_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn local_recovery_refuses_to_choose_between_multiple_owners() {
+        let (service, _, _) = owner_and_member().await;
+        service
+            .provision_password_user(NewPasswordUser {
+                username: "second_owner".into(),
+                name: "Second owner".into(),
+                email: None,
+                password: "password".into(),
+                role: "owner".into(),
+            })
+            .await
+            .unwrap();
+
+        let error = service
+            .local_recover_sole_owner("owner", "recovered-password".into())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, AuthError::SoleOwnerRecoveryUnavailable));
     }
 }

@@ -168,4 +168,13 @@ pub trait AccessStore: Send + Sync {
     async fn append_audit_event(&self, event: AuditEvent) -> Result<(), AuthError>;
 
     async fn list_audit_events(&self, limit: usize) -> Result<Vec<AuditEvent>, AuthError>;
+
+    /// Atomically replaces credentials for the named sole owner. This is an
+    /// out-of-band operator primitive and must never be exposed as an HTTP route.
+    async fn recover_sole_owner(
+        &self,
+        user_id: Uuid,
+        password_hash: String,
+        event: AuditEvent,
+    ) -> Result<bool, AuthError>;
 }

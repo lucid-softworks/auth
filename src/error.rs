@@ -37,6 +37,8 @@ pub enum AuthError {
     StepUpRequired,
     #[error("the final owner account cannot be removed or disabled")]
     LastOwner,
+    #[error("local recovery requires the named account to be the sole owner")]
+    SoleOwnerRecoveryUnavailable,
     #[error("the guest grant is invalid, expired, exhausted, or revoked")]
     InvalidGuestGrant,
     #[error("the authentication request is invalid: {0}")]

@@ -309,4 +309,70 @@ impl AccessStore for PostgresStore {
         .map(|rows| rows.into_iter().map(AuditEvent::from).collect())
         .map_err(storage_error)
     }
+
+    async fn recover_sole_owner(
+        &self,
+        user_id: Uuid,
+        password_hash: String,
+        event: AuditEvent,
+    ) -> Result<bool, AuthError> {
+        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
+        let owners = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM lucid_auth_users WHERE role = 'owner' AND is_anonymous = FALSE FOR UPDATE",
+        )
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(storage_error)?;
+        if owners.as_slice() != [user_id] {
+            return Ok(false);
+        }
+        let account = sqlx::query(
+            "UPDATE lucid_auth_accounts SET password_hash = $2, updated_at = NOW() \
+             WHERE user_id = $1 AND provider_id = 'credential'",
+        )
+        .bind(user_id)
+        .bind(password_hash)
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage_error)?;
+        if account.rows_affected() != 1 {
+            return Err(AuthError::CredentialAccountNotFound);
+        }
+        sqlx::query(
+            "UPDATE lucid_auth_users SET must_change_password = TRUE, banned = FALSE, \
+             ban_reason = NULL, ban_expires = NULL, updated_at = NOW() WHERE id = $1",
+        )
+        .bind(user_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage_error)?;
+        for table in [
+            "lucid_auth_sessions",
+            "lucid_auth_passkeys",
+            "lucid_auth_recovery_codes",
+        ] {
+            sqlx::query(&format!("DELETE FROM {table} WHERE user_id = $1"))
+                .bind(user_id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(storage_error)?;
+        }
+        sqlx::query(
+            "INSERT INTO lucid_auth_audit_events \
+             (id, actor_user_id, subject_user_id, action, target, metadata, created_at) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        )
+        .bind(event.id)
+        .bind(event.actor_user_id)
+        .bind(event.subject_user_id)
+        .bind(event.action)
+        .bind(event.target)
+        .bind(event.metadata)
+        .bind(event.created_at)
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage_error)?;
+        transaction.commit().await.map_err(storage_error)?;
+        Ok(true)
+    }
 }
