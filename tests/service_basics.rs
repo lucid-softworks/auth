@@ -113,6 +113,32 @@ async fn configured_roles_must_enroll_a_passkey_after_password() {
     assert!(result.mfa_setup_required);
 }
 
+#[tokio::test]
+async fn enabling_required_mfa_invalidates_existing_password_only_sessions() {
+    let store = Arc::new(MemoryStore::default());
+    let initial = AuthService::new(store.clone(), AuthConfig::new([21_u8; 32]).unwrap());
+    initial
+        .provision_password_user(NewPasswordUser {
+            username: "luna".into(),
+            name: "Luna".into(),
+            email: None,
+            password: "password".into(),
+            role: "owner".into(),
+        })
+        .await
+        .unwrap();
+    let signed_in = initial
+        .sign_in_username("luna", "password".into(), None, None)
+        .await
+        .unwrap();
+
+    let mut hardened_config = AuthConfig::new([21_u8; 32]).unwrap();
+    hardened_config.required_mfa_roles = vec!["owner".into()];
+    let hardened = AuthService::new(store, hardened_config);
+
+    assert!(hardened.session(&signed_in.token).await.unwrap().is_none());
+}
+
 #[test]
 fn rejects_modified_session_cookies() {
     let service = service(false);

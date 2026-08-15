@@ -6,15 +6,13 @@ use chrono::{Duration, Utc};
 use serde_json::json;
 use uuid::Uuid;
 
-use super::access::require_owner;
-
 impl AuthService {
     pub async fn issue_guest_grant(
         &self,
         actor: &crate::SessionWithUser,
         mut input: NewGuestGrant,
     ) -> Result<IssuedGuestGrant, AuthError> {
-        require_owner(actor)?;
+        self.require_recent_owner(actor)?;
         validate_guest_grant(&input)?;
         normalize(&mut input.permissions);
         normalize(&mut input.resource_scopes);
@@ -119,7 +117,7 @@ impl AuthService {
         &self,
         actor: &crate::SessionWithUser,
     ) -> Result<Vec<GuestGrant>, AuthError> {
-        require_owner(actor)?;
+        super::access::require_owner(actor)?;
         self.store.list_guest_grants().await
     }
 
@@ -128,7 +126,7 @@ impl AuthService {
         actor: &crate::SessionWithUser,
         grant_id: Uuid,
     ) -> Result<(), AuthError> {
-        require_owner(actor)?;
+        self.require_recent_owner(actor)?;
         self.store.revoke_guest_grant(grant_id, Utc::now()).await?;
         self.audit(
             actor.user.id,

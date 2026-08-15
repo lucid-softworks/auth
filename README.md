@@ -32,7 +32,9 @@ Passkey enrollment requires an existing session. Roles listed in
 password sign-in. Once enrolled, password verification produces
 `password_pending_passkey` assurance until either the passkey ceremony upgrades
 it to `password_and_passkey` or a one-time recovery code upgrades it to
-`recovery`. Hosts must deny protected operations to pending sessions. Recovery
+`recovery`. Existing password-only sessions are invalidated when their role is
+configured to require MFA. Security-sensitive owner operations additionally
+require strong authentication no older than `AuthConfig::step_up_ttl`. Recovery
 codes are only shown when generated, stored as keyed hashes, replaced as a set,
 and consumed atomically. An administrative password reset clears sessions,
 passkeys, and recovery codes so the account can enroll again.

@@ -31,6 +31,8 @@ pub enum AuthError {
     PasskeyNotFound,
     #[error("the current account is not permitted to perform this action")]
     Forbidden,
+    #[error("recent multi-factor authentication is required for this action")]
+    StepUpRequired,
     #[error("the final owner account cannot be removed or disabled")]
     LastOwner,
     #[error("the guest grant is invalid, expired, exhausted, or revoked")]

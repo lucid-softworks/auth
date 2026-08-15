@@ -15,7 +15,7 @@ pub enum Assurance {
 }
 
 impl Assurance {
-    pub(crate) fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Anonymous => "anonymous",
             Self::Password => "password",
@@ -24,6 +24,14 @@ impl Assurance {
             Self::PasswordAndPasskey => "password_and_passkey",
             Self::Recovery => "recovery",
         }
+    }
+
+    /// Whether this assurance proves possession of a second factor.
+    pub const fn is_strong(self) -> bool {
+        matches!(
+            self,
+            Self::Passkey | Self::PasswordAndPasskey | Self::Recovery
+        )
     }
 
     pub(crate) fn parse(value: &str) -> Self {
@@ -160,6 +168,8 @@ pub struct Principal {
     pub guest_grant_id: Option<Uuid>,
     pub permissions: Vec<String>,
     pub resource_scopes: Vec<String>,
+    /// When the credentials establishing the current assurance were verified.
+    pub authenticated_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
 }
 
@@ -174,6 +184,7 @@ impl SessionWithUser {
             guest_grant_id: self.session.guest_grant_id,
             permissions: Vec::new(),
             resource_scopes: Vec::new(),
+            authenticated_at: self.session.created_at,
             expires_at: self.session.expires_at,
         }
     }

@@ -1,6 +1,5 @@
 use super::{
     AuthService,
-    access::require_owner,
     password::{hash_password, normalize_username},
 };
 use crate::{AuthError, AuthUser, NewPasswordUser, SessionWithUser};
@@ -16,7 +15,7 @@ impl AuthService {
         actor: &SessionWithUser,
         input: NewPasswordUser,
     ) -> Result<AuthUser, AuthError> {
-        require_owner(actor)?;
+        self.require_recent_owner(actor)?;
         validate_managed_role(&input.role)?;
         self.validate_new_password(&input.password).await?;
         let username = normalize_username(&input.username).map_err(|_| {
@@ -78,7 +77,7 @@ impl AuthService {
         user_id: Uuid,
         password: String,
     ) -> Result<(), AuthError> {
-        require_owner(actor)?;
+        self.require_recent_owner(actor)?;
         self.validate_new_password(&password).await?;
         let target = self
             .store
@@ -109,7 +108,7 @@ impl AuthService {
         actor: &SessionWithUser,
         user_id: Uuid,
     ) -> Result<(), AuthError> {
-        require_owner(actor)?;
+        self.require_recent_owner(actor)?;
         if actor.user.id == user_id {
             return Err(AuthError::Forbidden);
         }

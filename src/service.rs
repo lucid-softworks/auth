@@ -38,6 +38,8 @@ pub struct AuthConfig {
     pub passkeys: Option<PasskeyConfig>,
     pub password_breach_checker: Option<Arc<dyn PasswordBreachChecker>>,
     pub required_mfa_roles: Vec<String>,
+    /// Maximum age of strong authentication for security-sensitive operations.
+    pub step_up_ttl: Duration,
 }
 
 /// Stable relying-party settings used for WebAuthn ceremonies.
@@ -68,6 +70,7 @@ impl AuthConfig {
             passkeys: None,
             password_breach_checker: None,
             required_mfa_roles: Vec::new(),
+            step_up_ttl: Duration::minutes(15),
         })
     }
 }
@@ -204,6 +207,13 @@ impl AuthService {
         if user.banned && user.ban_expires.is_none_or(|expires| expires > Utc::now()) {
             return Ok(None);
         }
+        if self.requires_mfa(&user)
+            && session.actor_user_id.is_none()
+            && session.assurance == Assurance::Password
+        {
+            self.store.delete_session(&token_hash).await?;
+            return Ok(None);
+        }
         Ok(Some(SessionWithUser { session, user }))
     }
 
@@ -229,6 +239,14 @@ impl AuthService {
 
     pub async fn sign_out(&self, token: &str) -> Result<(), AuthError> {
         self.store.delete_session(&hash_token(token)).await
+    }
+
+    /// Returns whether a principal must verify a strong credential again before a
+    /// security-sensitive operation.
+    pub fn step_up_required(&self, principal: &Principal) -> bool {
+        self.config.required_mfa_roles.contains(&principal.role)
+            && (!principal.assurance.is_strong()
+                || principal.authenticated_at + self.config.step_up_ttl <= Utc::now())
     }
 
     pub fn signed_cookie_value(&self, token: &str) -> String {
@@ -357,6 +375,14 @@ impl AuthService {
 
     fn requires_mfa(&self, user: &AuthUser) -> bool {
         self.config.required_mfa_roles.contains(&user.role)
+    }
+
+    fn require_recent_owner(&self, session: &SessionWithUser) -> Result<(), AuthError> {
+        access::require_owner(session)?;
+        if self.step_up_required(&session.principal()) {
+            return Err(AuthError::StepUpRequired);
+        }
+        Ok(())
     }
 }
 

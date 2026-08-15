@@ -158,6 +158,7 @@ pub(super) fn auth_error(error: AuthError) -> Response {
             "The account is disabled",
         ),
         AuthError::Forbidden
+        | AuthError::StepUpRequired
         | AuthError::NotFound
         | AuthError::UserAlreadyExists
         | AuthError::LastOwner
@@ -201,6 +202,11 @@ fn access_error_details(error: &AuthError) -> ErrorDetails {
             StatusCode::FORBIDDEN,
             "FORBIDDEN",
             "You do not have permission to perform this action",
+        ),
+        AuthError::StepUpRequired => (
+            StatusCode::FORBIDDEN,
+            "STEP_UP_REQUIRED",
+            "Verify a passkey or recovery code before performing this action",
         ),
         AuthError::NotFound => (
             StatusCode::NOT_FOUND,

@@ -24,7 +24,7 @@ impl AuthService {
         user_id: Uuid,
         role: &str,
     ) -> Result<AuthUser, AuthError> {
-        require_owner(actor)?;
+        self.require_recent_owner(actor)?;
         validate_managed_role(role)?;
         let target = self
             .store
@@ -36,6 +36,9 @@ impl AuthService {
         }
         self.protect_final_owner(&target, role != "owner").await?;
         let updated = self.store.update_user_role(user_id, role).await?;
+        if role == "owner" && target.role != "owner" {
+            self.store.delete_user_sessions(user_id).await?;
+        }
         self.audit(
             actor.user.id,
             Some(user_id),
@@ -54,7 +57,7 @@ impl AuthService {
         reason: Option<String>,
         expires_at: Option<DateTime<Utc>>,
     ) -> Result<AuthUser, AuthError> {
-        require_owner(actor)?;
+        self.require_recent_owner(actor)?;
         if actor.user.id == user_id {
             return Err(AuthError::Forbidden);
         }
@@ -85,7 +88,7 @@ impl AuthService {
         actor: &SessionWithUser,
         user_id: Uuid,
     ) -> Result<AuthUser, AuthError> {
-        require_owner(actor)?;
+        self.require_recent_owner(actor)?;
         let updated = self
             .store
             .update_user_ban(user_id, false, None, None)
@@ -118,7 +121,7 @@ impl AuthService {
         actor: &SessionWithUser,
         session_id: Uuid,
     ) -> Result<(), AuthError> {
-        require_owner(actor)?;
+        self.require_recent_owner(actor)?;
         if actor.session.id == session_id {
             return Err(AuthError::Forbidden);
         }
@@ -138,7 +141,7 @@ impl AuthService {
         actor: &SessionWithUser,
         user_id: Uuid,
     ) -> Result<(), AuthError> {
-        require_owner(actor)?;
+        self.require_recent_owner(actor)?;
         if actor.user.id == user_id {
             return Err(AuthError::Forbidden);
         }
@@ -163,7 +166,7 @@ impl AuthService {
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
-        require_owner(actor)?;
+        self.require_recent_owner(actor)?;
         if actor.user.id == user_id {
             return Err(AuthError::Forbidden);
         }
@@ -214,15 +217,13 @@ impl AuthService {
             return Err(AuthError::Forbidden);
         }
         self.store.delete_session_by_id(session.session.id).await?;
+        let assurance = if self.requires_mfa(&actor) {
+            Assurance::PasswordPendingPasskey
+        } else {
+            session.session.assurance
+        };
         let result = self
-            .create_session(
-                actor,
-                session.session.assurance,
-                None,
-                None,
-                ip_address,
-                user_agent,
-            )
+            .create_session(actor, assurance, None, None, ip_address, user_agent)
             .await?;
         self.audit(
             actor_id,
@@ -374,5 +375,27 @@ mod tests {
             .unwrap();
         assert_eq!(restored.session.user.id, owner.session.user.id);
         assert!(restored.session.session.actor_user_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn required_mfa_roles_need_recent_strong_authentication_for_changes() {
+        let (service, mut owner, member) = owner_and_member().await;
+        owner.session.session.assurance = Assurance::PasswordAndPasskey;
+        owner.session.session.created_at = Utc::now() - chrono::Duration::minutes(16);
+
+        let mut config = AuthConfig::new([8_u8; 32]).unwrap();
+        config.required_mfa_roles = vec!["owner".into()];
+        let hardened = AuthService::new(service.store.clone(), config);
+        let error = hardened
+            .set_user_role(&owner.session, member.id, "viewer")
+            .await
+            .unwrap_err();
+        assert!(matches!(error, AuthError::StepUpRequired));
+
+        owner.session.session.created_at = Utc::now();
+        hardened
+            .set_user_role(&owner.session, member.id, "viewer")
+            .await
+            .unwrap();
     }
 }
