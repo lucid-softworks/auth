@@ -1,6 +1,7 @@
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use lucid_auth::{
-    Assurance, AuthConfig, AuthService, AuthStore, MemoryStore, NewPasswordUser, StoredPasskey,
+    Assurance, AuthConfig, AuthService, AuthStore, MemoryStore, NewPasswordUser, Principal,
+    StoredPasskey,
 };
 use std::sync::Arc;
 use uuid::Uuid;
@@ -9,6 +10,30 @@ fn service(allow_anonymous: bool) -> AuthService {
     let mut config = AuthConfig::new([7_u8; 32]).unwrap();
     config.allow_anonymous = allow_anonymous;
     AuthService::new(Arc::new(MemoryStore::default()), config)
+}
+
+#[test]
+fn strong_sessions_remain_fresh_for_one_day_by_default() {
+    let mut principal = Principal {
+        actor_id: Uuid::new_v4(),
+        subject_id: Uuid::new_v4(),
+        session_id: Uuid::new_v4(),
+        role: "owner".into(),
+        assurance: Assurance::Passkey,
+        guest_grant_id: None,
+        permissions: Vec::new(),
+        resource_scopes: Vec::new(),
+        must_change_password: false,
+        authenticated_at: Utc::now() - Duration::hours(23),
+        expires_at: Utc::now() + Duration::hours(1),
+    };
+    let mut config = AuthConfig::new([7_u8; 32]).unwrap();
+    config.required_mfa_roles = vec!["owner".into()];
+    let service = AuthService::new(Arc::new(MemoryStore::default()), config);
+
+    assert!(!service.step_up_required(&principal));
+    principal.authenticated_at = Utc::now() - Duration::hours(25);
+    assert!(service.step_up_required(&principal));
 }
 
 #[tokio::test]

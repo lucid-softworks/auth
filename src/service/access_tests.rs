@@ -83,7 +83,7 @@ async fn impersonation_is_bounded_and_returns_to_the_owner() {
 async fn required_mfa_roles_need_recent_strong_authentication_for_changes() {
     let (service, mut owner, member) = owner_and_member().await;
     owner.session.session.assurance = Assurance::PasswordAndPasskey;
-    owner.session.session.created_at = Utc::now() - chrono::Duration::minutes(16);
+    owner.session.session.created_at = Utc::now() - chrono::Duration::hours(25);
     let mut config = AuthConfig::new([8_u8; 32]).unwrap();
     config.required_mfa_roles = vec!["owner".into()];
     let hardened = AuthService::new(service.store.clone(), config);

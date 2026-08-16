@@ -71,7 +71,7 @@ impl AuthConfig {
             passkeys: None,
             password_breach_checker: None,
             required_mfa_roles: Vec::new(),
-            step_up_ttl: Duration::minutes(15),
+            step_up_ttl: Duration::days(1),
         })
     }
 }
