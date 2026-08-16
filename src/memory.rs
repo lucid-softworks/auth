@@ -1,6 +1,6 @@
 use crate::{
-    AuditEvent, AuthError, AuthSession, AuthStore, AuthUser, GuestGrant, PasskeyDeleteOutcome,
-    StoredPasskey,
+    ApiKey, AuditEvent, AuthError, AuthSession, AuthStore, AuthUser, GuestGrant,
+    PasskeyDeleteOutcome, StoredPasskey,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -12,6 +12,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 mod access;
+mod api_key;
 mod security;
 
 #[derive(Default)]
@@ -22,6 +23,7 @@ struct MemoryState {
     sessions: HashMap<String, AuthSession>,
     passkeys: HashMap<Uuid, StoredPasskey>,
     guest_grants: HashMap<Uuid, GuestGrant>,
+    api_keys: HashMap<Uuid, ApiKey>,
     audit_events: Vec<AuditEvent>,
     rate_limits: HashMap<String, RateLimitWindow>,
     recovery_codes: HashMap<Uuid, HashSet<String>>,

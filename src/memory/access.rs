@@ -70,6 +70,9 @@ impl AccessStore for MemoryStore {
         state
             .guest_grants
             .retain(|_, grant| grant.created_by != user_id);
+        state
+            .api_keys
+            .retain(|_, api_key| api_key.reference_id != user_id);
         state.sessions.retain(|_, session| {
             session.user_id != user_id
                 && session.actor_user_id != Some(user_id)

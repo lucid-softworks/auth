@@ -41,6 +41,8 @@ pub enum AuthError {
     SoleOwnerRecoveryUnavailable,
     #[error("the guest grant is invalid, expired, exhausted, or revoked")]
     InvalidGuestGrant,
+    #[error("the API key is invalid, expired, or revoked")]
+    InvalidApiKey,
     #[error("the authentication request is invalid: {0}")]
     InvalidRequest(String),
     #[error("passkey support is not configured")]

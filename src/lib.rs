@@ -17,11 +17,12 @@ pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use error::AuthError;
 pub use memory::MemoryStore;
 pub use model::{
-    Assurance, AuditEvent, AuthSession, AuthUser, GuestGrant, IssuedGuestGrant, NewGuestGrant,
-    NewPasswordUser, Principal, SessionWithUser, StoredPasskey,
+    ApiKey, Assurance, AuditEvent, AuthSession, AuthUser, GuestGrant, IssuedApiKey,
+    IssuedGuestGrant, NewApiKey, NewGuestGrant, NewPasswordUser, Principal, SessionWithUser,
+    StoredPasskey, VerifiedApiKey,
 };
 pub use service::{
     AuthConfig, AuthService, HashedPasswordUser, PasskeyConfig, PasskeyRegistrationResult,
     PasswordChangeResult, RecoveryCodeStatus, SignInResult,
 };
-pub use store::{AccessStore, AuthStore, PasskeyDeleteOutcome, SecurityStore};
+pub use store::{AccessStore, ApiKeyStore, AuthStore, PasskeyDeleteOutcome, SecurityStore};

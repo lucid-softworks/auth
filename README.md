@@ -21,6 +21,8 @@ The initial compatibility target is Better Auth `1.6.29` and covers:
 - optional HIBP Pwned Passwords screening with Better Auth-compatible errors
 - durable account and client-address sign-in throttling through the configured store
 - enforced password replacement for administrator-created and reset credentials
+- user-owned API keys with Better Auth-compatible ownership, expiry, permissions,
+  prefixes, rate limits, and one-time secret display
 - Better Auth session cookies and response shapes
 
 The library keeps authentication protocol details separate from host-product
@@ -45,6 +47,14 @@ passkeys, and recovery codes so the account can enroll again.
 
 The session response includes `stepUpRequired` so an official Better Auth client
 can prompt for passkey authentication before submitting sensitive changes.
+
+API-key secrets contain 384 random bits and are never stored. The database keeps
+only a salted Argon2id verifier plus a random public key identifier used for a
+single-row lookup. Issuance and revocation require a real, non-impersonated
+account session and recent strong authentication when the account's role is
+configured for MFA. Verification checks the owning account, expiry,
+configuration ID, permissions, revocation state, and an atomic per-key rate
+limit. Hosts decide which permission resources and actions are meaningful.
 
 Accounts created by an owner and passwords reset by an owner are marked
 `must_change_password`. The Better Auth-compatible user response exposes that

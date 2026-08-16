@@ -5,6 +5,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 mod access;
+mod api_key;
 mod migrate;
 mod rows;
 mod security;

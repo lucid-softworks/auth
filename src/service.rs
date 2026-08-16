@@ -1,4 +1,5 @@
 mod access;
+mod api_key;
 mod guest;
 mod passkey;
 mod password;

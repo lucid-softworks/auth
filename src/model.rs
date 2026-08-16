@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 /// How strongly a session's subject was authenticated.
@@ -122,6 +123,63 @@ pub struct NewGuestGrant {
 pub struct IssuedGuestGrant {
     pub grant: GuestGrant,
     pub token: String,
+}
+
+/// A Better Auth-compatible API-key record without its one-time secret.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApiKey {
+    pub id: Uuid,
+    pub config_id: String,
+    pub name: String,
+    pub start: String,
+    pub prefix: String,
+    #[serde(skip_serializing)]
+    pub key_hash: String,
+    pub reference_id: Uuid,
+    pub enabled: bool,
+    pub rate_limit_enabled: bool,
+    pub rate_limit_window_seconds: i64,
+    pub rate_limit_max: i32,
+    pub request_count: i32,
+    pub last_request: Option<DateTime<Utc>>,
+    pub expires_at: DateTime<Utc>,
+    pub permissions: BTreeMap<String, Vec<String>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl ApiKey {
+    pub fn permits(&self, resource: &str, action: &str) -> bool {
+        self.permissions
+            .get(resource)
+            .is_some_and(|actions| actions.iter().any(|allowed| allowed == action))
+    }
+}
+
+/// Input for issuing a user-owned API key.
+#[derive(Debug, Clone)]
+pub struct NewApiKey {
+    pub config_id: String,
+    pub name: String,
+    pub prefix: String,
+    pub expires_at: DateTime<Utc>,
+    pub permissions: BTreeMap<String, Vec<String>>,
+    pub rate_limit_window_seconds: i64,
+    pub rate_limit_max: i32,
+}
+
+/// An API-key record plus its one-time-visible bearer secret.
+#[derive(Debug, Clone)]
+pub struct IssuedApiKey {
+    pub api_key: ApiKey,
+    pub key: String,
+}
+
+/// A valid API key and the active user account that owns it.
+#[derive(Debug, Clone)]
+pub struct VerifiedApiKey {
+    pub api_key: ApiKey,
+    pub user: AuthUser,
 }
 
 /// Security-relevant action retained for owner review.

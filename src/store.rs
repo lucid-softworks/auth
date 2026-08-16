@@ -1,4 +1,4 @@
-use crate::{AuditEvent, AuthError, AuthSession, AuthUser, GuestGrant, StoredPasskey};
+use crate::{ApiKey, AuditEvent, AuthError, AuthSession, AuthUser, GuestGrant, StoredPasskey};
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -12,7 +12,7 @@ pub enum PasskeyDeleteOutcome {
 
 /// Persistence boundary required by [`crate::AuthService`].
 #[async_trait]
-pub trait AuthStore: AccessStore + SecurityStore + Send + Sync {
+pub trait AuthStore: AccessStore + ApiKeyStore + SecurityStore + Send + Sync {
     async fn create_password_user(
         &self,
         user: AuthUser,
@@ -82,6 +82,35 @@ pub trait AuthStore: AccessStore + SecurityStore + Send + Sync {
         &self,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), AuthError>;
+}
+
+/// Persistence boundary for Better Auth-compatible API keys.
+#[async_trait]
+pub trait ApiKeyStore: Send + Sync {
+    async fn create_api_key(&self, api_key: ApiKey) -> Result<ApiKey, AuthError>;
+
+    async fn find_api_key(&self, api_key_id: Uuid) -> Result<Option<ApiKey>, AuthError>;
+
+    async fn list_api_keys(
+        &self,
+        reference_id: Uuid,
+        config_id: &str,
+    ) -> Result<Vec<ApiKey>, AuthError>;
+
+    async fn revoke_api_key(
+        &self,
+        reference_id: Uuid,
+        api_key_id: Uuid,
+        revoked_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<bool, AuthError>;
+
+    /// Atomically records one allowed request and rejects expired, revoked, or
+    /// rate-limited keys.
+    async fn record_api_key_use(
+        &self,
+        api_key_id: Uuid,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<ApiKey>, AuthError>;
 }
 
 /// Durable security state shared by every authentication service instance.

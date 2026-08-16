@@ -184,6 +184,11 @@ pub(super) fn auth_error(error: AuthError) -> Response {
             "INVALID_SESSION",
             "The session is invalid or expired",
         ),
+        AuthError::InvalidApiKey => (
+            StatusCode::UNAUTHORIZED,
+            "INVALID_API_KEY",
+            "The API key is invalid, expired, or revoked",
+        ),
         AuthError::InvalidConfiguration(_)
         | AuthError::Storage(_)
         | AuthError::Worker

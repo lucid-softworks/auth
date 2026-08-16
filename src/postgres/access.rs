@@ -357,6 +357,11 @@ impl AccessStore for PostgresStore {
                 .await
                 .map_err(storage_error)?;
         }
+        sqlx::query("DELETE FROM lucid_auth_api_keys WHERE reference_id = $1")
+            .bind(user_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage_error)?;
         sqlx::query(
             "INSERT INTO lucid_auth_audit_events \
              (id, actor_user_id, subject_user_id, action, target, metadata, created_at) \
