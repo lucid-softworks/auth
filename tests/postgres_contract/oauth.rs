@@ -33,7 +33,10 @@ pub(super) async fn assert_issuer_qualified_accounts(
     let owner = store
         .create_oauth_user(user.clone(), account.clone())
         .await?;
-    assert_eq!(owner.user, user);
+    assert_eq!(owner.user.id, user.id);
+    assert_eq!(owner.user.email, user.email);
+    assert_eq!(owner.user.name, user.name);
+    assert_eq!(owner.user.email_verified, user.email_verified);
     let loaded = store
         .find_oauth_account_owner("https://issuer-one.example", "shared-subject")
         .await?
