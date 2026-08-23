@@ -15,8 +15,15 @@ pub(crate) async fn current_session(
     service: &AuthService,
     headers: &HeaderMap,
 ) -> Option<SessionWithUser> {
-    let token = session_token(service, headers)?;
-    service.session(&token).await.ok().flatten()
+    if let Some(token) = session_token(service, headers) {
+        return service.session(&token).await.ok().flatten();
+    }
+    service
+        .plugin_session(headers)
+        .await
+        .ok()
+        .flatten()
+        .map(|session| session.session)
 }
 
 pub(crate) fn challenge_token(

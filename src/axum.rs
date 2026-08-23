@@ -150,13 +150,21 @@ async fn get_session(
             Ok(None) => Json::<Option<SessionResponse>>(None).into_response(),
             Err(error) => return auth_error(error),
         },
-        None => Json(
-            service
-                .development_session()
-                .as_ref()
-                .map(|session| SessionResponse::new(session, "development-bypass")),
-        )
-        .into_response(),
+        None => match service.plugin_session(&headers).await {
+            Ok(Some(plugin_session)) => Json(Some(SessionResponse::new(
+                &plugin_session.session,
+                plugin_session.token,
+            )))
+            .into_response(),
+            Ok(None) => Json(
+                service
+                    .development_session()
+                    .as_ref()
+                    .map(|session| SessionResponse::new(session, "development-bypass")),
+            )
+            .into_response(),
+            Err(error) => return auth_error(error),
+        },
     };
     response
         .headers_mut()

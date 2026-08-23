@@ -11,6 +11,7 @@ import {
   usernameClient,
 } from "better-auth/client/plugins";
 import { passkeyClient } from "@better-auth/passkey/client";
+import { apiKeyClient } from "@better-auth/api-key/client";
 import { installVirtualAuthenticator } from "./virtual-authenticator.mjs";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
@@ -20,6 +21,11 @@ const betterAuthPackage = JSON.parse(
 const passkeyPackage = JSON.parse(
   await readFile(
     new URL("node_modules/@better-auth/passkey/package.json", import.meta.url),
+  ),
+);
+const apiKeyPackage = JSON.parse(
+  await readFile(
+    new URL("node_modules/@better-auth/api-key/package.json", import.meta.url),
   ),
 );
 const nativePluginClient = {
@@ -121,6 +127,7 @@ async function conformance(origin) {
       adminClient(),
       twoFactorClient(),
       passkeyClient(),
+      apiKeyClient(),
       magicLinkClient(),
       nativePluginClient,
     ],
@@ -129,6 +136,7 @@ async function conformance(origin) {
   await runCase("Better Auth 1.7.1 baseline", async () => {
     assert.equal(betterAuthPackage.version, "1.7.1");
     assert.equal(passkeyPackage.version, betterAuthPackage.version);
+    assert.equal(apiKeyPackage.version, betterAuthPackage.version);
     const response = await transport.fetch(`${origin}/__conformance__/version`);
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { betterAuth: betterAuthPackage.version });
@@ -137,9 +145,11 @@ async function conformance(origin) {
     const metadata = await plugins.json();
     const nativePlugin = metadata.find((plugin) => plugin.id === "conformance");
     const magicLink = metadata.find((plugin) => plugin.id === "magic-link");
+    const apiKey = metadata.find((plugin) => plugin.id === "api-key");
     assert.equal(nativePlugin.client.betterAuthVersion, betterAuthPackage.version);
     assert.equal(nativePlugin.endpoints[0].clientMethod, "nativePlugin.ping");
     assert.equal(magicLink.client.factory, "magicLinkClient");
+    assert.equal(apiKey.client.factory, "apiKeyClient");
   });
 
   await runCase("native plugin client metadata and route", async () => {
@@ -504,6 +514,91 @@ async function conformance(origin) {
     const request = transport.assertRequest("/api/auth/magic-link/verify", "GET");
     assert.equal(new URLSearchParams(request.search).get("token"), token);
     success(await client.signOut(), "signOut after magic link");
+  });
+
+  await runCase("API-key client", async () => {
+    await transport.useFixtureSession("strong");
+    const created = success(
+      await client.apiKey.create({
+        name: "Official client key",
+        prefix: "official_",
+        expiresIn: 86_400,
+        metadata: { source: "official-client" },
+      }),
+      "apiKey.create",
+    );
+    assert.match(created.key, /^official_/);
+    assert.equal(created.configId, "default");
+    assert.equal(created.metadata.source, "official-client");
+    assert.equal(created.permissions.documents[0], "read");
+    assert.equal("keyHash" in created, false);
+    transport.assertRequest("/api/auth/api-key/create", "POST", {
+      name: "Official client key",
+      prefix: "official_",
+      expiresIn: 86_400,
+      metadata: { source: "official-client" },
+    });
+
+    const fetched = success(
+      await client.apiKey.get({ query: { id: created.id } }),
+      "apiKey.get",
+    );
+    assert.equal(fetched.id, created.id);
+    assert.equal("key" in fetched, false);
+
+    const listed = success(
+      await client.apiKey.list({
+        query: {
+          limit: 1,
+          offset: 0,
+          sortBy: "createdAt",
+          sortDirection: "desc",
+        },
+      }),
+      "apiKey.list",
+    );
+    assert.equal(listed.total, 1);
+    assert.equal(listed.apiKeys[0].id, created.id);
+    assert.equal("key" in listed.apiKeys[0], false);
+
+    const updated = success(
+      await client.apiKey.update({ keyId: created.id, name: "Updated client key" }),
+      "apiKey.update",
+    );
+    assert.equal(updated.name, "Updated client key");
+
+    const verifiedResponse = await transport.fetch(
+      `${origin}/api/auth/api-key/verify`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          key: created.key,
+          permissions: { documents: ["read"] },
+        }),
+      },
+    );
+    assert.equal(verifiedResponse.status, 200);
+    const verified = await verifiedResponse.json();
+    assert.equal(verified.valid, true);
+    assert.equal(verified.error, null);
+    assert.equal("key" in verified.key, false);
+
+    transport.clearCookies();
+    const sessionResponse = await transport.fetch(`${origin}/api/auth/get-session`, {
+      headers: { "x-api-key": created.key },
+    });
+    assert.equal(sessionResponse.status, 200);
+    const session = await sessionResponse.json();
+    assert.equal(session.session.id, created.id);
+    assert.equal(session.user.email, "luna@example.com");
+
+    await transport.useFixtureSession("strong");
+    const deleted = success(
+      await client.apiKey.delete({ keyId: created.id }),
+      "apiKey.delete",
+    );
+    assert.equal(deleted.success, true);
   });
 
   await runCase("anonymous and sign-out clients", async () => {

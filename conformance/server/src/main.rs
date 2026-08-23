@@ -6,11 +6,13 @@ use axum::{
     routing::{get, post},
 };
 use lucid_auth::{
-    AuthConfig, AuthService, MagicLinkConfig, MagicLinkEmail, MagicLinkPlugin, MemoryStore,
-    NewPasswordUser, PasskeyConfig, PasskeyPlugin, PasswordResetEmail, PluginDescriptor,
-    VerificationEmail, protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+    ApiKeyConfiguration, ApiKeyPlugin, AuthConfig, AuthService, MagicLinkConfig, MagicLinkEmail,
+    MagicLinkPlugin, MemoryStore, NewPasswordUser, PasskeyConfig, PasskeyPlugin,
+    PasswordResetEmail, PluginDescriptor, VerificationEmail,
+    protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
 };
 use serde_json::json;
+use std::collections::BTreeMap;
 use std::{io::Write, net::SocketAddr, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -150,6 +152,14 @@ async fn fixture(origin: &str) -> Fixture {
             ..PasskeyConfig::default()
         }))
         .expect("unique passkey plugin");
+    config
+        .add_plugin(ApiKeyPlugin::new(ApiKeyConfiguration {
+            enable_metadata: true,
+            enable_session_for_api_keys: true,
+            default_permissions: Some(BTreeMap::from([("documents".into(), vec!["read".into()])])),
+            ..ApiKeyConfiguration::default()
+        }))
+        .expect("unique API-key plugin");
     config
         .add_plugin(ConformancePlugin)
         .expect("unique conformance plugin");

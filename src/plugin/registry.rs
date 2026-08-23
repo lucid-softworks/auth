@@ -91,6 +91,20 @@ impl PluginRegistry {
             plugin.after(event).await;
         }
     }
+
+    #[cfg(feature = "axum")]
+    pub(crate) async fn session_from_headers(
+        &self,
+        service: &crate::AuthService,
+        headers: &axum::http::HeaderMap,
+    ) -> Result<Option<super::PluginSession>, AuthError> {
+        for plugin in &self.plugins {
+            if let Some(session) = plugin.session_from_headers(service, headers).await? {
+                return Ok(Some(session));
+            }
+        }
+        Ok(None)
+    }
 }
 
 fn validate_descriptor(descriptor: PluginDescriptor) -> Result<(), AuthError> {

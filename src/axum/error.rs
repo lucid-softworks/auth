@@ -6,6 +6,9 @@ use axum::{
 };
 
 pub(crate) fn auth_error(error: AuthError) -> Response {
+    if let AuthError::ApiKey(error) = &error {
+        return crate::api_key::api_key_error(error);
+    }
     let (status, code, message) = match &error {
         error if is_credential_error(error) => credential_error_details(error),
         AuthError::RateLimited => (
@@ -48,11 +51,6 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
             "The session is invalid or expired",
         ),
         AuthError::Unauthorized => (StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Unauthorized"),
-        AuthError::InvalidApiKey => (
-            StatusCode::UNAUTHORIZED,
-            "INVALID_API_KEY",
-            "The API key is invalid, expired, or revoked",
-        ),
         AuthError::InvalidOrigin
         | AuthError::MissingOrigin
         | AuthError::InvalidCallbackUrl

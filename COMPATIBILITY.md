@@ -25,7 +25,7 @@ semantics, persistence, and an end-to-end client test must all agree.
 | Capability | Status | Notes |
 | --- | --- | --- |
 | Better Auth 1.7.1 wire baseline | Partial | This is the sole declared target. Partial plugin rows below qualify the claim; [#3](https://github.com/lucid-softworks/auth/issues/3). |
-| Official JavaScript client conformance | Supported | CI drives the pinned `1.7.1` vanilla email/password, email-verification, and password-reset clients plus username, anonymous, admin, every passkey client method, two-factor, and a native test-client plugin against an ephemeral server. Passkey registration/authentication use real signatures from an in-process virtual authenticator; [#2](https://github.com/lucid-softworks/auth/issues/2). |
+| Official JavaScript client conformance | Supported | CI drives the pinned `1.7.1` vanilla email/password, email-verification, and password-reset clients plus username, anonymous, admin, every passkey and API-key client method, two-factor, and a native test-client plugin against an ephemeral server. Passkey registration/authentication use real signatures from an in-process virtual authenticator; [#2](https://github.com/lucid-softworks/auth/issues/2). |
 | Native plugin extension API | Supported | Typed routes, middleware, lifecycle hooks, ordered PostgreSQL migrations, cookies/rate-limit declarations, dependency/conflict checks, and exact-version client metadata; [#4](https://github.com/lucid-softworks/auth/issues/4). |
 | Community plugin SDK | Planned | Native plugin packaging and certification policy: [#67](https://github.com/lucid-softworks/auth/issues/67). |
 
@@ -106,7 +106,7 @@ scoped to the unimplemented account lifecycle described above.
 
 | Plugin | Status | Tracking and limitations |
 | --- | --- | --- |
-| API Key | Native only | Secure issue/list/revoke/verify service behavior exists, but no official client routes. HTTP/update/pagination/session parity is [#21](https://github.com/lucid-softworks/auth/issues/21). |
+| API Key | Partial | Optional `ApiKeyPlugin`; all official `apiKeyClient` methods, server verification/cleanup, exact fields/errors, named configurations, user ownership, pagination/sorting, metadata, enabled/expiry state, permissions, refills, one-time plaintext display, SHA-256 base64url storage, atomic quotas/rate limits, and header sessions are covered by [#21](https://github.com/lucid-softworks/auth/issues/21). Organization ownership awaits [#30](https://github.com/lucid-softworks/auth/issues/30); advanced callbacks and secondary/custom storage await [#76](https://github.com/lucid-softworks/auth/issues/76). |
 | JWT | Planned | Token/JWKS profiles and key rotation: [#33](https://github.com/lucid-softworks/auth/issues/33). |
 | Bearer | Planned | [#34](https://github.com/lucid-softworks/auth/issues/34). |
 | One-Time Token | Planned | [#35](https://github.com/lucid-softworks/auth/issues/35). |
@@ -154,7 +154,7 @@ a fail-closed security policy.
 | Capability | Status | Tracking and limitations |
 | --- | --- | --- |
 | In-memory store | Supported | Intended for tests and single-process development. |
-| PostgreSQL | Supported | Core migrations include normalized email uniqueness and username-optional credential accounts; lifecycle and concurrent case-variant signup run in the live contract. Broader schema generation is [#68](https://github.com/lucid-softworks/auth/issues/68). |
+| PostgreSQL | Supported | Core migrations include normalized email uniqueness and username-optional credential accounts; optional plugins contribute their own tables. Lifecycle, concurrent case-variant signup, plugin migration idempotence, and atomic API-key claims run in the live contract. Broader schema generation is [#68](https://github.com/lucid-softworks/auth/issues/68). |
 | Verification challenges | Supported | Purpose-scoped, expiring values are persisted by both stores and consumed atomically across service instances; [#8](https://github.com/lucid-softworks/auth/issues/8). |
 | SQLite | Planned | [#61](https://github.com/lucid-softworks/auth/issues/61). |
 | MySQL | Planned | [#62](https://github.com/lucid-softworks/auth/issues/62). |

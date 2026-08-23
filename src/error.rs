@@ -1,6 +1,8 @@
 /// Errors returned by authentication operations.
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
+    #[error(transparent)]
+    ApiKey(#[from] crate::ApiKeyError),
     #[error("invalid username or password")]
     InvalidCredentials,
     #[error("invalid email or password")]
@@ -77,8 +79,6 @@ pub enum AuthError {
     SoleOwnerRecoveryUnavailable,
     #[error("the guest grant is invalid, expired, exhausted, or revoked")]
     InvalidGuestGrant,
-    #[error("the API key is invalid, expired, or revoked")]
-    InvalidApiKey,
     #[error("the request origin is not trusted")]
     InvalidOrigin,
     #[error("the request origin is missing or null")]

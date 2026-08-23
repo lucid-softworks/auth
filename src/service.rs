@@ -1,5 +1,6 @@
 mod access;
 mod api_key;
+mod api_key_policy;
 mod email_password;
 mod email_verification;
 mod guest;
@@ -31,6 +32,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use uuid::Uuid;
 
+pub use api_key::{ApiKeySortDirection, ApiKeyUpdate};
 pub use email_password::{EmailSignUpInput, EmailSignUpResult};
 pub use email_verification::EmailVerificationResult;
 pub use passkey::{
@@ -93,6 +95,14 @@ impl AuthService {
     #[cfg(feature = "axum")]
     pub(crate) fn plugins(&self) -> &PluginRegistry {
         &self.plugins
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) async fn plugin_session(
+        &self,
+        headers: &axum::http::HeaderMap,
+    ) -> Result<Option<crate::plugin::PluginSession>, AuthError> {
+        self.plugins.session_from_headers(self, headers).await
     }
 
     pub fn session_ttl(&self) -> Duration {

@@ -28,8 +28,9 @@ supported surface covers:
 - optional HIBP Pwned Passwords screening with Better Auth-compatible errors
 - durable account and client-address sign-in throttling through the configured store
 - enforced password replacement for administrator-created and reset credentials
-- native user-owned API keys with ownership, expiry, permissions, prefixes, rate
-  limits, and one-time secret display; official API-key client routes are planned
+- the complete user-owned `@better-auth/api-key` client surface as an optional
+  native plugin, including pagination, metadata, permissions, quotas, rate limits,
+  configuration profiles, and API-key-backed sessions
 - Better Auth-compatible cookies and response shapes for the supported routes
 - native, dependency-ordered plugin routes, middleware, hooks, migrations, and
   client compatibility metadata
@@ -113,13 +114,35 @@ email, verification URL, token, metadata, and a narrowed request context.
 `callbackURL`, `newUserCallbackURL`, and `errorCallbackURL` use Better Auth's
 exact casing, and all redirects pass the configured trusted-origin policy.
 
-API-key secrets contain 384 random bits and are never stored. The database keeps
-only a salted Argon2id verifier plus a random public key identifier used for a
-single-row lookup. Issuance and revocation require a real, non-impersonated
-account session and recent strong authentication when the account's role is
-configured for MFA. Verification checks the owning account, expiry,
-configuration ID, permissions, revocation state, and an atomic per-key rate
-limit. Hosts decide which permission resources and actions are meaningful.
+API Key is an optional native plugin. Register it explicitly; without the plugin,
+its routes and PostgreSQL table do not exist:
+
+```rust
+let api_keys = ApiKeyConfiguration {
+    enable_metadata: true,
+    enable_session_for_api_keys: true,
+    ..ApiKeyConfiguration::default()
+};
+config.add_plugin(ApiKeyPlugin::new(api_keys))?;
+```
+
+The official `apiKeyClient` create/get/list/update/delete methods work against
+the Better Auth 1.7.1 paths and schemas. The server-only verify and expired-key
+cleanup endpoints are also present. Secrets use Better Auth's 64-character
+letter-only default generator, optional prefixes, and SHA-256 base64url hashing;
+only creation returns the plaintext key. Stored hashes never appear in get,
+list, update, or verify responses. Ownership and `configId` are enforced for
+management operations, while quota and rate-limit claims are atomic in both the
+memory and PostgreSQL stores.
+
+Set `enable_session_for_api_keys` to accept the configured headers (default
+`x-api-key`) as Better Auth sessions. Multiple named configurations, custom key
+generation, starting-character display, expiry bounds/defaults, metadata,
+permissions, refills, and per-key rate limits are supported. Organization-owned
+keys depend on the Organization plugin tracked in
+[#30](https://github.com/lucid-softworks/auth/issues/30); advanced request
+callbacks and secondary/custom-storage profiles are tracked in
+[#76](https://github.com/lucid-softworks/auth/issues/76).
 
 Native plugins implement `AuthPlugin` and are registered with
 `AuthConfig::add_plugin`. Construct plugin-enabled services with

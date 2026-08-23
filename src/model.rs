@@ -154,23 +154,29 @@ pub struct IssuedGuestGrant {
 
 /// A Better Auth-compatible API-key record without its one-time secret.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiKey {
     pub id: Uuid,
     pub config_id: String,
-    pub name: String,
-    pub start: String,
-    pub prefix: String,
+    pub name: Option<String>,
+    pub start: Option<String>,
+    pub prefix: Option<String>,
     #[serde(skip_serializing)]
     pub key_hash: String,
-    pub reference_id: Uuid,
+    pub reference_id: String,
+    pub refill_interval: Option<i64>,
+    pub refill_amount: Option<i64>,
+    pub last_refill_at: Option<DateTime<Utc>>,
     pub enabled: bool,
     pub rate_limit_enabled: bool,
-    pub rate_limit_window_seconds: i64,
-    pub rate_limit_max: i32,
-    pub request_count: i32,
+    pub rate_limit_time_window: Option<i64>,
+    pub rate_limit_max: Option<i64>,
+    pub request_count: i64,
+    pub remaining: Option<i64>,
     pub last_request: Option<DateTime<Utc>>,
-    pub expires_at: DateTime<Utc>,
-    pub permissions: BTreeMap<String, Vec<String>>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub permissions: Option<BTreeMap<String, Vec<String>>>,
+    pub metadata: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -178,7 +184,8 @@ pub struct ApiKey {
 impl ApiKey {
     pub fn permits(&self, resource: &str, action: &str) -> bool {
         self.permissions
-            .get(resource)
+            .as_ref()
+            .and_then(|permissions| permissions.get(resource))
             .is_some_and(|actions| actions.iter().any(|allowed| allowed == action))
     }
 }
@@ -187,12 +194,17 @@ impl ApiKey {
 #[derive(Debug, Clone)]
 pub struct NewApiKey {
     pub config_id: String,
-    pub name: String,
-    pub prefix: String,
-    pub expires_at: DateTime<Utc>,
-    pub permissions: BTreeMap<String, Vec<String>>,
-    pub rate_limit_window_seconds: i64,
-    pub rate_limit_max: i32,
+    pub name: Option<String>,
+    pub prefix: Option<String>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub permissions: Option<BTreeMap<String, Vec<String>>>,
+    pub metadata: Option<serde_json::Value>,
+    pub remaining: Option<i64>,
+    pub refill_amount: Option<i64>,
+    pub refill_interval: Option<i64>,
+    pub rate_limit_enabled: bool,
+    pub rate_limit_time_window: Option<i64>,
+    pub rate_limit_max: Option<i64>,
 }
 
 /// An API-key record plus its one-time-visible bearer secret.

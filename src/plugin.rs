@@ -122,6 +122,13 @@ pub struct AxumPluginRoute {
 }
 
 #[cfg(feature = "axum")]
+#[derive(Debug, Clone)]
+pub struct PluginSession {
+    pub session: SessionWithUser,
+    pub token: String,
+}
+
+#[cfg(feature = "axum")]
 impl AxumPluginRoute {
     pub fn new(path: &'static str, route: axum::routing::MethodRouter) -> Self {
         Self { path, route }
@@ -173,6 +180,15 @@ pub trait AuthPlugin: Send + Sync {
     #[cfg(feature = "axum")]
     fn routes(&self, _service: Arc<AuthService>) -> Vec<AxumPluginRoute> {
         Vec::new()
+    }
+
+    #[cfg(feature = "axum")]
+    async fn session_from_headers(
+        &self,
+        _service: &AuthService,
+        _headers: &axum::http::HeaderMap,
+    ) -> Result<Option<PluginSession>, AuthError> {
+        Ok(None)
     }
 
     #[cfg(feature = "axum")]

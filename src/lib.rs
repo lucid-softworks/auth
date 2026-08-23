@@ -1,5 +1,6 @@
 //! Native authentication with a Better Auth-compatible HTTP surface.
 
+mod api_key;
 mod breached_password;
 mod client_ip;
 mod config;
@@ -21,6 +22,10 @@ pub mod axum;
 pub mod postgres;
 pub mod protocol;
 
+pub use api_key::{
+    ApiKeyConfiguration, ApiKeyError, ApiKeyExpirationConfig, ApiKeyGenerator, ApiKeyPlugin,
+    ApiKeyRateLimitConfig, ApiKeyReference, ApiKeyStartingCharactersConfig,
+};
 pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use client_ip::IpAddressConfig;
 pub use config::{AuthConfig, EmailPasswordConfig};
@@ -48,19 +53,20 @@ pub use passkey::{
     PasskeyRegistrationOverride, PasskeyRegistrationUser, PasskeyRegistrationUserResolver,
     PasskeyRegistrationVerified,
 };
-#[cfg(feature = "axum")]
-pub use plugin::AxumPluginRoute;
 pub use plugin::{
     AfterAuthEvent, AuthPlugin, BeforeAuthEvent, PluginClientMetadata, PluginCookie,
     PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginMiddleware, PluginMigration,
     PluginMigrationContribution, PluginRateLimit,
 };
+#[cfg(feature = "axum")]
+pub use plugin::{AxumPluginRoute, PluginSession};
 pub use service::{
-    AuthService, EmailSignUpInput, EmailSignUpResult, EmailVerificationResult, HashedPasswordUser,
-    PasskeyRegistrationRequest, PasskeyRegistrationResult, PasskeyRegistrationVerification,
-    PasswordChangeResult, RecoveryCodeStatus, SignInResult,
+    ApiKeySortDirection, ApiKeyUpdate, AuthService, EmailSignUpInput, EmailSignUpResult,
+    EmailVerificationResult, HashedPasswordUser, PasskeyRegistrationRequest,
+    PasskeyRegistrationResult, PasskeyRegistrationVerification, PasswordChangeResult,
+    RecoveryCodeStatus, SignInResult,
 };
 pub use store::{
-    AccessStore, ApiKeyStore, AuthStore, EmailVerificationOutcome, PasskeyDeleteOutcome,
-    PasswordResetOutcome, SecurityStore, VerificationStore,
+    AccessStore, ApiKeyStore, ApiKeyUseOutcome, AuthStore, EmailVerificationOutcome,
+    PasskeyDeleteOutcome, PasswordResetOutcome, SecurityStore, VerificationStore,
 };

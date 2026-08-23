@@ -177,18 +177,22 @@ pub trait ApiKeyStore: Send + Sync {
 
     async fn find_api_key(&self, api_key_id: Uuid) -> Result<Option<ApiKey>, AuthError>;
 
+    async fn find_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>, AuthError>;
+
     async fn list_api_keys(
         &self,
-        reference_id: Uuid,
-        config_id: &str,
+        reference_id: &str,
+        config_id: Option<&str>,
     ) -> Result<Vec<ApiKey>, AuthError>;
 
-    async fn revoke_api_key(
+    async fn update_api_key(&self, api_key: ApiKey) -> Result<Option<ApiKey>, AuthError>;
+
+    async fn delete_api_key(&self, api_key_id: Uuid) -> Result<bool, AuthError>;
+
+    async fn delete_expired_api_keys(
         &self,
-        reference_id: Uuid,
-        api_key_id: Uuid,
-        revoked_at: chrono::DateTime<chrono::Utc>,
-    ) -> Result<bool, AuthError>;
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, AuthError>;
 
     /// Atomically records one allowed request and rejects expired, revoked, or
     /// rate-limited keys.
@@ -196,7 +200,15 @@ pub trait ApiKeyStore: Send + Sync {
         &self,
         api_key_id: Uuid,
         now: chrono::DateTime<chrono::Utc>,
-    ) -> Result<Option<ApiKey>, AuthError>;
+    ) -> Result<ApiKeyUseOutcome, AuthError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApiKeyUseOutcome {
+    Allowed(Box<ApiKey>),
+    Invalid,
+    RateLimited { retry_after_milliseconds: i64 },
+    UsageExceeded,
 }
 
 /// Durable security state shared by every authentication service instance.

@@ -1,355 +1,265 @@
-use super::AuthService;
-use crate::{ApiKey, AuthError, IssuedApiKey, NewApiKey, SessionWithUser, VerifiedApiKey};
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
+use super::{
+    AuthService,
+    api_key_policy::{
+        apply_update, normalize_permissions, permits_all, sort_api_keys, validate_create,
+        validate_update,
+    },
+};
+use crate::{
+    ApiKey, ApiKeyConfiguration, ApiKeyError, ApiKeyUseOutcome, AuthError, IssuedApiKey, NewApiKey,
+    SessionWithUser, VerifiedApiKey,
+};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use chrono::{Duration, Utc};
+use chrono::Utc;
 use rand::RngExt;
-use rand_core::OsRng;
-use serde_json::json;
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use uuid::Uuid;
+
+#[derive(Debug, Clone, Default)]
+pub struct ApiKeyUpdate {
+    pub name: Option<String>,
+    pub enabled: Option<bool>,
+    pub expires_at: Option<Option<chrono::DateTime<Utc>>>,
+    pub metadata: Option<Option<serde_json::Value>>,
+    pub remaining: Option<i64>,
+    pub refill_amount: Option<i64>,
+    pub refill_interval: Option<i64>,
+    pub rate_limit_enabled: Option<bool>,
+    pub rate_limit_time_window: Option<i64>,
+    pub rate_limit_max: Option<i64>,
+    pub permissions: Option<Option<BTreeMap<String, Vec<String>>>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApiKeySortDirection {
+    Ascending,
+    Descending,
+}
 
 impl AuthService {
     pub async fn issue_api_key(
         &self,
         actor: &SessionWithUser,
+        config: &ApiKeyConfiguration,
         mut input: NewApiKey,
     ) -> Result<IssuedApiKey, AuthError> {
-        require_account(actor)?;
-        if self.step_up_required(&actor.principal()) {
-            return Err(AuthError::StepUpRequired);
-        }
-        validate_input(&input)?;
-        normalize_permissions(&mut input);
-
-        let id = Uuid::new_v4();
-        let secret_bytes: [u8; 48] = rand::rng().random();
-        let secret = URL_SAFE_NO_PAD.encode(secret_bytes);
-        let key = format!("{}{}.{}", input.prefix, id.simple(), secret);
+        require_session(actor)?;
+        validate_create(config, &input)?;
+        normalize_permissions(&mut input.permissions);
+        let expires_at = input.expires_at.or_else(|| {
+            config
+                .expiration
+                .default_expires_in_seconds
+                .map(|seconds| Utc::now() + chrono::Duration::seconds(seconds))
+        });
+        let remaining = input.remaining.or(input.refill_amount);
+        let key = generate_key(config, input.prefix.as_deref()).await?;
         let now = Utc::now();
         let api_key = self
             .store
             .create_api_key(ApiKey {
-                id,
-                config_id: input.config_id,
-                name: input.name.trim().to_owned(),
-                start: format!("{}{}", input.prefix, &id.simple().to_string()[..8]),
-                prefix: input.prefix,
-                key_hash: hash_api_key(key.clone()).await?,
-                reference_id: actor.user.id,
+                id: Uuid::new_v4(),
+                config_id: config.config_id.clone(),
+                name: input.name,
+                start: config.starting_characters.store.then(|| {
+                    key.chars()
+                        .take(config.starting_characters.length)
+                        .collect()
+                }),
+                prefix: input.prefix.or_else(|| config.default_prefix.clone()),
+                key_hash: hash_key(&key),
+                reference_id: actor.user.id.to_string(),
+                refill_interval: input.refill_interval,
+                refill_amount: input.refill_amount,
+                last_refill_at: None,
                 enabled: true,
-                rate_limit_enabled: true,
-                rate_limit_window_seconds: input.rate_limit_window_seconds,
+                rate_limit_enabled: input.rate_limit_enabled,
+                rate_limit_time_window: input.rate_limit_time_window,
                 rate_limit_max: input.rate_limit_max,
                 request_count: 0,
+                remaining,
                 last_request: None,
-                expires_at: input.expires_at,
-                permissions: input.permissions,
+                expires_at,
+                permissions: input
+                    .permissions
+                    .or_else(|| config.default_permissions.clone()),
+                metadata: input.metadata,
                 created_at: now,
                 updated_at: now,
             })
             .await?;
-        self.audit(
-            actor.user.id,
-            Some(actor.user.id),
-            "api_key.created",
-            Some(api_key.id.to_string()),
-            json!({
-                "configId": api_key.config_id,
-                "name": api_key.name,
-                "permissions": api_key.permissions,
-                "expiresAt": api_key.expires_at,
-            }),
-        )
-        .await?;
         Ok(IssuedApiKey { api_key, key })
+    }
+
+    pub async fn get_api_key(
+        &self,
+        actor: &SessionWithUser,
+        config_id: &str,
+        api_key_id: Uuid,
+    ) -> Result<ApiKey, AuthError> {
+        require_session(actor)?;
+        self.owned_api_key(actor, config_id, api_key_id).await
     }
 
     pub async fn list_api_keys(
         &self,
         actor: &SessionWithUser,
-        config_id: &str,
+        config_id: Option<&str>,
+        sort_by: Option<&str>,
+        direction: ApiKeySortDirection,
     ) -> Result<Vec<ApiKey>, AuthError> {
-        require_account(actor)?;
-        validate_identifier(config_id, "API key configuration ID")?;
-        self.store.list_api_keys(actor.user.id, config_id).await
+        require_session(actor)?;
+        let mut keys = self
+            .store
+            .list_api_keys(&actor.user.id.to_string(), config_id)
+            .await?;
+        if let Some(sort_by) = sort_by {
+            sort_api_keys(&mut keys, sort_by, direction);
+        }
+        Ok(keys)
     }
 
-    pub async fn revoke_api_key(
+    pub async fn update_api_key(
         &self,
         actor: &SessionWithUser,
+        config: &ApiKeyConfiguration,
+        api_key_id: Uuid,
+        update: ApiKeyUpdate,
+    ) -> Result<ApiKey, AuthError> {
+        require_session(actor)?;
+        let mut api_key = self
+            .owned_api_key(actor, &config.config_id, api_key_id)
+            .await?;
+        validate_update(config, &update)?;
+        apply_update(&mut api_key, update);
+        api_key.updated_at = Utc::now();
+        self.store
+            .update_api_key(api_key)
+            .await?
+            .ok_or_else(|| ApiKeyError::NotFound.into())
+    }
+
+    pub async fn delete_api_key(
+        &self,
+        actor: &SessionWithUser,
+        config_id: &str,
         api_key_id: Uuid,
     ) -> Result<(), AuthError> {
-        require_account(actor)?;
-        if self.step_up_required(&actor.principal()) {
-            return Err(AuthError::StepUpRequired);
+        require_session(actor)?;
+        self.owned_api_key(actor, config_id, api_key_id).await?;
+        if !self.store.delete_api_key(api_key_id).await? {
+            return Err(ApiKeyError::NotFound.into());
         }
-        if !self
-            .store
-            .revoke_api_key(actor.user.id, api_key_id, Utc::now())
-            .await?
-        {
-            return Err(AuthError::NotFound);
-        }
-        self.audit(
-            actor.user.id,
-            Some(actor.user.id),
-            "api_key.revoked",
-            Some(api_key_id.to_string()),
-            json!({}),
-        )
-        .await
+        Ok(())
     }
 
     pub async fn verify_api_key(
         &self,
         key: &str,
-        config_id: &str,
+        configurations: &[ApiKeyConfiguration],
+        expected_config_id: Option<&str>,
+        permissions: Option<&BTreeMap<String, Vec<String>>>,
     ) -> Result<VerifiedApiKey, AuthError> {
-        if key.len() > 256 {
-            return Err(AuthError::InvalidApiKey);
-        }
-        let id = api_key_id(key).ok_or(AuthError::InvalidApiKey)?;
         let stored = self
             .store
-            .find_api_key(id)
+            .find_api_key_by_hash(&hash_key(key))
             .await?
-            .filter(|api_key| {
-                api_key.enabled && api_key.config_id == config_id && api_key.expires_at > Utc::now()
-            })
-            .ok_or(AuthError::InvalidApiKey)?;
-        if !verify_api_key_hash(key.to_owned(), stored.key_hash.clone()).await? {
-            return Err(AuthError::InvalidApiKey);
+            .ok_or(ApiKeyError::Invalid)?;
+        if expected_config_id.is_some_and(|expected| stored.config_id != expected) {
+            return Err(ApiKeyError::Invalid.into());
         }
+        configurations
+            .iter()
+            .find(|config| config.config_id == stored.config_id)
+            .ok_or(ApiKeyError::Invalid)?;
+        if !stored.enabled {
+            return Err(ApiKeyError::Disabled.into());
+        }
+        if stored
+            .expires_at
+            .is_some_and(|expires_at| expires_at < Utc::now())
+        {
+            self.store.delete_api_key(stored.id).await?;
+            return Err(ApiKeyError::Expired.into());
+        }
+        if permissions.is_some_and(|required| !permits_all(&stored, required)) {
+            return Err(ApiKeyError::PermissionDenied.into());
+        }
+        let api_key = match self.store.record_api_key_use(stored.id, Utc::now()).await? {
+            ApiKeyUseOutcome::Allowed(api_key) => *api_key,
+            ApiKeyUseOutcome::Invalid => return Err(ApiKeyError::Invalid.into()),
+            ApiKeyUseOutcome::UsageExceeded => {
+                if stored.refill_amount.is_none() {
+                    self.store.delete_api_key(stored.id).await?;
+                }
+                return Err(ApiKeyError::UsageExceeded.into());
+            }
+            ApiKeyUseOutcome::RateLimited {
+                retry_after_milliseconds,
+            } => {
+                return Err(ApiKeyError::RateLimited {
+                    retry_after_milliseconds,
+                }
+                .into());
+            }
+        };
+        let user_id = api_key
+            .reference_id
+            .parse()
+            .map_err(|_| ApiKeyError::Invalid)?;
         let user = self
             .store
-            .find_user_by_id(stored.reference_id)
+            .find_user_by_id(user_id)
             .await?
-            .filter(active_account)
-            .ok_or(AuthError::InvalidApiKey)?;
-        let api_key = self
-            .store
-            .record_api_key_use(id, Utc::now())
-            .await?
-            .ok_or(AuthError::RateLimited)?;
+            .filter(|user| !user.banned)
+            .ok_or(ApiKeyError::Invalid)?;
         Ok(VerifiedApiKey { api_key, user })
     }
-}
 
-fn require_account(actor: &SessionWithUser) -> Result<(), AuthError> {
-    if actor.user.is_anonymous
-        || actor.session.actor_user_id.is_some()
-        || actor.user.must_change_password
-    {
-        return Err(AuthError::Forbidden);
+    pub async fn delete_expired_api_keys(&self) -> Result<u64, AuthError> {
+        self.store.delete_expired_api_keys(Utc::now()).await
     }
-    Ok(())
-}
 
-fn active_account(user: &crate::AuthUser) -> bool {
-    !user.is_anonymous
-        && (!user.banned
-            || user
-                .ban_expires
-                .is_some_and(|expires| expires <= Utc::now()))
-}
-
-fn validate_input(input: &NewApiKey) -> Result<(), AuthError> {
-    validate_identifier(&input.config_id, "API key configuration ID")?;
-    let name = input.name.trim();
-    if name.is_empty() || name.chars().count() > 100 {
-        return invalid("API key name must contain 1 to 100 characters");
-    }
-    if !(3..=32).contains(&input.prefix.len())
-        || !input.prefix.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
-        })
-    {
-        return invalid("API key prefix must contain 3 to 32 lowercase letters, numbers, _ or -");
-    }
-    let now = Utc::now();
-    if input.expires_at <= now + Duration::minutes(5)
-        || input.expires_at > now + Duration::days(365)
-    {
-        return invalid("API key expiry must be between five minutes and one year");
-    }
-    if !(1..=86_400).contains(&input.rate_limit_window_seconds)
-        || !(1..=100_000).contains(&input.rate_limit_max)
-    {
-        return invalid("API key rate limits are outside the supported range");
-    }
-    if input.permissions.is_empty()
-        || input.permissions.len() > 32
-        || !input.permissions.iter().all(|(resource, actions)| {
-            valid_permission_token(resource)
-                && !actions.is_empty()
-                && actions.len() <= 32
-                && actions.iter().all(|action| valid_permission_token(action))
-        })
-    {
-        return invalid("API key permissions are invalid");
-    }
-    Ok(())
-}
-
-fn normalize_permissions(input: &mut NewApiKey) {
-    for actions in input.permissions.values_mut() {
-        actions.sort_unstable();
-        actions.dedup();
-    }
-}
-
-fn validate_identifier(value: &str, label: &str) -> Result<(), AuthError> {
-    if value.is_empty()
-        || value.len() > 64
-        || !value.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
-        })
-    {
-        return invalid(&format!(
-            "{label} must contain lowercase letters, numbers, _ or -"
-        ));
-    }
-    Ok(())
-}
-
-fn valid_permission_token(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 64
-        && value.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
-        })
-}
-
-fn api_key_id(key: &str) -> Option<Uuid> {
-    let (prefix_and_id, secret) = key.rsplit_once('.')?;
-    let id = prefix_and_id.get(prefix_and_id.len().checked_sub(32)?..)?;
-    (!secret.is_empty())
-        .then(|| Uuid::parse_str(id).ok())
-        .flatten()
-}
-
-async fn hash_api_key(key: String) -> Result<String, AuthError> {
-    tokio::task::spawn_blocking(move || {
-        let salt = SaltString::generate(&mut OsRng);
-        Argon2::default()
-            .hash_password(key.as_bytes(), &salt)
-            .map(|hash| hash.to_string())
-            .map_err(|error| AuthError::Storage(error.to_string()))
-    })
-    .await
-    .map_err(|_| AuthError::Worker)?
-}
-
-async fn verify_api_key_hash(key: String, key_hash: String) -> Result<bool, AuthError> {
-    tokio::task::spawn_blocking(move || {
-        PasswordHash::new(&key_hash).ok().is_some_and(|hash| {
-            Argon2::default()
-                .verify_password(key.as_bytes(), &hash)
-                .is_ok()
-        })
-    })
-    .await
-    .map_err(|_| AuthError::Worker)
-}
-
-fn invalid<T>(message: &str) -> Result<T, AuthError> {
-    Err(AuthError::InvalidRequest(message.into()))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{AuthConfig, MemoryStore, NewPasswordUser};
-    use std::{collections::BTreeMap, sync::Arc};
-
-    async fn owner() -> (AuthService, crate::SignInResult) {
-        let service = AuthService::new(
-            Arc::new(MemoryStore::default()),
-            AuthConfig::new([17_u8; 32]).unwrap(),
-        );
-        service
-            .provision_password_user(NewPasswordUser {
-                username: "owner".into(),
-                name: "Owner".into(),
-                email: None,
-                password: "password".into(),
-                role: "owner".into(),
+    async fn owned_api_key(
+        &self,
+        actor: &SessionWithUser,
+        config_id: &str,
+        api_key_id: Uuid,
+    ) -> Result<ApiKey, AuthError> {
+        self.store
+            .find_api_key(api_key_id)
+            .await?
+            .filter(|api_key| {
+                api_key.reference_id == actor.user.id.to_string() && api_key.config_id == config_id
             })
-            .await
-            .unwrap();
-        let owner = service
-            .sign_in_username("owner", "password".into(), None, None)
-            .await
-            .unwrap();
-        (service, owner)
+            .ok_or_else(|| ApiKeyError::NotFound.into())
     }
+}
 
-    fn input() -> NewApiKey {
-        NewApiKey {
-            config_id: "example-service".into(),
-            name: "Codex".into(),
-            prefix: "example_key_".into(),
-            expires_at: Utc::now() + Duration::days(30),
-            permissions: BTreeMap::from([
-                ("home".into(), vec!["read".into()]),
-                ("lights".into(), vec!["control".into()]),
-            ]),
-            rate_limit_window_seconds: 60,
-            rate_limit_max: 120,
-        }
+fn require_session(actor: &SessionWithUser) -> Result<(), AuthError> {
+    if actor.user.banned {
+        return Err(ApiKeyError::UnauthorizedSession.into());
     }
+    Ok(())
+}
 
-    #[tokio::test]
-    async fn issued_keys_are_one_way_verified_and_revocable() {
-        let (service, owner) = owner().await;
-        let issued = service
-            .issue_api_key(&owner.session, input())
-            .await
-            .unwrap();
-
-        assert!(issued.key.starts_with("example_key_"));
-        assert!(!issued.api_key.key_hash.contains(&issued.key));
-        assert_eq!(api_key_id(&issued.key), Some(issued.api_key.id));
-        assert!(
-            verify_api_key_hash(issued.key.clone(), issued.api_key.key_hash.clone())
-                .await
-                .unwrap()
-        );
-        let verified = service
-            .verify_api_key(&issued.key, "example-service")
-            .await
-            .unwrap();
-        assert!(verified.api_key.permits("home", "read"));
-        assert_eq!(verified.api_key.request_count, 1);
-
-        service
-            .revoke_api_key(&owner.session, issued.api_key.id)
-            .await
-            .unwrap();
-        assert!(matches!(
-            service.verify_api_key(&issued.key, "example-service").await,
-            Err(AuthError::InvalidApiKey)
-        ));
+async fn generate_key(
+    config: &ApiKeyConfiguration,
+    requested_prefix: Option<&str>,
+) -> Result<String, AuthError> {
+    let prefix = requested_prefix.or(config.default_prefix.as_deref());
+    if let Some(generator) = &config.key_generator {
+        return generator.generate(config.default_key_length, prefix).await;
     }
+    const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let mut rng = rand::rng();
+    let value: String = (0..config.default_key_length)
+        .map(|_| ALPHABET[rng.random_range(0..ALPHABET.len())] as char)
+        .collect();
+    Ok(format!("{}{value}", prefix.unwrap_or_default()))
+}
 
-    #[tokio::test]
-    async fn keys_are_bound_to_their_configuration_and_rate_limit() {
-        let (service, owner) = owner().await;
-        let mut input = input();
-        input.rate_limit_max = 1;
-        let issued = service.issue_api_key(&owner.session, input).await.unwrap();
-
-        assert!(matches!(
-            service.verify_api_key(&issued.key, "other").await,
-            Err(AuthError::InvalidApiKey)
-        ));
-        service
-            .verify_api_key(&issued.key, "example-service")
-            .await
-            .unwrap();
-        assert!(matches!(
-            service.verify_api_key(&issued.key, "example-service").await,
-            Err(AuthError::RateLimited)
-        ));
-    }
+fn hash_key(key: &str) -> String {
+    URL_SAFE_NO_PAD.encode(Sha256::digest(key.as_bytes()))
 }
