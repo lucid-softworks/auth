@@ -62,7 +62,7 @@ pub(crate) fn with_session_cookie(
     )
 }
 
-pub(super) fn clear_session_cookie(service: &AuthService, body: impl IntoResponse) -> Response {
+pub(crate) fn clear_session_cookie(service: &AuthService, body: impl IntoResponse) -> Response {
     with_cookie(
         body,
         serialize_cookie(&service.session_cookie(), "", Some(0)),
@@ -74,7 +74,11 @@ pub fn session_token(service: &AuthService, headers: &HeaderMap) -> Option<Strin
     signed_cookie_token(service, headers, &cookie.name)
 }
 
-fn signed_cookie_token(service: &AuthService, headers: &HeaderMap, name: &str) -> Option<String> {
+pub(crate) fn signed_cookie_token(
+    service: &AuthService,
+    headers: &HeaderMap,
+    name: &str,
+) -> Option<String> {
     let cookie_value = headers
         .get(header::COOKIE)?
         .to_str()
@@ -108,7 +112,11 @@ pub(crate) fn client_ip(
     )
 }
 
-fn serialize_cookie(cookie: &ResolvedCookie, value: &str, max_age_seconds: Option<i64>) -> String {
+pub(crate) fn serialize_cookie(
+    cookie: &ResolvedCookie,
+    value: &str,
+    max_age_seconds: Option<i64>,
+) -> String {
     let mut serialized = format!("{}={value}", cookie.name);
     if cookie.attributes.http_only {
         serialized.push_str("; HttpOnly");
@@ -130,11 +138,11 @@ fn serialize_cookie(cookie: &ResolvedCookie, value: &str, max_age_seconds: Optio
     serialized
 }
 
-fn with_cookie(body: impl IntoResponse, cookie: String) -> Response {
+pub(crate) fn with_cookie(body: impl IntoResponse, cookie: String) -> Response {
     let mut response = body.into_response();
     match HeaderValue::from_str(&cookie) {
         Ok(value) => {
-            response.headers_mut().insert(header::SET_COOKIE, value);
+            response.headers_mut().append(header::SET_COOKIE, value);
             response
         }
         Err(_) => auth_error(AuthError::InvalidConfiguration(

@@ -1,5 +1,5 @@
 use crate::{
-    AuthService,
+    AuthError, AuthService,
     protocol::better_auth::{
         AnonymousSignInResponse, SessionResponse, SignInResponse, SuccessResponse,
     },
@@ -60,16 +60,16 @@ where
     Router::new().nest(service.base_path(), routes)
 }
 
-pub(super) fn sign_in_response(
+pub(crate) async fn sign_in_response(
     service: &AuthService,
     result: crate::SignInResult,
     callback_url: Option<String>,
-) -> SignInResponse {
-    SignInResponse {
+) -> Result<SignInResponse, AuthError> {
+    Ok(SignInResponse {
         redirect: callback_url.is_some(),
         token: result.token,
         url: callback_url,
-        user: service.better_auth_user(&result.session.user),
+        user: service.better_auth_user(&result.session.user).await?,
         two_factor_redirect: result.session.session.assurance
             == crate::Assurance::PasswordPendingPasskey,
         two_factor_methods: if result.mfa_setup_required {
@@ -80,7 +80,7 @@ pub(super) fn sign_in_response(
             Vec::new()
         },
         mfa_setup_required: result.mfa_setup_required,
-    }
+    })
 }
 
 async fn sign_in_anonymous(
@@ -93,9 +93,13 @@ async fn sign_in_anonymous(
         .await
     {
         Ok(result) => {
+            let user = match service.better_auth_user(&result.session.user).await {
+                Ok(user) => user,
+                Err(error) => return auth_error(error),
+            };
             let response = AnonymousSignInResponse {
                 token: result.token.clone(),
-                user: service.better_auth_user(&result.session.user),
+                user,
             };
             with_session_cookie(&service, &result.token, Some(true), Json(response))
         }
@@ -111,13 +115,17 @@ async fn get_session(
         Some(token) => match service.session(&token).await {
             Ok(Some(session)) => {
                 let step_up_required = service.step_up_required(&session.principal());
+                let user = match service.better_auth_user(&session.user).await {
+                    Ok(user) => user,
+                    Err(error) => return auth_error(error),
+                };
                 Json(Some(
                     SessionResponse {
                         session: crate::protocol::better_auth::BetterAuthSession::from_session(
                             &session.session,
                             token,
                         ),
-                        user: service.better_auth_user(&session.user),
+                        user,
                     }
                     .with_step_up_required(step_up_required),
                 ))
@@ -127,18 +135,37 @@ async fn get_session(
             Err(error) => return auth_error(error),
         },
         None => match service.plugin_session(&headers).await {
-            Ok(Some(plugin_session)) => Json(Some(SessionResponse::new(
-                &plugin_session.session,
-                plugin_session.token,
-            )))
-            .into_response(),
-            Ok(None) => Json(
-                service
-                    .development_session()
-                    .as_ref()
-                    .map(|session| SessionResponse::new(session, "development-bypass")),
-            )
-            .into_response(),
+            Ok(Some(plugin_session)) => {
+                let user = match service.better_auth_user(&plugin_session.session.user).await {
+                    Ok(user) => user,
+                    Err(error) => return auth_error(error),
+                };
+                Json(Some(SessionResponse {
+                    session: crate::protocol::better_auth::BetterAuthSession::from_session(
+                        &plugin_session.session.session,
+                        plugin_session.token,
+                    ),
+                    user,
+                }))
+                .into_response()
+            }
+            Ok(None) => match service.development_session() {
+                Some(session) => {
+                    let user = match service.better_auth_user(&session.user).await {
+                        Ok(user) => user,
+                        Err(error) => return auth_error(error),
+                    };
+                    Json(Some(SessionResponse {
+                        session: crate::protocol::better_auth::BetterAuthSession::from_session(
+                            &session.session,
+                            "development-bypass",
+                        ),
+                        user,
+                    }))
+                    .into_response()
+                }
+                None => Json::<Option<SessionResponse>>(None).into_response(),
+            },
             Err(error) => return auth_error(error),
         },
     };

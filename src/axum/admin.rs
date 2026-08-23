@@ -122,16 +122,22 @@ async fn list_users(
     let limit = query.limit.unwrap_or(100).clamp(1, 100);
     let offset = query.offset.unwrap_or(0);
     match service.list_users(&actor, limit, offset).await {
-        Ok((users, total)) => Json(UsersResponse {
-            users: users
-                .iter()
-                .map(|user| service.better_auth_user(user))
-                .collect(),
-            total,
-            limit,
-            offset,
-        })
-        .into_response(),
+        Ok((users, total)) => {
+            let mut output = Vec::with_capacity(users.len());
+            for user in &users {
+                match service.better_auth_user(user).await {
+                    Ok(user) => output.push(user),
+                    Err(error) => return auth_error(error),
+                }
+            }
+            Json(UsersResponse {
+                users: output,
+                total,
+                limit,
+                offset,
+            })
+            .into_response()
+        }
         Err(error) => auth_error(error),
     }
 }
@@ -179,7 +185,7 @@ async fn create_user(
             .await
     }
     .await;
-    user_response(&service, result)
+    user_response(&service, result).await
 }
 
 async fn set_user_password(
@@ -235,7 +241,7 @@ async fn set_role(
         service.set_user_role(&actor, user_id, &role).await
     }
     .await;
-    user_response(&service, result)
+    user_response(&service, result).await
 }
 
 async fn ban_user(
@@ -265,7 +271,7 @@ async fn ban_user(
             .await
     }
     .await;
-    user_response(&service, result)
+    user_response(&service, result).await
 }
 
 async fn unban_user(
@@ -280,19 +286,22 @@ async fn unban_user(
         Ok(user_id) => service.unban_user(&actor, user_id).await,
         Err(error) => Err(error),
     };
-    user_response(&service, result)
+    user_response(&service, result).await
 }
 
 fn parse_uuid(value: &str) -> Result<Uuid, AuthError> {
     Uuid::parse_str(value).map_err(|_| AuthError::InvalidRequest("invalid identifier".into()))
 }
 
-fn user_response(service: &AuthService, result: Result<crate::AuthUser, AuthError>) -> Response {
+async fn user_response(
+    service: &AuthService,
+    result: Result<crate::AuthUser, AuthError>,
+) -> Response {
     match result {
-        Ok(user) => Json(UserResponse {
-            user: service.better_auth_user(&user),
-        })
-        .into_response(),
+        Ok(user) => match service.better_auth_user(&user).await {
+            Ok(user) => Json(UserResponse { user }).into_response(),
+            Err(error) => auth_error(error),
+        },
         Err(error) => auth_error(error),
     }
 }

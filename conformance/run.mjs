@@ -12,6 +12,8 @@ import {
 } from "better-auth/client/plugins";
 import { passkeyClient } from "@better-auth/passkey/client";
 import { apiKeyClient } from "@better-auth/api-key/client";
+import { base32 } from "@better-auth/utils/base32";
+import { createOTP } from "@better-auth/utils/otp";
 import { installVirtualAuthenticator } from "./virtual-authenticator.mjs";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
@@ -514,8 +516,41 @@ async function conformance(origin) {
     });
   });
 
-  await runCase("two-factor backup-code client", async () => {
-    await transport.useFixtureSession("strong");
+  await runCase("complete two-factor client", async () => {
+    await transport.useFixtureSession("password");
+    const enabled = success(
+      await client.twoFactor.enable({
+        password: "correct horse battery staple",
+        method: "totp",
+        issuer: "lucid-auth conformance",
+      }),
+      "twoFactor.enable totp",
+    );
+    assert.equal(enabled.method, "totp");
+    assert.equal(typeof enabled.totpURI, "string");
+    assert.equal(enabled.backupCodes.length, 10);
+    transport.assertRequest("/api/auth/two-factor/enable", "POST", {
+      password: "correct horse battery staple",
+      method: "totp",
+      issuer: "lucid-auth conformance",
+    });
+
+    const uri = success(
+      await client.twoFactor.getTotpUri({
+        password: "correct horse battery staple",
+      }),
+      "twoFactor.getTotpUri",
+    );
+    assert.equal(typeof uri.totpURI, "string");
+    const encodedSecret = new URL(enabled.totpURI).searchParams.get("secret");
+    const secret = new TextDecoder().decode(base32.decode(encodedSecret));
+    const setupCode = await createOTP(secret, { digits: 6, period: 1 }).totp();
+    const setup = success(
+      await client.twoFactor.verifyTotp({ code: setupCode, trustDevice: false }),
+      "twoFactor.verifyTotp setup",
+    );
+    assert.equal(setup.user.twoFactorEnabled, true);
+
     const generated = success(
       await client.twoFactor.generateBackupCodes({
         password: "correct horse battery staple",
@@ -528,8 +563,76 @@ async function conformance(origin) {
       password: "correct horse battery staple",
     });
 
-    await transport.useFixtureSession("pending");
-    const verified = success(
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    transport.clearCookies();
+    const totpChallenge = success(
+      await client.signIn.username({
+        username: "luna",
+        password: "correct horse battery staple",
+      }),
+      "signIn.username TOTP challenge",
+    );
+    assert.equal(totpChallenge.twoFactorRedirect, true);
+    assert.deepEqual(totpChallenge.twoFactorMethods, ["totp", "otp"]);
+    const signInCode = await createOTP(secret, { digits: 6, period: 1 }).totp();
+    const totpVerified = success(
+      await client.twoFactor.verifyTotp({ code: signInCode, trustDevice: false }),
+      "twoFactor.verifyTotp sign-in",
+    );
+    assert.equal(totpVerified.user.twoFactorEnabled, true);
+
+    transport.clearCookies();
+    success(
+      await client.signIn.username({
+        username: "luna",
+        password: "correct horse battery staple",
+      }),
+      "signIn.username OTP challenge",
+    );
+    const sent = success(
+      await client.twoFactor.sendOtp({ trustDevice: true }),
+      "twoFactor.sendOtp",
+    );
+    assert.equal(sent.status, true);
+    const otpResponse = await transport.fetch(
+      `${origin}/__conformance__/two-factor-otp/luna@example.com`,
+    );
+    assert.equal(otpResponse.status, 200);
+    const { code: deliveredCode } = await otpResponse.json();
+    const otpVerified = success(
+      await client.twoFactor.verifyOtp({
+        code: deliveredCode,
+        trustDevice: true,
+      }),
+      "twoFactor.verifyOtp",
+    );
+    assert.equal(otpVerified.user.twoFactorEnabled, true);
+    assert.equal(
+      transport.cookies.has("better-auth.trust_device"),
+      true,
+      `verifyOtp did not set the trust-device cookie: ${JSON.stringify([...transport.cookies.keys()])}`,
+    );
+
+    transport.cookies.delete("better-auth.session_token");
+    const trusted = success(
+      await client.signIn.username({
+        username: "luna",
+        password: "correct horse battery staple",
+      }),
+      "signIn.username trusted device",
+    );
+    assert.equal(trusted.twoFactorRedirect, undefined);
+    assert.equal(trusted.user.twoFactorEnabled, true);
+
+    transport.clearCookies();
+    success(
+      await client.signIn.username({
+        username: "luna",
+        password: "correct horse battery staple",
+      }),
+      "signIn.username backup-code challenge",
+    );
+    const backupVerified = success(
       await client.twoFactor.verifyBackupCode({
         code: generated.backupCodes[0],
         disableSession: false,
@@ -537,7 +640,26 @@ async function conformance(origin) {
       }),
       "twoFactor.verifyBackupCode",
     );
-    assert.equal(typeof verified.token, "string");
+    assert.equal(typeof backupVerified.token, "string");
+
+    const disabled = success(
+      await client.twoFactor.disable({ password: "correct horse battery staple" }),
+      "twoFactor.disable",
+    );
+    assert.equal(disabled.status, true);
+
+    const otpEnabled = success(
+      await client.twoFactor.enable({
+        password: "correct horse battery staple",
+        method: "otp",
+      }),
+      "twoFactor.enable otp",
+    );
+    assert.deepEqual(otpEnabled, { method: "otp" });
+    success(
+      await client.twoFactor.disable({ password: "correct horse battery staple" }),
+      "twoFactor.disable otp",
+    );
   });
 
   await runCase("magic-link client", async () => {

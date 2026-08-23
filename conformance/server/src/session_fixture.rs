@@ -18,6 +18,7 @@ pub(crate) async fn create(
     let assurance = match assurance.as_str() {
         "strong" => Assurance::PasswordAndPasskey,
         "pending" => Assurance::PasswordPendingPasskey,
+        "password" => Assurance::Password,
         _ => return StatusCode::NOT_FOUND.into_response(),
     };
     let token = Uuid::new_v4().to_string();

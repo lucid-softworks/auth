@@ -9,6 +9,9 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
     if let AuthError::ApiKey(error) = &error {
         return crate::api_key::api_key_error(error);
     }
+    if let AuthError::TwoFactor(error) = &error {
+        return crate::two_factor::axum::two_factor_error(*error);
+    }
     let (status, code, message) = match &error {
         error if is_credential_error(error) => credential_error_details(error),
         AuthError::RateLimited => (

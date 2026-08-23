@@ -405,8 +405,6 @@ const CORE_ENDPOINTS: &[(PluginHttpMethod, &str)] = &[
     (PluginHttpMethod::Post, "/revoke-session"),
     (PluginHttpMethod::Post, "/revoke-other-sessions"),
     (PluginHttpMethod::Post, "/revoke-sessions"),
-    (PluginHttpMethod::Post, "/two-factor/generate-backup-codes"),
-    (PluginHttpMethod::Post, "/two-factor/verify-backup-code"),
     (PluginHttpMethod::Get, "/admin/list-users"),
     (PluginHttpMethod::Post, "/admin/create-user"),
     (PluginHttpMethod::Post, "/admin/set-user-password"),

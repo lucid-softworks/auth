@@ -2,8 +2,9 @@ use chrono::{Duration, Utc};
 use lucid_auth::{
     AuditPlugin, AuthConfig, AuthError, AuthService, AuthStore, AuthUser, EmailSignUpInput,
     EmailVerificationOutcome, GuestCapabilityPlugin, NewPasswordUser, PasskeyConfig, PasskeyPlugin,
-    PasswordResetOutcome, PluginMigration, PluginMigrationContribution, UsernameError,
-    UsernamePlugin, VerificationStore, VerificationValue, postgres::PostgresStore,
+    PasswordResetOutcome, PluginMigration, PluginMigrationContribution, TwoFactorConfig,
+    TwoFactorPlugin, UsernameError, UsernamePlugin, VerificationStore, VerificationValue,
+    postgres::PostgresStore,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -21,6 +22,8 @@ mod guest_capability;
 mod magic_link;
 #[path = "postgres_contract/passkey.rs"]
 mod passkey;
+#[path = "postgres_contract/two_factor.rs"]
+mod two_factor;
 #[path = "postgres_contract/user_deletion.rs"]
 mod user_deletion;
 
@@ -64,10 +67,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     let mut config = AuthConfig::new([42_u8; 32])?;
     config.email_and_password.enabled = true;
     config.user.delete_user.enabled = true;
-    config.add_plugin(UsernamePlugin::default())?;
-    config.add_plugin(PasskeyPlugin::new(PasskeyConfig::default()))?;
-    config.add_plugin(GuestCapabilityPlugin::new(store.clone()))?;
-    config.add_plugin(AuditPlugin::new(store.clone()).with_max_events(100))?;
+    register_contract_plugins(&mut config, &store)?;
     let api_keys = api_key::register(&mut config)?;
     let service = Arc::new(AuthService::new(store.clone(), config));
     let user = service
@@ -99,6 +99,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     guest_capability::assert_atomic(&store, &service, &pool, &signed_in.session).await?;
     user_deletion::assert_transactional(&service, &pool).await?;
     passkey_counters_are_atomic(&store, user.id).await?;
+    two_factor::assert_atomic(&store, &pool, user.id).await?;
     api_key::assert_limits_are_atomic(&service, &api_keys, &signed_in.session).await?;
     audit::assert_retention_is_atomic(&store, &pool, user.id).await?;
 
@@ -110,12 +111,28 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+fn register_contract_plugins(
+    config: &mut AuthConfig,
+    store: &Arc<PostgresStore>,
+) -> Result<(), AuthError> {
+    config.add_plugin(UsernamePlugin::default())?;
+    config.add_plugin(PasskeyPlugin::new(PasskeyConfig::default()))?;
+    config.add_plugin(GuestCapabilityPlugin::new(store.clone()))?;
+    config.add_plugin(AuditPlugin::new(store.clone()).with_max_events(100))?;
+    config.add_plugin(TwoFactorPlugin::new(
+        store.clone(),
+        TwoFactorConfig::default(),
+    ))?;
+    Ok(())
+}
+
 async fn assert_extension_tables_absent(
     pool: &sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(passkey_public_key_column_count(pool).await?, 0);
     api_key::assert_table_absent(pool).await?;
     audit::assert_table_absent(pool).await?;
+    two_factor::assert_table_absent(pool).await?;
     assert!(
         !sqlx::query_scalar::<_, bool>("SELECT to_regclass('lucid_auth_guest_grants') IS NOT NULL")
             .fetch_one(pool)

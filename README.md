@@ -18,8 +18,8 @@ supported surface covers:
 - sign-out
 - anonymous guest sign-in
 - the complete `@better-auth/passkey` client surface as an optional native plugin
-- passkey MFA enforcement by role and the backup-code methods exposed by Better
-  Auth's official `twoFactorClient`
+- the complete official `twoFactorClient` surface as an optional native plugin,
+  including TOTP, delivered OTP, backup codes, and trusted devices
 - password changes plus current-user session listing and revocation
 - password, fresh-session, and email-confirmed current-user deletion
 - passkey rename and removal
@@ -144,6 +144,41 @@ behavior. Their extraction into optional native plugins is tracked in
 product security auditing have moved to optional lucid extension plugins; the
 Better Auth passkey endpoints do not impose those custom deletion or step-up
 rules.
+
+Two-Factor Authentication is an independent optional plugin. Memory-backed
+applications provide a separate factor store and an OTP delivery callback:
+
+```rust
+#[async_trait]
+impl TwoFactorOtpSender for MyOtpSender {
+    async fn send(&self, message: TwoFactorOtp) -> Result<(), AuthError> {
+        deliver_code(&message.user, &message.code).await
+    }
+}
+
+let factors = Arc::new(MemoryTwoFactorStore::default());
+let mut two_factor = TwoFactorConfig::default();
+two_factor.issuer = Some("Example".into());
+two_factor.otp = Some(OtpConfig::new(Arc::new(MyOtpSender)));
+config.add_plugin(TwoFactorPlugin::new(factors, two_factor))?;
+```
+
+PostgreSQL applications pass the same `Arc<PostgresStore>` used for core auth
+and apply the service's plugin migrations. The plugin owns
+`lucid_auth_two_factors`; core migration does not create it. The official
+`twoFactorClient` enable/disable, TOTP, OTP, and backup-code methods then work
+without a custom browser transport. `AuthService::generate_two_factor_totp` and
+`AuthService::view_two_factor_backup_codes` are trusted server-only equivalents
+of Better Auth's server APIs and must never be exposed without application-level
+authorization.
+
+TOTP secrets and backup-code lists use authenticated encryption at rest. OTPs
+are persisted only as one-way hashes, TOTP counters and backup-code replacements
+are atomic, sign-in challenges have a five-attempt budget, consecutive factor
+failures lock the account by default, and trusted-device records rotate on use
+and expire after 30 days. Configure those durations and budgets through
+`TwoFactorConfig`; disabling the plugin removes all two-factor routes and its
+`twoFactorEnabled` user field.
 
 Core email/password authentication is disabled by default, matching Better
 Auth. Enable it with `config.email_and_password.enabled = true`; the same
@@ -309,9 +344,9 @@ npm test --prefix conformance
 ```
 
 It currently exercises session, the full username lifecycle, anonymous, admin,
-all official passkey and user-owned API-key client methods, magic links, and
-two-factor backup-code behavior. Passkey registration and authentication use
-complete signatures through an in-process virtual authenticator. The fixture
-and Node dependencies are excluded from the published crate.
+all official passkey, user-owned API-key, magic-link, and two-factor client
+methods. Passkey registration and authentication use complete signatures
+through an in-process virtual authenticator. The fixture and Node dependencies
+are excluded from the published crate.
 
 This project is not affiliated with Better Auth.

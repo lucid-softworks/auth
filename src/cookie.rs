@@ -93,11 +93,15 @@ impl CookieConfig {
         let default_suffix = match kind {
             CookieKind::SessionToken => "session_token",
             CookieKind::PasskeyChallenge => "better-auth-passkey",
+            #[cfg(feature = "axum")]
+            CookieKind::Plugin => "plugin",
         };
         let suffix = suffix_override.unwrap_or(default_suffix);
         let options = match kind {
             CookieKind::SessionToken => Some(&self.session_token),
             CookieKind::PasskeyChallenge => None,
+            #[cfg(feature = "axum")]
+            CookieKind::Plugin => None,
         };
         let unprefixed_name = options
             .and_then(|options| options.name.clone())
@@ -145,6 +149,8 @@ impl CookieConfig {
 pub(crate) enum CookieKind {
     SessionToken,
     PasskeyChallenge,
+    #[cfg(feature = "axum")]
+    Plugin,
 }
 
 #[cfg(any(feature = "axum", test))]

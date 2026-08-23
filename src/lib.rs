@@ -17,6 +17,7 @@ mod passkey;
 mod plugin;
 mod service;
 mod store;
+mod two_factor;
 mod user_deletion;
 mod username;
 
@@ -81,6 +82,11 @@ pub use store::{
     AccessStore, ApiKeyStore, ApiKeyUseOutcome, AuthStore, EmailVerificationOutcome,
     PasskeyDeleteOutcome, PasswordResetOutcome, SecurityStore, UserProfileUpdate,
     VerificationStore,
+};
+pub use two_factor::{
+    AccountLockoutConfig, BackupCodeConfig, MemoryTwoFactorStore, OtpConfig, TotpConfig,
+    TwoFactorConfig, TwoFactorError, TwoFactorOtp, TwoFactorOtpSender, TwoFactorPlugin,
+    TwoFactorRecord, TwoFactorStore,
 };
 pub use user_deletion::{
     DeleteAccountVerification, DeleteAccountVerificationSender, DeleteUserConfig, UserConfig,

@@ -7,8 +7,9 @@ use axum::{
 };
 use lucid_auth::{
     ApiKeyConfiguration, ApiKeyPlugin, AuthConfig, AuthService, MagicLinkConfig, MagicLinkEmail,
-    MagicLinkPlugin, MemoryStore, NewPasswordUser, PasskeyConfig, PasskeyPlugin,
-    PasswordResetEmail, PluginDescriptor, UsernamePlugin, VerificationEmail,
+    MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore, NewPasswordUser, OtpConfig, PasskeyConfig,
+    PasskeyPlugin, PasswordResetEmail, PluginDescriptor, TotpConfig, TwoFactorConfig, TwoFactorOtp,
+    TwoFactorOtpSender, TwoFactorPlugin, UsernamePlugin, VerificationEmail,
     protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
 };
 use serde_json::json;
@@ -32,6 +33,7 @@ struct Fixture {
     verification_emails: Arc<Mutex<Vec<VerificationEmail>>>,
     password_reset_emails: Arc<Mutex<Vec<PasswordResetEmail>>>,
     magic_links: Arc<Mutex<Vec<MagicLinkEmail>>>,
+    two_factor_otps: Arc<Mutex<Vec<TwoFactorOtp>>>,
 }
 
 #[tokio::main]
@@ -57,6 +59,7 @@ async fn main() {
             "/__conformance__/magic-link-token/{email}",
             get(magic_link_token),
         )
+        .route("/__conformance__/two-factor-otp/{email}", get(two_factor_otp))
         .route(
             "/__conformance__/session/{assurance}",
             post(session_fixture::create),
@@ -123,22 +126,78 @@ async fn magic_link_token(
     }
 }
 
+async fn two_factor_otp(
+    Extension(fixture): Extension<Fixture>,
+    Path(email): Path<String>,
+) -> Response {
+    let sent = fixture.two_factor_otps.lock().await;
+    match sent.iter().rev().find(|message| message.user.email == email) {
+        Some(message) => Json(json!({ "code": message.code })).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+#[derive(Clone)]
+struct ConformanceOtpSender {
+    messages: Arc<Mutex<Vec<TwoFactorOtp>>>,
+}
+
+#[async_trait::async_trait]
+impl TwoFactorOtpSender for ConformanceOtpSender {
+    async fn send(&self, otp: TwoFactorOtp) -> Result<(), lucid_auth::AuthError> {
+        self.messages.lock().await.push(otp);
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct ConformanceMessages {
+    verification_emails: Arc<Mutex<Vec<VerificationEmail>>>,
+    password_reset_emails: Arc<Mutex<Vec<PasswordResetEmail>>>,
+    magic_links: Arc<Mutex<Vec<MagicLinkEmail>>>,
+    two_factor_otps: Arc<Mutex<Vec<TwoFactorOtp>>>,
+}
+
 async fn fixture(origin: &str) -> Fixture {
     let store = Arc::new(MemoryStore::default());
-    let verification_emails = Arc::new(Mutex::new(Vec::new()));
-    let password_reset_emails = Arc::new(Mutex::new(Vec::new()));
-    let magic_links = Arc::new(Mutex::new(Vec::new()));
+    let messages = ConformanceMessages::default();
+    let config = conformance_config(origin, &messages);
+    let service = Arc::new(
+        AuthService::try_new(store.clone(), config).expect("valid conformance plugin registry"),
+    );
+    let owner = service
+        .provision_password_user(NewPasswordUser {
+            username: "luna".into(),
+            name: "Luna".into(),
+            email: Some("luna@example.com".into()),
+            password: "correct horse battery staple".into(),
+            role: "owner".into(),
+        })
+        .await
+        .expect("provision fixture owner");
+    Fixture {
+        service,
+        store,
+        owner_id: owner.id,
+        verification_emails: messages.verification_emails,
+        password_reset_emails: messages.password_reset_emails,
+        magic_links: messages.magic_links,
+        two_factor_otps: messages.two_factor_otps,
+    }
+}
+
+fn conformance_config(origin: &str, messages: &ConformanceMessages) -> AuthConfig {
     let mut config = AuthConfig::new([82_u8; 32]).expect("fixture secret");
     config.allow_anonymous = true;
     config.email_and_password.enabled = true;
     config.user.delete_user.enabled = true;
     config.email_verification.sender = Some(Arc::new(ConformanceEmailSender {
-        verification: verification_emails.clone(),
-        password_reset: password_reset_emails.clone(),
+        verification: messages.verification_emails.clone(),
+        password_reset: messages.password_reset_emails.clone(),
     }));
     config.email_and_password.send_reset_password = Some(Arc::new(ConformanceEmailSender {
-        verification: verification_emails.clone(),
-        password_reset: password_reset_emails.clone(),
+        verification: messages.verification_emails.clone(),
+        password_reset: messages.password_reset_emails.clone(),
     }));
     config.email_and_password.revoke_sessions_on_password_reset = true;
     config.email_verification.auto_sign_in_after_verification = true;
@@ -148,6 +207,15 @@ async fn fixture(origin: &str) -> Fixture {
     config
         .add_plugin(UsernamePlugin::default())
         .expect("unique username plugin");
+    add_conformance_plugins(&mut config, origin, messages);
+    config
+}
+
+fn add_conformance_plugins(
+    config: &mut AuthConfig,
+    origin: &str,
+    messages: &ConformanceMessages,
+) {
     config
         .add_plugin(PasskeyPlugin::new(PasskeyConfig {
             rp_id: Some("localhost".into()),
@@ -170,29 +238,23 @@ async fn fixture(origin: &str) -> Fixture {
     config
         .add_plugin(MagicLinkPlugin::new(MagicLinkConfig::new(Arc::new(
             ConformanceMagicLinkSender {
-                messages: magic_links.clone(),
+                messages: messages.magic_links.clone(),
             },
         ))))
         .expect("unique magic-link plugin");
-    let service = Arc::new(
-        AuthService::try_new(store.clone(), config).expect("valid conformance plugin registry"),
-    );
-    let owner = service
-        .provision_password_user(NewPasswordUser {
-            username: "luna".into(),
-            name: "Luna".into(),
-            email: Some("luna@example.com".into()),
-            password: "correct horse battery staple".into(),
-            role: "owner".into(),
-        })
-        .await
-        .expect("provision fixture owner");
-    Fixture {
-        service,
-        store,
-        owner_id: owner.id,
-        verification_emails,
-        password_reset_emails,
-        magic_links,
-    }
+    config
+        .add_plugin(TwoFactorPlugin::new(
+            Arc::new(MemoryTwoFactorStore::default()),
+            TwoFactorConfig {
+                totp: TotpConfig {
+                    period: chrono::Duration::seconds(1),
+                    ..TotpConfig::default()
+                },
+                otp: Some(OtpConfig::new(Arc::new(ConformanceOtpSender {
+                    messages: messages.two_factor_otps.clone(),
+                }))),
+                ..TwoFactorConfig::default()
+            },
+        ))
+        .expect("unique two-factor plugin");
 }

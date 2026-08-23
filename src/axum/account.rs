@@ -13,9 +13,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::protocol::better_auth::{
-    BetterAuthSession, ChangePasswordRequest, ChangePasswordResponse, GenerateBackupCodesRequest,
-    GenerateBackupCodesResponse, RevokeSessionRequest, StatusResponse, UpdateUserRequest,
-    VerifyBackupCodeRequest, VerifyBackupCodeResponse,
+    BetterAuthSession, ChangePasswordRequest, ChangePasswordResponse, RevokeSessionRequest,
+    StatusResponse, UpdateUserRequest,
 };
 
 pub(super) fn router<S>() -> Router<S>
@@ -29,11 +28,6 @@ where
         .route("/revoke-session", post(revoke_session))
         .route("/revoke-other-sessions", post(revoke_other_sessions))
         .route("/revoke-sessions", post(revoke_sessions))
-        .route(
-            "/two-factor/generate-backup-codes",
-            post(generate_backup_codes),
-        )
-        .route("/two-factor/verify-backup-code", post(verify_backup_code))
 }
 
 async fn update_user(
@@ -70,60 +64,6 @@ async fn update_user(
     }
 }
 
-async fn generate_backup_codes(
-    Extension(service): Extension<Arc<AuthService>>,
-    headers: HeaderMap,
-    Json(input): Json<GenerateBackupCodesRequest>,
-) -> Response {
-    let Some(session) = current_session(&service, &headers).await else {
-        return auth_error(AuthError::InvalidSession);
-    };
-    match service
-        .generate_recovery_codes(&session, input.password)
-        .await
-    {
-        Ok(backup_codes) => Json(GenerateBackupCodesResponse {
-            status: true,
-            backup_codes,
-        })
-        .into_response(),
-        Err(error) => auth_error(error),
-    }
-}
-
-async fn verify_backup_code(
-    Extension(service): Extension<Arc<AuthService>>,
-    peer: PeerAddress,
-    headers: HeaderMap,
-    Json(input): Json<VerifyBackupCodeRequest>,
-) -> Response {
-    let Some(session) = current_session(&service, &headers).await else {
-        return auth_error(AuthError::InvalidSession);
-    };
-    match service
-        .verify_recovery_code(
-            &session,
-            &input.code,
-            client_ip(&service, &headers, peer),
-            user_agent(&headers),
-        )
-        .await
-    {
-        Ok(result) => {
-            let body = Json(VerifyBackupCodeResponse {
-                token: result.token.clone(),
-                user: service.better_auth_user(&result.session.user),
-            });
-            if input.disable_session == Some(true) {
-                body.into_response()
-            } else {
-                with_session_cookie(&service, &result.token, Some(true), body)
-            }
-        }
-        Err(error) => auth_error(error),
-    }
-}
-
 async fn change_password(
     Extension(service): Extension<Arc<AuthService>>,
     peer: PeerAddress,
@@ -145,7 +85,10 @@ async fn change_password(
         .await
     {
         Ok(changed) => {
-            let user = service.better_auth_user(&changed.user);
+            let user = match service.better_auth_user(&changed.user).await {
+                Ok(user) => user,
+                Err(error) => return auth_error(error),
+            };
             if let Some(replacement) = changed.replacement_session {
                 let token = replacement.token;
                 with_session_cookie(

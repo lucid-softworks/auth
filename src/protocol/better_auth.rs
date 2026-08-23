@@ -154,6 +154,8 @@ pub struct BetterAuthUser {
     pub banned: bool,
     pub ban_reason: Option<String>,
     pub ban_expires: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub two_factor_enabled: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -203,37 +205,6 @@ pub struct EmailSignUpResponse {
 pub struct VerifyEmailResponse {
     pub status: bool,
     pub user: Option<BetterAuthUser>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct GenerateBackupCodesRequest {
-    pub password: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GenerateBackupCodesResponse {
-    pub status: bool,
-    pub backup_codes: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VerifyBackupCodeRequest {
-    pub code: String,
-    pub disable_session: Option<bool>,
-    pub trust_device: Option<bool>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct VerifyBackupCodeResponse {
-    pub token: String,
-    pub user: BetterAuthUser,
-}
-
-#[derive(Debug, Serialize)]
-pub struct RecoveryCodeStatusResponse {
-    pub remaining: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -365,6 +336,7 @@ impl From<&AuthUser> for BetterAuthUser {
             banned: user.banned,
             ban_reason: user.ban_reason.clone(),
             ban_expires: user.ban_expires,
+            two_factor_enabled: None,
         }
     }
 }

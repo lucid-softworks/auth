@@ -133,12 +133,14 @@ async fn redeem_guest_grant(
         .await
     {
         Ok(result) => {
-            let mut response =
-                serde_json::to_value(crate::protocol::better_auth::SessionResponse::new(
-                    &result.session,
-                    result.token.clone(),
-                ))
-                .unwrap_or(Value::Null);
+            let session_response = match service
+                .better_auth_session_response(&result.session, result.token.clone())
+                .await
+            {
+                Ok(response) => response,
+                Err(error) => return auth_error(error),
+            };
+            let mut response = serde_json::to_value(session_response).unwrap_or(Value::Null);
             if let Some(session) = response.get_mut("session").and_then(Value::as_object_mut) {
                 session.insert(
                     "guestGrantId".into(),

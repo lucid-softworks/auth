@@ -7,7 +7,7 @@ use crate::{
 };
 use axum::{
     Extension, Json,
-    http::{HeaderMap, HeaderValue, header},
+    http::HeaderMap,
     response::{IntoResponse, Response},
     routing::post,
 };
@@ -45,23 +45,14 @@ async fn sign_in(
         .await
     {
         Ok(result) => {
-            let token = result.token.clone();
-            let mut response = crate::axum::http::with_session_cookie(
+            crate::two_factor::axum::finish_password_sign_in(
                 &service,
-                &token,
+                &headers,
+                result,
                 input.remember_me,
-                Json(crate::axum::sign_in_response(
-                    &service,
-                    result,
-                    callback_url.clone(),
-                )),
-            );
-            if let Some(callback_url) = callback_url
-                && let Ok(location) = HeaderValue::from_str(&callback_url)
-            {
-                response.headers_mut().insert(header::LOCATION, location);
-            }
-            response
+                callback_url,
+            )
+            .await
         }
         Err(error) => super::error::http_error(error, axum::http::StatusCode::UNPROCESSABLE_ENTITY),
     }

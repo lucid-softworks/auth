@@ -6,10 +6,10 @@ use chrono::Utc;
 
 impl AuthService {
     #[cfg(feature = "axum")]
-    pub(crate) fn better_auth_user(
+    pub(crate) async fn better_auth_user(
         &self,
         user: &crate::AuthUser,
-    ) -> crate::protocol::better_auth::BetterAuthUser {
+    ) -> Result<crate::protocol::better_auth::BetterAuthUser, AuthError> {
         let mut output = crate::protocol::better_auth::BetterAuthUser::from(user);
         match self.plugins.find::<UsernamePlugin>() {
             Some(plugin) if plugin.config().display_username => {}
@@ -19,7 +19,25 @@ impl AuthService {
                 output.display_username = None;
             }
         }
-        output
+        if self.plugins.find::<crate::TwoFactorPlugin>().is_some() {
+            output.two_factor_enabled = Some(self.two_factor_enabled(user.id).await?);
+        }
+        Ok(output)
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) async fn better_auth_session_response(
+        &self,
+        value: &SessionWithUser,
+        token: impl Into<String>,
+    ) -> Result<crate::protocol::better_auth::SessionResponse, AuthError> {
+        Ok(crate::protocol::better_auth::SessionResponse {
+            session: crate::protocol::better_auth::BetterAuthSession::from_session(
+                &value.session,
+                token,
+            ),
+            user: self.better_auth_user(&value.user).await?,
+        })
     }
 
     fn username_config(&self) -> Result<&UsernameConfig, AuthError> {

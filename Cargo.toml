@@ -21,10 +21,13 @@ argon2 = "0.5"
 async-trait = "0.1"
 axum = { version = "0.8", optional = true }
 base64 = "0.22"
+chacha20poly1305 = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
+data-encoding = "2"
 hex = "0.4"
 hmac = "0.12"
 ipnet = "2"
+percent-encoding = "2"
 rand = "0.10"
 rand_core = { version = "0.6", features = ["getrandom"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
@@ -114,6 +117,10 @@ required-features = ["axum"]
 
 [[test]]
 name = "username_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "two_factor_contract"
 required-features = ["axum"]
 
 [[test]]

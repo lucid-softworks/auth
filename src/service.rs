@@ -12,6 +12,7 @@ mod password_reset;
 mod recovery;
 mod session;
 mod session_create;
+mod two_factor;
 mod user;
 mod user_deletion;
 mod username;
@@ -42,6 +43,10 @@ pub use passkey::{
 };
 pub use password::PasswordChangeResult;
 pub use recovery::RecoveryCodeStatus;
+#[cfg(feature = "axum")]
+pub(crate) use two_factor::{
+    BackupCodeVerification, TwoFactorEnableResult, TwoFactorSignInOutcome, TwoFactorVerification,
+};
 pub use user_deletion::DeleteUserResult;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -140,6 +145,16 @@ impl AuthService {
     pub(crate) fn passkey_challenge_cookie(&self, suffix: &str) -> ResolvedCookie {
         self.config.cookies.resolve_with_suffix(
             CookieKind::PasskeyChallenge,
+            Some(suffix),
+            self.cookie_secure(),
+            self.config.base_url.as_ref().and_then(|url| url.host_str()),
+        )
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn plugin_cookie(&self, suffix: &str) -> ResolvedCookie {
+        self.config.cookies.resolve_with_suffix(
+            CookieKind::Plugin,
             Some(suffix),
             self.cookie_secure(),
             self.config.base_url.as_ref().and_then(|url| url.host_str()),

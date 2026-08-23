@@ -1,7 +1,6 @@
 use super::{
     body::BetterAuthBody,
     http::{PeerAddress, auth_error, client_ip, current_session, user_agent, with_session_cookie},
-    sign_in_response,
 };
 use crate::{
     AuthError, AuthService, EmailSignUpInput,
@@ -217,9 +216,13 @@ async fn sign_up_email(
     {
         Ok(result) => {
             let token = result.token.clone();
+            let user = match service.better_auth_user(&result.user).await {
+                Ok(user) => user,
+                Err(error) => return auth_error(error),
+            };
             let response = Json(EmailSignUpResponse {
                 token: result.token,
-                user: service.better_auth_user(&result.user),
+                user,
             });
             match token {
                 Some(token) => with_session_cookie(&service, &token, input.remember_me, response),
@@ -249,19 +252,14 @@ async fn sign_in_email(
         .await
     {
         Ok(result) => {
-            let token = result.token.clone();
-            let mut response = with_session_cookie(
+            crate::two_factor::axum::finish_password_sign_in(
                 &service,
-                &token,
+                &headers,
+                result,
                 input.remember_me,
-                Json(sign_in_response(&service, result, callback_url.clone())),
-            );
-            if let Some(callback_url) = callback_url
-                && let Ok(location) = HeaderValue::from_str(&callback_url)
-            {
-                response.headers_mut().insert(header::LOCATION, location);
-            }
-            response
+                callback_url,
+            )
+            .await
         }
         Err(error) => auth_error(error),
     }

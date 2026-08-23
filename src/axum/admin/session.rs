@@ -4,7 +4,7 @@ use crate::{
     axum::http::{
         PeerAddress, auth_error, client_ip, current_session, user_agent, with_session_cookie,
     },
-    protocol::better_auth::{BetterAuthSession, SessionResponse},
+    protocol::better_auth::BetterAuthSession,
 };
 use axum::{
     Extension, Json, Router,
@@ -117,8 +117,15 @@ async fn impersonate_user(
     };
     match result {
         Ok(result) => {
-            let response = SessionResponse::new(&result.session, result.token.clone());
-            with_session_cookie(&service, &result.token, Some(true), Json(response))
+            match service
+                .better_auth_session_response(&result.session, result.token.clone())
+                .await
+            {
+                Ok(response) => {
+                    with_session_cookie(&service, &result.token, Some(true), Json(response))
+                }
+                Err(error) => auth_error(error),
+            }
         }
         Err(error) => auth_error(error),
     }
@@ -141,8 +148,15 @@ async fn stop_impersonating(
         .await
     {
         Ok(result) => {
-            let response = SessionResponse::new(&result.session, result.token.clone());
-            with_session_cookie(&service, &result.token, Some(true), Json(response))
+            match service
+                .better_auth_session_response(&result.session, result.token.clone())
+                .await
+            {
+                Ok(response) => {
+                    with_session_cookie(&service, &result.token, Some(true), Json(response))
+                }
+                Err(error) => auth_error(error),
+            }
         }
         Err(error) => auth_error(error),
     }

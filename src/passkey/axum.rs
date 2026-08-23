@@ -6,8 +6,8 @@ use crate::{
         with_challenge_cookie, with_session_cookie,
     },
     protocol::better_auth::{
-        BetterAuthPasskey, DeletePasskeyRequest, PasskeyRegistrationResponse, SessionResponse,
-        StatusResponse, UpdatePasskeyRequest, UpdatePasskeyResponse,
+        BetterAuthPasskey, DeletePasskeyRequest, PasskeyRegistrationResponse, StatusResponse,
+        UpdatePasskeyRequest, UpdatePasskeyResponse,
     },
 };
 use axum::{
@@ -167,6 +167,10 @@ async fn verify_registration(
     {
         Ok(result) => {
             if let Some(replacement) = result.replacement_session {
+                let user = match service.better_auth_user(&replacement.session.user).await {
+                    Ok(user) => user,
+                    Err(error) => return auth_error(error),
+                };
                 let body = Json(PasskeyRegistrationResponse {
                     passkey: BetterAuthPasskey::from(&result.passkey),
                     session: Some(
@@ -175,7 +179,7 @@ async fn verify_registration(
                             &replacement.token,
                         ),
                     ),
-                    user: Some(service.better_auth_user(&replacement.session.user)),
+                    user: Some(user),
                 });
                 with_session_cookie(&service, &replacement.token, Some(true), body)
             } else {
@@ -250,8 +254,15 @@ async fn verify_authentication(
         .await
     {
         Ok(result) => {
-            let response = SessionResponse::new(&result.session, result.token.clone());
-            with_session_cookie(&service, &result.token, Some(true), Json(response))
+            match service
+                .better_auth_session_response(&result.session, result.token.clone())
+                .await
+            {
+                Ok(response) => {
+                    with_session_cookie(&service, &result.token, Some(true), Json(response))
+                }
+                Err(error) => auth_error(error),
+            }
         }
         Err(error) => auth_error(error),
     }

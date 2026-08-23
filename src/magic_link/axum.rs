@@ -125,15 +125,24 @@ async fn verify_magic_link(
             let response = match callback {
                 Some(_) if verified.is_new_user => redirect(&new_user_callback_url),
                 Some(_) => redirect(&callback_url),
-                None => Json(json!({
-                    "token": verified.result.token,
-                    "user": service.better_auth_user(&verified.result.session.user),
-                    "session": BetterAuthSession::from_session(
-                        &verified.result.session.session,
-                        &token,
-                    ),
-                }))
-                .into_response(),
+                None => {
+                    let user = match service
+                        .better_auth_user(&verified.result.session.user)
+                        .await
+                    {
+                        Ok(user) => user,
+                        Err(error) => return auth_error(error),
+                    };
+                    Json(json!({
+                        "token": verified.result.token,
+                        "user": user,
+                        "session": BetterAuthSession::from_session(
+                            &verified.result.session.session,
+                            &token,
+                        ),
+                    }))
+                    .into_response()
+                }
             };
             with_session_cookie(&service, &token, Some(true), response)
         }
