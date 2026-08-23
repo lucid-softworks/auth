@@ -1,4 +1,6 @@
-use crate::{AuthError, AuthSession, AuthUser};
+use crate::AuthError;
+#[cfg(feature = "axum")]
+use crate::{AuthSession, AuthUser};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
@@ -114,14 +116,17 @@ pub(crate) fn json_truthy(value: &Value) -> bool {
     }
 }
 
+#[cfg(feature = "axum")]
 pub(crate) fn filter_user_output(configured: &AdditionalFieldSet, user: &mut AuthUser) {
     filter_output(configured, &mut user.additional_fields);
 }
 
+#[cfg(feature = "axum")]
 pub(crate) fn filter_session_output(configured: &AdditionalFieldSet, session: &mut AuthSession) {
     filter_output(configured, &mut session.additional_fields);
 }
 
+#[cfg(feature = "axum")]
 fn filter_output(configured: &AdditionalFieldSet, values: &mut Map<String, Value>) {
     values.retain(|name, _| configured.get(name).is_none_or(|field| field.returned));
 }

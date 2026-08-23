@@ -1,3 +1,5 @@
+#![cfg(feature = "axum")]
+
 use async_trait::async_trait;
 use axum::{
     Router,
