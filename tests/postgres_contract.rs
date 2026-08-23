@@ -1,7 +1,7 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{
-    AuthConfig, AuthService, NewPasswordUser, PluginMigration, PluginMigrationContribution,
-    VerificationStore, VerificationValue, postgres::PostgresStore,
+    AuthConfig, AuthError, AuthService, EmailSignUpInput, NewPasswordUser, PluginMigration,
+    PluginMigrationContribution, VerificationStore, VerificationValue, postgres::PostgresStore,
 };
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
@@ -37,27 +37,11 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     let store = Arc::new(PostgresStore::new(pool.clone()));
     store.migrate().await?;
     store.migrate().await?;
-    let plugin_migrations = [PluginMigrationContribution {
-        plugin_id: "postgres-contract",
-        migration: PluginMigration {
-            id: "create-records",
-            description: "PostgreSQL contract plugin records",
-            sql: "CREATE TABLE lucid_auth_contract_plugin_records (id TEXT PRIMARY KEY)",
-        },
-    }];
-    store.migrate_plugins(&plugin_migrations).await?;
-    store.migrate_plugins(&plugin_migrations).await?;
-    assert_eq!(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_plugin_migrations \
-             WHERE plugin_id = 'postgres-contract' AND migration_id = 'create-records'",
-        )
-        .fetch_one(&pool)
-        .await?,
-        1
-    );
+    plugin_migrations_are_idempotent(&store, &pool).await?;
 
-    let service = AuthService::new(store.clone(), AuthConfig::new([42_u8; 32])?);
+    let mut config = AuthConfig::new([42_u8; 32])?;
+    config.email_and_password.enabled = true;
+    let service = AuthService::new(store.clone(), config);
     let user = service
         .provision_password_user(NewPasswordUser {
             username: "owner".into(),
@@ -81,12 +65,68 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     assert!(service.session(&signed_in.token).await?.is_some());
 
     verification_values_are_atomic(&store, user.id).await?;
+    email_signup_is_case_insensitive(&service, &pool).await?;
 
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
         .execute(&admin)
         .await?;
     admin.close().await;
+    Ok(())
+}
+
+async fn plugin_migrations_are_idempotent(
+    store: &PostgresStore,
+    pool: &sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plugin_migrations = [PluginMigrationContribution {
+        plugin_id: "postgres-contract",
+        migration: PluginMigration {
+            id: "create-records",
+            description: "PostgreSQL contract plugin records",
+            sql: "CREATE TABLE lucid_auth_contract_plugin_records (id TEXT PRIMARY KEY)",
+        },
+    }];
+    store.migrate_plugins(&plugin_migrations).await?;
+    store.migrate_plugins(&plugin_migrations).await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM lucid_auth_plugin_migrations \
+             WHERE plugin_id = 'postgres-contract' AND migration_id = 'create-records'",
+        )
+        .fetch_one(pool)
+        .await?,
+        1
+    );
+    Ok(())
+}
+
+async fn email_signup_is_case_insensitive(
+    service: &AuthService,
+    pool: &sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let signup = |email: &str| EmailSignUpInput {
+        name: "PostgreSQL email user".into(),
+        email: email.into(),
+        password: "correct horse battery staple".into(),
+        image: None,
+        remember_me: None,
+    };
+    let (left, right) = tokio::join!(
+        service.sign_up_email(signup("Case.Variant@Example.com"), None, None),
+        service.sign_up_email(signup("case.variant@example.com"), None, None)
+    );
+    assert_eq!(usize::from(left.is_ok()) + usize::from(right.is_ok()), 1);
+    let error = left.err().or_else(|| right.err()).unwrap();
+    assert!(matches!(error, AuthError::UserAlreadyExistsEmail));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM lucid_auth_users WHERE LOWER(email) = 'case.variant@example.com'",
+        )
+        .fetch_one(pool)
+        .await?,
+        1
+    );
     Ok(())
 }
 

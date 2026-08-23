@@ -3,6 +3,16 @@
 pub enum AuthError {
     #[error("invalid username or password")]
     InvalidCredentials,
+    #[error("invalid email or password")]
+    InvalidEmailOrPassword,
+    #[error("invalid email")]
+    InvalidEmail,
+    #[error("email and password authentication is disabled")]
+    EmailPasswordDisabled,
+    #[error("email and password sign up is disabled")]
+    EmailPasswordSignUpDisabled,
+    #[error("email is not verified")]
+    EmailNotVerified,
     #[error("too many sign-in attempts")]
     RateLimited,
     #[error("anonymous guest access is disabled")]
@@ -15,6 +25,8 @@ pub enum AuthError {
     NotFound,
     #[error("a user with that username or email already exists")]
     UserAlreadyExists,
+    #[error("a user with that email already exists")]
+    UserAlreadyExistsEmail,
     #[error("the credential account was not found")]
     CredentialAccountNotFound,
     #[error("the current password is incorrect")]

@@ -25,7 +25,7 @@ semantics, persistence, and an end-to-end client test must all agree.
 | Capability | Status | Notes |
 | --- | --- | --- |
 | Better Auth 1.7.1 wire baseline | Partial | This is the sole declared target. Partial plugin rows below qualify the claim; [#3](https://github.com/lucid-softworks/auth/issues/3). |
-| Official JavaScript client conformance | Supported | CI drives the pinned `1.7.1` vanilla client plus username, anonymous, admin, passkey, two-factor, and a native test-client plugin against an ephemeral server; [#2](https://github.com/lucid-softworks/auth/issues/2). |
+| Official JavaScript client conformance | Supported | CI drives the pinned `1.7.1` vanilla email/password client plus username, anonymous, admin, passkey, two-factor, and a native test-client plugin against an ephemeral server; [#2](https://github.com/lucid-softworks/auth/issues/2). |
 | Native plugin extension API | Supported | Typed routes, middleware, lifecycle hooks, ordered PostgreSQL migrations, cookies/rate-limit declarations, dependency/conflict checks, and exact-version client metadata; [#4](https://github.com/lucid-softworks/auth/issues/4). |
 | Community plugin SDK | Planned | Native plugin packaging and certification policy: [#67](https://github.com/lucid-softworks/auth/issues/67). |
 
@@ -39,12 +39,12 @@ semantics, persistence, and an end-to-end client test must all agree.
 | Passwordless cleanup | Magic link, email OTP, phone OTP, and related cleanup are not claimed yet; their 1.7 contracts are tracked in [#22](https://github.com/lucid-softworks/auth/issues/22), [#23](https://github.com/lucid-softworks/auth/issues/23), and [#24](https://github.com/lucid-softworks/auth/issues/24). Durable one-time state is already available through [#8](https://github.com/lucid-softworks/auth/issues/8). |
 | Custom and secondary storage | The native memory/PostgreSQL contracts are unaffected by TypeScript adapter internals. Secondary storage and stateless sessions remain [#58](https://github.com/lucid-softworks/auth/issues/58); hooks remain [#60](https://github.com/lucid-softworks/auth/issues/60). |
 | Dynamic base URL and proxies | Forwarded host/IP data is accepted only through explicitly trusted proxies, matching 1.7 hardening; see [#6](https://github.com/lucid-softworks/auth/issues/6) and [#7](https://github.com/lucid-softworks/auth/issues/7). |
-| Error contracts | The 1.7.1 official client suite asserts structured status/code handling, including `401 INVALID_USERNAME_OR_PASSWORD`; each new endpoint must add its own error regressions before becoming Supported. |
+| Error contracts | The 1.7.1 official client suite asserts structured status/code handling, including enumeration-safe `401 INVALID_EMAIL_OR_PASSWORD` and `401 INVALID_USERNAME_OR_PASSWORD`; each new endpoint must add its own error regressions before becoming Supported. |
 
-This baseline change requires no lucid-auth database migration for the currently
-supported surface. Better Auth's 1.7 account-identity migration applies to the
-unimplemented OAuth/account tables described above and will be introduced with
-those features rather than adding unused or legacy columns now.
+Migration `0010_email_password.sql` normalizes persisted email addresses, adds
+case-insensitive uniqueness, and allows core email/password users without a
+username. Better Auth's 1.7 issuer-qualified OAuth identity changes remain
+scoped to the unimplemented account lifecycle described above.
 
 ## Core client API
 
@@ -52,9 +52,9 @@ those features rather than adding unused or legacy columns now.
 | --- | --- | --- |
 | `getSession`, `useSession` (`GET /get-session`) | Supported | Stateful cookie session; cache/stateless modes are tracked in [#58](https://github.com/lucid-softworks/auth/issues/58). |
 | `signOut` (`POST /sign-out`) | Supported | Clears the default session cookie. Configurable cookie attributes are tracked in [#6](https://github.com/lucid-softworks/auth/issues/6). |
-| `signUp.email` (`POST /sign-up/email`) | Planned | [#9](https://github.com/lucid-softworks/auth/issues/9). |
-| `signIn.email` (`POST /sign-in/email`) | Planned | [#9](https://github.com/lucid-softworks/auth/issues/9). |
-| `verifyPassword` (`POST /verify-password`) | Planned | Included with credential parity in [#9](https://github.com/lucid-softworks/auth/issues/9). |
+| `signUp.email` (`POST /sign-up/email`) | Supported | JSON/form bodies, exact 1.7.1 `callbackURL`, image, auto-sign-in, password bounds, disabled-signup behavior, normalized uniqueness, and generic duplicate mode; verification delivery is [#10](https://github.com/lucid-softworks/auth/issues/10). |
+| `signIn.email` (`POST /sign-in/email`) | Supported | JSON/form bodies, case-normalized lookup, generic credential errors, verification-required rejection, `rememberMe`, callback response/location, and configured passkey-MFA policy; [#9](https://github.com/lucid-softworks/auth/issues/9). |
+| `verifyPassword` (`POST /verify-password`) | Supported | Session-bound credential verification with the 1.7.1 status/error body; [#9](https://github.com/lucid-softworks/auth/issues/9). |
 | `sendVerificationEmail` (`POST /send-verification-email`) | Planned | [#10](https://github.com/lucid-softworks/auth/issues/10). |
 | `verifyEmail` (`GET /verify-email`) | Planned | [#10](https://github.com/lucid-softworks/auth/issues/10). |
 | `requestPasswordReset` (`POST /request-password-reset`) | Planned | [#11](https://github.com/lucid-softworks/auth/issues/11). |
@@ -154,7 +154,7 @@ a fail-closed security policy.
 | Capability | Status | Tracking and limitations |
 | --- | --- | --- |
 | In-memory store | Supported | Intended for tests and single-process development. |
-| PostgreSQL | Supported | Core current-schema migration and contract exist; broader schema generation is [#68](https://github.com/lucid-softworks/auth/issues/68). |
+| PostgreSQL | Supported | Core migrations include normalized email uniqueness and username-optional credential accounts; lifecycle and concurrent case-variant signup run in the live contract. Broader schema generation is [#68](https://github.com/lucid-softworks/auth/issues/68). |
 | Verification challenges | Supported | Purpose-scoped, expiring values are persisted by both stores and consumed atomically across service instances; [#8](https://github.com/lucid-softworks/auth/issues/8). |
 | SQLite | Planned | [#61](https://github.com/lucid-softworks/auth/issues/61). |
 | MySQL | Planned | [#62](https://github.com/lucid-softworks/auth/issues/62). |

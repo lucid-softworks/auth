@@ -43,9 +43,10 @@ impl AuthStore for PostgresStore {
 
     async fn upsert_password_user(
         &self,
-        user: AuthUser,
+        mut user: AuthUser,
         password_hash: String,
     ) -> Result<AuthUser, AuthError> {
+        user.email = user.email.to_lowercase();
         let must_change_password = user.must_change_password;
         let configured_password_hash = password_hash.clone();
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
@@ -117,7 +118,8 @@ impl AuthStore for PostgresStore {
         Ok(AuthUser::from(stored))
     }
 
-    async fn create_anonymous_user(&self, user: AuthUser) -> Result<AuthUser, AuthError> {
+    async fn create_anonymous_user(&self, mut user: AuthUser) -> Result<AuthUser, AuthError> {
+        user.email = user.email.to_lowercase();
         sqlx::query_as::<_, UserRow>(
             "INSERT INTO lucid_auth_users \
              (id, username, display_username, name, email, email_verified, image, role, \
@@ -138,16 +140,11 @@ impl AuthStore for PostgresStore {
     }
 
     async fn find_user_by_username(&self, username: &str) -> Result<Option<AuthUser>, AuthError> {
-        sqlx::query_as::<_, UserRow>(
-            "SELECT id, username, display_username, name, email, email_verified, image, role, \
-             is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at \
-             FROM lucid_auth_users WHERE username = $1",
-        )
-        .bind(username)
-        .fetch_optional(&self.pool)
-        .await
-        .map(|row| row.map(AuthUser::from))
-        .map_err(storage_error)
+        user::load_by_username(&self.pool, username).await
+    }
+
+    async fn find_user_by_email(&self, email: &str) -> Result<Option<AuthUser>, AuthError> {
+        user::load_by_email(&self.pool, email).await
     }
 
     async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError> {

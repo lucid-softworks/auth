@@ -1,5 +1,6 @@
 mod access;
 mod api_key;
+mod email_password;
 mod guest;
 mod passkey;
 mod password;
@@ -26,6 +27,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use uuid::Uuid;
 
+pub use email_password::{EmailSignUpInput, EmailSignUpResult};
 pub use passkey::PasskeyRegistrationResult;
 pub use password::PasswordChangeResult;
 pub use recovery::RecoveryCodeStatus;
@@ -60,10 +62,11 @@ pub struct AuthService {
 impl AuthService {
     pub fn new(store: Arc<dyn AuthStore>, config: AuthConfig) -> Self {
         Self::try_new(store, config)
-            .unwrap_or_else(|error| panic!("invalid native authentication plugin: {error}"))
+            .unwrap_or_else(|error| panic!("invalid authentication configuration: {error}"))
     }
 
     pub fn try_new(store: Arc<dyn AuthStore>, config: AuthConfig) -> Result<Self, AuthError> {
+        config.validate()?;
         let plugins = PluginRegistry::build(&config.plugins, &config)?;
         Ok(Self {
             store,

@@ -20,6 +20,7 @@ mod verification;
 struct MemoryState {
     users: HashMap<Uuid, AuthUser>,
     usernames: HashMap<String, Uuid>,
+    emails: HashMap<String, Uuid>,
     passwords: HashMap<Uuid, String>,
     sessions: HashMap<String, AuthSession>,
     passkeys: HashMap<Uuid, StoredPasskey>,
@@ -46,23 +47,23 @@ pub struct MemoryStore {
 impl AuthStore for MemoryStore {
     async fn create_password_user(
         &self,
-        user: AuthUser,
+        mut user: AuthUser,
         password_hash: String,
     ) -> Result<AuthUser, AuthError> {
-        let username = user
+        user.email = user.email.to_lowercase();
+        let mut state = self.state.write().await;
+        if user
             .username
             .as_ref()
-            .ok_or_else(|| AuthError::Storage("password user requires a username".into()))?;
-        let mut state = self.state.write().await;
-        if state.usernames.contains_key(username)
-            || state
-                .users
-                .values()
-                .any(|stored| stored.email == user.email)
+            .is_some_and(|username| state.usernames.contains_key(username))
+            || state.emails.contains_key(&user.email)
         {
             return Err(AuthError::UserAlreadyExists);
         }
-        state.usernames.insert(username.clone(), user.id);
+        if let Some(username) = &user.username {
+            state.usernames.insert(username.clone(), user.id);
+        }
+        state.emails.insert(user.email.clone(), user.id);
         state.passwords.insert(user.id, password_hash);
         state.users.insert(user.id, user.clone());
         Ok(user)
@@ -70,9 +71,10 @@ impl AuthStore for MemoryStore {
 
     async fn upsert_password_user(
         &self,
-        user: AuthUser,
+        mut user: AuthUser,
         password_hash: String,
     ) -> Result<AuthUser, AuthError> {
+        user.email = user.email.to_lowercase();
         let username = user
             .username
             .as_deref()
@@ -80,11 +82,24 @@ impl AuthStore for MemoryStore {
             .to_owned();
         let mut state = self.state.write().await;
         let existing_id = state.usernames.get(&username).copied();
+        if state
+            .emails
+            .get(&user.email)
+            .is_some_and(|owner| Some(*owner) != existing_id)
+        {
+            return Err(AuthError::UserAlreadyExists);
+        }
         let stored = if let Some(id) = existing_id {
             let configured_hash_is_active = state
                 .passwords
                 .get(&id)
                 .is_some_and(|stored| stored == &password_hash);
+            let previous_email = state
+                .users
+                .get(&id)
+                .ok_or_else(|| AuthError::Storage("username index is inconsistent".into()))?
+                .email
+                .clone();
             let existing = state
                 .users
                 .get_mut(&id)
@@ -96,9 +111,13 @@ impl AuthStore for MemoryStore {
                 existing.must_change_password = true;
             }
             existing.updated_at = user.updated_at;
-            existing.clone()
+            let stored = existing.clone();
+            state.emails.remove(&previous_email);
+            state.emails.insert(stored.email.clone(), id);
+            stored
         } else {
             state.usernames.insert(username, user.id);
+            state.emails.insert(user.email.clone(), user.id);
             state.users.insert(user.id, user.clone());
             user
         };
@@ -106,8 +125,14 @@ impl AuthStore for MemoryStore {
         Ok(stored)
     }
 
-    async fn create_anonymous_user(&self, user: AuthUser) -> Result<AuthUser, AuthError> {
-        self.state.write().await.users.insert(user.id, user.clone());
+    async fn create_anonymous_user(&self, mut user: AuthUser) -> Result<AuthUser, AuthError> {
+        user.email = user.email.to_lowercase();
+        let mut state = self.state.write().await;
+        if state.emails.contains_key(&user.email) {
+            return Err(AuthError::UserAlreadyExists);
+        }
+        state.emails.insert(user.email.clone(), user.id);
+        state.users.insert(user.id, user.clone());
         Ok(user)
     }
 
@@ -116,6 +141,15 @@ impl AuthStore for MemoryStore {
         Ok(state
             .usernames
             .get(username)
+            .and_then(|id| state.users.get(id))
+            .cloned())
+    }
+
+    async fn find_user_by_email(&self, email: &str) -> Result<Option<AuthUser>, AuthError> {
+        let state = self.state.read().await;
+        Ok(state
+            .emails
+            .get(&email.to_lowercase())
             .and_then(|id| state.users.get(id))
             .cloned())
     }

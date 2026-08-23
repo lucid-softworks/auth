@@ -140,6 +140,70 @@ async function conformance(origin) {
     transport.assertRequest("/api/auth/native-plugin/ping", "GET");
   });
 
+  await runCase("core email and password clients", async () => {
+    const signedUp = success(
+      await client.signUp.email({
+        name: "Email User",
+        email: "Email.User@Example.com",
+        password: "correct horse battery staple",
+        image: "https://example.com/email-user.png",
+        callbackURL: "/verify-email",
+      }),
+      "signUp.email",
+    );
+    assert.equal(signedUp.user.email, "email.user@example.com");
+    assert.equal(signedUp.user.image, "https://example.com/email-user.png");
+    assert.equal(typeof signedUp.token, "string");
+    transport.assertRequest("/api/auth/sign-up/email", "POST", {
+      name: "Email User",
+      email: "Email.User@Example.com",
+      password: "correct horse battery staple",
+      image: "https://example.com/email-user.png",
+      callbackURL: "/verify-email",
+    });
+
+    const verified = success(
+      await client.$fetch("/verify-password", {
+        method: "POST",
+        body: { password: "correct horse battery staple" },
+      }),
+      "verifyPassword",
+    );
+    assert.equal(verified.status, true);
+    transport.assertRequest("/api/auth/verify-password", "POST", {
+      password: "correct horse battery staple",
+    });
+
+    success(await client.signOut(), "signOut after email signup");
+    const signedIn = success(
+      await client.signIn.email({
+        email: "EMAIL.USER@example.com",
+        password: "correct horse battery staple",
+        callbackURL: "/dashboard",
+        rememberMe: false,
+      }),
+      "signIn.email",
+    );
+    assert.equal(signedIn.user.email, "email.user@example.com");
+    assert.equal(signedIn.redirect, true);
+    assert.equal(signedIn.url, "/dashboard");
+    transport.assertRequest("/api/auth/sign-in/email", "POST", {
+      email: "EMAIL.USER@example.com",
+      password: "correct horse battery staple",
+      callbackURL: "/dashboard",
+      rememberMe: false,
+    });
+
+    const rejected = await client.signIn.email({
+      email: "missing@example.com",
+      password: "wrong password",
+    });
+    assert.equal(rejected.data, null);
+    assert.equal(rejected.error?.status, 401);
+    assert.equal(rejected.error?.code, "INVALID_EMAIL_OR_PASSWORD");
+    success(await client.signOut(), "signOut after email signin");
+  });
+
   await runCase("username and session clients", async () => {
     const available = success(
       await client.isUsernameAvailable({ username: "available_user" }),
@@ -205,7 +269,7 @@ async function conformance(origin) {
       await client.admin.listUsers({ query: { limit: 20, offset: 0 } }),
       "admin.listUsers",
     );
-    assert.equal(listed.total, 2);
+    assert.equal(listed.total, 3);
     assert.ok(listed.users.some((user) => user.id === created.user.id));
     const listRequest = transport.assertRequest("/api/auth/admin/list-users", "GET");
     assert.match(listRequest.search, /limit=20/);

@@ -22,6 +22,9 @@ pub struct AuthConfig {
     pub lockout_window: Duration,
     pub passkeys: Option<PasskeyConfig>,
     pub password_breach_checker: Option<Arc<dyn PasswordBreachChecker>>,
+    /// Better Auth-compatible email/password behavior. The flow is disabled
+    /// by default, matching Better Auth.
+    pub email_and_password: EmailPasswordConfig,
     /// Better Auth-compatible client-IP tracking and trusted proxy settings.
     pub ip_address: IpAddressConfig,
     /// Additional browser origins allowed to call authentication endpoints or
@@ -44,6 +47,30 @@ pub struct PasskeyConfig {
     pub rp_name: String,
 }
 
+/// Core email/password settings matching Better Auth 1.7.1 defaults.
+#[derive(Debug, Clone)]
+pub struct EmailPasswordConfig {
+    pub enabled: bool,
+    pub disable_sign_up: bool,
+    pub auto_sign_in: bool,
+    pub require_email_verification: bool,
+    pub min_password_length: usize,
+    pub max_password_length: usize,
+}
+
+impl Default for EmailPasswordConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            disable_sign_up: false,
+            auto_sign_in: true,
+            require_email_verification: false,
+            min_password_length: 8,
+            max_password_length: 128,
+        }
+    }
+}
+
 impl AuthConfig {
     pub fn new(secret: impl Into<Vec<u8>>) -> Result<Self, AuthError> {
         let secret = secret.into();
@@ -64,6 +91,7 @@ impl AuthConfig {
             lockout_window: Duration::minutes(5),
             passkeys: None,
             password_breach_checker: None,
+            email_and_password: EmailPasswordConfig::default(),
             ip_address: IpAddressConfig::default(),
             trusted_origins: Vec::new(),
             required_mfa_roles: Vec::new(),
@@ -144,6 +172,19 @@ impl AuthConfig {
         self.plugins.push(plugin);
         Ok(())
     }
+
+    pub(crate) fn validate(&self) -> Result<(), AuthError> {
+        let password = &self.email_and_password;
+        if password.min_password_length == 0
+            || password.max_password_length < password.min_password_length
+        {
+            return Err(AuthError::InvalidConfiguration(
+                "email/password bounds must have a positive minimum no greater than the maximum"
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 fn normalize_base_path(value: &str) -> Result<String, AuthError> {
@@ -185,5 +226,15 @@ mod tests {
         assert_eq!(config.base_path(), "/auth");
         assert!(config.set_base_url("javascript:alert(1)").is_err());
         assert!(config.set_base_path("/auth?unsafe=true").is_err());
+    }
+
+    #[test]
+    fn validates_email_password_bounds() {
+        let mut config = AuthConfig::new([8_u8; 32]).unwrap();
+        config.email_and_password.min_password_length = 0;
+        assert!(config.validate().is_err());
+        config.email_and_password.min_password_length = 20;
+        config.email_and_password.max_password_length = 10;
+        assert!(config.validate().is_err());
     }
 }

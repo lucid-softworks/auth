@@ -70,13 +70,17 @@ async fn validate_redirect_fields(
             .find(|(name, _)| name == "callbackURL")
             .map(|(_, value)| value.into_owned())
     });
-    let body_fields = if is_json(request.headers()) {
+    let body_fields = if is_inspected_body(request.headers()) {
         let body = std::mem::replace(request.body_mut(), Body::empty());
         let bytes = to_bytes(body, MAX_INSPECTED_BODY_BYTES)
             .await
             .map_err(|_| AuthError::InvalidRequest("request body is too large".into()))?;
         *request.body_mut() = Body::from(bytes.clone());
-        json_object(&bytes)
+        if is_json(request.headers()) {
+            json_object(&bytes)
+        } else {
+            form_object(&bytes)
+        }
     } else {
         None
     };
@@ -155,6 +159,21 @@ fn json_object(bytes: &Bytes) -> Option<Map<String, Value>> {
     serde_json::from_slice::<Value>(bytes)
         .ok()
         .and_then(|value| value.as_object().cloned())
+}
+
+fn form_object(bytes: &Bytes) -> Option<Map<String, Value>> {
+    let mut fields = Map::new();
+    for (name, value) in url::form_urlencoded::parse(bytes) {
+        fields.insert(name.into_owned(), Value::String(value.into_owned()));
+    }
+    Some(fields)
+}
+
+fn is_inspected_body(headers: &HeaderMap) -> bool {
+    is_json(headers)
+        || header_text(headers, header::CONTENT_TYPE.as_str())
+            .and_then(|value| value.split(';').next())
+            .is_some_and(|value| value.eq_ignore_ascii_case("application/x-www-form-urlencoded"))
 }
 
 fn is_json(headers: &HeaderMap) -> bool {

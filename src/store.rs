@@ -34,6 +34,8 @@ pub trait AuthStore:
 
     async fn find_user_by_username(&self, username: &str) -> Result<Option<AuthUser>, AuthError>;
 
+    async fn find_user_by_email(&self, email: &str) -> Result<Option<AuthUser>, AuthError>;
+
     async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError>;
 
     async fn update_password_hash(

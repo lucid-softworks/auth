@@ -20,7 +20,10 @@ use webauthn_rs::prelude::{PublicKeyCredential, RegisterPublicKeyCredential};
 
 mod account;
 mod admin;
+mod body;
 mod cors;
+mod email_password;
+mod error;
 mod guest;
 mod http;
 mod security;
@@ -60,6 +63,7 @@ where
         .route("/passkey/list-user-passkeys", get(list_user_passkeys))
         .route("/passkey/delete-passkey", post(delete_passkey))
         .route("/passkey/update-passkey", post(update_passkey))
+        .merge(email_password::router())
         .merge(account::router())
         .merge(admin::router())
         .merge(guest::router());
@@ -81,6 +85,28 @@ where
         ))
         .layer(Extension(service.clone()));
     Router::new().nest(service.base_path(), routes)
+}
+
+pub(super) fn sign_in_response(
+    result: crate::SignInResult,
+    callback_url: Option<String>,
+) -> SignInResponse {
+    SignInResponse {
+        redirect: callback_url.is_some(),
+        token: result.token,
+        url: callback_url,
+        user: BetterAuthUser::from(&result.session.user),
+        two_factor_redirect: result.session.session.assurance
+            == crate::Assurance::PasswordPendingPasskey,
+        two_factor_methods: if result.mfa_setup_required {
+            vec!["passkey".into()]
+        } else if result.session.session.assurance == crate::Assurance::PasswordPendingPasskey {
+            vec!["passkey".into(), "backup_code".into()]
+        } else {
+            Vec::new()
+        },
+        mfa_setup_required: result.mfa_setup_required,
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -111,25 +137,13 @@ async fn sign_in_username(
         .await
     {
         Ok(result) => {
-            let response = SignInResponse {
-                redirect: callback_url.is_some(),
-                token: result.token.clone(),
-                url: callback_url,
-                user: BetterAuthUser::from(&result.session.user),
-                two_factor_redirect: result.session.session.assurance
-                    == crate::Assurance::PasswordPendingPasskey,
-                two_factor_methods: if result.mfa_setup_required {
-                    vec!["passkey".into()]
-                } else if result.session.session.assurance
-                    == crate::Assurance::PasswordPendingPasskey
-                {
-                    vec!["passkey".into(), "backup_code".into()]
-                } else {
-                    Vec::new()
-                },
-                mfa_setup_required: result.mfa_setup_required,
-            };
-            with_session_cookie(&service, &result.token, input.remember_me, Json(response))
+            let token = result.token.clone();
+            with_session_cookie(
+                &service,
+                &token,
+                input.remember_me,
+                Json(sign_in_response(result, callback_url)),
+            )
         }
         Err(error) => auth_error(error),
     }

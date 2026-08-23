@@ -139,6 +139,7 @@ async fn fixture(origin: &str) -> Fixture {
     let store = Arc::new(MemoryStore::default());
     let mut config = AuthConfig::new([82_u8; 32]).expect("fixture secret");
     config.allow_anonymous = true;
+    config.email_and_password.enabled = true;
     config
         .set_base_url(origin)
         .expect("localhost fixture origin");

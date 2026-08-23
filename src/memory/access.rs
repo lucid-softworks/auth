@@ -57,6 +57,7 @@ impl AccessStore for MemoryStore {
         if let Some(username) = user.username {
             state.usernames.remove(&username);
         }
+        state.emails.remove(&user.email);
         state.passwords.remove(&user_id);
         state
             .passkeys

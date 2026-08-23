@@ -361,6 +361,9 @@ enum VisitState {
 
 const CORE_ENDPOINTS: &[(PluginHttpMethod, &str)] = &[
     (PluginHttpMethod::Get, "/get-session"),
+    (PluginHttpMethod::Post, "/sign-up/email"),
+    (PluginHttpMethod::Post, "/sign-in/email"),
+    (PluginHttpMethod::Post, "/verify-password"),
     (PluginHttpMethod::Post, "/sign-in/username"),
     (PluginHttpMethod::Post, "/sign-out"),
     (PluginHttpMethod::Post, "/sign-in/anonymous"),

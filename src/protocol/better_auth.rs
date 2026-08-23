@@ -17,6 +17,33 @@ pub struct UsernameSignInRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmailSignUpRequest {
+    pub name: String,
+    pub email: String,
+    pub password: String,
+    pub image: Option<String>,
+    #[serde(rename = "callbackURL")]
+    pub callback_url: Option<String>,
+    pub remember_me: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmailSignInRequest {
+    pub email: String,
+    pub password: String,
+    #[serde(rename = "callbackURL")]
+    pub callback_url: Option<String>,
+    pub remember_me: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VerifyPasswordRequest {
+    pub password: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct UsernameAvailabilityRequest {
     pub username: String,
 }
@@ -76,9 +103,18 @@ pub struct SignInResponse {
     pub token: String,
     pub url: Option<String>,
     pub user: BetterAuthUser,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub two_factor_redirect: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub two_factor_methods: Vec<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub mfa_setup_required: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EmailSignUpResponse {
+    pub token: Option<String>,
+    pub user: BetterAuthUser,
 }
 
 #[derive(Debug, Deserialize)]

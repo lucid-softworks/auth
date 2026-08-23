@@ -176,7 +176,11 @@ impl AuthService {
 
 impl AuthService {
     pub(super) async fn validate_new_password(&self, password: &str) -> Result<(), AuthError> {
-        validate_password(password)?;
+        validate_password(
+            password,
+            self.config.email_and_password.min_password_length,
+            self.config.email_and_password.max_password_length,
+        )?;
         if let Some(checker) = &self.config.password_breach_checker
             && checker.is_compromised(password).await?
         {
@@ -220,11 +224,15 @@ pub(super) async fn verify_password(
     .map_err(|_| AuthError::Worker)
 }
 
-pub(super) fn validate_password(password: &str) -> Result<(), AuthError> {
-    if password.len() < 8 {
+pub(super) fn validate_password(
+    password: &str,
+    min_password_length: usize,
+    max_password_length: usize,
+) -> Result<(), AuthError> {
+    if password.len() < min_password_length {
         return Err(AuthError::PasswordTooShort);
     }
-    if password.len() > 128 {
+    if password.len() > max_password_length {
         return Err(AuthError::PasswordTooLong);
     }
     Ok(())

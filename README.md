@@ -11,6 +11,7 @@ limitations, upgrade audit, and links to every tracked gap. The currently
 supported surface covers:
 
 - `getSession` and `useSession`
+- core email/password signup, signin, and current-password verification
 - username/password sign-in
 - sign-out
 - anonymous guest sign-in
@@ -53,6 +54,13 @@ passkeys, and recovery codes so the account can enroll again.
 
 The session response includes `stepUpRequired` so an official Better Auth client
 can prompt for passkey authentication before submitting sensitive changes.
+
+Core email/password authentication is disabled by default, matching Better
+Auth. Enable it with `config.email_and_password.enabled = true`; the same
+configuration exposes signup enablement, auto-sign-in, verification-required
+mode, and password length bounds. Email identities are stored lowercase and
+enforced case-insensitively by both adapters. Wire input accepts Better Auth's
+exact `callbackURL` spelling only.
 
 API-key secrets contain 384 random bits and are never stored. The database keeps
 only a salted Argon2id verifier plus a random public key identifier used for a

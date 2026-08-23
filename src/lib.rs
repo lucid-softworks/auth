@@ -20,7 +20,7 @@ pub mod protocol;
 
 pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use client_ip::IpAddressConfig;
-pub use config::{AuthConfig, PasskeyConfig};
+pub use config::{AuthConfig, EmailPasswordConfig, PasskeyConfig};
 pub use cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
 pub use error::AuthError;
 pub use memory::MemoryStore;
@@ -38,8 +38,8 @@ pub use plugin::{
     PluginMigrationContribution, PluginRateLimit,
 };
 pub use service::{
-    AuthService, HashedPasswordUser, PasskeyRegistrationResult, PasswordChangeResult,
-    RecoveryCodeStatus, SignInResult,
+    AuthService, EmailSignUpInput, EmailSignUpResult, HashedPasswordUser,
+    PasskeyRegistrationResult, PasswordChangeResult, RecoveryCodeStatus, SignInResult,
 };
 pub use store::{
     AccessStore, ApiKeyStore, AuthStore, PasskeyDeleteOutcome, SecurityStore, VerificationStore,

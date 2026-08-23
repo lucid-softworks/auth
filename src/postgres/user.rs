@@ -20,11 +20,44 @@ pub(super) async fn load_by_id(
     .map_err(storage_error)
 }
 
+pub(super) async fn load_by_username(
+    pool: &PgPool,
+    username: &str,
+) -> Result<Option<AuthUser>, AuthError> {
+    load_by_column(pool, "username = $1", username).await
+}
+
+pub(super) async fn load_by_email(
+    pool: &PgPool,
+    email: &str,
+) -> Result<Option<AuthUser>, AuthError> {
+    load_by_column(pool, "LOWER(email) = LOWER($1)", email).await
+}
+
+async fn load_by_column(
+    pool: &PgPool,
+    predicate: &str,
+    value: &str,
+) -> Result<Option<AuthUser>, AuthError> {
+    let query = format!(
+        "SELECT id, username, display_username, name, email, email_verified, image, role, \
+         is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at \
+         FROM lucid_auth_users WHERE {predicate}"
+    );
+    sqlx::query_as::<_, UserRow>(&query)
+        .bind(value)
+        .fetch_optional(pool)
+        .await
+        .map(|row| row.map(AuthUser::from))
+        .map_err(storage_error)
+}
+
 pub(super) async fn create_password_user(
     pool: &PgPool,
-    user: AuthUser,
+    mut user: AuthUser,
     password_hash: String,
 ) -> Result<AuthUser, AuthError> {
+    user.email = user.email.to_lowercase();
     let mut transaction = pool.begin().await.map_err(storage_error)?;
     let stored = sqlx::query_as::<_, UserRow>(
         "INSERT INTO lucid_auth_users \
