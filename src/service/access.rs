@@ -1,13 +1,24 @@
 use super::{AuthService, SignInResult, user::validate_admin_roles};
 use crate::{
-    AdminListUsersQuery, AdminPermissionSet, AdminUserUpdate, AuthError, AuthSession, AuthUser,
-    SessionWithUser,
+    AdminListUsersQuery, AdminPermissionSet, AuthError, AuthSession, AuthUser, SessionWithUser,
 };
 use chrono::{DateTime, Utc};
 use serde_json::json;
 use uuid::Uuid;
 
 impl AuthService {
+    pub(crate) async fn require_recent_owner(
+        &self,
+        session: &SessionWithUser,
+    ) -> Result<(), AuthError> {
+        self.plugins
+            .authorize_sensitive(&crate::SensitiveOperation {
+                session,
+                operation: "owner-administration",
+            })
+            .await
+    }
+
     pub async fn list_users(
         &self,
         actor: &SessionWithUser,
@@ -41,61 +52,8 @@ impl AuthService {
         permissions: &AdminPermissionSet,
     ) -> Result<bool, AuthError> {
         Ok(self
-            .config
-            .admin
+            .admin_config()?
             .authorizes(actor.user.id, &actor.user.role, permissions))
-    }
-
-    pub async fn admin_update_user(
-        &self,
-        actor: &SessionWithUser,
-        user_id: Uuid,
-        update: AdminUserUpdate,
-    ) -> Result<AuthUser, AuthError> {
-        self.require_admin_permission(actor, "user", &["update"])
-            .await?;
-        if update.role.is_some() {
-            self.require_admin_permission(actor, "user", &["set-role"])
-                .await?;
-        }
-        if update.email.is_some() || update.email_verified.is_some() {
-            self.require_admin_permission(actor, "user", &["set-email"])
-                .await?;
-        }
-        if update.banned.is_some() || update.ban_reason.is_some() || update.ban_expires.is_some() {
-            self.require_admin_permission(actor, "user", &["ban"])
-                .await?;
-        }
-        if update.banned == Some(true) && actor.user.id == user_id {
-            return Err(crate::AdminError::CannotBanSelf.into());
-        }
-        if let Some(role) = &update.role {
-            validate_admin_roles(&self.config.admin, role)?;
-        }
-        if let Some(email) = &update.email
-            && !super::user::valid_email(email)
-        {
-            return Err(AuthError::InvalidEmail);
-        }
-        if let Some(email) = &update.email
-            && self
-                .store
-                .find_user_by_email(email)
-                .await?
-                .is_some_and(|user| user.id != user_id)
-        {
-            return Err(crate::AdminError::UserAlreadyExistsEmail.into());
-        }
-        let banned = update.banned == Some(true);
-        let user = self
-            .store
-            .admin_update_user(user_id, update)
-            .await
-            .map_err(admin_user_error)?;
-        if banned {
-            self.store.delete_user_sessions(user_id).await?;
-        }
-        Ok(user)
     }
 
     pub async fn set_user_role(
@@ -106,7 +64,7 @@ impl AuthService {
     ) -> Result<AuthUser, AuthError> {
         self.require_admin_permission(actor, "user", &["set-role"])
             .await?;
-        validate_admin_roles(&self.config.admin, role)?;
+        validate_admin_roles(self.admin_config()?, role)?;
         let target = self
             .store
             .find_user_by_id(user_id)
@@ -115,13 +73,25 @@ impl AuthService {
         if target.is_anonymous {
             return Err(AuthError::Forbidden);
         }
-        self.protect_final_owner(&target, role != "owner").await?;
+        let decision = self
+            .plugins
+            .authorize_user_management(
+                self.store.as_ref(),
+                &crate::UserManagementOperation {
+                    actor,
+                    action: crate::UserManagementAction::ChangeRole {
+                        target: &target,
+                        new_role: role,
+                    },
+                },
+            )
+            .await?;
         let updated = self
             .store
             .update_user_role(user_id, role)
             .await
             .map_err(admin_user_error)?;
-        if role == "owner" && target.role != "owner" {
+        if decision.revoke_target_sessions {
             self.store.delete_user_sessions(user_id).await?;
         }
         self.audit(
@@ -152,13 +122,24 @@ impl AuthService {
             .find_user_by_id(user_id)
             .await?
             .ok_or(crate::AdminError::UserNotFound)?;
-        self.protect_final_owner(&target, true).await?;
+        self.plugins
+            .authorize_user_management(
+                self.store.as_ref(),
+                &crate::UserManagementOperation {
+                    actor,
+                    action: crate::UserManagementAction::ChangeBan {
+                        target: &target,
+                        banned: true,
+                    },
+                },
+            )
+            .await?;
+        let admin = self.admin_config()?;
         let reason = reason
-            .or_else(|| self.config.admin.default_ban_reason.clone())
+            .or_else(|| admin.default_ban_reason.clone())
             .or_else(|| Some("No reason".into()));
         let expires_at = expires_at.or_else(|| {
-            self.config
-                .admin
+            admin
                 .default_ban_expires_in_seconds
                 .map(|seconds| Utc::now() + chrono::Duration::seconds(seconds))
         });
@@ -264,9 +245,10 @@ impl AuthService {
             .find_user_by_id(user_id)
             .await?
             .ok_or(crate::AdminError::UserNotFound)?;
-        if !self.config.admin.allow_impersonating_admins
-            && self.config.admin.is_admin_target(target.id, &target.role)
-            && !self.config.admin.authorizes(
+        let admin = self.admin_config()?;
+        if !admin.allow_impersonating_admins
+            && admin.is_admin_target(target.id, &target.role)
+            && !admin.authorizes(
                 actor.user.id,
                 &actor.user.role,
                 &crate::admin::permission("user", &["impersonate-admins"]),
@@ -274,8 +256,8 @@ impl AuthService {
         {
             return Err(crate::AdminError::CannotImpersonateAdmin.into());
         }
-        let expires_at = Utc::now()
-            + chrono::Duration::seconds(self.config.admin.impersonation_session_duration_seconds);
+        let expires_at =
+            Utc::now() + chrono::Duration::seconds(admin.impersonation_session_duration_seconds);
         let result = self
             .create_session_until(
                 target,
@@ -327,21 +309,14 @@ impl AuthService {
         Ok(result)
     }
 
-    pub(super) async fn protect_final_owner(
-        &self,
-        target: &AuthUser,
-        removing_owner: bool,
-    ) -> Result<(), AuthError> {
-        if removing_owner
-            && target.role == "owner"
-            && self.store.count_users_by_role("owner").await? <= 1
-        {
-            return Err(AuthError::LastOwner);
-        }
-        Ok(())
-    }
-
     pub(super) async fn admin_session_user(&self, user: AuthUser) -> Result<AuthUser, AuthError> {
+        let Some(admin) = self
+            .plugins
+            .find::<crate::AdminPlugin>()
+            .map(crate::AdminPlugin::config)
+        else {
+            return Ok(user);
+        };
         if !user.banned {
             return Ok(user);
         }
@@ -352,20 +327,9 @@ impl AuthService {
             return self.store.update_user_ban(user.id, false, None, None).await;
         }
         Err(AuthError::AccountDisabled(
-            self.config.admin.banned_user_message.clone(),
+            admin.banned_user_message.clone(),
         ))
     }
-}
-
-pub(super) fn require_owner(session: &SessionWithUser) -> Result<(), AuthError> {
-    if session.user.role != "owner"
-        || session.user.is_anonymous
-        || session.session.actor_user_id.is_some()
-        || account_is_banned(&session.user)
-    {
-        return Err(AuthError::Forbidden);
-    }
-    Ok(())
 }
 
 fn account_is_banned(user: &AuthUser) -> bool {

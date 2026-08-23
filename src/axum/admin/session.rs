@@ -1,6 +1,6 @@
 use super::{UserRequest, parse_uuid, success_response};
 use crate::{
-    AuthError, AuthService,
+    AuthError, AuthService, AxumPluginRoute,
     axum::http::{
         PeerAddress, auth_error, client_ip, current_session, serialize_cookie, signed_cookie_token,
         user_agent, with_cookie, with_session_cookie,
@@ -8,7 +8,7 @@ use crate::{
     protocol::better_auth::BetterAuthSession,
 };
 use axum::{
-    Extension, Json, Router,
+    Extension, Json,
     http::HeaderMap,
     response::{IntoResponse, Response},
     routing::post,
@@ -16,16 +16,14 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub(super) fn router<S>() -> Router<S>
-where
-    S: Clone + Send + Sync + 'static,
-{
-    Router::new()
-        .route("/admin/list-user-sessions", post(list_user_sessions))
-        .route("/admin/revoke-user-session", post(revoke_user_session))
-        .route("/admin/revoke-user-sessions", post(revoke_user_sessions))
-        .route("/admin/impersonate-user", post(impersonate_user))
-        .route("/admin/stop-impersonating", post(stop_impersonating))
+pub(super) fn routes() -> Vec<AxumPluginRoute> {
+    vec![
+        AxumPluginRoute::new("/admin/list-user-sessions", post(list_user_sessions)),
+        AxumPluginRoute::new("/admin/revoke-user-session", post(revoke_user_session)),
+        AxumPluginRoute::new("/admin/revoke-user-sessions", post(revoke_user_sessions)),
+        AxumPluginRoute::new("/admin/impersonate-user", post(impersonate_user)),
+        AxumPluginRoute::new("/admin/stop-impersonating", post(stop_impersonating)),
+    ]
 }
 
 #[derive(Debug, Deserialize)]

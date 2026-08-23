@@ -147,13 +147,10 @@ impl AuthService {
         if config.disable_sign_up {
             return redirect_error("new_user_signup_disabled", None);
         }
+        let default_role = self.default_user_role();
         match self
             .store
-            .create_user_without_account(new_magic_link_user(
-                email,
-                name,
-                &self.config.admin.default_role,
-            ))
+            .create_user_without_account(new_magic_link_user(email, name, &default_role))
             .await
         {
             Ok(user) => Ok((user, true)),

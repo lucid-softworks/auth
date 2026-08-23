@@ -151,10 +151,14 @@ pub struct BetterAuthUser {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_username: Option<String>,
     pub is_anonymous: bool,
-    pub role: String,
-    pub banned: bool,
-    pub ban_reason: Option<String>,
-    pub ban_expires: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub banned: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ban_reason: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ban_expires: Option<Option<DateTime<Utc>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub two_factor_enabled: Option<bool>,
 }
@@ -170,6 +174,7 @@ pub struct BetterAuthSession {
     pub updated_at: DateTime<Utc>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub impersonated_by: Option<String>,
 }
 
@@ -325,10 +330,10 @@ impl From<&AuthUser> for BetterAuthUser {
             username: user.username.clone(),
             display_username: user.display_username.clone(),
             is_anonymous: user.is_anonymous,
-            role: user.role.clone(),
-            banned: user.banned,
-            ban_reason: user.ban_reason.clone(),
-            ban_expires: user.ban_expires,
+            role: Some(user.role.clone()),
+            banned: Some(user.banned),
+            ban_reason: Some(user.ban_reason.clone()),
+            ban_expires: Some(user.ban_expires),
             two_factor_enabled: None,
         }
     }

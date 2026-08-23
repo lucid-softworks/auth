@@ -1,9 +1,9 @@
 use lucid_auth::{
-    AdminRole, AuditPlugin, AuthConfig, AuthError, AuthService, AuthUser, EmailSignUpInput,
+    AdminPlugin, AuditPlugin, AuthConfig, AuthError, AuthService, AuthUser, EmailSignUpInput,
     GuestCapabilityPlugin, NewPasswordUser, OperatorSecurityConfig, OperatorSecurityPlugin,
-    PasskeyConfig, PasskeyPlugin, PluginMigration, PluginMigrationContribution, StepUpPolicyConfig,
-    StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin, UsernameError, UsernamePlugin,
-    postgres::PostgresStore,
+    OwnerPolicyPlugin, PasskeyConfig, PasskeyPlugin, PluginMigration, PluginMigrationContribution,
+    StepUpPolicyConfig, StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin, UsernameError,
+    UsernamePlugin, postgres::PostgresStore,
 };
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
@@ -72,8 +72,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     let mut config = AuthConfig::new([42_u8; 32])?;
     config.email_and_password.enabled = true;
     config.user.delete_user.enabled = true;
-    config.admin.set_role("owner", AdminRole::administrator());
-    config.admin.admin_roles.push("owner".into());
+    config.add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))?;
     register_contract_plugins(&mut config, &store)?;
     let api_keys = api_key::register(&mut config)?;
     let service = Arc::new(AuthService::new(store.clone(), config));
@@ -118,6 +117,7 @@ fn register_contract_plugins(
     config: &mut AuthConfig,
     store: &Arc<PostgresStore>,
 ) -> Result<(), AuthError> {
+    config.add_plugin(OwnerPolicyPlugin)?;
     config.add_plugin(UsernamePlugin::default())?;
     config.add_plugin(PasskeyPlugin::new(PasskeyConfig::default()))?;
     config.add_plugin(GuestCapabilityPlugin::new(store.clone()))?;

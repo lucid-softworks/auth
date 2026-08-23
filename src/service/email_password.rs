@@ -58,12 +58,13 @@ impl AuthService {
         let generic_duplicates = config.require_email_verification || !config.auto_sign_in;
         if self.store.find_user_by_email(&email).await?.is_some() {
             let _ = hash_password(input.password).await?;
+            let default_role = self.default_user_role();
             return if generic_duplicates {
                 Ok(synthetic_signup(
                     input.name,
                     email,
                     input.image,
-                    &self.config.admin.default_role,
+                    &default_role,
                 ))
             } else {
                 Err(AuthError::UserAlreadyExistsEmail)
@@ -81,7 +82,7 @@ impl AuthService {
             email_verified: false,
             image: input.image,
             additional_fields: serde_json::Map::new(),
-            role: self.config.admin.default_role.clone(),
+            role: self.default_user_role(),
             is_anonymous: false,
             banned: false,
             ban_reason: None,
@@ -93,11 +94,12 @@ impl AuthService {
         let user = match self.store.create_password_user(user, password_hash).await {
             Ok(user) => user,
             Err(AuthError::UserAlreadyExists) if generic_duplicates => {
+                let default_role = self.default_user_role();
                 return Ok(synthetic_signup(
                     synthetic.0,
                     synthetic.1,
                     synthetic.2,
-                    &self.config.admin.default_role,
+                    &default_role,
                 ));
             }
             Err(AuthError::UserAlreadyExists) => return Err(AuthError::UserAlreadyExistsEmail),

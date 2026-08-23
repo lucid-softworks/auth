@@ -34,6 +34,7 @@ pub trait OperatorSecurityStore: Send + Sync {
     async fn recover_sole_owner(
         &self,
         user_id: Uuid,
+        owner_role: &str,
         password_hash: String,
     ) -> Result<bool, AuthError>;
 }
@@ -88,7 +89,7 @@ impl AuthPlugin for OperatorSecurityPlugin {
             id: PLUGIN_ID,
             display_name: "Lucid Operator Security",
             version: env!("CARGO_PKG_VERSION"),
-            dependencies: &[],
+            dependencies: &["lucid-owner-policy"],
             conflicts: &[],
             endpoints: &[],
             cookies: &[],

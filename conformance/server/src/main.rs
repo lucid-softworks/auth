@@ -6,10 +6,10 @@ use axum::{
     routing::{get, post},
 };
 use lucid_auth::{
-    AdminRole, ApiKeyConfiguration, ApiKeyPlugin, AuthConfig, AuthService, MagicLinkConfig,
-    MagicLinkEmail, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore, NewPasswordUser, OtpConfig,
-    PasskeyConfig, PasskeyPlugin, PasswordResetEmail, PluginDescriptor, TotpConfig,
-    TwoFactorConfig, TwoFactorOtp, TwoFactorOtpSender, TwoFactorPlugin, UsernamePlugin,
+    AdminConfig, AdminPlugin, AdminRole, ApiKeyConfiguration, ApiKeyPlugin, AuthConfig, AuthService,
+    MagicLinkConfig, MagicLinkEmail, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore,
+    NewPasswordUser, OtpConfig, PasskeyConfig, PasskeyPlugin, PasswordResetEmail,
+    PluginDescriptor, TotpConfig, TwoFactorConfig, TwoFactorOtp, TwoFactorPlugin, UsernamePlugin,
     VerificationEmail,
     protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
 };
@@ -23,7 +23,10 @@ mod email;
 mod native_plugin;
 mod session_fixture;
 
-use email::{ConformanceEmailSender, ConformanceMagicLinkSender};
+use email::{
+    ConformanceEmailSender, ConformanceMagicLinkSender, ConformanceMessages,
+    ConformanceOtpSender,
+};
 use native_plugin::ConformancePlugin;
 
 #[derive(Clone)]
@@ -145,27 +148,6 @@ async fn two_factor_otp(
     }
 }
 
-#[derive(Clone)]
-struct ConformanceOtpSender {
-    messages: Arc<Mutex<Vec<TwoFactorOtp>>>,
-}
-
-#[async_trait::async_trait]
-impl TwoFactorOtpSender for ConformanceOtpSender {
-    async fn send(&self, otp: TwoFactorOtp) -> Result<(), lucid_auth::AuthError> {
-        self.messages.lock().await.push(otp);
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct ConformanceMessages {
-    verification_emails: Arc<Mutex<Vec<VerificationEmail>>>,
-    password_reset_emails: Arc<Mutex<Vec<PasswordResetEmail>>>,
-    magic_links: Arc<Mutex<Vec<MagicLinkEmail>>>,
-    two_factor_otps: Arc<Mutex<Vec<TwoFactorOtp>>>,
-}
-
 async fn fixture(origin: &str) -> Fixture {
     let store = Arc::new(MemoryStore::default());
     let messages = ConformanceMessages::default();
@@ -196,8 +178,12 @@ async fn fixture(origin: &str) -> Fixture {
 
 fn conformance_config(origin: &str, messages: &ConformanceMessages) -> AuthConfig {
     let mut config = AuthConfig::new([82_u8; 32]).expect("fixture secret");
-    config.admin.set_role("member", AdminRole::new());
-    config.admin.set_role("viewer", AdminRole::new());
+    let mut admin = AdminConfig::default();
+    admin.set_role("member", AdminRole::new());
+    admin.set_role("viewer", AdminRole::new());
+    config
+        .add_plugin(AdminPlugin::new(admin))
+        .expect("unique admin plugin");
     config.allow_anonymous = true;
     config.email_and_password.enabled = true;
     config.user.delete_user.enabled = true;

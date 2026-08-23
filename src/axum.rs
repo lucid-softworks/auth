@@ -14,7 +14,7 @@ use axum::{
 use std::sync::Arc;
 
 mod account;
-mod admin;
+pub(crate) mod admin;
 pub(crate) mod body;
 mod cors;
 mod email_password;
@@ -38,8 +38,7 @@ where
         .route("/sign-in/anonymous", post(sign_in_anonymous))
         .merge(email_password::router())
         .merge(account::router())
-        .merge(user_deletion::router())
-        .merge(admin::router());
+        .merge(user_deletion::router());
     for plugin in service.plugins().plugins() {
         for route in plugin.routes(service.clone()) {
             let (path, route) = route.into_parts();

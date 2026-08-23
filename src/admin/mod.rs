@@ -2,6 +2,10 @@ use crate::{AuthError, SessionWithUser};
 use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
+mod plugin;
+
+pub use plugin::AdminPlugin;
+
 #[derive(Debug, Clone)]
 pub struct AdminCreateUser {
     pub email: String,

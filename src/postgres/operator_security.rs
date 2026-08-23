@@ -37,13 +37,15 @@ impl OperatorSecurityStore for PostgresStore {
     async fn recover_sole_owner(
         &self,
         user_id: Uuid,
+        owner_role: &str,
         password_hash: String,
     ) -> Result<bool, AuthError> {
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
         let owners = sqlx::query_scalar::<_, Uuid>(
             "SELECT id FROM lucid_auth_users \
-             WHERE role = 'owner' AND is_anonymous = FALSE FOR UPDATE",
+             WHERE role = $1 AND is_anonymous = FALSE FOR UPDATE",
         )
+        .bind(owner_role)
         .fetch_all(&mut *transaction)
         .await
         .map_err(storage_error)?;

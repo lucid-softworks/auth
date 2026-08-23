@@ -162,7 +162,7 @@ impl AuthPlugin for GuestCapabilityPlugin {
             id: "lucid-guest-capability",
             display_name: "lucid-auth Guest Capabilities",
             version: env!("CARGO_PKG_VERSION"),
-            dependencies: &[],
+            dependencies: &["lucid-owner-policy"],
             conflicts: &[],
             endpoints: ENDPOINTS,
             cookies: &[],

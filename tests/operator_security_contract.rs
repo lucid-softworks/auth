@@ -1,9 +1,9 @@
 use axum::{body::Body, http::Request};
 use chrono::Utc;
 use lucid_auth::{
-    AdminRole, AuthConfig, AuthError, AuthService, AuthStore, MemoryStepUpStore, MemoryStore,
+    AdminPlugin, AuthConfig, AuthError, AuthService, AuthStore, MemoryStepUpStore, MemoryStore,
     MemoryTwoFactorStore, NewPasswordUser, OperatorSecurityConfig, OperatorSecurityError,
-    OperatorSecurityPlugin, StepUpPolicyConfig, StepUpPolicyPlugin, StepUpStore, StoredPasskey,
+    OperatorSecurityPlugin, OwnerPolicyPlugin, StepUpPolicyPlugin, StepUpStore, StoredPasskey,
     TwoFactorConfig, TwoFactorPlugin, TwoFactorRecord, TwoFactorStore,
 };
 use serde_json::json;
@@ -19,9 +19,10 @@ struct Fixture {
 fn service(configure: impl FnOnce(&mut AuthConfig, &Arc<MemoryStore>)) -> Fixture {
     let auth_store = Arc::new(MemoryStore::default());
     let mut config = AuthConfig::new([73_u8; 32]).unwrap();
-    config.admin.set_role("owner", AdminRole::administrator());
-    config.admin.admin_roles.push("owner".into());
-    config.admin.set_role("member", AdminRole::new());
+    config
+        .add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))
+        .unwrap();
+    config.add_plugin(OwnerPolicyPlugin).unwrap();
     config
         .add_plugin(OperatorSecurityPlugin::new(
             auth_store.clone(),
@@ -186,7 +187,7 @@ async fn recovery_fixture() -> RecoveryFixture {
             .add_plugin(StepUpPolicyPlugin::new(
                 auth_store.clone(),
                 step_up.clone(),
-                StepUpPolicyConfig::default(),
+                OwnerPolicyPlugin::step_up_config(),
             ))
             .unwrap();
     });
@@ -341,6 +342,10 @@ async fn assert_multiple_owner_recovery_is_refused(recovery: &RecoveryFixture) {
 async fn provisioned_password_policy_is_plugin_configuration() {
     let auth_store = Arc::new(MemoryStore::default());
     let mut config = AuthConfig::new([74_u8; 32]).unwrap();
+    config
+        .add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))
+        .unwrap();
+    config.add_plugin(OwnerPolicyPlugin).unwrap();
     config
         .add_plugin(OperatorSecurityPlugin::new(
             auth_store.clone(),

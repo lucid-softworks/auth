@@ -115,7 +115,7 @@ async fn official_username_and_session_contract_round_trip() {
     assert!(body.get("twoFactorMethods").is_none());
     assert!(body.get("mfaSetupRequired").is_none());
     assert_eq!(body["user"]["username"], "luna");
-    assert_eq!(body["user"]["role"], "owner");
+    assert!(body["user"].get("role").is_none());
 
     let response = app
         .clone()
@@ -149,7 +149,7 @@ async fn official_anonymous_client_contract_creates_a_guest() {
     assert_eq!(response.status(), StatusCode::OK);
     let body: Value =
         serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    assert_eq!(body["user"]["role"], "guest");
+    assert!(body["user"].get("role").is_none());
     assert_eq!(body["user"]["isAnonymous"], true);
 }
 

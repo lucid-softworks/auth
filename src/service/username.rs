@@ -21,6 +21,12 @@ impl AuthService {
         if self.plugins.find::<crate::TwoFactorPlugin>().is_some() {
             output.two_factor_enabled = Some(self.two_factor_enabled(user.id).await?);
         }
+        if self.plugins.find::<crate::AdminPlugin>().is_none() {
+            output.role = None;
+            output.banned = None;
+            output.ban_reason = None;
+            output.ban_expires = None;
+        }
         Ok(output)
     }
 

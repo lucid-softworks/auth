@@ -138,7 +138,7 @@ impl AuthPlugin for AuditPlugin {
             id: "lucid-security-audit",
             display_name: "lucid-auth Security Audit",
             version: env!("CARGO_PKG_VERSION"),
-            dependencies: &[],
+            dependencies: &["lucid-owner-policy"],
             conflicts: &[],
             endpoints: ENDPOINTS,
             cookies: &[],

@@ -45,7 +45,7 @@ async fn creates_a_restricted_anonymous_principal() {
     let result = service.sign_in_anonymous(None, None).await.unwrap();
 
     assert!(result.session.user.is_anonymous);
-    assert_eq!(result.session.user.role, "guest");
+    assert_eq!(result.session.principal().role, None);
     assert_eq!(
         result.session.principal().authentication_method,
         AuthenticationMethod::Anonymous

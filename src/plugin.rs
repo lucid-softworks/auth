@@ -168,6 +168,34 @@ pub struct SensitiveOperation<'a> {
     pub operation: &'static str,
 }
 
+/// Typed user-management action inspected by optional native host policy plugins.
+pub struct UserManagementOperation<'a> {
+    pub actor: &'a SessionWithUser,
+    pub action: UserManagementAction<'a>,
+}
+
+pub enum UserManagementAction<'a> {
+    Create {
+        role: &'a str,
+    },
+    ChangeRole {
+        target: &'a AuthUser,
+        new_role: &'a str,
+    },
+    ChangeBan {
+        target: &'a AuthUser,
+        banned: bool,
+    },
+    Delete {
+        target: &'a AuthUser,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UserManagementDecision {
+    pub revoke_target_sessions: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PasswordCredentialSource {
     Provisioned,
@@ -244,6 +272,18 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
     ) -> Result<(), AuthError> {
         Ok(())
     }
+
+    /// Applies host-product invariants to Better Auth Admin user changes.
+    async fn authorize_user_management(
+        &self,
+        _store: &dyn crate::AuthStore,
+        _operation: &UserManagementOperation<'_>,
+    ) -> Result<UserManagementDecision, AuthError> {
+        Ok(UserManagementDecision::default())
+    }
+
+    /// Adds optional host authorization metadata to a neutral core principal.
+    fn project_principal(&self, _session: &SessionWithUser, _principal: &mut crate::Principal) {}
 
     /// Rejects a persisted session when plugin-owned state has expired or been revoked.
     async fn validate_session(&self, _session: &SessionWithUser) -> Result<bool, AuthError> {

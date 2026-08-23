@@ -97,7 +97,8 @@ scoped to the unimplemented account lifecycle described above.
 
 | Plugin | Status | Tracking and limitations |
 | --- | --- | --- |
-| Admin | Supported | All 15 official `adminClient` methods pass against Better Auth 1.7.1. This includes passwordless creation, flattened additional user fields, get/update, permission checks, safe filtering/sorting/pagination, multiple roles, configurable access-control statements and admin IDs, ban defaults/messages, bounded impersonation, and exact response/error shapes; [#18](https://github.com/lucid-softworks/auth/issues/18). Lucid's separate last-owner policy remains the explicit extension tracked in [#75](https://github.com/lucid-softworks/auth/issues/75). |
+| Admin | Supported | Optional `AdminPlugin`; all 15 official `adminClient` methods pass against Better Auth 1.7.1. This includes passwordless creation, flattened additional user fields, get/update, permission checks, safe filtering/sorting/pagination, multiple roles, configurable access-control statements and admin IDs, ban defaults/messages, bounded impersonation, and exact response/error shapes. Its routes and user fields are absent when disabled; [#18](https://github.com/lucid-softworks/auth/issues/18), [#75](https://github.com/lucid-softworks/auth/issues/75). |
+| Lucid owner policy | Native only | Optional `OwnerPolicyPlugin`, composed with `AdminPlugin::new(OwnerPolicyPlugin::admin_config())`, owns lucid-auth's fixed owner/member/viewer vocabulary, owner-only gates, last-owner protection, and owner-promotion session revocation. Invalid or mismatched composition is rejected before serving; [#75](https://github.com/lucid-softworks/auth/issues/75). |
 | Organization | Planned | Organizations, members, invitations, teams, and roles: [#30](https://github.com/lucid-softworks/auth/issues/30). |
 | SSO | Planned | Native OIDC/OAuth2/SAML and provisioning: [#31](https://github.com/lucid-softworks/auth/issues/31). |
 | SCIM | Planned | Users, Groups, PATCH/filtering, credentials, and role projection: [#32](https://github.com/lucid-softworks/auth/issues/32). |
@@ -201,7 +202,9 @@ claims:
   structurally validated metadata, fail-open lifecycle recording, bounded
   memory/PostgreSQL retention, identity anonymization, and a plugin-owned
   `/access/audit` route ([#74](https://github.com/lucid-softworks/auth/issues/74));
-- custom owner-policy behavior layered around Admin ([#75](https://github.com/lucid-softworks/auth/issues/75)).
+- optional `OwnerPolicyPlugin` layered around Admin, with fixed roles,
+  last-owner protection, typed authorization hooks, and no core/official-client
+  fields of its own ([#75](https://github.com/lucid-softworks/auth/issues/75)).
 
 These extensions must continue to compose safely with compatibility work, but a
 Better Auth client is not expected to know about them unless an application adds

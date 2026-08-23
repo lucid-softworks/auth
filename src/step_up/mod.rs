@@ -117,7 +117,7 @@ pub struct StepUpPolicyConfig {
 impl Default for StepUpPolicyConfig {
     fn default() -> Self {
         Self {
-            required_roles: vec!["owner".into()],
+            required_roles: Vec::new(),
             freshness: Duration::days(1),
             recovery_code_count: 10,
         }

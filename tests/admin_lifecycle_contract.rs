@@ -5,19 +5,25 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use lucid_auth::{
-    AdminRole, AuthConfig, AuthService, MemoryStore, NewPasswordUser, UsernamePlugin,
+    AdminConfig, AdminPlugin, AdminRole, AuthConfig, AuthService, MemoryStore, NewPasswordUser,
+    UsernamePlugin,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
 
 async fn application() -> Router {
-    application_with_config(AuthConfig::new([43_u8; 32]).unwrap()).await
+    application_with_config(
+        AuthConfig::new([43_u8; 32]).unwrap(),
+        AdminConfig::default(),
+    )
+    .await
 }
 
-async fn application_with_config(mut config: AuthConfig) -> Router {
+async fn application_with_config(mut config: AuthConfig, admin: AdminConfig) -> Router {
     config.trust_origin("http://localhost").unwrap();
     config.add_plugin(UsernamePlugin::default()).unwrap();
+    config.add_plugin(AdminPlugin::new(admin)).unwrap();
     let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
     service
         .provision_password_user(NewPasswordUser {
@@ -238,12 +244,11 @@ async fn account_lifecycle_rejects_duplicates_and_owner_self_removal() {
 
 #[tokio::test]
 async fn custom_permissions_and_banned_message_match_admin_configuration() {
-    let mut config = AuthConfig::new([44_u8; 32]).unwrap();
-    config
-        .admin
-        .set_role("support", AdminRole::new().allow("user", ["list", "get"]));
-    config.admin.banned_user_message = "Contact the security team".into();
-    let app = application_with_config(config).await;
+    let config = AuthConfig::new([44_u8; 32]).unwrap();
+    let mut admin = AdminConfig::default();
+    admin.set_role("support", AdminRole::new().allow("user", ["list", "get"]));
+    admin.banned_user_message = "Contact the security team".into();
+    let app = application_with_config(config, admin).await;
     let (_, admin_cookie) = sign_in(&app, "luna", "password").await;
     let support = create_user(&app, &admin_cookie, "supporter", "support").await;
     let support_id = support["user"]["id"].as_str().unwrap();
@@ -300,4 +305,45 @@ async fn custom_permissions_and_banned_message_match_admin_configuration() {
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(banned["code"], "BANNED_USER");
     assert_eq!(banned["message"], "Contact the security team");
+}
+
+#[tokio::test]
+async fn core_only_omits_admin_routes_and_user_fields() {
+    let mut config = AuthConfig::new([45_u8; 32]).unwrap();
+    config.trust_origin("http://localhost").unwrap();
+    config.add_plugin(UsernamePlugin::default()).unwrap();
+    let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
+    service
+        .provision_password_user(NewPasswordUser {
+            username: "core_user".into(),
+            name: "Core User".into(),
+            email: None,
+            password: "password".into(),
+            role: "internal-placeholder".into(),
+        })
+        .await
+        .unwrap();
+    let app = lucid_auth::axum::router(service);
+    let (_, cookie) = sign_in(&app, "core_user", "password").await;
+    let (status, session) = request_json(
+        &app,
+        Request::get("/api/auth/get-session")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    for field in ["role", "banned", "banReason", "banExpires"] {
+        assert!(session["user"].get(field).is_none(), "unexpected {field}");
+    }
+    let (status, _) = request_json(
+        &app,
+        Request::get("/api/auth/admin/list-users")
+            .header(header::COOKIE, cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }

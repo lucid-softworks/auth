@@ -36,9 +36,9 @@ supported surface covers:
   client compatibility metadata
 
 The library keeps authentication protocol details separate from host-product
-authorization. Applications provide their own permission vocabulary while
-using the authenticated principal's role, actor, subject, and credential
-provenance metadata.
+authorization. Core principals contain actor, subject, session, and credential
+provenance only. An explicitly enabled host-policy plugin may project a role;
+core-only principals leave it unset.
 
 Username is an optional native plugin. Register it explicitly to add username
 fields to email signup and current-user updates and to mount the official
@@ -59,6 +59,8 @@ plugin with its extension store to mount `/guest-grants`,
 
 ```rust
 let store = Arc::new(MemoryStore::default());
+config.add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))?;
+config.add_plugin(OwnerPolicyPlugin)?;
 config.add_plugin(GuestCapabilityPlugin::new(store.clone()))?;
 let auth = AuthService::new(store, config);
 ```
@@ -89,6 +91,8 @@ applications provide a separate sink:
 ```rust
 let auth_store = Arc::new(MemoryStore::default());
 let audit_store = Arc::new(MemoryAuditStore::default());
+config.add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))?;
+config.add_plugin(OwnerPolicyPlugin)?;
 config.add_plugin(AuditPlugin::new(audit_store).with_max_events(10_000))?;
 let auth = AuthService::new(auth_store, config);
 ```
@@ -149,13 +153,18 @@ let step_up_store = Arc::new(MemoryStepUpStore::default());
 config.add_plugin(StepUpPolicyPlugin::new(
     auth_store.clone(),
     step_up_store,
-    StepUpPolicyConfig::default(),
+    StepUpPolicyConfig {
+        required_roles: vec!["admin".into()],
+        ..StepUpPolicyConfig::default()
+    },
 ))?;
 let auth = AuthService::new(auth_store, config);
 ```
 
-The plugin defaults to protecting the `owner` role for one day after a passkey,
-two-factor, or recovery-code verification. It owns its state and recovery-code
+The plugin protects only the configured roles; its neutral default protects no
+roles. `OwnerPolicyPlugin::step_up_config()` supplies the fixed-policy `owner`
+preset. Step-Up freshness defaults to one day after a passkey, two-factor, or
+recovery-code verification. It owns its state and recovery-code
 storage, contributes its PostgreSQL migration, composes independently with
 `PasskeyPlugin` and `TwoFactorPlugin`, and exposes recovery operations through
 `AuthService::step_up_policy`. Its typed `session_projection` is the native host
@@ -165,9 +174,9 @@ sessions have no authenticated plugin state. The plugin intentionally adds no
 Better Auth routes or response fields; applications that want browser-visible
 prompts must provide their own extension client.
 
-Sole-owner recovery and custom owner policy are separate project extensions
-tracked in [#73](https://github.com/lucid-softworks/auth/issues/73) and
-[#75](https://github.com/lucid-softworks/auth/issues/75). Better Auth passkey
+Sole-owner recovery and custom owner policy are separate optional project
+extensions documented in [#73](https://github.com/lucid-softworks/auth/issues/73)
+and [#75](https://github.com/lucid-softworks/auth/issues/75). Better Auth passkey
 endpoints do not impose those policies.
 
 Two-Factor Authentication is an independent optional plugin. Memory-backed
@@ -311,8 +320,14 @@ advisory migration lock, and are transactional and idempotent. See the
 [native plugin example](examples/native_plugin.rs) for a route, middleware,
 migration, cookie/rate-limit declarations, and official-client metadata.
 
-The Better Auth Admin surface uses `AdminConfig` and defaults to the official
-`admin` and `user` roles. `AdminRole::allow` defines custom resource/action
+The Better Auth Admin surface is absent unless `AdminPlugin` is registered:
+
+```rust
+config.add_plugin(AdminPlugin::default())?;
+```
+
+It uses `AdminConfig` and defaults to the official `admin` and `user` roles.
+`AdminRole::allow` defines custom resource/action
 statements, `admin_user_ids` grants access independently of role, and
 `default_role`, ban defaults/message, and impersonation duration mirror the
 documented plugin options. Administrator impersonation remains disabled unless
@@ -321,6 +336,38 @@ documented plugin options. Administrator impersonation remains disabled unless
 role value. The official client can create passwordless users, preserve
 additional fields, query and update users, check permissions, manage bans and
 sessions, and enter or stop bounded impersonation sessions.
+
+Without `AdminPlugin`, Admin routes are not mounted and Admin's `role`, `banned`,
+`banReason`, and `banExpires` user fields are omitted. Core logic does not
+interpret those fields. To opt into lucid-auth's fixed owner/member/viewer
+product policy, compose the separate host-policy plugin with its exact Admin
+configuration:
+
+```rust
+config.add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))?;
+config.add_plugin(OwnerPolicyPlugin)?;
+```
+
+`OwnerPolicyPlugin` alone is rejected, as is pairing it with a different Admin
+role configuration. It owns the fixed role vocabulary, owner-only gates,
+last-owner invariant, owner-promotion session revocation, and owner-oriented
+defaults used by Guest Capability, Audit, and Operator Security. Generic Admin
+does not retain any of those rules as compatibility aliases.
+
+For an existing PostgreSQL installation, make an explicit migration choice
+before serving traffic:
+
+- To retain existing `owner`, `member`, and `viewer` values, register the exact
+  pair above and apply all plugin migrations.
+- To adopt Better Auth Admin directly, register `AdminPlugin` with roles that
+  match the values you intentionally keep, or rewrite persisted role values to
+  the configured Better Auth roles in an application migration.
+- To run core-only, register neither plugin. The bundled store leaves legacy
+  Admin columns dormant, while HTTP schemas and principals omit their values.
+
+The bundled stores physically colocate Better Auth Admin values with their user
+records for atomic reads; `AdminPlugin` is their sole behavioral owner. The
+owner-policy plugin adds no duplicate role or ban storage.
 
 Managed temporary passwords and local sole-owner recovery are optional lucid
 operator policy, not Better Auth Admin behavior. Default and Admin-only user
@@ -332,6 +379,8 @@ credentials and native recovery:
 
 ```rust
 let store = Arc::new(MemoryStore::default());
+config.add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))?;
+config.add_plugin(OwnerPolicyPlugin)?;
 config.add_plugin(OperatorSecurityPlugin::new(
     store.clone(),
     OperatorSecurityConfig::default(),

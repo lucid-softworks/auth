@@ -38,14 +38,24 @@ impl AuthService {
     ) -> Result<AuthUser, AuthError> {
         self.require_admin_permission(actor, "user", &["create"])
             .await?;
+        let admin = self.admin_config()?;
         let role = if input.roles.is_empty() {
-            self.config.admin.default_role.clone()
+            admin.default_role.clone()
         } else {
             self.require_admin_permission(actor, "user", &["set-role"])
                 .await?;
             input.roles.join(",")
         };
-        validate_admin_roles(&self.config.admin, &role)?;
+        validate_admin_roles(admin, &role)?;
+        self.plugins
+            .authorize_user_management(
+                self.store.as_ref(),
+                &crate::UserManagementOperation {
+                    actor,
+                    action: crate::UserManagementAction::Create { role: &role },
+                },
+            )
+            .await?;
         if let Some(password) = &input.password {
             self.validate_new_password(password).await?;
         }
@@ -144,7 +154,15 @@ impl AuthService {
         if target.is_anonymous {
             return Err(AuthError::Forbidden);
         }
-        self.protect_final_owner(&target, true).await?;
+        self.plugins
+            .authorize_user_management(
+                self.store.as_ref(),
+                &crate::UserManagementOperation {
+                    actor,
+                    action: crate::UserManagementAction::Delete { target: &target },
+                },
+            )
+            .await?;
         self.delete_user_with_hooks(target.clone()).await?;
         self.audit(
             actor.user.id,
@@ -260,11 +278,11 @@ mod tests {
     async fn owner() -> (AuthService, SessionWithUser) {
         let mut config = AuthConfig::new([41_u8; 32]).unwrap();
         config
-            .admin
-            .set_role("owner", crate::AdminRole::administrator());
-        config.admin.admin_roles.push("owner".into());
-        config.admin.set_role("viewer", crate::AdminRole::new());
-        config.admin.set_role("member", crate::AdminRole::new());
+            .add_plugin(crate::AdminPlugin::new(
+                crate::OwnerPolicyPlugin::admin_config(),
+            ))
+            .unwrap();
+        config.add_plugin(crate::OwnerPolicyPlugin).unwrap();
         let service = AuthService::new(Arc::new(MemoryStore::default()), config);
         service
             .provision_password_user(NewPasswordUser {

@@ -131,8 +131,12 @@ impl AuthService {
         else {
             return Ok(None);
         };
+        let principal = self
+            .principal(token)
+            .await?
+            .ok_or(AuthError::InvalidSession)?;
         Ok(Some(GuestCapabilityPrincipal {
-            principal: session.principal(),
+            principal,
             guest_grant_id: grant.id,
             permissions: grant.permissions,
             resource_scopes: grant.resource_scopes,
@@ -144,7 +148,7 @@ impl AuthService {
         actor: &crate::SessionWithUser,
     ) -> Result<Vec<GuestGrant>, AuthError> {
         let store = self.guest_capability()?.store.clone();
-        super::access::require_owner(actor)?;
+        self.require_recent_owner(actor).await?;
         store.list_guest_grants().await
     }
 
@@ -237,12 +241,19 @@ fn invalid_grant<T>(message: &str) -> Result<T, AuthError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AuthConfig, GuestCapabilityPlugin, MemoryStore, NewPasswordUser};
+    use crate::{
+        AdminPlugin, AuthConfig, GuestCapabilityPlugin, MemoryStore, NewPasswordUser,
+        OwnerPolicyPlugin,
+    };
     use std::sync::Arc;
 
     async fn fixture() -> (Arc<AuthService>, crate::SessionWithUser) {
         let store = Arc::new(MemoryStore::default());
         let mut config = AuthConfig::new([9_u8; 32]).unwrap();
+        config
+            .add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))
+            .unwrap();
+        config.add_plugin(OwnerPolicyPlugin).unwrap();
         config
             .add_plugin(GuestCapabilityPlugin::new(store.clone()))
             .unwrap();

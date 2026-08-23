@@ -5,8 +5,8 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use lucid_auth::{
-    AdminRole, AuthConfig, AuthService, GuestCapabilityPlugin, MemoryStore, NewPasswordUser,
-    UsernamePlugin,
+    AdminPlugin, AuthConfig, AuthService, GuestCapabilityPlugin, MemoryStore, NewPasswordUser,
+    OwnerPolicyPlugin, UsernamePlugin,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -17,10 +17,10 @@ async fn application() -> Router {
     config.allow_anonymous = true;
     config.trust_origin("http://localhost").unwrap();
     config.add_plugin(UsernamePlugin::default()).unwrap();
-    config.admin.set_role("owner", AdminRole::administrator());
-    config.admin.admin_roles.push("owner".into());
-    config.admin.set_role("viewer", AdminRole::new());
-    config.admin.set_role("member", AdminRole::new());
+    config
+        .add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))
+        .unwrap();
+    config.add_plugin(OwnerPolicyPlugin).unwrap();
     let store = Arc::new(MemoryStore::default());
     config
         .add_plugin(GuestCapabilityPlugin::new(store.clone()))
@@ -97,6 +97,24 @@ async fn response_json(response: axum::response::Response) -> Value {
     serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap()
 }
 
+fn response_cookies(response: &axum::response::Response) -> String {
+    response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .map(|value| {
+            value
+                .to_str()
+                .unwrap()
+                .split(';')
+                .next()
+                .unwrap()
+                .to_owned()
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 #[tokio::test]
 async fn official_admin_contract_supports_roles_and_impersonation() {
     let app = application().await;
@@ -150,21 +168,7 @@ async fn official_admin_contract_supports_roles_and_impersonation() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let impersonated_cookie = response
-        .headers()
-        .get_all(header::SET_COOKIE)
-        .iter()
-        .map(|value| {
-            value
-                .to_str()
-                .unwrap()
-                .split(';')
-                .next()
-                .unwrap()
-                .to_owned()
-        })
-        .collect::<Vec<_>>()
-        .join("; ");
+    let impersonated_cookie = response_cookies(&response);
     let impersonated = response_json(response).await;
     assert_eq!(impersonated["user"]["username"], "casey");
     assert_eq!(

@@ -35,13 +35,14 @@ impl OperatorSecurityStore for MemoryStore {
     async fn recover_sole_owner(
         &self,
         user_id: Uuid,
+        owner_role: &str,
         password_hash: String,
     ) -> Result<bool, AuthError> {
         let mut state = self.state.write().await;
         let owners: Vec<_> = state
             .users
             .values()
-            .filter(|user| !user.is_anonymous && user.role == "owner")
+            .filter(|user| !user.is_anonymous && user.role == owner_role)
             .map(|user| user.id)
             .collect();
         if owners.as_slice() != [user_id] {

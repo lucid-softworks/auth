@@ -15,6 +15,7 @@ mod memory;
 mod model;
 mod operator_security;
 mod origin;
+mod owner_policy;
 mod passkey;
 mod plugin;
 mod service;
@@ -32,7 +33,8 @@ pub mod protocol;
 
 pub use admin::{
     AdminConfig, AdminCreateUser, AdminError, AdminListCondition, AdminListOperator,
-    AdminListUsersQuery, AdminPermissionSet, AdminRole, AdminSortDirection, AdminUserUpdate,
+    AdminListUsersQuery, AdminPermissionSet, AdminPlugin, AdminRole, AdminSortDirection,
+    AdminUserUpdate,
 };
 pub use api_key::{
     ApiKeyConfiguration, ApiKeyError, ApiKeyExpirationConfig, ApiKeyGenerator, ApiKeyPlugin,
@@ -69,6 +71,7 @@ pub use operator_security::{
     OperatorSecurityStatus, OperatorSecurityStore,
 };
 pub use origin::TrustedOrigin;
+pub use owner_policy::OwnerPolicyPlugin;
 pub use passkey::{
     PasskeyAuthenticationCallback, PasskeyAuthenticationConfig, PasskeyAuthenticationVerified,
     PasskeyAuthenticatorSelection, PasskeyConfig, PasskeyExtensions, PasskeyExtensionsResolver,
@@ -80,7 +83,8 @@ pub use plugin::{
     AfterAuthEvent, AuthPlugin, BeforeAuthEvent, PasswordCredentialChanged,
     PasswordCredentialSource, PluginClientMetadata, PluginCookie, PluginDescriptor, PluginEndpoint,
     PluginHttpMethod, PluginMiddleware, PluginMigration, PluginMigrationContribution,
-    PluginRateLimit, SensitiveOperation,
+    PluginRateLimit, SensitiveOperation, UserManagementAction, UserManagementDecision,
+    UserManagementOperation,
 };
 #[cfg(feature = "axum")]
 pub use plugin::{AxumPluginRoute, PluginSession};

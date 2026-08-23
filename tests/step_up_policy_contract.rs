@@ -1,9 +1,9 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{
-    AdminRole, AuthConfig, AuthError, AuthService, AuthStore, AuthenticationMethod,
-    MemoryStepUpStore, MemoryStore, NewPasswordUser, PasskeyConfig, PasskeyPlugin, StepUpAssurance,
-    StepUpPolicyConfig, StepUpPolicyPlugin, StepUpSession, StepUpStore, StoredPasskey,
-    TwoFactorConfig, TwoFactorPlugin,
+    AdminPlugin, AuthConfig, AuthError, AuthService, AuthStore, AuthenticationMethod,
+    MemoryStepUpStore, MemoryStore, NewPasswordUser, OwnerPolicyPlugin, PasskeyConfig,
+    PasskeyPlugin, StepUpAssurance, StepUpPolicyConfig, StepUpPolicyPlugin, StepUpSession,
+    StepUpStore, StoredPasskey, TwoFactorConfig, TwoFactorPlugin,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -21,17 +21,17 @@ async fn fixture(freshness: Duration) -> Fixture {
     let auth_store = Arc::new(MemoryStore::default());
     let step_up_store = Arc::new(MemoryStepUpStore::default());
     let mut config = AuthConfig::new([72_u8; 32]).unwrap();
-    config.admin.set_role("owner", AdminRole::administrator());
-    config.admin.admin_roles.push("owner".into());
-    config.admin.set_role("member", AdminRole::new());
-    config.admin.set_role("viewer", AdminRole::new());
+    config
+        .add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))
+        .unwrap();
+    config.add_plugin(OwnerPolicyPlugin).unwrap();
     config
         .add_plugin(StepUpPolicyPlugin::new(
             auth_store.clone(),
             step_up_store.clone(),
             StepUpPolicyConfig {
                 freshness,
-                ..StepUpPolicyConfig::default()
+                ..OwnerPolicyPlugin::step_up_config()
             },
         ))
         .unwrap();
@@ -193,7 +193,7 @@ async fn enabling_policy_invalidates_untracked_existing_required_role_sessions()
         .add_plugin(StepUpPolicyPlugin::new(
             auth_store.clone(),
             Arc::new(MemoryStepUpStore::default()),
-            StepUpPolicyConfig::default(),
+            OwnerPolicyPlugin::step_up_config(),
         ))
         .unwrap();
     let hardened = AuthService::new(auth_store, config);
@@ -299,7 +299,7 @@ fn step_up_composes_with_official_passkey_and_two_factor_plugins() {
         .add_plugin(StepUpPolicyPlugin::new(
             auth_store.clone(),
             Arc::new(MemoryStepUpStore::default()),
-            StepUpPolicyConfig::default(),
+            OwnerPolicyPlugin::step_up_config(),
         ))
         .unwrap();
     let service = AuthService::try_new(auth_store, config).unwrap();

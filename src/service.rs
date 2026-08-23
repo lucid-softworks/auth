@@ -1,4 +1,5 @@
 mod access;
+mod admin_update;
 mod api_key;
 mod api_key_policy;
 mod audit;
@@ -11,6 +12,8 @@ mod operator_security;
 mod passkey;
 mod password;
 mod password_reset;
+#[cfg(feature = "axum")]
+mod plugin_session;
 mod recovery;
 mod session;
 mod session_create;
@@ -100,6 +103,23 @@ impl AuthService {
         self.plugins.migrations()
     }
 
+    pub(crate) fn admin_plugin(&self) -> Result<&crate::AdminPlugin, AuthError> {
+        self.plugins.find::<crate::AdminPlugin>().ok_or_else(|| {
+            AuthError::InvalidConfiguration("the admin plugin is not enabled".into())
+        })
+    }
+
+    pub(crate) fn admin_config(&self) -> Result<&crate::AdminConfig, AuthError> {
+        self.admin_plugin().map(crate::AdminPlugin::config)
+    }
+
+    pub(crate) fn default_user_role(&self) -> String {
+        self.plugins
+            .find::<crate::AdminPlugin>()
+            .map(|plugin| plugin.config().default_role.clone())
+            .unwrap_or_else(|| "user".into())
+    }
+
     /// Returns the native API owned by the optional step-up policy plugin.
     pub fn step_up_policy(&self) -> Option<crate::StepUpPolicyService<'_>> {
         self.plugins
@@ -117,14 +137,6 @@ impl AuthService {
     #[cfg(feature = "axum")]
     pub(crate) fn plugins(&self) -> &PluginRegistry {
         &self.plugins
-    }
-
-    #[cfg(feature = "axum")]
-    pub(crate) async fn plugin_session(
-        &self,
-        headers: &axum::http::HeaderMap,
-    ) -> Result<Option<crate::plugin::PluginSession>, AuthError> {
-        self.plugins.session_from_headers(self, headers).await
     }
 
     pub fn session_ttl(&self) -> Duration {
@@ -232,7 +244,7 @@ impl AuthService {
                 email_verified: false,
                 image: None,
                 additional_fields: serde_json::Map::new(),
-                role: "owner".into(),
+                role: self.default_user_role(),
                 is_anonymous: false,
                 banned: false,
                 ban_reason: None,
@@ -264,7 +276,7 @@ impl AuthService {
                 email_verified: false,
                 image: None,
                 additional_fields: serde_json::Map::new(),
-                role: "guest".into(),
+                role: self.default_user_role(),
                 is_anonymous: true,
                 banned: false,
                 ban_reason: None,
@@ -292,7 +304,10 @@ impl AuthService {
             self.store.delete_session(&token_hash).await?;
             return Ok(None);
         }
-        if user.banned && user.ban_expires.is_none_or(|expires| expires > Utc::now()) {
+        if self.plugins.find::<crate::AdminPlugin>().is_some()
+            && user.banned
+            && user.ban_expires.is_none_or(|expires| expires > Utc::now())
+        {
             return Ok(None);
         }
         let session = SessionWithUser { session, user };
@@ -308,7 +323,9 @@ impl AuthService {
             return Ok(None);
         };
         self.plugins.authorize_application_access(&session).await?;
-        Ok(Some(session.principal()))
+        let mut principal = session.principal();
+        self.plugins.project_principal(&session, &mut principal);
+        Ok(Some(principal))
     }
 
     pub async fn sign_out(&self, token: &str) -> Result<(), AuthError> {
@@ -387,7 +404,7 @@ impl AuthService {
         resource: &str,
         actions: &[&str],
     ) -> Result<(), AuthError> {
-        crate::admin::require_permission(&self.config.admin, session, resource, actions)?;
+        crate::admin::require_permission(self.admin_config()?, session, resource, actions)?;
         self.plugins
             .authorize_sensitive(&crate::SensitiveOperation {
                 session,
@@ -395,19 +412,6 @@ impl AuthService {
             })
             .await?;
         Ok(())
-    }
-
-    pub(crate) async fn require_recent_owner(
-        &self,
-        session: &SessionWithUser,
-    ) -> Result<(), AuthError> {
-        access::require_owner(session)?;
-        self.plugins
-            .authorize_sensitive(&crate::SensitiveOperation {
-                session,
-                operation: "owner-administration",
-            })
-            .await
     }
 }
 

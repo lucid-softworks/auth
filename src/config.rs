@@ -1,7 +1,7 @@
 use crate::{
-    AdminConfig, AuthError, AuthPlugin, CookieConfig, EmailVerificationConfig,
-    PasswordBreachChecker, PasswordResetCallback, PasswordResetEmailSender, TrustedOrigin,
-    UserConfig, client_ip::IpAddressConfig,
+    AuthError, AuthPlugin, CookieConfig, EmailVerificationConfig, PasswordBreachChecker,
+    PasswordResetCallback, PasswordResetEmailSender, TrustedOrigin, UserConfig,
+    client_ip::IpAddressConfig,
 };
 use chrono::Duration;
 use std::sync::Arc;
@@ -29,7 +29,6 @@ pub struct AuthConfig {
     pub email_and_password: EmailPasswordConfig,
     pub email_verification: EmailVerificationConfig,
     pub user: UserConfig,
-    pub admin: AdminConfig,
     /// Better Auth-compatible client-IP tracking and trusted proxy settings.
     pub ip_address: IpAddressConfig,
     /// Additional browser origins allowed to call authentication endpoints or
@@ -96,7 +95,6 @@ impl AuthConfig {
             email_and_password: EmailPasswordConfig::default(),
             email_verification: EmailVerificationConfig::default(),
             user: UserConfig::default(),
-            admin: AdminConfig::default(),
             ip_address: IpAddressConfig::default(),
             trusted_origins: Vec::new(),
             plugins: Vec::new(),
@@ -227,7 +225,6 @@ impl AuthConfig {
                 "a base URL is required when a delete-account sender is configured".into(),
             ));
         }
-        self.admin.validate()?;
         Ok(())
     }
 }

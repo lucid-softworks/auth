@@ -1,7 +1,7 @@
 use super::PluginRegistry;
 use crate::{
     AfterAuthEvent, AuthError, BeforeAuthEvent, PasswordCredentialChanged, SensitiveOperation,
-    SessionWithUser,
+    SessionWithUser, UserManagementDecision, UserManagementOperation,
 };
 
 impl PluginRegistry {
@@ -69,6 +69,29 @@ impl PluginRegistry {
             plugin.authorize_sensitive(operation).await?;
         }
         Ok(())
+    }
+
+    pub(crate) async fn authorize_user_management(
+        &self,
+        store: &dyn crate::AuthStore,
+        operation: &UserManagementOperation<'_>,
+    ) -> Result<UserManagementDecision, AuthError> {
+        let mut decision = UserManagementDecision::default();
+        for plugin in &self.plugins {
+            let plugin_decision = plugin.authorize_user_management(store, operation).await?;
+            decision.revoke_target_sessions |= plugin_decision.revoke_target_sessions;
+        }
+        Ok(decision)
+    }
+
+    pub(crate) fn project_principal(
+        &self,
+        session: &SessionWithUser,
+        principal: &mut crate::Principal,
+    ) {
+        for plugin in &self.plugins {
+            plugin.project_principal(session, principal);
+        }
     }
 
     pub(crate) async fn validates_session(

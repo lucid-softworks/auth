@@ -201,7 +201,8 @@ pub struct Principal {
     pub actor_id: Uuid,
     pub subject_id: Uuid,
     pub session_id: Uuid,
-    pub role: String,
+    /// Host authorization role projected only by an enabled policy plugin.
+    pub role: Option<String>,
     pub authentication_method: AuthenticationMethod,
     /// When the session's credential was verified.
     pub authenticated_at: DateTime<Utc>,
@@ -214,7 +215,7 @@ impl SessionWithUser {
             actor_id: self.session.actor_user_id.unwrap_or(self.user.id),
             subject_id: self.user.id,
             session_id: self.session.id,
-            role: self.user.role.clone(),
+            role: None,
             authentication_method: self.session.authentication_method,
             authenticated_at: self.session.created_at,
             expires_at: self.session.expires_at,

@@ -1,10 +1,10 @@
 use super::http::{auth_error, current_session};
 use crate::{
-    AuthError, AuthService,
+    AuthError, AuthService, AxumPluginRoute,
     protocol::better_auth::{BetterAuthUser, SuccessResponse},
 };
 use axum::{
-    Extension, Json, Router,
+    Extension, Json,
     extract::{Query, RawQuery},
     http::HeaderMap,
     response::{IntoResponse, Response},
@@ -20,22 +20,21 @@ mod session;
 
 use input::*;
 
-pub(super) fn router<S>() -> Router<S>
-where
-    S: Clone + Send + Sync + 'static,
-{
-    Router::new()
-        .route("/admin/list-users", get(list_users))
-        .route("/admin/get-user", get(get_user))
-        .route("/admin/create-user", post(create_user))
-        .route("/admin/update-user", post(update_user))
-        .route("/admin/has-permission", post(has_permission))
-        .route("/admin/set-user-password", post(set_user_password))
-        .route("/admin/remove-user", post(remove_user))
-        .route("/admin/set-role", post(set_role))
-        .route("/admin/ban-user", post(ban_user))
-        .route("/admin/unban-user", post(unban_user))
-        .merge(session::router())
+pub(crate) fn routes() -> Vec<AxumPluginRoute> {
+    let mut routes = vec![
+        AxumPluginRoute::new("/admin/list-users", get(list_users)),
+        AxumPluginRoute::new("/admin/get-user", get(get_user)),
+        AxumPluginRoute::new("/admin/create-user", post(create_user)),
+        AxumPluginRoute::new("/admin/update-user", post(update_user)),
+        AxumPluginRoute::new("/admin/has-permission", post(has_permission)),
+        AxumPluginRoute::new("/admin/set-user-password", post(set_user_password)),
+        AxumPluginRoute::new("/admin/remove-user", post(remove_user)),
+        AxumPluginRoute::new("/admin/set-role", post(set_role)),
+        AxumPluginRoute::new("/admin/ban-user", post(ban_user)),
+        AxumPluginRoute::new("/admin/unban-user", post(unban_user)),
+    ];
+    routes.extend(session::routes());
+    routes
 }
 
 #[derive(Serialize)]

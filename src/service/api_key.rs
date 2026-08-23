@@ -44,7 +44,7 @@ impl AuthService {
         config: &ApiKeyConfiguration,
         mut input: NewApiKey,
     ) -> Result<IssuedApiKey, AuthError> {
-        require_session(actor)?;
+        self.plugins.authorize_application_access(actor).await?;
         validate_create(config, &input)?;
         normalize_permissions(&mut input.permissions);
         let expires_at = input.expires_at.or_else(|| {
@@ -98,7 +98,7 @@ impl AuthService {
         config_id: &str,
         api_key_id: Uuid,
     ) -> Result<ApiKey, AuthError> {
-        require_session(actor)?;
+        self.plugins.authorize_application_access(actor).await?;
         self.owned_api_key(actor, config_id, api_key_id).await
     }
 
@@ -109,7 +109,7 @@ impl AuthService {
         sort_by: Option<&str>,
         direction: ApiKeySortDirection,
     ) -> Result<Vec<ApiKey>, AuthError> {
-        require_session(actor)?;
+        self.plugins.authorize_application_access(actor).await?;
         let mut keys = self
             .store
             .list_api_keys(&actor.user.id.to_string(), config_id)
@@ -127,7 +127,7 @@ impl AuthService {
         api_key_id: Uuid,
         update: ApiKeyUpdate,
     ) -> Result<ApiKey, AuthError> {
-        require_session(actor)?;
+        self.plugins.authorize_application_access(actor).await?;
         let mut api_key = self
             .owned_api_key(actor, &config.config_id, api_key_id)
             .await?;
@@ -146,7 +146,7 @@ impl AuthService {
         config_id: &str,
         api_key_id: Uuid,
     ) -> Result<(), AuthError> {
-        require_session(actor)?;
+        self.plugins.authorize_application_access(actor).await?;
         self.owned_api_key(actor, config_id, api_key_id).await?;
         if !self.store.delete_api_key(api_key_id).await? {
             return Err(ApiKeyError::NotFound.into());
@@ -212,7 +212,6 @@ impl AuthService {
             .store
             .find_user_by_id(user_id)
             .await?
-            .filter(|user| !user.banned)
             .ok_or(ApiKeyError::Invalid)?;
         Ok(VerifiedApiKey { api_key, user })
     }
@@ -235,13 +234,6 @@ impl AuthService {
             })
             .ok_or_else(|| ApiKeyError::NotFound.into())
     }
-}
-
-fn require_session(actor: &SessionWithUser) -> Result<(), AuthError> {
-    if actor.user.banned {
-        return Err(ApiKeyError::UnauthorizedSession.into());
-    }
-    Ok(())
 }
 
 async fn generate_key(

@@ -1,13 +1,16 @@
 use super::*;
-use crate::{AdminRole, AuditPlugin, AuthConfig, MemoryAuditStore, MemoryStore, NewPasswordUser};
+use crate::{
+    AdminPlugin, AuditPlugin, AuthConfig, MemoryAuditStore, MemoryStore, NewPasswordUser,
+    OwnerPolicyPlugin,
+};
 use std::sync::Arc;
 
 async fn owner_and_member() -> (AuthService, SignInResult, AuthUser) {
     let mut config = AuthConfig::new([8_u8; 32]).unwrap();
-    config.admin.set_role("owner", AdminRole::administrator());
-    config.admin.admin_roles.push("owner".into());
-    config.admin.set_role("member", AdminRole::new());
-    config.admin.set_role("viewer", AdminRole::new());
+    config
+        .add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))
+        .unwrap();
+    config.add_plugin(OwnerPolicyPlugin).unwrap();
     config
         .add_plugin(AuditPlugin::new(Arc::new(MemoryAuditStore::default())))
         .unwrap();
@@ -42,6 +45,16 @@ async fn owner_and_member() -> (AuthService, SignInResult, AuthUser) {
 #[tokio::test]
 async fn protects_the_final_owner_and_rejects_member_administration() {
     let (service, owner, member) = owner_and_member().await;
+    assert_eq!(
+        service
+            .principal(&owner.token)
+            .await
+            .unwrap()
+            .unwrap()
+            .role
+            .as_deref(),
+        Some("owner")
+    );
     let error = service
         .set_user_role(&owner.session, owner.session.user.id, "viewer")
         .await
@@ -59,6 +72,37 @@ async fn protects_the_final_owner_and_rejects_member_administration() {
         error,
         AuthError::Admin(crate::AdminError::CannotSetRole)
     ));
+}
+
+#[tokio::test]
+async fn core_principal_has_no_host_authorization_role() {
+    let service = AuthService::new(
+        Arc::new(MemoryStore::default()),
+        AuthConfig::new([9_u8; 32]).unwrap(),
+    );
+    service
+        .provision_password_user(NewPasswordUser {
+            username: "neutral".into(),
+            name: "Neutral".into(),
+            email: None,
+            password: "password".into(),
+            role: "ignored-by-core-principal".into(),
+        })
+        .await
+        .unwrap();
+    let signed_in = service
+        .sign_in_username("neutral", "password".into(), None, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        service
+            .principal(&signed_in.token)
+            .await
+            .unwrap()
+            .unwrap()
+            .role,
+        None
+    );
 }
 
 #[tokio::test]

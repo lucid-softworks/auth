@@ -1,4 +1,4 @@
-use super::{AuthService, access::require_owner};
+use super::AuthService;
 use crate::{AuditEvent, AuditMetadata, AuditOutcome, AuditPlugin, AuthError, SessionWithUser};
 use chrono::Utc;
 use serde_json::Value;
@@ -10,7 +10,7 @@ impl AuthService {
         actor: &SessionWithUser,
         limit: usize,
     ) -> Result<Vec<AuditEvent>, AuthError> {
-        require_owner(actor)?;
+        self.require_recent_owner(actor).await?;
         let plugin = self
             .plugins
             .find::<AuditPlugin>()

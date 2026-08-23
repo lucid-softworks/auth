@@ -933,7 +933,7 @@ async function conformance(origin) {
     success(await client.signOut(), "signOut");
     const anonymous = success(await client.signIn.anonymous(), "signIn.anonymous");
     assert.equal(anonymous.user.isAnonymous, true);
-    assert.equal(anonymous.user.role, "guest");
+    assert.equal(anonymous.user.role, "user");
     transport.assertRequest("/api/auth/sign-in/anonymous", "POST", {});
     success(await client.signOut(), "signOut");
   });

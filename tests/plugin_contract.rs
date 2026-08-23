@@ -10,8 +10,8 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use lucid_auth::{
-    AfterAuthEvent, AuthConfig, AuthError, AuthPlugin, AuthService, AxumPluginRoute,
-    BeforeAuthEvent, MemoryStore, NewPasswordUser, PasskeyConfig, PasskeyPlugin,
+    AdminPlugin, AfterAuthEvent, AuthConfig, AuthError, AuthPlugin, AuthService, AxumPluginRoute,
+    BeforeAuthEvent, MemoryStore, NewPasswordUser, OwnerPolicyPlugin, PasskeyConfig, PasskeyPlugin,
     PluginClientMetadata, PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginMiddleware,
     PluginMigration,
 };
@@ -258,6 +258,51 @@ fn registry_orders_dependencies_and_rejects_missing_conflicting_or_core_routes()
         AuthService::try_new(store, rejected),
         Err(AuthError::InvalidConfiguration(_))
     ));
+}
+
+#[test]
+fn admin_and_owner_policy_are_optional_validated_plugin_contributions() {
+    let store = Arc::new(MemoryStore::default());
+    let core = AuthService::new(store.clone(), AuthConfig::new([98_u8; 32]).unwrap());
+    assert!(
+        core.plugin_metadata()
+            .iter()
+            .all(|plugin| plugin.id != "admin")
+    );
+
+    let mut missing_admin = AuthConfig::new([99_u8; 32]).unwrap();
+    missing_admin.add_plugin(OwnerPolicyPlugin).unwrap();
+    assert!(matches!(
+        AuthService::try_new(store.clone(), missing_admin),
+        Err(AuthError::InvalidConfiguration(_))
+    ));
+
+    let mut mismatched = AuthConfig::new([100_u8; 32]).unwrap();
+    mismatched.add_plugin(AdminPlugin::default()).unwrap();
+    mismatched.add_plugin(OwnerPolicyPlugin).unwrap();
+    assert!(matches!(
+        AuthService::try_new(store.clone(), mismatched),
+        Err(AuthError::InvalidConfiguration(_))
+    ));
+
+    let mut configured = AuthConfig::new([101_u8; 32]).unwrap();
+    configured
+        .add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))
+        .unwrap();
+    configured.add_plugin(OwnerPolicyPlugin).unwrap();
+    let service = AuthService::try_new(store, configured).unwrap();
+    assert_eq!(
+        service
+            .plugin_metadata()
+            .iter()
+            .map(|plugin| plugin.id)
+            .collect::<Vec<_>>(),
+        ["admin", "lucid-owner-policy"]
+    );
+    let admin = &service.plugin_metadata()[0];
+    assert_eq!(admin.endpoints.len(), 15);
+    assert_eq!(admin.client.unwrap().factory, "adminClient");
+    assert_eq!(admin.cookies[0].name, "better-auth.admin_session");
 }
 
 fn descriptor(
