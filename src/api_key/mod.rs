@@ -217,7 +217,7 @@ impl AuthPlugin for ApiKeyPlugin {
         service: &AuthService,
         headers: &::axum::http::HeaderMap,
     ) -> Result<Option<crate::plugin::PluginSession>, AuthError> {
-        use crate::{Assurance, AuthSession, SessionWithUser};
+        use crate::{AuthSession, AuthenticationMethod, SessionWithUser};
         use chrono::Utc;
 
         let Some((configuration, key)) = self.configurations.iter().find_map(|configuration| {
@@ -251,7 +251,7 @@ impl AuthPlugin for ApiKeyPlugin {
                 user_id: verified.user.id,
                 token_hash: String::new(),
                 actor_user_id: None,
-                assurance: Assurance::Password,
+                authentication_method: AuthenticationMethod::Password,
                 expires_at: verified
                     .api_key
                     .expires_at

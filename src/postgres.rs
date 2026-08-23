@@ -17,6 +17,7 @@ mod plugin;
 mod rows;
 mod security;
 mod session;
+mod step_up;
 mod two_factor;
 mod user;
 mod verification;

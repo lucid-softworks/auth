@@ -7,6 +7,8 @@ pub enum AuthError {
     Username(#[from] crate::UsernameError),
     #[error(transparent)]
     TwoFactor(#[from] crate::TwoFactorError),
+    #[error(transparent)]
+    StepUp(#[from] crate::StepUpError),
     #[error("invalid username or password")]
     InvalidCredentials,
     #[error("invalid email or password")]
@@ -123,10 +125,6 @@ pub enum AuthError {
     PasskeyResolvedUserInvalid,
     #[error("the passkey is already registered")]
     CredentialAlreadyRegistered,
-    #[error("recovery codes are not enabled for this account")]
-    RecoveryCodesNotEnabled,
-    #[error("the recovery code is invalid")]
-    InvalidRecoveryCode,
     #[error("authentication configuration is invalid: {0}")]
     InvalidConfiguration(String),
     #[error("authentication storage failed: {0}")]

@@ -2,9 +2,9 @@ use chrono::{Duration, Utc};
 use lucid_auth::{
     AuditPlugin, AuthConfig, AuthError, AuthService, AuthStore, AuthUser, EmailSignUpInput,
     EmailVerificationOutcome, GuestCapabilityPlugin, NewPasswordUser, PasskeyConfig, PasskeyPlugin,
-    PasswordResetOutcome, PluginMigration, PluginMigrationContribution, TwoFactorConfig,
-    TwoFactorPlugin, UsernameError, UsernamePlugin, VerificationStore, VerificationValue,
-    postgres::PostgresStore,
+    PasswordResetOutcome, PluginMigration, PluginMigrationContribution, StepUpPolicyConfig,
+    StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin, UsernameError, UsernamePlugin,
+    VerificationStore, VerificationValue, postgres::PostgresStore,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -22,6 +22,8 @@ mod guest_capability;
 mod magic_link;
 #[path = "postgres_contract/passkey.rs"]
 mod passkey;
+#[path = "postgres_contract/step_up.rs"]
+mod step_up;
 #[path = "postgres_contract/two_factor.rs"]
 mod two_factor;
 #[path = "postgres_contract/user_deletion.rs"]
@@ -82,13 +84,17 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     let legacy = insert_legacy_passkey(&pool, user.id).await?;
     let legacy_guest = guest_capability::insert_legacy_shape(&pool, user.id).await?;
     let legacy_audit = audit::insert_legacy_shape(&pool, user.id).await?;
+    let legacy_step_up = step_up::insert_legacy_shape(&pool, user.id).await?;
     store.migrate_plugins(&service.plugin_migrations()).await?;
     store.migrate_plugins(&service.plugin_migrations()).await?;
     assert_eq!(passkey_public_key_column_count(&pool).await?, 1);
     assert_legacy_passkey_migrated(&store, &legacy).await?;
     guest_capability::assert_legacy_migrated(&pool, legacy_guest).await?;
     audit::assert_legacy_migrated(&store, &pool, legacy_audit).await?;
+    step_up::assert_legacy_migrated(&store, &pool, legacy_step_up).await?;
     let signed_in = authenticate_owner(&service, &user).await?;
+    let step_up_session = step_up::authenticate_fixture(&service, &store).await?;
+    step_up::assert_atomic(&service, &store, &pool, &step_up_session).await?;
 
     verification_values_are_atomic(&store, user.id).await?;
     email_verification_is_atomic(&store, &user).await?;
@@ -123,6 +129,14 @@ fn register_contract_plugins(
         store.clone(),
         TwoFactorConfig::default(),
     ))?;
+    config.add_plugin(StepUpPolicyPlugin::new(
+        store.clone(),
+        store.clone(),
+        StepUpPolicyConfig {
+            required_roles: vec!["step-up-test".into()],
+            ..StepUpPolicyConfig::default()
+        },
+    ))?;
     Ok(())
 }
 
@@ -133,6 +147,7 @@ async fn assert_extension_tables_absent(
     api_key::assert_table_absent(pool).await?;
     audit::assert_table_absent(pool).await?;
     two_factor::assert_table_absent(pool).await?;
+    step_up::assert_tables_absent(pool).await?;
     assert!(
         !sqlx::query_scalar::<_, bool>("SELECT to_regclass('lucid_auth_guest_grants') IS NOT NULL")
             .fetch_one(pool)

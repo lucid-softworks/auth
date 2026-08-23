@@ -3,38 +3,28 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
-/// How strongly a session's subject was authenticated.
+/// Neutral provenance for the credential that created a core session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Assurance {
+pub enum AuthenticationMethod {
     Anonymous,
     Password,
     EmailVerified,
-    PasswordPendingPasskey,
     Passkey,
-    PasswordAndPasskey,
-    Recovery,
+    TwoFactor,
+    Extension,
 }
 
-impl Assurance {
+impl AuthenticationMethod {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Anonymous => "anonymous",
             Self::Password => "password",
             Self::EmailVerified => "email_verified",
-            Self::PasswordPendingPasskey => "password_pending_passkey",
             Self::Passkey => "passkey",
-            Self::PasswordAndPasskey => "password_and_passkey",
-            Self::Recovery => "recovery",
+            Self::TwoFactor => "two_factor",
+            Self::Extension => "extension",
         }
-    }
-
-    /// Whether this assurance proves possession of a second factor.
-    pub const fn is_strong(self) -> bool {
-        matches!(
-            self,
-            Self::Passkey | Self::PasswordAndPasskey | Self::Recovery
-        )
     }
 
     #[cfg(feature = "postgres")]
@@ -43,9 +33,8 @@ impl Assurance {
             "anonymous" => Self::Anonymous,
             "passkey" => Self::Passkey,
             "email_verified" => Self::EmailVerified,
-            "password_pending_passkey" => Self::PasswordPendingPasskey,
-            "password_and_passkey" => Self::PasswordAndPasskey,
-            "recovery" => Self::Recovery,
+            "two_factor" => Self::TwoFactor,
+            "extension" => Self::Extension,
             _ => Self::Password,
         }
     }
@@ -192,7 +181,7 @@ pub struct AuthSession {
     pub user_id: Uuid,
     pub token_hash: String,
     pub actor_user_id: Option<Uuid>,
-    pub assurance: Assurance,
+    pub authentication_method: AuthenticationMethod,
     pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -213,9 +202,9 @@ pub struct Principal {
     pub subject_id: Uuid,
     pub session_id: Uuid,
     pub role: String,
-    pub assurance: Assurance,
+    pub authentication_method: AuthenticationMethod,
     pub must_change_password: bool,
-    /// When the credentials establishing the current assurance were verified.
+    /// When the session's credential was verified.
     pub authenticated_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
 }
@@ -227,7 +216,7 @@ impl SessionWithUser {
             subject_id: self.user.id,
             session_id: self.session.id,
             role: self.user.role.clone(),
-            assurance: self.session.assurance,
+            authentication_method: self.session.authentication_method,
             must_change_password: self.user.must_change_password,
             authenticated_at: self.session.created_at,
             expires_at: self.session.expires_at,

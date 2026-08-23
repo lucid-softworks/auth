@@ -42,7 +42,7 @@ pub(super) async fn insert_legacy_shape(
     .await?;
     sqlx::query(
         "INSERT INTO lucid_auth_sessions \
-         (id, user_id, token_hash, actor_user_id, assurance, expires_at, created_at, \
+         (id, user_id, token_hash, actor_user_id, authentication_method, expires_at, created_at, \
           updated_at, ip_address, user_agent, guest_grant_id) \
          VALUES ($1, $2, $3, NULL, 'anonymous', $4, $5, $5, NULL, NULL, $6)",
     )
@@ -93,7 +93,7 @@ pub(super) async fn assert_atomic(
             .await?
     );
     let mut owner = owner.clone();
-    owner.session.assurance = lucid_auth::Assurance::Passkey;
+    owner.session.authentication_method = lucid_auth::AuthenticationMethod::Passkey;
     let now = Utc::now();
     let issued = service
         .issue_guest_grant(

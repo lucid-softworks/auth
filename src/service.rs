@@ -22,8 +22,9 @@ use crate::TrustedOrigin;
 #[cfg(feature = "axum")]
 use crate::cookie::{CookieKind, ResolvedCookie};
 use crate::{
-    Assurance, AuthConfig, AuthError, AuthSession, AuthStore, AuthUser, PluginDescriptor,
-    PluginMigrationContribution, Principal, SessionWithUser, plugin::PluginRegistry,
+    AuthConfig, AuthError, AuthSession, AuthStore, AuthUser, AuthenticationMethod,
+    PluginDescriptor, PluginMigrationContribution, Principal, SessionWithUser,
+    plugin::PluginRegistry,
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{Duration, Utc};
@@ -42,7 +43,6 @@ pub use passkey::{
     PasskeyRegistrationRequest, PasskeyRegistrationResult, PasskeyRegistrationVerification,
 };
 pub use password::PasswordChangeResult;
-pub use recovery::RecoveryCodeStatus;
 #[cfg(feature = "axum")]
 pub(crate) use two_factor::{
     BackupCodeVerification, TwoFactorEnableResult, TwoFactorSignInOutcome, TwoFactorVerification,
@@ -55,7 +55,6 @@ type HmacSha256 = Hmac<Sha256>;
 pub struct SignInResult {
     pub token: String,
     pub session: SessionWithUser,
-    pub mfa_setup_required: bool,
 }
 
 /// Closed-registration account provisioned from an existing Argon2 password hash.
@@ -98,6 +97,13 @@ impl AuthService {
 
     pub fn plugin_migrations(&self) -> Vec<PluginMigrationContribution> {
         self.plugins.migrations()
+    }
+
+    /// Returns the native API owned by the optional step-up policy plugin.
+    pub fn step_up_policy(&self) -> Option<crate::StepUpPolicyService<'_>> {
+        self.plugins
+            .find::<crate::StepUpPolicyPlugin>()
+            .map(|_| crate::StepUpPolicyService::new(self))
     }
 
     #[cfg(feature = "axum")]
@@ -202,7 +208,7 @@ impl AuthService {
                 user_id: id,
                 token_hash: String::new(),
                 actor_user_id: None,
-                assurance: Assurance::Password,
+                authentication_method: AuthenticationMethod::Password,
                 expires_at: now + Duration::days(1),
                 created_at: now,
                 updated_at: now,
@@ -259,8 +265,14 @@ impl AuthService {
                 updated_at: now,
             })
             .await?;
-        self.create_session(user, Assurance::Anonymous, None, ip_address, user_agent)
-            .await
+        self.create_session(
+            user,
+            AuthenticationMethod::Anonymous,
+            None,
+            ip_address,
+            user_agent,
+        )
+        .await
     }
 
     pub async fn session(&self, token: &str) -> Result<Option<SessionWithUser>, AuthError> {
@@ -273,13 +285,6 @@ impl AuthService {
             return Ok(None);
         }
         if user.banned && user.ban_expires.is_none_or(|expires| expires > Utc::now()) {
-            return Ok(None);
-        }
-        if self.requires_mfa(&user)
-            && session.actor_user_id.is_none()
-            && session.assurance == Assurance::Password
-        {
-            self.store.delete_session(&token_hash).await?;
             return Ok(None);
         }
         let session = SessionWithUser { session, user };
@@ -299,14 +304,6 @@ impl AuthService {
 
     pub async fn sign_out(&self, token: &str) -> Result<(), AuthError> {
         self.store.delete_session(&hash_token(token)).await
-    }
-
-    /// Returns whether a principal must verify a strong credential again before a
-    /// security-sensitive operation.
-    pub fn step_up_required(&self, principal: &Principal) -> bool {
-        self.config.required_mfa_roles.contains(&principal.role)
-            && (!principal.assurance.is_strong()
-                || principal.authenticated_at + self.config.step_up_ttl <= Utc::now())
     }
 
     pub fn signed_cookie_value(&self, token: &str) -> String {
@@ -375,15 +372,14 @@ impl AuthService {
         URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
     }
 
-    fn requires_mfa(&self, user: &AuthUser) -> bool {
-        self.config.required_mfa_roles.contains(&user.role)
-    }
-
-    fn require_recent_owner(&self, session: &SessionWithUser) -> Result<(), AuthError> {
+    async fn require_recent_owner(&self, session: &SessionWithUser) -> Result<(), AuthError> {
         access::require_owner(session)?;
-        if self.step_up_required(&session.principal()) {
-            return Err(AuthError::StepUpRequired);
-        }
+        self.plugins
+            .authorize_sensitive(&crate::SensitiveOperation {
+                session,
+                operation: "owner-administration",
+            })
+            .await?;
         Ok(())
     }
 }

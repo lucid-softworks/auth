@@ -79,9 +79,9 @@ class BrowserTransport {
     return response;
   }
 
-  async useFixtureSession(assurance) {
+  async useFixtureSession(authenticationMethod) {
     const response = await this.fetch(
-      `${this.origin}/__conformance__/session/${assurance}`,
+      `${this.origin}/__conformance__/session/${authenticationMethod}`,
       { method: "POST" },
     );
     assert.equal(response.status, 200);
@@ -212,6 +212,9 @@ async function conformance(origin) {
     assert.equal(signedIn.user.email, "email.user@example.com");
     assert.equal(signedIn.redirect, true);
     assert.equal(signedIn.url, "/dashboard");
+    assert.equal(signedIn.twoFactorRedirect, undefined);
+    assert.equal(signedIn.twoFactorMethods, undefined);
+    assert.equal(signedIn.mfaSetupRequired, undefined);
     transport.assertRequest("/api/auth/sign-in/email", "POST", {
       email: "EMAIL.USER@example.com",
       password: "correct horse battery staple",
@@ -397,7 +400,8 @@ async function conformance(origin) {
 
     const session = success(await client.getSession(), "getSession");
     assert.equal(session.user.username, "luna");
-    assert.equal(session.session.assurance, "password");
+    assert.equal(session.session.assurance, undefined);
+    assert.equal(session.session.stepUpRequired, undefined);
     transport.assertRequest("/api/auth/get-session", "GET");
 
     const rejected = await client.signIn.username({

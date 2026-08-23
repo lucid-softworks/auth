@@ -4,10 +4,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -30,7 +27,6 @@ struct MemoryState {
     guest_sessions: HashMap<Uuid, Uuid>,
     api_keys: HashMap<Uuid, ApiKey>,
     rate_limits: HashMap<String, RateLimitWindow>,
-    recovery_codes: HashMap<Uuid, HashSet<String>>,
     verifications: HashMap<(String, String), VerificationValue>,
 }
 

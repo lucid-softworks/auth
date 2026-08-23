@@ -1,5 +1,5 @@
 use super::{AuthService, HashedPasswordUser, SignInResult};
-use crate::{Assurance, AuthError, AuthUser, NewPasswordUser, SessionWithUser};
+use crate::{AuthError, AuthUser, AuthenticationMethod, NewPasswordUser, SessionWithUser};
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use chrono::Utc;
 use rand_core::OsRng;
@@ -95,18 +95,14 @@ impl AuthService {
         self.store
             .clear_auth_failures(&super::account_limit_key(&username))
             .await?;
-        let has_passkeys = !self.store.list_passkeys(user.id).await?.is_empty();
-        let mfa_setup_required = self.requires_mfa(&user) && !has_passkeys;
-        let assurance = if has_passkeys || mfa_setup_required {
-            Assurance::PasswordPendingPasskey
-        } else {
-            Assurance::Password
-        };
-        let mut result = self
-            .create_session(user, assurance, None, ip_address, user_agent)
-            .await?;
-        result.mfa_setup_required = mfa_setup_required;
-        Ok(result)
+        self.create_session(
+            user,
+            AuthenticationMethod::Password,
+            None,
+            ip_address,
+            user_agent,
+        )
+        .await
     }
 
     pub async fn username_available(&self, username: &str) -> Result<bool, AuthError> {
@@ -148,7 +144,7 @@ impl AuthService {
             Some(
                 self.create_session(
                     updated_user.clone(),
-                    session.session.assurance,
+                    session.session.authentication_method,
                     None,
                     ip_address,
                     user_agent,

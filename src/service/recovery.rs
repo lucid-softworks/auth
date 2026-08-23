@@ -1,25 +1,32 @@
 use super::{AuthService, SignInResult, password::verify_password, random_token};
-use crate::{Assurance, AuthError, SessionWithUser};
+use crate::{
+    AuthError, AuthenticationMethod, RecoveryCodeStatus, SensitiveOperation, SessionWithUser,
+    StepUpAssurance, StepUpError, StepUpPolicyPlugin, StepUpSession, StepUpSessionProjection,
+};
 use chrono::Utc;
 use serde_json::json;
 
-const RECOVERY_CODE_COUNT: usize = 10;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecoveryCodeStatus {
-    pub remaining: usize,
-}
-
 impl AuthService {
-    pub async fn generate_recovery_codes(
+    pub(crate) async fn step_up_session_projection(
+        &self,
+        session: &SessionWithUser,
+    ) -> Result<StepUpSessionProjection, AuthError> {
+        self.step_up_plugin()?.project_session(session).await
+    }
+
+    pub(crate) async fn generate_step_up_recovery_codes(
         &self,
         actor: &SessionWithUser,
         password: String,
     ) -> Result<Vec<String>, AuthError> {
-        require_strong_account_session(actor)?;
-        if self.store.list_passkeys(actor.user.id).await?.is_empty() {
-            return Err(AuthError::RecoveryCodesNotEnabled);
-        }
+        let plugin = self.step_up_plugin()?;
+        require_step_up_account(plugin, actor)?;
+        self.plugins
+            .authorize_sensitive(&SensitiveOperation {
+                session: actor,
+                operation: "step-up-recovery-code-generation",
+            })
+            .await?;
         let password_hash = self
             .store
             .find_password_hash(actor.user.id)
@@ -28,18 +35,21 @@ impl AuthService {
         if !verify_password(password, Some(password_hash)).await? {
             return Err(AuthError::InvalidPassword);
         }
-        let codes: Vec<_> = (0..RECOVERY_CODE_COUNT).map(|_| recovery_code()).collect();
+        let codes: Vec<_> = (0..plugin.config.recovery_code_count)
+            .map(|_| recovery_code())
+            .collect();
         let hashes = codes
             .iter()
             .map(|code| self.recovery_code_hash(code))
             .collect();
-        self.store
-            .replace_recovery_codes(actor.user.id, hashes)
+        plugin
+            .store
+            .replace_step_up_recovery_codes(actor.user.id, hashes)
             .await?;
         self.audit(
             actor.user.id,
             Some(actor.user.id),
-            "recovery_codes.generated",
+            "step_up.recovery_codes.generated",
             None,
             json!({ "count": codes.len() }),
         )
@@ -47,31 +57,73 @@ impl AuthService {
         Ok(codes)
     }
 
-    pub async fn recovery_code_status(
+    pub(crate) async fn step_up_recovery_code_status(
         &self,
         actor: &SessionWithUser,
     ) -> Result<RecoveryCodeStatus, AuthError> {
-        if actor.user.is_anonymous || actor.session.actor_user_id.is_some() {
-            return Err(AuthError::Forbidden);
-        }
+        let plugin = self.step_up_plugin()?;
+        require_step_up_account(plugin, actor)?;
         Ok(RecoveryCodeStatus {
-            remaining: self.store.recovery_code_count(actor.user.id).await?,
+            remaining: plugin
+                .store
+                .step_up_recovery_code_count(actor.user.id)
+                .await?,
         })
     }
 
-    pub async fn verify_recovery_code(
+    pub(crate) async fn verify_step_up_recovery_code(
         &self,
         actor: &SessionWithUser,
         code: &str,
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
-        if actor.user.is_anonymous
-            || actor.session.actor_user_id.is_some()
-            || actor.session.assurance != Assurance::PasswordPendingPasskey
-        {
-            return Err(AuthError::Forbidden);
-        }
+        let plugin = self.step_up_plugin()?;
+        require_step_up_account(plugin, actor)?;
+        let (state, authenticated_at) = self
+            .consume_step_up_recovery_code(plugin, actor, code)
+            .await?;
+        let result = self
+            .create_session(
+                actor.user.clone(),
+                AuthenticationMethod::Extension,
+                None,
+                ip_address,
+                user_agent,
+            )
+            .await?;
+        plugin
+            .store
+            .upsert_step_up_session(StepUpSession {
+                session_id: result.session.session.id,
+                user_id: result.session.user.id,
+                assurance: StepUpAssurance::Recovery,
+                authenticated_at,
+            })
+            .await?;
+        self.store.delete_session_by_id(actor.session.id).await?;
+        plugin
+            .store
+            .delete_step_up_session(state.session_id)
+            .await?;
+        self.audit_recovery_use(plugin, actor, &result).await?;
+        Ok(result)
+    }
+
+    async fn consume_step_up_recovery_code(
+        &self,
+        plugin: &StepUpPolicyPlugin,
+        actor: &SessionWithUser,
+        code: &str,
+    ) -> Result<(StepUpSession, chrono::DateTime<Utc>), AuthError> {
+        let state = plugin
+            .store
+            .find_step_up_session(actor.session.id)
+            .await?
+            .filter(|state| {
+                state.user_id == actor.user.id && state.assurance == StepUpAssurance::PendingPasskey
+            })
+            .ok_or(AuthError::Forbidden)?;
         let limit_key = recovery_limit_key(actor.user.id);
         let now = Utc::now();
         if self
@@ -81,40 +133,53 @@ impl AuthService {
         {
             return Err(AuthError::RateLimited);
         }
-        if self.store.recovery_code_count(actor.user.id).await? == 0 {
-            return Err(AuthError::RecoveryCodesNotEnabled);
-        }
-        let valid = self
+        if plugin
             .store
-            .consume_recovery_code(actor.user.id, &self.recovery_code_hash(code))
+            .step_up_recovery_code_count(actor.user.id)
+            .await?
+            == 0
+        {
+            return Err(StepUpError::RecoveryCodesNotEnabled.into());
+        }
+        let valid = plugin
+            .store
+            .consume_step_up_recovery_code(actor.user.id, &self.recovery_code_hash(code))
             .await?;
         if !valid {
             self.store
                 .record_auth_failure(&limit_key, now, self.config.lockout_window)
                 .await?;
-            return Err(AuthError::InvalidRecoveryCode);
+            return Err(StepUpError::InvalidRecoveryCode.into());
         }
         self.store.clear_auth_failures(&limit_key).await?;
-        let result = self
-            .create_session(
-                actor.user.clone(),
-                Assurance::Recovery,
-                None,
-                ip_address,
-                user_agent,
-            )
+        Ok((state, now))
+    }
+
+    async fn audit_recovery_use(
+        &self,
+        plugin: &StepUpPolicyPlugin,
+        actor: &SessionWithUser,
+        result: &SignInResult,
+    ) -> Result<(), AuthError> {
+        let remaining = plugin
+            .store
+            .step_up_recovery_code_count(actor.user.id)
             .await?;
-        self.store.delete_session_by_id(actor.session.id).await?;
-        let remaining = self.store.recovery_code_count(actor.user.id).await?;
         self.audit(
             actor.user.id,
             Some(actor.user.id),
-            "recovery_code.used",
+            "step_up.recovery_code.used",
             Some(result.session.session.id.to_string()),
             json!({ "remaining": remaining }),
         )
         .await;
-        Ok(result)
+        Ok(())
+    }
+
+    fn step_up_plugin(&self) -> Result<&StepUpPolicyPlugin, AuthError> {
+        self.plugins.find().ok_or_else(|| {
+            AuthError::InvalidConfiguration("step-up policy plugin is disabled".into())
+        })
     }
 
     fn recovery_code_hash(&self, code: &str) -> String {
@@ -122,14 +187,14 @@ impl AuthService {
     }
 }
 
-fn require_strong_account_session(session: &SessionWithUser) -> Result<(), AuthError> {
+fn require_step_up_account(
+    plugin: &StepUpPolicyPlugin,
+    session: &SessionWithUser,
+) -> Result<(), AuthError> {
     if session.user.is_anonymous
         || session.user.must_change_password
         || session.session.actor_user_id.is_some()
-        || !matches!(
-            session.session.assurance,
-            Assurance::Passkey | Assurance::PasswordAndPasskey | Assurance::Recovery
-        )
+        || !plugin.requires(&session.user.role)
     {
         return Err(AuthError::Forbidden);
     }
@@ -150,82 +215,5 @@ fn normalize_recovery_code(code: &str) -> String {
 }
 
 fn recovery_limit_key(user_id: uuid::Uuid) -> String {
-    format!("recovery:{user_id}")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{AuthConfig, AuthStore, MemoryStore, NewPasswordUser, StoredPasskey};
-    use std::sync::Arc;
-    use uuid::Uuid;
-
-    #[tokio::test]
-    async fn recovery_codes_are_one_time_and_replace_the_pending_session() {
-        let store = Arc::new(MemoryStore::default());
-        let service = AuthService::new(store.clone(), AuthConfig::new([81_u8; 32]).unwrap());
-        let user = service
-            .provision_password_user(NewPasswordUser {
-                username: "luna".into(),
-                name: "Luna".into(),
-                email: None,
-                password: "correct-password".into(),
-                role: "owner".into(),
-            })
-            .await
-            .unwrap();
-        let now = Utc::now();
-        store
-            .save_passkey(StoredPasskey {
-                id: Uuid::new_v4(),
-                user_id: user.id,
-                name: Some("Passkey".into()),
-                credential_id: "credential".into(),
-                public_key: "public-key".into(),
-                counter: 0,
-                device_type: "singleDevice".into(),
-                backed_up: false,
-                transports: None,
-                aaguid: None,
-                credential: json!({}),
-                created_at: now,
-                updated_at: now,
-            })
-            .await
-            .unwrap();
-        let pending = service
-            .sign_in_username("luna", "correct-password".into(), None, None)
-            .await
-            .unwrap();
-        let strong = service
-            .create_session(user, Assurance::PasswordAndPasskey, None, None, None)
-            .await
-            .unwrap();
-        let codes = service
-            .generate_recovery_codes(&strong.session, "correct-password".into())
-            .await
-            .unwrap();
-
-        let normalized = codes[0].to_lowercase();
-        let (first, second) = tokio::join!(
-            service.verify_recovery_code(&pending.session, &normalized, None, None),
-            service.verify_recovery_code(&pending.session, &normalized, None, None),
-        );
-        assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
-        assert!(
-            matches!(&first, Err(AuthError::InvalidRecoveryCode))
-                || matches!(&second, Err(AuthError::InvalidRecoveryCode))
-        );
-        let recovered = first.or(second).unwrap();
-        assert_eq!(recovered.session.session.assurance, Assurance::Recovery);
-        assert!(service.session(&pending.token).await.unwrap().is_none());
-        assert_eq!(
-            service
-                .recovery_code_status(&recovered.session)
-                .await
-                .unwrap()
-                .remaining,
-            RECOVERY_CODE_COUNT - 1
-        );
-    }
+    format!("step-up-recovery:{user_id}")
 }

@@ -267,7 +267,7 @@ async fn json_verification_promotes_mailbox_and_revokes_unproven_access() {
     assert_eq!(response.status(), StatusCode::OK);
     let (_, verified) = response_json(response).await;
     assert_eq!(verified["user"]["emailVerified"], true);
-    assert_eq!(verified["session"]["assurance"], "email_verified");
+    assert!(verified["session"].get("assurance").is_none());
     assert!(service.session(&old_session).await.unwrap().is_none());
     assert!(
         service

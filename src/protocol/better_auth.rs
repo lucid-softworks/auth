@@ -170,8 +170,6 @@ pub struct BetterAuthSession {
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
     pub impersonated_by: Option<String>,
-    pub assurance: String,
-    pub step_up_required: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -187,12 +185,6 @@ pub struct SignInResponse {
     pub token: String,
     pub url: Option<String>,
     pub user: BetterAuthUser,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub two_factor_redirect: bool,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub two_factor_methods: Vec<String>,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub mfa_setup_required: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -353,8 +345,6 @@ impl BetterAuthSession {
             ip_address: session.ip_address.clone(),
             user_agent: session.user_agent.clone(),
             impersonated_by: session.actor_user_id.map(|id| id.to_string()),
-            assurance: session.assurance.as_str().into(),
-            step_up_required: false,
         }
     }
 }
@@ -365,10 +355,5 @@ impl SessionResponse {
             session: BetterAuthSession::from_session(&value.session, token),
             user: BetterAuthUser::from(&value.user),
         }
-    }
-
-    pub fn with_step_up_required(mut self, required: bool) -> Self {
-        self.session.step_up_required = required;
-        self
     }
 }

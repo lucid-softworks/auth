@@ -1,4 +1,4 @@
-use crate::{Assurance, AuthSession, AuthUser, StoredPasskey};
+use crate::{AuthSession, AuthUser, AuthenticationMethod, StoredPasskey};
 use chrono::{DateTime, Utc};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -87,7 +87,7 @@ pub(super) struct SessionRow {
     user_id: Uuid,
     token_hash: String,
     actor_user_id: Option<Uuid>,
-    assurance: String,
+    authentication_method: String,
     expires_at: DateTime<Utc>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -102,7 +102,7 @@ impl From<SessionRow> for AuthSession {
             user_id: row.user_id,
             token_hash: row.token_hash,
             actor_user_id: row.actor_user_id,
-            assurance: Assurance::parse(&row.assurance),
+            authentication_method: AuthenticationMethod::parse(&row.authentication_method),
             expires_at: row.expires_at,
             created_at: row.created_at,
             updated_at: row.updated_at,

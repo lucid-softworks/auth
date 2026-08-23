@@ -83,26 +83,6 @@ async fn impersonation_is_bounded_and_returns_to_the_owner() {
 }
 
 #[tokio::test]
-async fn required_mfa_roles_need_recent_strong_authentication_for_changes() {
-    let (service, mut owner, member) = owner_and_member().await;
-    owner.session.session.assurance = Assurance::PasswordAndPasskey;
-    owner.session.session.created_at = Utc::now() - chrono::Duration::hours(25);
-    let mut config = AuthConfig::new([8_u8; 32]).unwrap();
-    config.required_mfa_roles = vec!["owner".into()];
-    let hardened = AuthService::new(service.store.clone(), config);
-    let error = hardened
-        .set_user_role(&owner.session, member.id, "viewer")
-        .await
-        .unwrap_err();
-    assert!(matches!(error, AuthError::StepUpRequired));
-    owner.session.session.created_at = Utc::now();
-    hardened
-        .set_user_role(&owner.session, member.id, "viewer")
-        .await
-        .unwrap();
-}
-
-#[tokio::test]
 async fn local_recovery_resets_only_the_sole_owner_and_records_it() {
     let (service, owner, _) = owner_and_member().await;
     let now = Utc::now();
@@ -126,11 +106,6 @@ async fn local_recovery_resets_only_the_sole_owner_and_records_it() {
         .await
         .unwrap();
     service
-        .store
-        .replace_recovery_codes(owner.session.user.id, vec!["lost-code".into()])
-        .await
-        .unwrap();
-    service
         .local_recover_sole_owner("owner", "recovered-password".into())
         .await
         .unwrap();
@@ -141,14 +116,6 @@ async fn local_recovery_resets_only_the_sole_owner_and_records_it() {
             .await
             .unwrap()
             .is_empty()
-    );
-    assert_eq!(
-        service
-            .store
-            .recovery_code_count(owner.session.user.id)
-            .await
-            .unwrap(),
-        0
     );
     let recovered = service
         .sign_in_username("owner", "recovered-password".into(), None, None)

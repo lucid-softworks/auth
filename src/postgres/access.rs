@@ -107,7 +107,7 @@ impl AccessStore for PostgresStore {
 
     async fn list_sessions(&self, user_id: Uuid) -> Result<Vec<AuthSession>, AuthError> {
         sqlx::query_as::<_, SessionRow>(
-            "SELECT id, user_id, token_hash, actor_user_id, assurance, \
+            "SELECT id, user_id, token_hash, actor_user_id, authentication_method, \
              expires_at, created_at, updated_at, ip_address, user_agent \
              FROM lucid_auth_sessions WHERE user_id = $1 AND expires_at > NOW() \
              ORDER BY created_at DESC",
@@ -172,11 +172,7 @@ impl AccessStore for PostgresStore {
         .execute(&mut *transaction)
         .await
         .map_err(storage_error)?;
-        for table in [
-            "lucid_auth_sessions",
-            "lucid_auth_passkeys",
-            "lucid_auth_recovery_codes",
-        ] {
+        for table in ["lucid_auth_sessions", "lucid_auth_passkeys"] {
             sqlx::query(&format!("DELETE FROM {table} WHERE user_id = $1"))
                 .bind(user_id)
                 .execute(&mut *transaction)

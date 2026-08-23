@@ -159,7 +159,6 @@ impl AccessStore for MemoryStore {
         state
             .passkeys
             .retain(|_, passkey| passkey.user_id != user_id);
-        state.recovery_codes.remove(&user_id);
         Ok(true)
     }
 }

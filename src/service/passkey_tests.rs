@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     AuthConfig, AuthStore, MemoryStore, NewPasswordUser, PasskeyConfig, PasskeyRegistrationUser,
-    PasskeyRegistrationUserResolver, SecurityStore,
+    PasskeyRegistrationUserResolver,
 };
 use chrono::{DateTime, Duration};
 use std::sync::Arc;
@@ -20,12 +20,11 @@ async fn an_account_can_rename_and_delete_its_own_passkey() {
         })
         .await
         .unwrap();
-    let mut session = service
+    let session = service
         .sign_in_username("luna", "password".into(), None, None)
         .await
         .unwrap()
         .session;
-    session.session.assurance = Assurance::PasswordAndPasskey;
     let now = Utc::now();
     let passkey = store
         .save_passkey(StoredPasskey {
@@ -50,10 +49,6 @@ async fn an_account_can_rename_and_delete_its_own_passkey() {
         .await
         .unwrap();
     assert_eq!(renamed.name.as_deref(), Some("Security key"));
-    store
-        .replace_recovery_codes(session.user.id, vec!["stale-code".into()])
-        .await
-        .unwrap();
     service.delete_passkey(&session, passkey.id).await.unwrap();
     assert!(
         service
@@ -62,15 +57,12 @@ async fn an_account_can_rename_and_delete_its_own_passkey() {
             .unwrap()
             .is_empty()
     );
-    assert_eq!(store.recovery_code_count(session.user.id).await.unwrap(), 1);
 }
 
 #[tokio::test]
 async fn better_auth_deletion_does_not_apply_native_role_policy() {
     let store = Arc::new(MemoryStore::default());
-    let mut config = AuthConfig::new([48_u8; 32]).unwrap();
-    config.required_mfa_roles = vec!["owner".into()];
-    let service = AuthService::new(store.clone(), config);
+    let service = AuthService::new(store.clone(), AuthConfig::new([48_u8; 32]).unwrap());
     service
         .provision_password_user(NewPasswordUser {
             username: "luna".into(),
@@ -81,12 +73,11 @@ async fn better_auth_deletion_does_not_apply_native_role_policy() {
         })
         .await
         .unwrap();
-    let mut session = service
+    let session = service
         .sign_in_username("luna", "password".into(), None, None)
         .await
         .unwrap()
         .session;
-    session.session.assurance = Assurance::PasswordAndPasskey;
     let now = Utc::now();
     let first = test_passkey(session.user.id, "first", now);
     let second = test_passkey(session.user.id, "second", now);

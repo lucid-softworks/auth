@@ -1,7 +1,7 @@
 #[cfg(feature = "axum")]
 use crate::AuthService;
 use crate::{
-    Assurance, AuthConfig, AuthError, AuthUser, SessionWithUser,
+    AuthConfig, AuthError, AuthUser, AuthenticationMethod, SessionWithUser,
     protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
 };
 use async_trait::async_trait;
@@ -146,7 +146,7 @@ impl AxumPluginRoute {
 pub enum BeforeAuthEvent {
     SessionCreate {
         user: AuthUser,
-        assurance: Assurance,
+        authentication_method: AuthenticationMethod,
         actor_user_id: Option<Uuid>,
     },
     UserDelete {
@@ -160,6 +160,12 @@ pub enum BeforeAuthEvent {
 pub enum AfterAuthEvent {
     SessionCreated { session: SessionWithUser },
     UserDeleted { user: AuthUser },
+}
+
+/// Typed authorization point for optional host security policy plugins.
+pub struct SensitiveOperation<'a> {
+    pub session: &'a SessionWithUser,
+    pub operation: &'static str,
 }
 
 /// Native, in-process extension boundary for Better Auth-compatible plugins.
@@ -191,6 +197,24 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
     }
 
     async fn after(&self, _event: &AfterAuthEvent) {}
+
+    /// Initializes security-critical plugin state for a newly persisted session.
+    async fn initialize_session(&self, _session: &SessionWithUser) -> Result<(), AuthError> {
+        Ok(())
+    }
+
+    /// Clears plugin-owned authentication factors after a host security reset.
+    async fn reset_user_security_state(&self, _user_id: Uuid) -> Result<(), AuthError> {
+        Ok(())
+    }
+
+    /// Applies optional policy to a security-sensitive native operation.
+    async fn authorize_sensitive(
+        &self,
+        _operation: &SensitiveOperation<'_>,
+    ) -> Result<(), AuthError> {
+        Ok(())
+    }
 
     /// Rejects a persisted session when plugin-owned state has expired or been revoked.
     async fn validate_session(&self, _session: &SessionWithUser) -> Result<bool, AuthError> {

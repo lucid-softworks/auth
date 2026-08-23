@@ -241,22 +241,6 @@ pub trait SecurityStore: Send + Sync {
     ) -> Result<(), AuthError>;
 
     async fn clear_auth_failures(&self, key: &str) -> Result<(), AuthError>;
-
-    async fn replace_recovery_codes(
-        &self,
-        user_id: Uuid,
-        code_hashes: Vec<String>,
-    ) -> Result<(), AuthError>;
-
-    async fn consume_recovery_code(
-        &self,
-        user_id: Uuid,
-        code_hash: &str,
-    ) -> Result<bool, AuthError>;
-
-    async fn recovery_code_count(&self, user_id: Uuid) -> Result<usize, AuthError>;
-
-    async fn delete_recovery_codes(&self, user_id: Uuid) -> Result<(), AuthError>;
 }
 
 /// Administrative, authorization and audit persistence kept separate from login storage.

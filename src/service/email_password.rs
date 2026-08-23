@@ -1,5 +1,5 @@
 use super::{AuthService, SignInResult, password::hash_password, password::verify_password};
-use crate::{Assurance, AuthError, AuthUser, SessionWithUser};
+use crate::{AuthError, AuthUser, AuthenticationMethod, SessionWithUser};
 use chrono::{Duration, Utc};
 use uuid::Uuid;
 
@@ -154,19 +154,16 @@ impl AuthService {
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
-        let has_passkeys = !self.store.list_passkeys(user.id).await?.is_empty();
-        let mfa_setup_required = self.requires_mfa(&user) && !has_passkeys;
-        let assurance = if has_passkeys || mfa_setup_required {
-            Assurance::PasswordPendingPasskey
-        } else {
-            Assurance::Password
-        };
         let expires_at = (remember_me == Some(false)).then(|| Utc::now() + Duration::days(1));
-        let mut result = self
-            .create_session_until(user, assurance, None, expires_at, ip_address, user_agent)
-            .await?;
-        result.mfa_setup_required = mfa_setup_required;
-        Ok(result)
+        self.create_session_until(
+            user,
+            AuthenticationMethod::Password,
+            None,
+            expires_at,
+            ip_address,
+            user_agent,
+        )
+        .await
     }
 }
 

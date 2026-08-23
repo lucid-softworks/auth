@@ -15,7 +15,7 @@ impl AuthService {
         actor: &SessionWithUser,
         input: NewPasswordUser,
     ) -> Result<AuthUser, AuthError> {
-        self.require_recent_owner(actor)?;
+        self.require_recent_owner(actor).await?;
         validate_managed_role(&input.role)?;
         self.validate_new_password(&input.password).await?;
         let username = normalize_username(&input.username).map_err(|_| {
@@ -82,7 +82,7 @@ impl AuthService {
         user_id: Uuid,
         password: String,
     ) -> Result<(), AuthError> {
-        self.require_recent_owner(actor)?;
+        self.require_recent_owner(actor).await?;
         self.validate_new_password(&password).await?;
         let target = self
             .store
@@ -97,7 +97,7 @@ impl AuthService {
             .await?;
         self.store.delete_user_sessions(user_id).await?;
         self.store.delete_user_passkeys(user_id).await?;
-        self.store.delete_recovery_codes(user_id).await?;
+        self.plugins.reset_user_security_state(user_id).await?;
         self.audit(
             actor.user.id,
             Some(user_id),
@@ -114,7 +114,7 @@ impl AuthService {
         actor: &SessionWithUser,
         user_id: Uuid,
     ) -> Result<(), AuthError> {
-        self.require_recent_owner(actor)?;
+        self.require_recent_owner(actor).await?;
         if actor.user.id == user_id {
             return Err(AuthError::Forbidden);
         }

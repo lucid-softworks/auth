@@ -1,0 +1,73 @@
+use super::PluginRegistry;
+use crate::{AfterAuthEvent, AuthError, BeforeAuthEvent, SensitiveOperation, SessionWithUser};
+
+impl PluginRegistry {
+    pub(crate) async fn before(&self, event: &BeforeAuthEvent) -> Result<(), AuthError> {
+        for plugin in &self.plugins {
+            plugin.before(event).await?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn after(&self, event: &AfterAuthEvent) {
+        for plugin in &self.plugins {
+            plugin.after(event).await;
+        }
+    }
+
+    pub(crate) async fn initialize_session(
+        &self,
+        session: &SessionWithUser,
+    ) -> Result<(), AuthError> {
+        for plugin in &self.plugins {
+            plugin.initialize_session(session).await?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn reset_user_security_state(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> Result<(), AuthError> {
+        for plugin in &self.plugins {
+            plugin.reset_user_security_state(user_id).await?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn authorize_sensitive(
+        &self,
+        operation: &SensitiveOperation<'_>,
+    ) -> Result<(), AuthError> {
+        for plugin in &self.plugins {
+            plugin.authorize_sensitive(operation).await?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn validates_session(
+        &self,
+        session: &SessionWithUser,
+    ) -> Result<bool, AuthError> {
+        for plugin in &self.plugins {
+            if !plugin.validate_session(session).await? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) async fn session_from_headers(
+        &self,
+        service: &crate::AuthService,
+        headers: &axum::http::HeaderMap,
+    ) -> Result<Option<crate::PluginSession>, AuthError> {
+        for plugin in &self.plugins {
+            if let Some(session) = plugin.session_from_headers(service, headers).await? {
+                return Ok(Some(session));
+            }
+        }
+        Ok(None)
+    }
+}

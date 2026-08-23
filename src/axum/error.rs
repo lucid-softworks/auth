@@ -5,12 +5,11 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
+mod plugin;
+
 pub(crate) fn auth_error(error: AuthError) -> Response {
-    if let AuthError::ApiKey(error) = &error {
-        return crate::api_key::api_key_error(error);
-    }
-    if let AuthError::TwoFactor(error) = &error {
-        return crate::two_factor::axum::two_factor_error(*error);
+    if let Some(response) = plugin::response(&error) {
+        return response;
     }
     let (status, code, message) = match &error {
         error if is_credential_error(error) => credential_error_details(error),
@@ -45,9 +44,6 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
         | AuthError::PasswordTooLong
         | AuthError::PasswordCompromised => password_error_details(&error),
         error if is_passkey_error(error) => passkey_error_details(error),
-        AuthError::RecoveryCodesNotEnabled | AuthError::InvalidRecoveryCode => {
-            recovery_error_details(&error)
-        }
         AuthError::Username(_) => {
             return crate::username::error::http_error(error, StatusCode::BAD_REQUEST);
         }
@@ -392,21 +388,6 @@ fn passkey_error_details(error: &AuthError) -> ErrorDetails {
             StatusCode::BAD_REQUEST,
             "PREVIOUSLY_REGISTERED",
             "Previously registered",
-        ),
-    }
-}
-
-fn recovery_error_details(error: &AuthError) -> ErrorDetails {
-    match error {
-        AuthError::RecoveryCodesNotEnabled => (
-            StatusCode::BAD_REQUEST,
-            "BACKUP_CODES_NOT_ENABLED",
-            "Recovery codes are not enabled for this account",
-        ),
-        _ => (
-            StatusCode::UNAUTHORIZED,
-            "INVALID_BACKUP_CODE",
-            "The recovery code is invalid",
         ),
     }
 }

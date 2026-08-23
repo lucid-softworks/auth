@@ -56,7 +56,6 @@ impl AuthService {
         let expires_at = now + ttl;
         let payload = ChallengePayload {
             user_id: result.session.user.id,
-            assurance: result.session.session.assurance,
             session_expires_at: result.session.session.expires_at,
             remember_me,
             ip_address: result.session.session.ip_address.clone(),
@@ -154,7 +153,7 @@ impl AuthService {
                 let result = self
                     .create_session_until(
                         context.user.clone(),
-                        payload.assurance,
+                        crate::AuthenticationMethod::TwoFactor,
                         None,
                         Some(payload.session_expires_at),
                         payload.ip_address,
@@ -165,14 +164,7 @@ impl AuthService {
             }
             None => {
                 let (session, token) = context.active.ok_or(TwoFactorError::InvalidCookie)?;
-                (
-                    SignInResult {
-                        token,
-                        session,
-                        mfa_setup_required: false,
-                    },
-                    Some(true),
-                )
+                (SignInResult { token, session }, Some(true))
             }
         };
         let trust_cookie = if trust_device {
@@ -195,7 +187,7 @@ impl AuthService {
         let replacement = self
             .create_session_until(
                 session.user.clone(),
-                session.session.assurance,
+                session.session.authentication_method,
                 session.session.actor_user_id,
                 Some(session.session.expires_at),
                 session.session.ip_address.clone(),

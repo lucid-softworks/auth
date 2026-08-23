@@ -55,7 +55,6 @@ pub(crate) struct BackupCodeVerification {
 #[serde(rename_all = "camelCase")]
 struct ChallengePayload {
     user_id: uuid::Uuid,
-    assurance: crate::Assurance,
     session_expires_at: DateTime<Utc>,
     remember_me: Option<bool>,
     ip_address: Option<String>,

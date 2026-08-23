@@ -1,7 +1,7 @@
 use super::{AuthService, SignInResult, random_token};
 use crate::{
-    Assurance, AuthError, PasskeyAuthenticationVerified, PasskeyConfig, PasskeyDeleteOutcome,
-    SessionWithUser, StoredPasskey,
+    AuthError, AuthenticationMethod, PasskeyAuthenticationVerified, PasskeyConfig,
+    PasskeyDeleteOutcome, SessionWithUser, StoredPasskey,
 };
 use chrono::Utc;
 use serde_json::json;
@@ -176,8 +176,14 @@ impl AuthService {
             .find_user_by_id(stored.user_id)
             .await?
             .ok_or(AuthError::InvalidCredentials)?;
-        self.create_session(user, Assurance::Passkey, None, ip_address, user_agent)
-            .await
+        self.create_session(
+            user,
+            AuthenticationMethod::Passkey,
+            None,
+            ip_address,
+            user_agent,
+        )
+        .await
     }
 
     async fn run_authentication_callback(

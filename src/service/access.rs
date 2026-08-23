@@ -4,8 +4,8 @@ use super::{
     user::validate_managed_role,
 };
 use crate::{
-    Assurance, AuditEvent, AuditMetadata, AuditOutcome, AuditPlugin, AuthError, AuthSession,
-    AuthUser, SessionWithUser,
+    AuditEvent, AuditMetadata, AuditOutcome, AuditPlugin, AuthError, AuthSession, AuthUser,
+    SessionWithUser,
 };
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
@@ -36,6 +36,7 @@ impl AuthService {
         if !recovered {
             return Err(AuthError::SoleOwnerRecoveryUnavailable);
         }
+        self.plugins.reset_user_security_state(target.id).await?;
         self.store
             .clear_auth_failures(&super::account_limit_key(&username))
             .await?;
@@ -72,7 +73,7 @@ impl AuthService {
         user_id: Uuid,
         role: &str,
     ) -> Result<AuthUser, AuthError> {
-        self.require_recent_owner(actor)?;
+        self.require_recent_owner(actor).await?;
         validate_managed_role(role)?;
         let target = self
             .store
@@ -105,7 +106,7 @@ impl AuthService {
         reason: Option<String>,
         expires_at: Option<DateTime<Utc>>,
     ) -> Result<AuthUser, AuthError> {
-        self.require_recent_owner(actor)?;
+        self.require_recent_owner(actor).await?;
         if actor.user.id == user_id {
             return Err(AuthError::Forbidden);
         }
@@ -136,7 +137,7 @@ impl AuthService {
         actor: &SessionWithUser,
         user_id: Uuid,
     ) -> Result<AuthUser, AuthError> {
-        self.require_recent_owner(actor)?;
+        self.require_recent_owner(actor).await?;
         let updated = self
             .store
             .update_user_ban(user_id, false, None, None)
@@ -169,7 +170,7 @@ impl AuthService {
         actor: &SessionWithUser,
         session_id: Uuid,
     ) -> Result<(), AuthError> {
-        self.require_recent_owner(actor)?;
+        self.require_recent_owner(actor).await?;
         if actor.session.id == session_id {
             return Err(AuthError::Forbidden);
         }
@@ -190,7 +191,7 @@ impl AuthService {
         actor: &SessionWithUser,
         user_id: Uuid,
     ) -> Result<(), AuthError> {
-        self.require_recent_owner(actor)?;
+        self.require_recent_owner(actor).await?;
         if actor.user.id == user_id {
             return Err(AuthError::Forbidden);
         }
@@ -216,7 +217,7 @@ impl AuthService {
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
-        self.require_recent_owner(actor)?;
+        self.require_recent_owner(actor).await?;
         if actor.user.id == user_id {
             return Err(AuthError::Forbidden);
         }
@@ -232,7 +233,7 @@ impl AuthService {
         let result = self
             .create_session_until(
                 target,
-                actor.session.assurance,
+                actor.session.authentication_method,
                 Some(actor.user.id),
                 Some(expires_at),
                 ip_address,
@@ -266,13 +267,14 @@ impl AuthService {
             return Err(AuthError::Forbidden);
         }
         self.store.delete_session_by_id(session.session.id).await?;
-        let assurance = if self.requires_mfa(&actor) {
-            Assurance::PasswordPendingPasskey
-        } else {
-            session.session.assurance
-        };
         let result = self
-            .create_session(actor, assurance, None, ip_address, user_agent)
+            .create_session(
+                actor,
+                session.session.authentication_method,
+                None,
+                ip_address,
+                user_agent,
+            )
             .await?;
         self.audit(
             actor_id,
@@ -379,7 +381,6 @@ pub(super) fn require_owner(session: &SessionWithUser) -> Result<(), AuthError> 
         || session.user.is_anonymous
         || session.user.must_change_password
         || session.session.actor_user_id.is_some()
-        || session.session.assurance == Assurance::PasswordPendingPasskey
         || account_is_banned(&session.user)
     {
         return Err(AuthError::Forbidden);

@@ -59,9 +59,12 @@ async fn main() {
             "/__conformance__/magic-link-token/{email}",
             get(magic_link_token),
         )
-        .route("/__conformance__/two-factor-otp/{email}", get(two_factor_otp))
         .route(
-            "/__conformance__/session/{assurance}",
+            "/__conformance__/two-factor-otp/{email}",
+            get(two_factor_otp),
+        )
+        .route(
+            "/__conformance__/session/{authentication_method}",
             post(session_fixture::create),
         )
         .merge(lucid_auth::axum::router(fixture.service.clone()))
@@ -131,7 +134,11 @@ async fn two_factor_otp(
     Path(email): Path<String>,
 ) -> Response {
     let sent = fixture.two_factor_otps.lock().await;
-    match sent.iter().rev().find(|message| message.user.email == email) {
+    match sent
+        .iter()
+        .rev()
+        .find(|message| message.user.email == email)
+    {
         Some(message) => Json(json!({ "code": message.code })).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }
@@ -211,11 +218,7 @@ fn conformance_config(origin: &str, messages: &ConformanceMessages) -> AuthConfi
     config
 }
 
-fn add_conformance_plugins(
-    config: &mut AuthConfig,
-    origin: &str,
-    messages: &ConformanceMessages,
-) {
+fn add_conformance_plugins(config: &mut AuthConfig, origin: &str, messages: &ConformanceMessages) {
     config
         .add_plugin(PasskeyPlugin::new(PasskeyConfig {
             rp_id: Some("localhost".into()),

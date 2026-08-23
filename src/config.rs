@@ -34,9 +34,6 @@ pub struct AuthConfig {
     /// Additional browser origins allowed to call authentication endpoints or
     /// receive absolute callback redirects.
     pub trusted_origins: Vec<TrustedOrigin>,
-    pub required_mfa_roles: Vec<String>,
-    /// Maximum age of strong authentication for security-sensitive operations.
-    pub step_up_ttl: Duration,
     pub(crate) plugins: Vec<Arc<dyn AuthPlugin>>,
     pub(crate) base_url: Option<Url>,
     pub(crate) base_path: String,
@@ -100,8 +97,6 @@ impl AuthConfig {
             user: UserConfig::default(),
             ip_address: IpAddressConfig::default(),
             trusted_origins: Vec::new(),
-            required_mfa_roles: Vec::new(),
-            step_up_ttl: Duration::days(1),
             plugins: Vec::new(),
             base_url: None,
             base_path: "/api/auth".into(),

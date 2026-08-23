@@ -23,11 +23,6 @@ const MIGRATIONS: [(i64, &str, &str); 8] = [
         include_str!("../../migrations/0005_security_hardening.sql"),
     ),
     (
-        6,
-        "passkey recovery codes",
-        include_str!("../../migrations/0006_recovery_codes.sql"),
-    ),
-    (
         7,
         "temporary password lifecycle",
         include_str!("../../migrations/0007_password_lifecycle.sql"),
@@ -41,6 +36,11 @@ const MIGRATIONS: [(i64, &str, &str); 8] = [
         10,
         "core email and password accounts",
         include_str!("../../migrations/0010_email_password.sql"),
+    ),
+    (
+        11,
+        "extract custom step-up assurance",
+        include_str!("../../migrations/0011_extract_step_up_policy.sql"),
     ),
 ];
 

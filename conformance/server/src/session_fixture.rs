@@ -6,24 +6,23 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use chrono::{Duration, Utc};
-use lucid_auth::{Assurance, AuthSession, AuthStore, StoredPasskey};
+use lucid_auth::{AuthSession, AuthStore, AuthenticationMethod, StoredPasskey};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 pub(crate) async fn create(
     Extension(fixture): Extension<Fixture>,
-    Path(assurance): Path<String>,
+    Path(authentication_method): Path<String>,
 ) -> Response {
-    let assurance = match assurance.as_str() {
-        "strong" => Assurance::PasswordAndPasskey,
-        "pending" => Assurance::PasswordPendingPasskey,
-        "password" => Assurance::Password,
+    let authentication_method = match authentication_method.as_str() {
+        "strong" => AuthenticationMethod::Passkey,
+        "password" => AuthenticationMethod::Password,
         _ => return StatusCode::NOT_FOUND.into_response(),
     };
     let token = Uuid::new_v4().to_string();
     let now = Utc::now();
-    ensure_passkey(&fixture, assurance, now).await;
+    ensure_passkey(&fixture, authentication_method, now).await;
     fixture
         .store
         .create_session(AuthSession {
@@ -31,7 +30,7 @@ pub(crate) async fn create(
             user_id: fixture.owner_id,
             token_hash: hex::encode(Sha256::digest(token.as_bytes())),
             actor_user_id: None,
-            assurance,
+            authentication_method,
             expires_at: now + Duration::hours(1),
             created_at: now,
             updated_at: now,
@@ -43,8 +42,12 @@ pub(crate) async fn create(
     session_response(&fixture, &token)
 }
 
-async fn ensure_passkey(fixture: &Fixture, assurance: Assurance, now: chrono::DateTime<Utc>) {
-    if assurance != Assurance::PasswordAndPasskey
+async fn ensure_passkey(
+    fixture: &Fixture,
+    authentication_method: AuthenticationMethod,
+    now: chrono::DateTime<Utc>,
+) {
+    if authentication_method != AuthenticationMethod::Passkey
         || !fixture
             .store
             .list_passkeys(fixture.owner_id)

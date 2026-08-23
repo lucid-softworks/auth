@@ -70,16 +70,6 @@ pub(crate) async fn sign_in_response(
         token: result.token,
         url: callback_url,
         user: service.better_auth_user(&result.session.user).await?,
-        two_factor_redirect: result.session.session.assurance
-            == crate::Assurance::PasswordPendingPasskey,
-        two_factor_methods: if result.mfa_setup_required {
-            vec!["passkey".into()]
-        } else if result.session.session.assurance == crate::Assurance::PasswordPendingPasskey {
-            vec!["passkey".into(), "backup_code".into()]
-        } else {
-            Vec::new()
-        },
-        mfa_setup_required: result.mfa_setup_required,
     })
 }
 
@@ -114,21 +104,17 @@ async fn get_session(
     let mut response = match session_token(&service, &headers) {
         Some(token) => match service.session(&token).await {
             Ok(Some(session)) => {
-                let step_up_required = service.step_up_required(&session.principal());
                 let user = match service.better_auth_user(&session.user).await {
                     Ok(user) => user,
                     Err(error) => return auth_error(error),
                 };
-                Json(Some(
-                    SessionResponse {
-                        session: crate::protocol::better_auth::BetterAuthSession::from_session(
-                            &session.session,
-                            token,
-                        ),
-                        user,
-                    }
-                    .with_step_up_required(step_up_required),
-                ))
+                Json(Some(SessionResponse {
+                    session: crate::protocol::better_auth::BetterAuthSession::from_session(
+                        &session.session,
+                        token,
+                    ),
+                    user,
+                }))
                 .into_response()
             }
             Ok(None) => Json::<Option<SessionResponse>>(None).into_response(),

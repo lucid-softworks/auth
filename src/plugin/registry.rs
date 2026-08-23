@@ -1,9 +1,8 @@
-use super::{
-    AfterAuthEvent, AuthPlugin, BeforeAuthEvent, PluginDescriptor, PluginHttpMethod,
-    PluginMigrationContribution,
-};
+use super::{AuthPlugin, PluginDescriptor, PluginHttpMethod, PluginMigrationContribution};
 use crate::{AuthConfig, AuthError, protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION};
 use std::{collections::HashMap, sync::Arc};
+
+mod lifecycle;
 
 pub(crate) struct PluginRegistry {
     plugins: Vec<Arc<dyn AuthPlugin>>,
@@ -83,45 +82,6 @@ impl PluginRegistry {
                     })
             })
             .collect()
-    }
-
-    pub(crate) async fn before(&self, event: &BeforeAuthEvent) -> Result<(), AuthError> {
-        for plugin in &self.plugins {
-            plugin.before(event).await?;
-        }
-        Ok(())
-    }
-
-    pub(crate) async fn after(&self, event: &AfterAuthEvent) {
-        for plugin in &self.plugins {
-            plugin.after(event).await;
-        }
-    }
-
-    pub(crate) async fn validates_session(
-        &self,
-        session: &crate::SessionWithUser,
-    ) -> Result<bool, AuthError> {
-        for plugin in &self.plugins {
-            if !plugin.validate_session(session).await? {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    }
-
-    #[cfg(feature = "axum")]
-    pub(crate) async fn session_from_headers(
-        &self,
-        service: &crate::AuthService,
-        headers: &axum::http::HeaderMap,
-    ) -> Result<Option<super::PluginSession>, AuthError> {
-        for plugin in &self.plugins {
-            if let Some(session) = plugin.session_from_headers(service, headers).await? {
-                return Ok(Some(session));
-            }
-        }
-        Ok(None)
     }
 }
 

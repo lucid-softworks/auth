@@ -1,7 +1,7 @@
 use super::{AuthService, hash_token, random_token};
 use crate::{
-    Assurance, AuthError, AuthUser, GuestCapabilityPlugin, GuestCapabilityPrincipal, GuestGrant,
-    GuestGrantSignInResult, IssuedGuestGrant, NewGuestGrant,
+    AuthError, AuthUser, AuthenticationMethod, GuestCapabilityPlugin, GuestCapabilityPrincipal,
+    GuestGrant, GuestGrantSignInResult, IssuedGuestGrant, NewGuestGrant,
 };
 use chrono::{Duration, Utc};
 use serde_json::json;
@@ -14,7 +14,7 @@ impl AuthService {
         mut input: NewGuestGrant,
     ) -> Result<IssuedGuestGrant, AuthError> {
         let store = self.guest_capability()?.store.clone();
-        self.require_recent_owner(actor)?;
+        self.require_recent_owner(actor).await?;
         validate_guest_grant(&input)?;
         normalize(&mut input.permissions);
         normalize(&mut input.resource_scopes);
@@ -93,7 +93,7 @@ impl AuthService {
         let result = self
             .create_session_until(
                 user,
-                Assurance::Anonymous,
+                AuthenticationMethod::Anonymous,
                 None,
                 Some(grant.expires_at),
                 ip_address,
@@ -154,7 +154,7 @@ impl AuthService {
         grant_id: Uuid,
     ) -> Result<(), AuthError> {
         let store = self.guest_capability()?.store.clone();
-        self.require_recent_owner(actor)?;
+        self.require_recent_owner(actor).await?;
         store.revoke_guest_grant(grant_id, Utc::now()).await?;
         self.audit(
             actor.user.id,

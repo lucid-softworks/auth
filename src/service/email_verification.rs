@@ -1,7 +1,7 @@
 use super::{AuthService, hash_token, random_token};
 use crate::{
-    Assurance, AuthError, AuthUser, EmailVerificationOutcome, SessionWithUser, VerificationEmail,
-    VerificationValue,
+    AuthError, AuthUser, AuthenticationMethod, EmailVerificationOutcome, SessionWithUser,
+    VerificationEmail, VerificationValue,
 };
 use chrono::Utc;
 use serde_json::json;
@@ -117,15 +117,16 @@ impl AuthService {
             {
                 Some(token.to_owned())
             } else {
-                let assurance = if self.requires_mfa(&user) {
-                    Assurance::PasswordPendingPasskey
-                } else {
-                    Assurance::EmailVerified
-                };
                 Some(
-                    self.create_session(user.clone(), assurance, None, None, None)
-                        .await?
-                        .token,
+                    self.create_session(
+                        user.clone(),
+                        AuthenticationMethod::EmailVerified,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await?
+                    .token,
                 )
             }
         } else {

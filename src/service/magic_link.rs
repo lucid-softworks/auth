@@ -1,7 +1,7 @@
 use super::{AuthService, SignInResult, email_password::normalize_email};
 use crate::{
-    Assurance, AuthError, AuthUser, MagicLinkConfig, MagicLinkEmail, MagicLinkRequestContext,
-    MagicLinkTokenStorage, VerificationValue,
+    AuthError, AuthUser, AuthenticationMethod, MagicLinkConfig, MagicLinkEmail,
+    MagicLinkRequestContext, MagicLinkTokenStorage, VerificationValue,
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::Utc;
@@ -121,7 +121,13 @@ impl AuthService {
             user = promoted;
         }
         let result = self
-            .create_session(user, Assurance::EmailVerified, None, ip_address, user_agent)
+            .create_session(
+                user,
+                AuthenticationMethod::EmailVerified,
+                None,
+                ip_address,
+                user_agent,
+            )
             .await?;
         Ok(MagicLinkVerified {
             result,

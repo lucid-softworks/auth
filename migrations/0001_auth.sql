@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS lucid_auth_sessions (
     user_id UUID NOT NULL REFERENCES lucid_auth_users(id) ON DELETE CASCADE,
     token_hash TEXT NOT NULL UNIQUE,
     actor_user_id UUID REFERENCES lucid_auth_users(id),
-    assurance TEXT NOT NULL,
+    authentication_method TEXT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,

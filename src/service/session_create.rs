@@ -1,6 +1,7 @@
 use super::{AuthService, SignInResult, hash_token, random_token};
 use crate::{
-    AfterAuthEvent, Assurance, AuthError, AuthSession, AuthUser, BeforeAuthEvent, SessionWithUser,
+    AfterAuthEvent, AuthError, AuthSession, AuthUser, AuthenticationMethod, BeforeAuthEvent,
+    SessionWithUser,
 };
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -9,20 +10,27 @@ impl AuthService {
     pub(super) async fn create_session(
         &self,
         user: AuthUser,
-        assurance: Assurance,
+        authentication_method: AuthenticationMethod,
         actor_user_id: Option<Uuid>,
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
-        self.create_session_until(user, assurance, actor_user_id, None, ip_address, user_agent)
-            .await
+        self.create_session_until(
+            user,
+            authentication_method,
+            actor_user_id,
+            None,
+            ip_address,
+            user_agent,
+        )
+        .await
     }
 
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn create_session_until(
         &self,
         user: AuthUser,
-        assurance: Assurance,
+        authentication_method: AuthenticationMethod,
         actor_user_id: Option<Uuid>,
         expires_at: Option<DateTime<Utc>>,
         ip_address: Option<String>,
@@ -31,7 +39,7 @@ impl AuthService {
         self.plugins
             .before(&BeforeAuthEvent::SessionCreate {
                 user: user.clone(),
-                assurance,
+                authentication_method,
                 actor_user_id,
             })
             .await?;
@@ -42,7 +50,7 @@ impl AuthService {
             user_id: user.id,
             token_hash: hash_token(&token),
             actor_user_id,
-            assurance,
+            authentication_method,
             expires_at: expires_at
                 .unwrap_or(now + self.config.session_ttl)
                 .min(now + self.config.session_ttl),
@@ -56,8 +64,14 @@ impl AuthService {
         let result = SignInResult {
             token,
             session: SessionWithUser { session, user },
-            mfa_setup_required: false,
         };
+        if let Err(error) = self.plugins.initialize_session(&result.session).await {
+            let _ = self
+                .store
+                .delete_session_by_id(result.session.session.id)
+                .await;
+            return Err(error);
+        }
         self.plugins
             .after(&AfterAuthEvent::SessionCreated {
                 session: result.session.clone(),

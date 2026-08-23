@@ -37,7 +37,8 @@ supported surface covers:
 
 The library keeps authentication protocol details separate from host-product
 authorization. Applications provide their own permission vocabulary while
-using the authenticated principal's role, actor, subject, and assurance metadata.
+using the authenticated principal's role, actor, subject, and credential
+provenance metadata.
 
 Username is an optional native plugin. Register it explicitly to add username
 fields to email signup and current-user updates and to mount the official
@@ -109,9 +110,10 @@ Audit action vocabulary version `1` contains `owner.recovered_locally`,
 `session.revoked`, `session.user_revoked`, `session.others_revoked`,
 `session.all_revoked`, `impersonation.started`, `impersonation.stopped`,
 `passkey.enrolled`, `passkey.renamed`, `passkey.deleted`,
-`recovery_codes.generated`, `recovery_code.used`, `guest_grant.issued`,
-`guest_grant.redeemed`, and `guest_grant.revoked`. This native vocabulary is
-not Better Auth Infrastructure Dashboard audit-log compatibility.
+`step_up.recovery_codes.generated`, `step_up.recovery_code.used`,
+`guest_grant.issued`, `guest_grant.redeemed`, and `guest_grant.revoked`. This
+native vocabulary is not Better Auth Infrastructure Dashboard audit-log
+compatibility.
 
 Passkey is also optional. Register it explicitly; without the plugin, its seven
 routes do not exist:
@@ -135,15 +137,38 @@ schema includes `publicKey`, exact `credentialID`, counters, device type, backup
 state, transports, and AAGUID. Challenges are durable and single-use, while
 signature counters use compare-and-swap persistence.
 
-The existing role-driven assurance, backup-code, sole-owner, and owner policies
-are project-specific extensions rather than Better Auth passkey
-behavior. Their extraction into optional native plugins is tracked in
-[#72](https://github.com/lucid-softworks/auth/issues/72),
-[#73](https://github.com/lucid-softworks/auth/issues/73), and
-[#75](https://github.com/lucid-softworks/auth/issues/75). Guest capabilities and
-product security auditing have moved to optional lucid extension plugins; the
-Better Auth passkey endpoints do not impose those custom deletion or step-up
-rules.
+Role-driven passkey assurance, step-up enforcement, and the associated recovery
+codes are provided only by the optional `StepUpPolicyPlugin`; they are not
+Better Auth passkey behavior. Core password sign-in always returns a normal
+Better Auth session, and core session JSON contains neither `assurance` nor
+`stepUpRequired`.
+
+```rust
+let auth_store = Arc::new(MemoryStore::default());
+let step_up_store = Arc::new(MemoryStepUpStore::default());
+config.add_plugin(StepUpPolicyPlugin::new(
+    auth_store.clone(),
+    step_up_store,
+    StepUpPolicyConfig::default(),
+))?;
+let auth = AuthService::new(auth_store, config);
+```
+
+The plugin defaults to protecting the `owner` role for one day after a passkey,
+two-factor, or recovery-code verification. It owns its state and recovery-code
+storage, contributes its PostgreSQL migration, composes independently with
+`PasskeyPlugin` and `TwoFactorPlugin`, and exposes recovery operations through
+`AuthService::step_up_policy`. Its typed `session_projection` is the native host
+view of assurance, freshness, and whether step-up is required. Enabling the
+plugin invalidates pre-existing sessions for required roles because those
+sessions have no authenticated plugin state. The plugin intentionally adds no
+Better Auth routes or response fields; applications that want browser-visible
+prompts must provide their own extension client.
+
+Sole-owner recovery and custom owner policy are separate project extensions
+tracked in [#73](https://github.com/lucid-softworks/auth/issues/73) and
+[#75](https://github.com/lucid-softworks/auth/issues/75). Better Auth passkey
+endpoints do not impose those policies.
 
 Two-Factor Authentication is an independent optional plugin. Memory-backed
 applications provide a separate factor store and an OTP delivery callback:
@@ -295,8 +320,8 @@ which is reapplied only while the configured password hash remains active.
 
 `AuthService::local_recover_sole_owner` is an explicitly out-of-band operator
 primitive for a host CLI. It atomically refuses multi-owner installations,
-replaces the sole owner's password, clears bans, sessions, passkeys, and recovery
-codes, marks the password temporary, and appends an actorless audit event. It is
+replaces the sole owner's password, clears bans, sessions, passkeys, and enabled
+plugin security state, marks the password temporary, and appends an actorless audit event. It is
 not routed by the crate's Axum compatibility surface. The event is recorded only
 when `AuditPlugin` is enabled.
 

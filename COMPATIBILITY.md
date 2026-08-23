@@ -53,7 +53,7 @@ scoped to the unimplemented account lifecycle described above.
 | `getSession`, `useSession` (`GET /get-session`) | Supported | Stateful cookie session; cache/stateless modes are tracked in [#58](https://github.com/lucid-softworks/auth/issues/58). |
 | `signOut` (`POST /sign-out`) | Supported | Clears the default session cookie. Configurable cookie attributes are tracked in [#6](https://github.com/lucid-softworks/auth/issues/6). |
 | `signUp.email` (`POST /sign-up/email`) | Supported | JSON/form bodies, exact 1.7.1 `callbackURL`, image, auto-sign-in, password bounds, disabled-signup behavior, normalized uniqueness, generic duplicate mode, configured send-on-signup delivery, and username-plugin additional fields; [#9](https://github.com/lucid-softworks/auth/issues/9), [#10](https://github.com/lucid-softworks/auth/issues/10), [#16](https://github.com/lucid-softworks/auth/issues/16). |
-| `signIn.email` (`POST /sign-in/email`) | Supported | JSON/form bodies, case-normalized lookup, generic credential errors, verification-required rejection, `rememberMe`, callback response/location, and configured passkey-MFA policy; [#9](https://github.com/lucid-softworks/auth/issues/9). |
+| `signIn.email` (`POST /sign-in/email`) | Supported | JSON/form bodies, case-normalized lookup, generic credential errors, verification-required rejection, `rememberMe`, and callback response/location; [#9](https://github.com/lucid-softworks/auth/issues/9). Password sign-in does not acquire custom passkey assurance. |
 | `verifyPassword` (`POST /verify-password`) | Supported | Session-bound credential verification with the 1.7.1 status/error body; [#9](https://github.com/lucid-softworks/auth/issues/9). |
 | `sendVerificationEmail` (`POST /send-verification-email`) | Supported | Native async sender, authenticated mismatch/already-verified errors, enumeration-resistant anonymous responses, exact `callbackURL`, and one-hour default expiry; [#10](https://github.com/lucid-softworks/auth/issues/10). |
 | `verifyEmail` (`GET /verify-email`) | Supported | Purpose-bound hashed tokens, atomic single-use verification, expiry/replay errors, compatible success/error redirects, and optional auto-sign-in; [#10](https://github.com/lucid-softworks/auth/issues/10). |
@@ -82,7 +82,7 @@ scoped to the unimplemented account lifecycle described above.
 | Username | Supported | Optional `UsernamePlugin`; official signup, normalized sign-in, availability, and update lifecycle; configurable length, async validation, normalization order, display usernames, immutable usernames, exact errors, and atomic duplicate prevention; [#16](https://github.com/lucid-softworks/auth/issues/16). |
 | Anonymous | Partial | Sign-in works; deletion and conversion/linking are [#17](https://github.com/lucid-softworks/auth/issues/17). |
 | Passkey | Supported | Optional `PasskeyPlugin`; all seven official methods, exact schema/casing, origin arrays or request-origin fallback, fresh and passkey-first registration, context/resolver/callback options, authenticator selection, extensions, `createSession`, durable single-use challenges, atomic counters, and lossless legacy credential migration; [#19](https://github.com/lucid-softworks/auth/issues/19). |
-| Two-Factor Authentication | Supported | Optional `TwoFactorPlugin`; all official `twoFactorClient` methods, exact 1.7.1 response fields and error codes, TOTP and delivered OTP, encrypted TOTP secrets/backup codes, one-time TOTP counters, atomic backup-code use, challenge attempt budgets, account lockout, rotating expiring trusted devices, server-only TOTP generation/backup-code viewing, and memory/PostgreSQL plugin stores; [#20](https://github.com/lucid-softworks/auth/issues/20). Role-driven passkey step-up is a separate lucid extension tracked in [#72](https://github.com/lucid-softworks/auth/issues/72). |
+| Two-Factor Authentication | Supported | Optional `TwoFactorPlugin`; all official `twoFactorClient` methods, exact 1.7.1 response fields and error codes, TOTP and delivered OTP, encrypted TOTP secrets/backup codes, one-time TOTP counters, atomic backup-code use, challenge attempt budgets, account lockout, rotating expiring trusted devices, server-only TOTP generation/backup-code viewing, and memory/PostgreSQL plugin stores; [#20](https://github.com/lucid-softworks/auth/issues/20). Role-driven step-up is a separate optional lucid extension. |
 | Magic Link | Supported | Official `magicLinkClient` sign-in and verification pass. Native delivery receives email, token, URL, metadata, and request context; exact callback fields, signup policy, expiry, plain/hashed/custom token storage, custom generation, durable single-use redemption, redirects, and 1.7 mailbox cleanup are covered by [#22](https://github.com/lucid-softworks/auth/issues/22). |
 | Email OTP | Planned | [#23](https://github.com/lucid-softworks/auth/issues/23). |
 | Phone Number | Planned | [#24](https://github.com/lucid-softworks/auth/issues/24). |
@@ -189,7 +189,10 @@ claims:
 - optional `GuestCapabilityPlugin` with owner-issued, time-bounded grants,
   atomic use limits and revocation, plugin-owned routes and PostgreSQL migration
   ([#71](https://github.com/lucid-softworks/auth/issues/71));
-- role-driven passkey assurance and step-up policy ([#72](https://github.com/lucid-softworks/auth/issues/72));
+- optional `StepUpPolicyPlugin` for role-driven passkey/two-factor assurance,
+  freshness enforcement, typed native session projection, recovery codes,
+  plugin-owned memory/PostgreSQL state, and migration of legacy assurance data
+  ([#72](https://github.com/lucid-softworks/auth/issues/72));
 - mandatory temporary-password and sole-owner recovery policy ([#73](https://github.com/lucid-softworks/auth/issues/73));
 - optional `AuditPlugin` with a versioned action vocabulary, typed outcomes,
   structurally validated metadata, fail-open lifecycle recording, bounded

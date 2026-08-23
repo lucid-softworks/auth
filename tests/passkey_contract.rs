@@ -6,8 +6,8 @@ use axum::{
 use chrono::{Duration, Utc};
 use http_body_util::BodyExt;
 use lucid_auth::{
-    Assurance, AuthConfig, AuthService, AuthSession, AuthStore, MemoryStore, NewPasswordUser,
-    PasskeyConfig, PasskeyPlugin, StoredPasskey, UsernamePlugin,
+    AuthConfig, AuthService, AuthSession, AuthStore, AuthenticationMethod, MemoryStore,
+    NewPasswordUser, PasskeyConfig, PasskeyPlugin, StoredPasskey, UsernamePlugin,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -215,7 +215,7 @@ async fn stale_registration_does_not_consume_the_challenge() {
         user_id: user.id,
         token_hash: hex::encode(Sha256::digest(token.as_bytes())),
         actor_user_id: None,
-        assurance: Assurance::Password,
+        authentication_method: AuthenticationMethod::Password,
         expires_at: now + Duration::hours(1),
         created_at: now,
         updated_at: now,
@@ -310,7 +310,7 @@ async fn persisted_session_cookie(
             user_id,
             token_hash: hex::encode(Sha256::digest(token.as_bytes())),
             actor_user_id: None,
-            assurance: Assurance::Password,
+            authentication_method: AuthenticationMethod::Password,
             expires_at: now + Duration::hours(1),
             created_at: now,
             updated_at: now,

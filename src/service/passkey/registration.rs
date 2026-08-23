@@ -4,8 +4,8 @@ use super::{
 };
 use crate::service::{AuthService, SignInResult, random_token};
 use crate::{
-    Assurance, AuthError, PasskeyConfig, PasskeyRegistrationUser, PasskeyRegistrationVerified,
-    SessionWithUser, StoredPasskey,
+    AuthError, AuthenticationMethod, PasskeyConfig, PasskeyRegistrationUser,
+    PasskeyRegistrationVerified, SessionWithUser, StoredPasskey,
 };
 use chrono::{Duration, Utc};
 use serde_json::json;
@@ -234,7 +234,7 @@ impl AuthService {
             .ok_or(AuthError::PasskeyResolvedUserInvalid)?;
         self.create_session(
             user,
-            Assurance::Passkey,
+            AuthenticationMethod::Passkey,
             None,
             actor.and_then(|actor| actor.session.ip_address.clone()),
             actor.and_then(|actor| actor.session.user_agent.clone()),

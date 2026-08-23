@@ -1,6 +1,6 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{
-    Assurance, AuthSession, AuthStore, AuthUser, VerificationStore, VerificationValue,
+    AuthSession, AuthStore, AuthUser, AuthenticationMethod, VerificationStore, VerificationValue,
     postgres::PostgresStore,
 };
 use serde_json::json;
@@ -39,7 +39,7 @@ pub(super) async fn assert_promotion_is_atomic(
             user_id: user.id,
             token_hash: "unproven-magic-session".into(),
             actor_user_id: None,
-            assurance: Assurance::Password,
+            authentication_method: AuthenticationMethod::Password,
             expires_at: now + Duration::hours(1),
             created_at: now,
             updated_at: now,

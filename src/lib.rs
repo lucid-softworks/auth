@@ -16,6 +16,7 @@ mod origin;
 mod passkey;
 mod plugin;
 mod service;
+mod step_up;
 mod store;
 mod two_factor;
 mod user_deletion;
@@ -54,8 +55,8 @@ pub use magic_link::{
 };
 pub use memory::MemoryStore;
 pub use model::{
-    ApiKey, Assurance, AuthSession, AuthUser, IssuedApiKey, NewApiKey, NewPasswordUser, Principal,
-    SessionWithUser, StoredPasskey, VerificationValue, VerifiedApiKey,
+    ApiKey, AuthSession, AuthUser, AuthenticationMethod, IssuedApiKey, NewApiKey, NewPasswordUser,
+    Principal, SessionWithUser, StoredPasskey, VerificationValue, VerifiedApiKey,
 };
 pub use origin::TrustedOrigin;
 pub use passkey::{
@@ -68,15 +69,18 @@ pub use passkey::{
 pub use plugin::{
     AfterAuthEvent, AuthPlugin, BeforeAuthEvent, PluginClientMetadata, PluginCookie,
     PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginMiddleware, PluginMigration,
-    PluginMigrationContribution, PluginRateLimit,
+    PluginMigrationContribution, PluginRateLimit, SensitiveOperation,
 };
 #[cfg(feature = "axum")]
 pub use plugin::{AxumPluginRoute, PluginSession};
 pub use service::{
     ApiKeySortDirection, ApiKeyUpdate, AuthService, DeleteUserResult, EmailSignUpInput,
     EmailSignUpResult, EmailVerificationResult, HashedPasswordUser, PasskeyRegistrationRequest,
-    PasskeyRegistrationResult, PasskeyRegistrationVerification, PasswordChangeResult,
-    RecoveryCodeStatus, SignInResult,
+    PasskeyRegistrationResult, PasskeyRegistrationVerification, PasswordChangeResult, SignInResult,
+};
+pub use step_up::{
+    MemoryStepUpStore, RecoveryCodeStatus, StepUpAssurance, StepUpError, StepUpPolicyConfig,
+    StepUpPolicyPlugin, StepUpPolicyService, StepUpSession, StepUpSessionProjection, StepUpStore,
 };
 pub use store::{
     AccessStore, ApiKeyStore, ApiKeyUseOutcome, AuthStore, EmailVerificationOutcome,
