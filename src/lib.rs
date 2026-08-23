@@ -23,7 +23,10 @@ pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use client_ip::IpAddressConfig;
 pub use config::{AuthConfig, EmailPasswordConfig, PasskeyConfig};
 pub use cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
-pub use email::{EmailVerificationConfig, VerificationEmail, VerificationEmailSender};
+pub use email::{
+    EmailVerificationConfig, PasswordResetCallback, PasswordResetEmail, PasswordResetEmailSender,
+    VerificationEmail, VerificationEmailSender,
+};
 pub use error::AuthError;
 pub use memory::MemoryStore;
 pub use model::{
@@ -45,5 +48,5 @@ pub use service::{
 };
 pub use store::{
     AccessStore, ApiKeyStore, AuthStore, EmailVerificationOutcome, PasskeyDeleteOutcome,
-    SecurityStore, VerificationStore,
+    PasswordResetOutcome, SecurityStore, VerificationStore,
 };

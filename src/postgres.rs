@@ -1,6 +1,6 @@
 use crate::{
     AuthError, AuthSession, AuthStore, AuthUser, EmailVerificationOutcome, PasskeyDeleteOutcome,
-    StoredPasskey,
+    PasswordResetOutcome, StoredPasskey,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -13,6 +13,7 @@ mod migrate;
 mod plugin;
 mod rows;
 mod security;
+mod session;
 mod user;
 mod verification;
 
@@ -156,6 +157,23 @@ impl AuthStore for PostgresStore {
         now: DateTime<Utc>,
     ) -> Result<EmailVerificationOutcome, AuthError> {
         verification::consume_email_verification(&self.pool, token_hash, now).await
+    }
+
+    async fn consume_password_reset(
+        &self,
+        token_hash: &str,
+        password_hash: String,
+        now: DateTime<Utc>,
+        revoke_sessions: bool,
+    ) -> Result<PasswordResetOutcome, AuthError> {
+        verification::consume_password_reset(
+            &self.pool,
+            token_hash,
+            password_hash,
+            now,
+            revoke_sessions,
+        )
+        .await
     }
 
     async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError> {
@@ -358,66 +376,22 @@ impl AuthStore for PostgresStore {
     }
 
     async fn create_session(&self, session: AuthSession) -> Result<(), AuthError> {
-        sqlx::query(
-            "INSERT INTO lucid_auth_sessions \
-             (id, user_id, token_hash, actor_user_id, guest_grant_id, assurance, expires_at, \
-              created_at, updated_at, ip_address, user_agent) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
-        )
-        .bind(session.id)
-        .bind(session.user_id)
-        .bind(&session.token_hash)
-        .bind(session.actor_user_id)
-        .bind(session.guest_grant_id)
-        .bind(session.assurance.as_str())
-        .bind(session.expires_at)
-        .bind(session.created_at)
-        .bind(session.updated_at)
-        .bind(&session.ip_address)
-        .bind(&session.user_agent)
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(storage_error)
+        session::create(&self.pool, session).await
     }
 
     async fn find_session(
         &self,
         token_hash: &str,
     ) -> Result<Option<(AuthSession, AuthUser)>, AuthError> {
-        let session = sqlx::query_as::<_, SessionRow>(
-            "SELECT id, user_id, token_hash, actor_user_id, guest_grant_id, assurance, \
-             expires_at, created_at, updated_at, ip_address, user_agent \
-             FROM lucid_auth_sessions WHERE token_hash = $1",
-        )
-        .bind(token_hash)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(storage_error)?
-        .map(AuthSession::from);
-        let Some(session) = session else {
-            return Ok(None);
-        };
-        let user = self.load_user_by_id(session.user_id).await?;
-        Ok(user.map(|user| (session, user)))
+        session::find(&self.pool, token_hash).await
     }
 
     async fn delete_session(&self, token_hash: &str) -> Result<(), AuthError> {
-        sqlx::query("DELETE FROM lucid_auth_sessions WHERE token_hash = $1")
-            .bind(token_hash)
-            .execute(&self.pool)
-            .await
-            .map(|_| ())
-            .map_err(storage_error)
+        session::delete(&self.pool, token_hash).await
     }
 
     async fn delete_expired_sessions(&self, now: DateTime<Utc>) -> Result<(), AuthError> {
-        sqlx::query("DELETE FROM lucid_auth_sessions WHERE expires_at <= $1")
-            .bind(now)
-            .execute(&self.pool)
-            .await
-            .map(|_| ())
-            .map_err(storage_error)
+        session::delete_expired(&self.pool, now).await
     }
 }
 

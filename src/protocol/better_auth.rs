@@ -44,6 +44,31 @@ pub struct VerifyPasswordRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestPasswordResetRequest {
+    pub email: String,
+    pub redirect_to: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PasswordResetCallbackQuery {
+    #[serde(rename = "callbackURL")]
+    pub callback_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetPasswordRequest {
+    pub new_password: String,
+    pub token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResetPasswordQuery {
+    pub token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct SendVerificationEmailRequest {
     pub email: String,
     #[serde(rename = "callbackURL")]
@@ -182,6 +207,12 @@ pub struct SuccessResponse {
 #[derive(Debug, Serialize)]
 pub struct StatusResponse {
     pub status: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PasswordResetRequestResponse {
+    pub status: bool,
+    pub message: &'static str,
 }
 
 #[derive(Debug, Deserialize)]

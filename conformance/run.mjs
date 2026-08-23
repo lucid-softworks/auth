@@ -238,6 +238,55 @@ async function conformance(origin) {
     success(await client.signOut(), "signOut after email verification");
   });
 
+  await runCase("password reset clients", async () => {
+    const requested = success(
+      await client.requestPasswordReset({
+        email: "email.user@example.com",
+        redirectTo: "/choose-password",
+      }),
+      "requestPasswordReset",
+    );
+    assert.equal(requested.status, true);
+    transport.assertRequest("/api/auth/request-password-reset", "POST", {
+      email: "email.user@example.com",
+      redirectTo: "/choose-password",
+    });
+    const captured = await transport.fetch(
+      `${origin}/__conformance__/password-reset-token/email.user%40example.com`,
+    );
+    assert.equal(captured.status, 200);
+    const { token } = await captured.json();
+    const reset = success(
+      await client.resetPassword({
+        newPassword: "replacement horse battery staple",
+        token,
+      }),
+      "resetPassword",
+    );
+    assert.equal(reset.status, true);
+    transport.assertRequest("/api/auth/reset-password", "POST", {
+      newPassword: "replacement horse battery staple",
+      token,
+    });
+    const replay = await client.resetPassword({
+      newPassword: "another replacement password",
+      token,
+    });
+    assert.equal(replay.data, null);
+    assert.equal(replay.error?.status, 400);
+    assert.equal(replay.error?.code, "INVALID_TOKEN");
+
+    const signedIn = success(
+      await client.signIn.email({
+        email: "email.user@example.com",
+        password: "replacement horse battery staple",
+      }),
+      "signIn.email after password reset",
+    );
+    assert.equal(signedIn.user.email, "email.user@example.com");
+    success(await client.signOut(), "signOut after password reset");
+  });
+
   await runCase("username and session clients", async () => {
     const available = success(
       await client.isUsernameAvailable({ username: "available_user" }),

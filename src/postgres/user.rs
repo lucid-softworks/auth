@@ -2,6 +2,7 @@ use super::{UserRow, storage_error};
 use crate::{AuthError, AuthUser};
 use chrono::Utc;
 use sqlx::PgPool;
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 pub(super) async fn load_by_id(
@@ -50,6 +51,22 @@ async fn load_by_column(
         .await
         .map(|row| row.map(AuthUser::from))
         .map_err(storage_error)
+}
+
+pub(super) async fn load_by_id_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    user_id: Uuid,
+) -> Result<Option<AuthUser>, AuthError> {
+    sqlx::query_as::<_, UserRow>(
+        "SELECT id, username, display_username, name, email, email_verified, image, role, \
+         is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at \
+         FROM lucid_auth_users WHERE id = $1 FOR UPDATE",
+    )
+    .bind(user_id)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map(|row| row.map(AuthUser::from))
+    .map_err(storage_error)
 }
 
 pub(super) async fn create_password_user(

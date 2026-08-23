@@ -25,7 +25,7 @@ semantics, persistence, and an end-to-end client test must all agree.
 | Capability | Status | Notes |
 | --- | --- | --- |
 | Better Auth 1.7.1 wire baseline | Partial | This is the sole declared target. Partial plugin rows below qualify the claim; [#3](https://github.com/lucid-softworks/auth/issues/3). |
-| Official JavaScript client conformance | Supported | CI drives the pinned `1.7.1` vanilla email/password and email-verification clients plus username, anonymous, admin, passkey, two-factor, and a native test-client plugin against an ephemeral server; [#2](https://github.com/lucid-softworks/auth/issues/2). |
+| Official JavaScript client conformance | Supported | CI drives the pinned `1.7.1` vanilla email/password, email-verification, and password-reset clients plus username, anonymous, admin, passkey, two-factor, and a native test-client plugin against an ephemeral server; [#2](https://github.com/lucid-softworks/auth/issues/2). |
 | Native plugin extension API | Supported | Typed routes, middleware, lifecycle hooks, ordered PostgreSQL migrations, cookies/rate-limit declarations, dependency/conflict checks, and exact-version client metadata; [#4](https://github.com/lucid-softworks/auth/issues/4). |
 | Community plugin SDK | Planned | Native plugin packaging and certification policy: [#67](https://github.com/lucid-softworks/auth/issues/67). |
 
@@ -57,8 +57,8 @@ scoped to the unimplemented account lifecycle described above.
 | `verifyPassword` (`POST /verify-password`) | Supported | Session-bound credential verification with the 1.7.1 status/error body; [#9](https://github.com/lucid-softworks/auth/issues/9). |
 | `sendVerificationEmail` (`POST /send-verification-email`) | Supported | Native async sender, authenticated mismatch/already-verified errors, enumeration-resistant anonymous responses, exact `callbackURL`, and one-hour default expiry; [#10](https://github.com/lucid-softworks/auth/issues/10). |
 | `verifyEmail` (`GET /verify-email`) | Supported | Purpose-bound hashed tokens, atomic single-use verification, expiry/replay errors, compatible success/error redirects, and optional auto-sign-in; [#10](https://github.com/lucid-softworks/auth/issues/10). |
-| `requestPasswordReset` (`POST /request-password-reset`) | Planned | [#11](https://github.com/lucid-softworks/auth/issues/11). |
-| `resetPassword` (`POST /reset-password`) | Planned | Includes the token-path form; [#11](https://github.com/lucid-softworks/auth/issues/11). |
+| `requestPasswordReset` (`POST /request-password-reset`) | Supported | Native async `sendResetPassword`, exact `redirectTo`, enumeration-resistant response/timing work, one-hour default expiry, and hashed persisted token identifiers; [#11](https://github.com/lucid-softworks/auth/issues/11). |
+| `resetPassword` (`GET /reset-password/:token`, `POST /reset-password`) | Supported | Exact `callbackURL`, compatible callback/error redirects, body and query tokens, password policy, atomic single-use replacement, optional session revocation, and native `onPasswordReset`; [#11](https://github.com/lucid-softworks/auth/issues/11). |
 | `changePassword` (`POST /change-password`) | Supported | Current-password flow and optional other-session revocation are implemented. |
 | `updateUser` (`POST /update-user`) | Planned | [#12](https://github.com/lucid-softworks/auth/issues/12). |
 | `updateSession` (`POST /update-session`) | Planned | [#12](https://github.com/lucid-softworks/auth/issues/12). |

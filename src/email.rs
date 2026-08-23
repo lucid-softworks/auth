@@ -16,6 +16,23 @@ pub trait VerificationEmailSender: Send + Sync {
     async fn send(&self, email: VerificationEmail) -> Result<(), AuthError>;
 }
 
+#[derive(Clone)]
+pub struct PasswordResetEmail {
+    pub user: AuthUser,
+    pub url: String,
+    pub token: String,
+}
+
+#[async_trait]
+pub trait PasswordResetEmailSender: Send + Sync {
+    async fn send(&self, email: PasswordResetEmail) -> Result<(), AuthError>;
+}
+
+#[async_trait]
+pub trait PasswordResetCallback: Send + Sync {
+    async fn on_password_reset(&self, user: AuthUser) -> Result<(), AuthError>;
+}
+
 /// Better Auth 1.7.1 email-verification settings.
 #[derive(Clone)]
 pub struct EmailVerificationConfig {

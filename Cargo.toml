@@ -89,3 +89,7 @@ required-features = ["axum"]
 [[test]]
 name = "plugin_contract"
 required-features = ["axum"]
+
+[[test]]
+name = "password_reset_contract"
+required-features = ["axum"]

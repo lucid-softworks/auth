@@ -22,6 +22,13 @@ pub enum EmailVerificationOutcome {
     Verified(AuthUser),
 }
 
+#[derive(Debug, Clone)]
+pub enum PasswordResetOutcome {
+    InvalidToken,
+    UserNotFound,
+    Reset(Box<AuthUser>),
+}
+
 /// Persistence boundary required by [`crate::AuthService`].
 #[async_trait]
 pub trait AuthStore:
@@ -51,6 +58,14 @@ pub trait AuthStore:
         token_hash: &str,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<EmailVerificationOutcome, AuthError>;
+
+    async fn consume_password_reset(
+        &self,
+        token_hash: &str,
+        password_hash: String,
+        now: chrono::DateTime<chrono::Utc>,
+        revoke_sessions: bool,
+    ) -> Result<PasswordResetOutcome, AuthError>;
 
     async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError>;
 
@@ -111,6 +126,12 @@ pub trait AuthStore:
 #[async_trait]
 pub trait VerificationStore: Send + Sync {
     async fn create_verification(&self, value: VerificationValue) -> Result<(), AuthError>;
+
+    async fn find_verification(
+        &self,
+        purpose: &str,
+        identifier: &str,
+    ) -> Result<Option<VerificationValue>, AuthError>;
 
     /// Atomically consumes a matching unexpired value. Concurrent callers may
     /// never receive the same record twice.

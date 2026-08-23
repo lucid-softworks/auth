@@ -1,8 +1,8 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{
     AuthConfig, AuthError, AuthService, AuthStore, EmailSignUpInput, EmailVerificationOutcome,
-    NewPasswordUser, PluginMigration, PluginMigrationContribution, VerificationStore,
-    VerificationValue, postgres::PostgresStore,
+    NewPasswordUser, PasswordResetOutcome, PluginMigration, PluginMigrationContribution,
+    VerificationStore, VerificationValue, postgres::PostgresStore,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -68,6 +68,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
 
     verification_values_are_atomic(&store, user.id).await?;
     email_verification_is_atomic(&store, &user).await?;
+    password_reset_is_atomic(&store, &pool, user.id).await?;
     email_signup_is_case_insensitive(&service, &pool).await?;
 
     pool.close().await;
@@ -75,6 +76,53 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
         .execute(&admin)
         .await?;
     admin.close().await;
+    Ok(())
+}
+
+async fn password_reset_is_atomic(
+    store: &PostgresStore,
+    pool: &sqlx::PgPool,
+    user_id: Uuid,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let now = Utc::now();
+    let token_hash = hex::encode(Sha256::digest(b"postgres-password-reset"));
+    store
+        .create_verification(VerificationValue {
+            purpose: "password-reset".into(),
+            identifier: token_hash.clone(),
+            payload: json!({ "user_id": user_id }),
+            expires_at: now + Duration::minutes(1),
+            created_at: now,
+        })
+        .await?;
+    let (left, right) = tokio::join!(
+        store.consume_password_reset(&token_hash, "first-hash".into(), now, true),
+        store.consume_password_reset(&token_hash, "second-hash".into(), now, true)
+    );
+    let outcomes = [left?, right?];
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|outcome| matches!(outcome, PasswordResetOutcome::Reset(_)))
+            .count(),
+        1
+    );
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|outcome| matches!(outcome, PasswordResetOutcome::InvalidToken))
+            .count(),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM lucid_auth_sessions WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_one(pool)
+        .await?,
+        0
+    );
     Ok(())
 }
 

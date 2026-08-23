@@ -10,9 +10,10 @@ use axum::{
 use chrono::{Duration, Utc};
 use lucid_auth::{
     Assurance, AuthConfig, AuthPlugin, AuthService, AuthSession, AuthStore, AxumPluginRoute,
-    MemoryStore, NewPasswordUser, PasskeyConfig, PluginClientMetadata, PluginDescriptor,
-    PluginEndpoint, PluginHttpMethod, PluginMiddleware, PluginMigration, PluginRateLimit,
-    StoredPasskey, VerificationEmail, protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+    MemoryStore, NewPasswordUser, PasskeyConfig, PasswordResetEmail, PluginClientMetadata,
+    PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginMiddleware, PluginMigration,
+    PluginRateLimit, StoredPasskey, VerificationEmail,
+    protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -30,6 +31,7 @@ struct Fixture {
     store: Arc<MemoryStore>,
     owner_id: Uuid,
     verification_emails: Arc<Mutex<Vec<VerificationEmail>>>,
+    password_reset_emails: Arc<Mutex<Vec<PasswordResetEmail>>>,
 }
 
 struct ConformancePlugin;
@@ -106,6 +108,10 @@ async fn main() {
             get(verification_token),
         )
         .route(
+            "/__conformance__/password-reset-token/{email}",
+            get(password_reset_token),
+        )
+        .route(
             "/__conformance__/session/{assurance}",
             post(create_fixture_session),
         )
@@ -152,6 +158,21 @@ async fn verification_token(
     }
 }
 
+async fn password_reset_token(
+    Extension(fixture): Extension<Fixture>,
+    Path(email): Path<String>,
+) -> Response {
+    let sent = fixture.password_reset_emails.lock().await;
+    match sent
+        .iter()
+        .rev()
+        .find(|message| message.user.email == email)
+    {
+        Some(message) => Json(json!({ "token": message.token })).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 async fn mark_plugin_response(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     response
@@ -163,12 +184,19 @@ async fn mark_plugin_response(request: Request, next: Next) -> Response {
 async fn fixture(origin: &str) -> Fixture {
     let store = Arc::new(MemoryStore::default());
     let verification_emails = Arc::new(Mutex::new(Vec::new()));
+    let password_reset_emails = Arc::new(Mutex::new(Vec::new()));
     let mut config = AuthConfig::new([82_u8; 32]).expect("fixture secret");
     config.allow_anonymous = true;
     config.email_and_password.enabled = true;
-    config.email_verification.sender = Some(Arc::new(ConformanceEmailSender(
-        verification_emails.clone(),
-    )));
+    config.email_verification.sender = Some(Arc::new(ConformanceEmailSender {
+        verification: verification_emails.clone(),
+        password_reset: password_reset_emails.clone(),
+    }));
+    config.email_and_password.send_reset_password = Some(Arc::new(ConformanceEmailSender {
+        verification: verification_emails.clone(),
+        password_reset: password_reset_emails.clone(),
+    }));
+    config.email_and_password.revoke_sessions_on_password_reset = true;
     config.email_verification.auto_sign_in_after_verification = true;
     config
         .set_base_url(origin)
@@ -199,6 +227,7 @@ async fn fixture(origin: &str) -> Fixture {
         store,
         owner_id: owner.id,
         verification_emails,
+        password_reset_emails,
     }
 }
 

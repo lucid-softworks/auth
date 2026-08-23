@@ -17,6 +17,20 @@ impl VerificationStore for MemoryStore {
         Ok(())
     }
 
+    async fn find_verification(
+        &self,
+        purpose: &str,
+        identifier: &str,
+    ) -> Result<Option<VerificationValue>, AuthError> {
+        Ok(self
+            .state
+            .read()
+            .await
+            .verifications
+            .get(&(purpose.to_owned(), identifier.to_owned()))
+            .cloned())
+    }
+
     async fn consume_verification(
         &self,
         purpose: &str,

@@ -7,18 +7,7 @@ use axum::{
 
 pub(super) fn auth_error(error: AuthError) -> Response {
     let (status, code, message) = match &error {
-        AuthError::InvalidCredentials
-        | AuthError::InvalidEmailOrPassword
-        | AuthError::InvalidEmail
-        | AuthError::EmailPasswordDisabled
-        | AuthError::EmailPasswordSignUpDisabled
-        | AuthError::EmailNotVerified
-        | AuthError::VerificationEmailNotEnabled
-        | AuthError::EmailMismatch
-        | AuthError::EmailAlreadyVerified
-        | AuthError::InvalidToken
-        | AuthError::TokenExpired
-        | AuthError::VerificationUserNotFound => credential_error_details(&error),
+        error if is_credential_error(error) => credential_error_details(error),
         AuthError::RateLimited => (
             StatusCode::TOO_MANY_REQUESTS,
             "TOO_MANY_REQUESTS",
@@ -82,11 +71,37 @@ pub(super) fn auth_error(error: AuthError) -> Response {
             "INTERNAL_SERVER_ERROR",
             "Authentication failed",
         ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_SERVER_ERROR",
+            "Authentication failed",
+        ),
     };
     (status, Json(ErrorResponse { code, message })).into_response()
 }
 
 type ErrorDetails = (StatusCode, &'static str, &'static str);
+
+fn is_credential_error(error: &AuthError) -> bool {
+    matches!(
+        error,
+        AuthError::InvalidCredentials
+            | AuthError::InvalidEmailOrPassword
+            | AuthError::InvalidEmail
+            | AuthError::EmailPasswordDisabled
+            | AuthError::EmailPasswordSignUpDisabled
+            | AuthError::EmailNotVerified
+            | AuthError::VerificationEmailNotEnabled
+            | AuthError::EmailMismatch
+            | AuthError::EmailAlreadyVerified
+            | AuthError::InvalidToken
+            | AuthError::TokenExpired
+            | AuthError::VerificationUserNotFound
+            | AuthError::ResetPasswordDisabled
+            | AuthError::InvalidPasswordResetToken
+            | AuthError::PasswordResetUserNotFound
+    )
+}
 
 fn credential_error_details(error: &AuthError) -> ErrorDetails {
     match error {
@@ -130,6 +145,17 @@ fn credential_error_details(error: &AuthError) -> ErrorDetails {
         AuthError::TokenExpired => (StatusCode::UNAUTHORIZED, "TOKEN_EXPIRED", "Token expired"),
         AuthError::VerificationUserNotFound => {
             (StatusCode::UNAUTHORIZED, "USER_NOT_FOUND", "User not found")
+        }
+        AuthError::ResetPasswordDisabled => (
+            StatusCode::BAD_REQUEST,
+            "RESET_PASSWORD_DISABLED",
+            "Reset password isn't enabled",
+        ),
+        AuthError::InvalidPasswordResetToken => {
+            (StatusCode::BAD_REQUEST, "INVALID_TOKEN", "Invalid token")
+        }
+        AuthError::PasswordResetUserNotFound => {
+            (StatusCode::BAD_REQUEST, "USER_NOT_FOUND", "User not found")
         }
         _ => (StatusCode::UNAUTHORIZED, "INVALID_TOKEN", "Invalid token"),
     }

@@ -25,6 +25,12 @@ pub enum AuthError {
     TokenExpired,
     #[error("verification token user was not found")]
     VerificationUserNotFound,
+    #[error("password reset is disabled")]
+    ResetPasswordDisabled,
+    #[error("password reset token is invalid")]
+    InvalidPasswordResetToken,
+    #[error("password reset token user was not found")]
+    PasswordResetUserNotFound,
     #[error("too many sign-in attempts")]
     RateLimited,
     #[error("anonymous guest access is disabled")]

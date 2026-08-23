@@ -1,6 +1,6 @@
 use crate::{
     ApiKey, AuditEvent, AuthError, AuthSession, AuthStore, AuthUser, EmailVerificationOutcome,
-    GuestGrant, PasskeyDeleteOutcome, StoredPasskey, VerificationValue,
+    GuestGrant, PasskeyDeleteOutcome, PasswordResetOutcome, StoredPasskey, VerificationValue,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -189,6 +189,49 @@ impl AuthStore for MemoryStore {
         user.email_verified = true;
         user.updated_at = now;
         Ok(EmailVerificationOutcome::Verified(user.clone()))
+    }
+
+    async fn consume_password_reset(
+        &self,
+        token_hash: &str,
+        password_hash: String,
+        now: DateTime<Utc>,
+        revoke_sessions: bool,
+    ) -> Result<PasswordResetOutcome, AuthError> {
+        let mut state = self.state.write().await;
+        let key = ("password-reset".to_owned(), token_hash.to_owned());
+        let Some(value) = state.verifications.remove(&key) else {
+            return Ok(PasswordResetOutcome::InvalidToken);
+        };
+        if value.expires_at <= now {
+            return Ok(PasswordResetOutcome::InvalidToken);
+        }
+        let Some(user_id) = value
+            .payload
+            .get("user_id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| Uuid::parse_str(value).ok())
+        else {
+            return Err(AuthError::Storage(
+                "password reset payload is invalid".into(),
+            ));
+        };
+        if !state.users.contains_key(&user_id) {
+            return Ok(PasswordResetOutcome::UserNotFound);
+        }
+        state.passwords.insert(user_id, password_hash);
+        if revoke_sessions {
+            state
+                .sessions
+                .retain(|_, session| session.user_id != user_id);
+        }
+        let user = state
+            .users
+            .get_mut(&user_id)
+            .ok_or_else(|| AuthError::Storage("email index is inconsistent".into()))?;
+        user.must_change_password = false;
+        user.updated_at = now;
+        Ok(PasswordResetOutcome::Reset(Box::new(user.clone())))
     }
 
     async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError> {

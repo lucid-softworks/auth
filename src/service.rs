@@ -5,6 +5,7 @@ mod email_verification;
 mod guest;
 mod passkey;
 mod password;
+mod password_reset;
 mod recovery;
 mod session;
 mod session_create;

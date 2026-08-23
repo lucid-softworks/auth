@@ -1,5 +1,8 @@
 use super::{PostgresStore, UserRow, storage_error};
-use crate::{AuthError, AuthUser, EmailVerificationOutcome, VerificationStore, VerificationValue};
+use crate::{
+    AuthError, AuthUser, EmailVerificationOutcome, PasswordResetOutcome, VerificationStore,
+    VerificationValue,
+};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
@@ -85,6 +88,75 @@ pub(super) async fn consume_email_verification(
     Ok(EmailVerificationOutcome::Verified(user))
 }
 
+pub(super) async fn consume_password_reset(
+    pool: &sqlx::PgPool,
+    token_hash: &str,
+    password_hash: String,
+    now: DateTime<Utc>,
+    revoke_sessions: bool,
+) -> Result<PasswordResetOutcome, AuthError> {
+    let mut transaction = pool.begin().await.map_err(storage_error)?;
+    let value = sqlx::query_as::<_, VerificationRow>(
+        "DELETE FROM lucid_auth_verifications \
+         WHERE purpose = 'password-reset' AND identifier = $1 \
+         RETURNING purpose, identifier, payload, expires_at, created_at",
+    )
+    .bind(token_hash)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(storage_error)?;
+    let Some(value) = value.filter(|value| value.expires_at > now) else {
+        transaction.commit().await.map_err(storage_error)?;
+        return Ok(PasswordResetOutcome::InvalidToken);
+    };
+    let user_id = value
+        .payload
+        .get("user_id")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|value| uuid::Uuid::parse_str(value).ok())
+        .ok_or_else(|| AuthError::Storage("password reset payload is invalid".into()))?;
+    let user = super::user::load_by_id_transaction(&mut transaction, user_id).await?;
+    let Some(user) = user else {
+        transaction.commit().await.map_err(storage_error)?;
+        return Ok(PasswordResetOutcome::UserNotFound);
+    };
+    sqlx::query(
+        "INSERT INTO lucid_auth_accounts \
+         (id, user_id, provider_id, account_id, password_hash, created_at, updated_at) \
+         VALUES ($1, $2, 'credential', $3, $4, $5, $5) \
+         ON CONFLICT (user_id, provider_id) DO UPDATE SET \
+           password_hash = EXCLUDED.password_hash, updated_at = EXCLUDED.updated_at",
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(user.id)
+    .bind(user.id.to_string())
+    .bind(password_hash)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await
+    .map_err(storage_error)?;
+    let user = sqlx::query_as::<_, UserRow>(
+        "UPDATE lucid_auth_users SET must_change_password = FALSE, updated_at = $2 WHERE id = $1 \
+         RETURNING id, username, display_username, name, email, email_verified, image, role, \
+           is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at",
+    )
+    .bind(user.id)
+    .bind(now)
+    .fetch_one(&mut *transaction)
+    .await
+    .map(AuthUser::from)
+    .map_err(storage_error)?;
+    if revoke_sessions {
+        sqlx::query("DELETE FROM lucid_auth_sessions WHERE user_id = $1")
+            .bind(user.id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage_error)?;
+    }
+    transaction.commit().await.map_err(storage_error)?;
+    Ok(PasswordResetOutcome::Reset(Box::new(user)))
+}
+
 #[async_trait]
 impl VerificationStore for PostgresStore {
     async fn create_verification(&self, value: VerificationValue) -> Result<(), AuthError> {
@@ -101,6 +173,23 @@ impl VerificationStore for PostgresStore {
         .execute(&self.pool)
         .await
         .map(|_| ())
+        .map_err(storage_error)
+    }
+
+    async fn find_verification(
+        &self,
+        purpose: &str,
+        identifier: &str,
+    ) -> Result<Option<VerificationValue>, AuthError> {
+        sqlx::query_as::<_, VerificationRow>(
+            "SELECT purpose, identifier, payload, expires_at, created_at \
+             FROM lucid_auth_verifications WHERE purpose = $1 AND identifier = $2",
+        )
+        .bind(purpose)
+        .bind(identifier)
+        .fetch_optional(&self.pool)
+        .await
+        .map(|row| row.map(VerificationValue::from))
         .map_err(storage_error)
     }
 

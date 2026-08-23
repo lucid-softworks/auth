@@ -1,6 +1,6 @@
 use crate::{
     AuthError, AuthPlugin, CookieConfig, EmailVerificationConfig, PasswordBreachChecker,
-    TrustedOrigin, client_ip::IpAddressConfig,
+    PasswordResetCallback, PasswordResetEmailSender, TrustedOrigin, client_ip::IpAddressConfig,
 };
 use chrono::Duration;
 use std::sync::Arc;
@@ -49,7 +49,7 @@ pub struct PasskeyConfig {
 }
 
 /// Core email/password settings matching Better Auth 1.7.1 defaults.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct EmailPasswordConfig {
     pub enabled: bool,
     pub disable_sign_up: bool,
@@ -57,6 +57,10 @@ pub struct EmailPasswordConfig {
     pub require_email_verification: bool,
     pub min_password_length: usize,
     pub max_password_length: usize,
+    pub send_reset_password: Option<Arc<dyn PasswordResetEmailSender>>,
+    pub on_password_reset: Option<Arc<dyn PasswordResetCallback>>,
+    pub reset_password_token_expires_in: Duration,
+    pub revoke_sessions_on_password_reset: bool,
 }
 
 impl Default for EmailPasswordConfig {
@@ -68,6 +72,10 @@ impl Default for EmailPasswordConfig {
             require_email_verification: false,
             min_password_length: 8,
             max_password_length: 128,
+            send_reset_password: None,
+            on_password_reset: None,
+            reset_password_token_expires_in: Duration::hours(1),
+            revoke_sessions_on_password_reset: false,
         }
     }
 }
@@ -183,6 +191,16 @@ impl AuthConfig {
             return Err(AuthError::InvalidConfiguration(
                 "email/password bounds must have a positive minimum no greater than the maximum"
                     .into(),
+            ));
+        }
+        if password.reset_password_token_expires_in <= Duration::zero() {
+            return Err(AuthError::InvalidConfiguration(
+                "password reset expiry must be positive".into(),
+            ));
+        }
+        if password.send_reset_password.is_some() && self.base_url.is_none() {
+            return Err(AuthError::InvalidConfiguration(
+                "a base URL is required when a password reset sender is configured".into(),
             ));
         }
         if self.email_verification.expires_in <= Duration::zero() {

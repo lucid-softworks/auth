@@ -13,6 +13,7 @@ supported surface covers:
 - `getSession` and `useSession`
 - core email/password signup, signin, and current-password verification
 - durable email verification with a native async delivery callback
+- enumeration-resistant password-reset email and single-use reset redemption
 - username/password sign-in
 - sign-out
 - anonymous guest sign-in
@@ -73,6 +74,16 @@ authentication origin and base path.
 `expires_in` mirror Better Auth's verification lifecycle. Only a SHA-256 token
 identifier is persisted; verification consumes it and updates `emailVerified`
 atomically, so replay and concurrent redemption fail.
+
+Password reset delivery is supplied by implementing `PasswordResetEmailSender`
+and assigning it to `config.email_and_password.send_reset_password`. The sender
+receives the user, reset URL, and one-time token. The default expiry is one hour;
+`reset_password_token_expires_in`, `revoke_sessions_on_password_reset`, and the
+native async `on_password_reset` callback mirror Better Auth's lifecycle options.
+Reset requests accept Better Auth's exact `redirectTo` field, while the emailed
+callback endpoint accepts exact `callbackURL`; incorrectly cased aliases are not
+supported. Only a SHA-256 token identifier is stored, and password replacement,
+single-use token consumption, and optional session revocation are atomic.
 
 API-key secrets contain 384 random bits and are never stored. The database keeps
 only a salted Argon2id verifier plus a random public key identifier used for a
