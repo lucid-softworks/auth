@@ -53,3 +53,7 @@ required-features = ["axum"]
 [[test]]
 name = "better_auth_contract"
 required-features = ["axum"]
+
+[[test]]
+name = "postgres_contract"
+required-features = ["postgres"]
