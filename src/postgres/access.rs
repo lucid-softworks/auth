@@ -189,7 +189,7 @@ impl AccessStore for PostgresStore {
     async fn list_sessions(&self, user_id: Uuid) -> Result<Vec<AuthSession>, AuthError> {
         sqlx::query_as::<_, SessionRow>(
             "SELECT id, user_id, token_hash, actor_user_id, authentication_method, \
-             expires_at, created_at, updated_at, ip_address, user_agent \
+             expires_at, created_at, updated_at, ip_address, user_agent, additional_fields \
              FROM lucid_auth_sessions WHERE user_id = $1 AND expires_at > NOW() \
              ORDER BY created_at DESC",
         )

@@ -21,6 +21,8 @@ supported surface covers:
 - the complete official `twoFactorClient` surface as an optional native plugin,
   including TOTP, delivered OTP, backup codes, and trusted devices
 - password changes plus current-user session listing and revocation
+- typed current-user and current-session additional-field updates
+- immediate, verified, and current-address-confirmed email changes
 - password, fresh-session, and email-confirmed current-user deletion
 - passkey rename and removal
 - all 15 official admin-client methods, including configurable permissions,
@@ -51,6 +53,49 @@ config.add_plugin(UsernamePlugin::default())?;
 This route boundary is separate from `AuthService::provision_password_user`, so
 closed-registration applications can still provision and authenticate native
 username accounts without exposing Better Auth's public username plugin.
+
+User and session additional fields are explicit and typed. Only configured
+input fields can be changed through `updateUser` or `updateSession`; core IDs,
+tokens, ownership, timestamps, expiry, and input-disabled fields are never
+writable. Set `returned(false)` for persisted server-only values:
+
+```rust
+config.user.additional_fields.insert(
+    "timezone".into(),
+    AdditionalField::new(AdditionalFieldType::String),
+);
+config.session.additional_fields.insert(
+    "theme".into(),
+    AdditionalField::new(AdditionalFieldType::String),
+);
+config.user.additional_fields.insert(
+    "managedFlag".into(),
+    AdditionalField::new(AdditionalFieldType::Boolean)
+        .input(false)
+        .returned(false),
+);
+```
+
+PostgreSQL migration `0014_session_additional_fields.sql` adds durable JSONB
+session fields. User fields use the existing JSONB user field store. Both are
+merged atomically and filtered before every Better Auth response.
+
+Email changes are disabled by default, matching Better Auth. Enable the
+verified flow with the existing verification-email sender:
+
+```rust
+config.user.change_email.enabled = true;
+config.email_verification.sender = Some(Arc::new(MyVerificationSender));
+```
+
+For an unverified current address, setting
+`update_email_without_verification = true` changes it immediately and then
+sends normal verification when a sender is configured. For verified accounts,
+the default sends verification to the new address. Configure
+`send_change_email_confirmation` to require approval from the current address
+before the new-address verification is sent. Email normalization, uniqueness,
+single-use tokens, callback URLs, and session-cookie refresh are enforced in
+every mode.
 
 Guest capability grants are a lucid-auth extension, not part of Better Auth's
 Anonymous plugin. They are therefore absent by default. Register the optional

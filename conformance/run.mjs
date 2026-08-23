@@ -264,6 +264,39 @@ async function conformance(origin) {
     assert.equal(replay.error?.status, 401);
     assert.equal(replay.error?.code, "INVALID_TOKEN");
     success(await client.signOut(), "signOut after email verification");
+
+    success(
+      await client.signUp.email({
+        name: "Changed Email",
+        email: "change-source@example.com",
+        password: "correct horse battery staple",
+      }),
+      "signUp.email for changeEmail",
+    );
+    const changed = success(
+      await client.changeEmail({
+        newEmail: "change-target@example.com",
+        callbackURL: "/changed",
+      }),
+      "changeEmail",
+    );
+    assert.equal(changed.status, true);
+    transport.assertRequest("/api/auth/change-email", "POST", {
+      newEmail: "change-target@example.com",
+      callbackURL: "/changed",
+    });
+    const changeCaptured = await transport.fetch(
+      `${origin}/__conformance__/verification-token/change-target%40example.com`,
+    );
+    assert.equal(changeCaptured.status, 200);
+    const changeToken = (await changeCaptured.json()).token;
+    const changedVerification = success(
+      await client.verifyEmail({ query: { token: changeToken } }),
+      "verifyEmail after changeEmail",
+    );
+    assert.equal(changedVerification.user.email, "change-target@example.com");
+    assert.equal(changedVerification.user.emailVerified, true);
+    success(await client.signOut(), "signOut after changeEmail");
   });
 
   await runCase("password reset clients", async () => {
@@ -351,6 +384,7 @@ async function conformance(origin) {
         image: null,
         username: "Renamed_User",
         displayUsername: "Renamed User",
+        timezone: "Europe/London",
       }),
       "updateUser username",
     );
@@ -360,7 +394,14 @@ async function conformance(origin) {
       image: null,
       username: "Renamed_User",
       displayUsername: "Renamed User",
+      timezone: "Europe/London",
     });
+    const sessionUpdate = success(
+      await client.updateSession({ theme: "dark" }),
+      "updateSession additional field",
+    );
+    assert.equal(sessionUpdate.session.theme, "dark");
+    transport.assertRequest("/api/auth/update-session", "POST", { theme: "dark" });
     const updatedSession = success(
       await client.getSession(),
       "getSession after username update",
@@ -369,6 +410,8 @@ async function conformance(origin) {
     assert.equal(updatedSession.user.displayUsername, "Renamed User");
     assert.equal(updatedSession.user.name, "Renamed Profile");
     assert.equal(updatedSession.user.image, null);
+    assert.equal(updatedSession.user.timezone, "Europe/London");
+    assert.equal(updatedSession.session.theme, "dark");
     success(await client.signOut(), "signOut after username update");
 
     const normalizedSignIn = success(

@@ -31,6 +31,12 @@ pub enum AuthError {
     EmailMismatch,
     #[error("email is already verified")]
     EmailAlreadyVerified,
+    #[error("change email is disabled")]
+    ChangeEmailDisabled,
+    #[error("email is the same")]
+    EmailIsSame,
+    #[error("the verification token does not belong to the active user")]
+    InvalidUser,
     #[error("verification token is invalid")]
     InvalidToken,
     #[error("verification token has expired")]

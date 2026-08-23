@@ -33,6 +33,7 @@ pub struct UserProfileUpdate {
     pub image: Option<Option<String>>,
     pub username: Option<String>,
     pub display_username: Option<String>,
+    pub additional_fields: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Persistence boundary required by [`crate::AuthService`].
@@ -64,6 +65,14 @@ pub trait AuthStore:
         &self,
         user_id: Uuid,
         update: UserProfileUpdate,
+    ) -> Result<Option<AuthUser>, AuthError>;
+
+    async fn update_user_email(
+        &self,
+        user_id: Uuid,
+        expected_email: &str,
+        new_email: &str,
+        email_verified: bool,
     ) -> Result<Option<AuthUser>, AuthError>;
 
     /// Atomically consumes a purpose-bound token and marks its user verified.
@@ -147,6 +156,12 @@ pub trait AuthStore:
         &self,
         token_hash: &str,
     ) -> Result<Option<(AuthSession, AuthUser)>, AuthError>;
+
+    async fn update_session_fields(
+        &self,
+        session_id: Uuid,
+        fields: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<AuthSession>, AuthError>;
 
     async fn delete_session(&self, token_hash: &str) -> Result<(), AuthError>;
 

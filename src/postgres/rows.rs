@@ -97,6 +97,7 @@ pub(super) struct SessionRow {
     updated_at: DateTime<Utc>,
     ip_address: Option<String>,
     user_agent: Option<String>,
+    additional_fields: serde_json::Value,
 }
 
 impl From<SessionRow> for AuthSession {
@@ -112,6 +113,11 @@ impl From<SessionRow> for AuthSession {
             updated_at: row.updated_at,
             ip_address: row.ip_address,
             user_agent: row.user_agent,
+            additional_fields: row
+                .additional_fields
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
         }
     }
 }

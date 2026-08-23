@@ -54,7 +54,7 @@ async fn list_user_sessions(
         Ok(sessions) => Json(SessionsResponse {
             sessions: sessions
                 .iter()
-                .map(|session| BetterAuthSession::from_session(session, session.id.to_string()))
+                .map(|session| service.better_auth_session(session, session.id.to_string()))
                 .collect(),
         })
         .into_response(),

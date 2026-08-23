@@ -7,8 +7,8 @@ pub(super) async fn create(pool: &PgPool, session: AuthSession) -> Result<(), Au
     sqlx::query(
         "INSERT INTO lucid_auth_sessions \
          (id, user_id, token_hash, actor_user_id, authentication_method, expires_at, \
-          created_at, updated_at, ip_address, user_agent) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+          created_at, updated_at, ip_address, user_agent, additional_fields) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
     )
     .bind(session.id)
     .bind(session.user_id)
@@ -20,6 +20,7 @@ pub(super) async fn create(pool: &PgPool, session: AuthSession) -> Result<(), Au
     .bind(session.updated_at)
     .bind(&session.ip_address)
     .bind(&session.user_agent)
+    .bind(serde_json::Value::Object(session.additional_fields))
     .execute(pool)
     .await
     .map(|_| ())
@@ -32,7 +33,7 @@ pub(super) async fn find(
 ) -> Result<Option<(AuthSession, AuthUser)>, AuthError> {
     let session = sqlx::query_as::<_, SessionRow>(
         "SELECT id, user_id, token_hash, actor_user_id, authentication_method, \
-         expires_at, created_at, updated_at, ip_address, user_agent \
+         expires_at, created_at, updated_at, ip_address, user_agent, additional_fields \
          FROM lucid_auth_sessions WHERE token_hash = $1",
     )
     .bind(token_hash)
@@ -45,6 +46,25 @@ pub(super) async fn find(
     };
     let user = super::user::load_by_id(pool, session.user_id).await?;
     Ok(user.map(|user| (session, user)))
+}
+
+pub(super) async fn update_fields(
+    pool: &PgPool,
+    session_id: uuid::Uuid,
+    fields: serde_json::Map<String, serde_json::Value>,
+) -> Result<Option<AuthSession>, AuthError> {
+    sqlx::query_as::<_, SessionRow>(
+        "UPDATE lucid_auth_sessions SET additional_fields = additional_fields || $2::jsonb, \
+         updated_at = NOW() WHERE id = $1 \
+         RETURNING id, user_id, token_hash, actor_user_id, authentication_method, expires_at, \
+           created_at, updated_at, ip_address, user_agent, additional_fields",
+    )
+    .bind(session_id)
+    .bind(serde_json::Value::Object(fields))
+    .fetch_optional(pool)
+    .await
+    .map(|row| row.map(AuthSession::from))
+    .map_err(storage_error)
 }
 
 pub(super) async fn delete(pool: &PgPool, token_hash: &str) -> Result<(), AuthError> {

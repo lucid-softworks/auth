@@ -9,7 +9,12 @@ impl AuthService {
         &self,
         user: &crate::AuthUser,
     ) -> Result<crate::protocol::better_auth::BetterAuthUser, AuthError> {
-        let mut output = crate::protocol::better_auth::BetterAuthUser::from(user);
+        let mut user = user.clone();
+        crate::additional_fields::filter_user_output(
+            &self.config.user.additional_fields,
+            &mut user,
+        );
+        let mut output = crate::protocol::better_auth::BetterAuthUser::from(&user);
         match self.plugins.find::<UsernamePlugin>() {
             Some(plugin) if plugin.config().display_username => {}
             Some(_) => output.display_username = None,
@@ -37,12 +42,23 @@ impl AuthService {
         token: impl Into<String>,
     ) -> Result<crate::protocol::better_auth::SessionResponse, AuthError> {
         Ok(crate::protocol::better_auth::SessionResponse {
-            session: crate::protocol::better_auth::BetterAuthSession::from_session(
-                &value.session,
-                token,
-            ),
+            session: self.better_auth_session(&value.session, token),
             user: self.better_auth_user(&value.user).await?,
         })
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn better_auth_session(
+        &self,
+        session: &crate::AuthSession,
+        token: impl Into<String>,
+    ) -> crate::protocol::better_auth::BetterAuthSession {
+        let mut session = session.clone();
+        crate::additional_fields::filter_session_output(
+            &self.config.session.additional_fields,
+            &mut session,
+        );
+        crate::protocol::better_auth::BetterAuthSession::from_session(&session, token)
     }
 
     fn username_config(&self) -> Result<&UsernameConfig, AuthError> {
@@ -160,11 +176,16 @@ impl AuthService {
         &self,
         session: &SessionWithUser,
         mut update: UserProfileUpdate,
-    ) -> Result<(), AuthError> {
+    ) -> Result<crate::AuthUser, AuthError> {
+        update.additional_fields = crate::additional_fields::parse_update_fields(
+            &self.config.user.additional_fields,
+            update.additional_fields,
+        )?;
         if update.name.is_none()
             && update.image.is_none()
             && update.username.is_none()
             && update.display_username.is_none()
+            && update.additional_fields.is_empty()
         {
             return Err(AuthError::InvalidRequest("No fields to update".into()));
         }
@@ -201,7 +222,6 @@ impl AuthService {
         self.store
             .update_user_profile(session.user.id, update)
             .await?
-            .ok_or(AuthError::InvalidSession)?;
-        Ok(())
+            .ok_or(AuthError::InvalidSession)
     }
 }

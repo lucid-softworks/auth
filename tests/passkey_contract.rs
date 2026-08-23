@@ -221,6 +221,7 @@ async fn stale_registration_does_not_consume_the_challenge() {
         updated_at: now,
         ip_address: None,
         user_agent: None,
+        additional_fields: serde_json::Map::new(),
     };
     store.create_session(fresh_session.clone()).await.unwrap();
     let session_cookie = format!(
@@ -316,6 +317,7 @@ async fn persisted_session_cookie(
             updated_at: now,
             ip_address: None,
             user_agent: None,
+            additional_fields: serde_json::Map::new(),
         })
         .await
         .unwrap();

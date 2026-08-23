@@ -59,6 +59,7 @@ impl AuthService {
             updated_at: now,
             ip_address,
             user_agent,
+            additional_fields: serde_json::Map::new(),
         };
         self.store.delete_expired_sessions(now).await?;
         self.store.create_session(session.clone()).await?;

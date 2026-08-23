@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS lucid_auth_sessions (
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
     ip_address TEXT,
-    user_agent TEXT
+    user_agent TEXT,
+    additional_fields JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
 CREATE INDEX IF NOT EXISTS lucid_auth_sessions_user_id_idx

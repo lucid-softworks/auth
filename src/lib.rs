@@ -1,5 +1,6 @@
 //! Native authentication with a Better Auth-compatible HTTP surface.
 
+mod additional_fields;
 mod admin;
 mod api_key;
 mod audit;
@@ -31,6 +32,9 @@ pub mod axum;
 pub mod postgres;
 pub mod protocol;
 
+pub use additional_fields::{
+    AdditionalField, AdditionalFieldSet, AdditionalFieldType, SessionConfig,
+};
 pub use admin::{
     AdminConfig, AdminCreateUser, AdminError, AdminListCondition, AdminListOperator,
     AdminListUsersQuery, AdminPermissionSet, AdminPlugin, AdminRole, AdminSortDirection,
@@ -108,6 +112,7 @@ pub use two_factor::{
     TwoFactorRecord, TwoFactorStore,
 };
 pub use user_deletion::{
+    ChangeEmailConfig, ChangeEmailConfirmation, ChangeEmailConfirmationSender,
     DeleteAccountVerification, DeleteAccountVerificationSender, DeleteUserConfig, UserConfig,
     UserDeletionCallback,
 };

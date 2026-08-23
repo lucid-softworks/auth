@@ -164,6 +164,7 @@ pub(super) async fn update_profile(
          image = CASE WHEN $3 THEN $4 ELSE image END, \
          username = COALESCE($5, username), \
          display_username = COALESCE($6, display_username), \
+         additional_fields = additional_fields || $7::jsonb, \
          updated_at = NOW() WHERE id = $1 \
          RETURNING id, username, display_username, name, email, email_verified, image, additional_fields, role, \
            is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at",
@@ -174,6 +175,7 @@ pub(super) async fn update_profile(
     .bind(update.image.flatten())
     .bind(update.username)
     .bind(update.display_username)
+    .bind(serde_json::Value::Object(update.additional_fields))
     .fetch_optional(pool)
     .await
     .map(|row| row.map(AuthUser::from))
@@ -183,6 +185,38 @@ pub(super) async fn update_profile(
             .is_some_and(|database| database.is_unique_violation())
         {
             UsernameError::AlreadyTaken.into()
+        } else {
+            storage_error(error)
+        }
+    })
+}
+
+pub(super) async fn update_email(
+    pool: &PgPool,
+    user_id: Uuid,
+    expected_email: &str,
+    new_email: &str,
+    email_verified: bool,
+) -> Result<Option<AuthUser>, AuthError> {
+    sqlx::query_as::<_, UserRow>(
+        "UPDATE lucid_auth_users SET email = LOWER($3), email_verified = $4, updated_at = NOW() \
+         WHERE id = $1 AND email = LOWER($2) \
+         RETURNING id, username, display_username, name, email, email_verified, image, additional_fields, role, \
+           is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at",
+    )
+    .bind(user_id)
+    .bind(expected_email)
+    .bind(new_email)
+    .bind(email_verified)
+    .fetch_optional(pool)
+    .await
+    .map(|row| row.map(AuthUser::from))
+    .map_err(|error| {
+        if error
+            .as_database_error()
+            .is_some_and(|database| database.is_unique_violation())
+        {
+            AuthError::UserAlreadyExistsEmail
         } else {
             storage_error(error)
         }

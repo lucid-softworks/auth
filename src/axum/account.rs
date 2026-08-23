@@ -5,7 +5,7 @@ use super::http::{
 use crate::{AuthError, AuthService, UserProfileUpdate};
 use axum::{
     Extension, Json, Router,
-    http::HeaderMap,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -13,8 +13,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::protocol::better_auth::{
-    BetterAuthSession, ChangePasswordRequest, ChangePasswordResponse, RevokeSessionRequest,
-    StatusResponse, UpdateUserRequest,
+    ChangeEmailRequest, ChangePasswordRequest, ChangePasswordResponse, RevokeSessionRequest,
+    StatusResponse, UpdateSessionResponse, UpdateUserRequest,
 };
 
 pub(super) fn router<S>() -> Router<S>
@@ -23,11 +23,60 @@ where
 {
     Router::new()
         .route("/update-user", post(update_user))
+        .route("/update-session", post(update_session))
+        .route("/change-email", post(change_email))
         .route("/change-password", post(change_password))
         .route("/list-sessions", get(list_sessions))
         .route("/revoke-session", post(revoke_session))
         .route("/revoke-other-sessions", post(revoke_other_sessions))
         .route("/revoke-sessions", post(revoke_sessions))
+}
+
+async fn change_email(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Json(input): Json<ChangeEmailRequest>,
+) -> Response {
+    let Some(current) = current_session(&service, &headers).await else {
+        return auth_error(AuthError::Unauthorized);
+    };
+    match service
+        .change_email(&current, &input.new_email, input.callback_url.as_deref())
+        .await
+    {
+        Ok(updated) => {
+            let body = Json(StatusResponse { status: true });
+            match (updated, super::session_token(&service, &headers)) {
+                (Some(_), Some(token)) => with_session_cookie(&service, &token, Some(true), body),
+                _ => body.into_response(),
+            }
+        }
+        Err(error) => change_email_error(error),
+    }
+}
+
+async fn update_session(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Json(input): Json<serde_json::Map<String, serde_json::Value>>,
+) -> Response {
+    let Some(current) = current_session(&service, &headers).await else {
+        return auth_error(AuthError::Unauthorized);
+    };
+    match service.update_current_session(&current, input).await {
+        Ok(session) => {
+            let token = super::session_token(&service, &headers).unwrap_or_default();
+            let body = Json(UpdateSessionResponse {
+                session: service.better_auth_session(&session, token.clone()),
+            });
+            if token.is_empty() {
+                body.into_response()
+            } else {
+                with_session_cookie(&service, &token, Some(true), body)
+            }
+        }
+        Err(error) => auth_error(error),
+    }
 }
 
 async fn update_user(
@@ -36,9 +85,13 @@ async fn update_user(
     Json(input): Json<UpdateUserRequest>,
 ) -> Response {
     let Some(session) = current_session(&service, &headers).await else {
-        return auth_error(AuthError::InvalidSession);
+        return auth_error(AuthError::Unauthorized);
     };
-    if input.email.is_some() {
+    if input
+        .email
+        .as_ref()
+        .is_some_and(crate::additional_fields::json_truthy)
+    {
         return auth_error(AuthError::InvalidRequest("Email cannot be updated".into()));
     }
     match service
@@ -49,11 +102,12 @@ async fn update_user(
                 image: input.image,
                 username: input.username,
                 display_username: input.display_username,
+                additional_fields: input.additional_fields,
             },
         )
         .await
     {
-        Ok(()) => {
+        Ok(_) => {
             let response = Json(StatusResponse { status: true });
             match super::session_token(&service, &headers) {
                 Some(token) => with_session_cookie(&service, &token, Some(true), response),
@@ -62,6 +116,19 @@ async fn update_user(
         }
         Err(error) => auth_error(error),
     }
+}
+
+fn change_email_error(error: AuthError) -> Response {
+    let message = match error {
+        AuthError::EmailIsSame => "Email is the same",
+        AuthError::VerificationEmailNotEnabled => "Verification email isn't enabled",
+        _ => return auth_error(error),
+    };
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "message": message })),
+    )
+        .into_response()
 }
 
 async fn change_password(
@@ -119,7 +186,7 @@ async fn list_sessions(
         Ok(sessions) => Json(
             sessions
                 .iter()
-                .map(|session| BetterAuthSession::from_session(session, session.id.to_string()))
+                .map(|session| service.better_auth_session(session, session.id.to_string()))
                 .collect::<Vec<_>>(),
         )
         .into_response(),

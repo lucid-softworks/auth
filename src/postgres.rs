@@ -156,6 +156,23 @@ impl AuthStore for PostgresStore {
         user::update_profile(&self.pool, user_id, update).await
     }
 
+    async fn update_user_email(
+        &self,
+        user_id: Uuid,
+        expected_email: &str,
+        new_email: &str,
+        email_verified: bool,
+    ) -> Result<Option<AuthUser>, AuthError> {
+        user::update_email(
+            &self.pool,
+            user_id,
+            expected_email,
+            new_email,
+            email_verified,
+        )
+        .await
+    }
+
     async fn consume_email_verification(
         &self,
         token_hash: &str,
@@ -299,6 +316,14 @@ impl AuthStore for PostgresStore {
         token_hash: &str,
     ) -> Result<Option<(AuthSession, AuthUser)>, AuthError> {
         session::find(&self.pool, token_hash).await
+    }
+
+    async fn update_session_fields(
+        &self,
+        session_id: Uuid,
+        fields: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<AuthSession>, AuthError> {
+        session::update_fields(&self.pool, session_id, fields).await
     }
 
     async fn delete_session(&self, token_hash: &str) -> Result<(), AuthError> {

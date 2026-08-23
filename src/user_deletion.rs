@@ -1,4 +1,4 @@
-use crate::{AuthError, AuthUser};
+use crate::{AdditionalFieldSet, AuthError, AuthUser};
 use async_trait::async_trait;
 use chrono::Duration;
 use std::{fmt, sync::Arc};
@@ -57,7 +57,57 @@ impl fmt::Debug for DeleteUserConfig {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct UserConfig {
+    pub additional_fields: AdditionalFieldSet,
+    pub change_email: ChangeEmailConfig,
     pub delete_user: DeleteUserConfig,
+}
+
+#[derive(Clone, Default)]
+pub struct ChangeEmailConfig {
+    pub enabled: bool,
+    pub update_email_without_verification: bool,
+    pub send_change_email_confirmation: Option<Arc<dyn ChangeEmailConfirmationSender>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChangeEmailConfirmation {
+    pub user: AuthUser,
+    pub new_email: String,
+    pub url: String,
+    pub token: String,
+}
+
+#[async_trait]
+pub trait ChangeEmailConfirmationSender: Send + Sync {
+    async fn send(&self, confirmation: ChangeEmailConfirmation) -> Result<(), AuthError>;
+}
+
+impl fmt::Debug for ChangeEmailConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ChangeEmailConfig")
+            .field("enabled", &self.enabled)
+            .field(
+                "update_email_without_verification",
+                &self.update_email_without_verification,
+            )
+            .field(
+                "send_change_email_confirmation",
+                &self.send_change_email_confirmation.is_some(),
+            )
+            .finish()
+    }
+}
+
+impl fmt::Debug for UserConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("UserConfig")
+            .field("additional_fields", &self.additional_fields)
+            .field("change_email", &self.change_email)
+            .field("delete_user", &self.delete_user)
+            .finish()
+    }
 }

@@ -325,6 +325,7 @@ async fn disabled_and_stale_deletion_match_official_errors() {
         updated_at: old,
         ip_address: None,
         user_agent: None,
+        additional_fields: serde_json::Map::new(),
     };
     stale.store.create_session(session).await.unwrap();
     let stale_cookie = format!(

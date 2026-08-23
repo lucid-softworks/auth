@@ -6,7 +6,8 @@ use axum::{
     routing::{get, post},
 };
 use lucid_auth::{
-    AdminConfig, AdminPlugin, AdminRole, ApiKeyConfiguration, ApiKeyPlugin, AuthConfig, AuthService,
+    AdditionalField, AdditionalFieldType, AdminConfig, AdminPlugin, AdminRole,
+    ApiKeyConfiguration, ApiKeyPlugin, AuthConfig, AuthService,
     MagicLinkConfig, MagicLinkEmail, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore,
     NewPasswordUser, OtpConfig, PasskeyConfig, PasskeyPlugin, PasswordResetEmail,
     PluginDescriptor, TotpConfig, TwoFactorConfig, TwoFactorOtp, TwoFactorPlugin, UsernamePlugin,
@@ -187,6 +188,15 @@ fn conformance_config(origin: &str, messages: &ConformanceMessages) -> AuthConfi
     config.allow_anonymous = true;
     config.email_and_password.enabled = true;
     config.user.delete_user.enabled = true;
+    config.user.change_email.enabled = true;
+    config.user.additional_fields.insert(
+        "timezone".into(),
+        AdditionalField::new(AdditionalFieldType::String),
+    );
+    config.session.additional_fields.insert(
+        "theme".into(),
+        AdditionalField::new(AdditionalFieldType::String),
+    );
     config.email_verification.sender = Some(Arc::new(ConformanceEmailSender {
         verification: messages.verification_emails.clone(),
         password_reset: messages.password_reset_emails.clone(),

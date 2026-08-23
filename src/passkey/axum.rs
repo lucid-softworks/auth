@@ -174,10 +174,8 @@ async fn verify_registration(
                 let body = Json(PasskeyRegistrationResponse {
                     passkey: BetterAuthPasskey::from(&result.passkey),
                     session: Some(
-                        crate::protocol::better_auth::BetterAuthSession::from_session(
-                            &replacement.session.session,
-                            &replacement.token,
-                        ),
+                        service
+                            .better_auth_session(&replacement.session.session, &replacement.token),
                     ),
                     user: Some(user),
                 });

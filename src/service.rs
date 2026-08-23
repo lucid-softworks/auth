@@ -3,6 +3,7 @@ mod admin_update;
 mod api_key;
 mod api_key_policy;
 mod audit;
+mod change_email;
 mod email_password;
 mod email_verification;
 mod guest;
@@ -17,6 +18,7 @@ mod plugin_session;
 mod recovery;
 mod session;
 mod session_create;
+mod session_update;
 mod two_factor;
 mod user;
 mod user_deletion;
@@ -234,6 +236,7 @@ impl AuthService {
                 updated_at: now,
                 ip_address: None,
                 user_agent: None,
+                additional_fields: serde_json::Map::new(),
             },
             user: AuthUser {
                 id,

@@ -358,6 +358,8 @@ const CORE_ENDPOINTS: &[(PluginHttpMethod, &str)] = &[
     (PluginHttpMethod::Post, "/sign-out"),
     (PluginHttpMethod::Post, "/sign-in/anonymous"),
     (PluginHttpMethod::Post, "/update-user"),
+    (PluginHttpMethod::Post, "/update-session"),
+    (PluginHttpMethod::Post, "/change-email"),
     (PluginHttpMethod::Post, "/delete-user"),
     (PluginHttpMethod::Get, "/delete-user/callback"),
     (PluginHttpMethod::Post, "/change-password"),

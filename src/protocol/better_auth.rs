@@ -103,6 +103,8 @@ pub struct UpdateUserRequest {
     pub email: Option<serde_json::Value>,
     pub username: Option<String>,
     pub display_username: Option<String>,
+    #[serde(flatten)]
+    pub additional_fields: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -174,6 +176,8 @@ pub struct BetterAuthSession {
     pub updated_at: DateTime<Utc>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+    #[serde(flatten)]
+    pub additional_fields: serde_json::Map<String, serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub impersonated_by: Option<String>,
 }
@@ -222,6 +226,11 @@ pub struct StatusResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct UpdateSessionResponse {
+    pub session: BetterAuthSession,
+}
+
+#[derive(Debug, Serialize)]
 pub struct PasswordResetRequestResponse {
     pub status: bool,
     pub message: &'static str,
@@ -233,6 +242,14 @@ pub struct ChangePasswordRequest {
     pub new_password: String,
     pub current_password: String,
     pub revoke_other_sessions: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeEmailRequest {
+    pub new_email: String,
+    #[serde(rename = "callbackURL")]
+    pub callback_url: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -350,6 +367,7 @@ impl BetterAuthSession {
             updated_at: session.updated_at,
             ip_address: session.ip_address.clone(),
             user_agent: session.user_agent.clone(),
+            additional_fields: session.additional_fields.clone(),
             impersonated_by: session.actor_user_id.map(|id| id.to_string()),
         }
     }

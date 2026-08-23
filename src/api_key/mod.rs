@@ -263,6 +263,7 @@ impl AuthPlugin for ApiKeyPlugin {
                     .get(::axum::http::header::USER_AGENT)
                     .and_then(|value| value.to_str().ok())
                     .map(str::to_owned),
+                additional_fields: serde_json::Map::new(),
             },
             user: verified.user,
         };

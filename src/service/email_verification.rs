@@ -12,6 +12,7 @@ const PURPOSE: &str = "email-verification";
 pub struct EmailVerificationResult {
     pub user: AuthUser,
     pub session_token: Option<String>,
+    pub user_in_response: bool,
 }
 
 impl AuthService {
@@ -89,6 +90,22 @@ impl AuthService {
         token: &str,
         current: Option<(&SessionWithUser, &str)>,
     ) -> Result<EmailVerificationResult, AuthError> {
+        self.verify_email_token_with_callback(token, current, None)
+            .await
+    }
+
+    pub(crate) async fn verify_email_token_with_callback(
+        &self,
+        token: &str,
+        current: Option<(&SessionWithUser, &str)>,
+        callback_url: Option<&str>,
+    ) -> Result<EmailVerificationResult, AuthError> {
+        if let Some(result) = self
+            .consume_change_email_token(token, current, callback_url)
+            .await?
+        {
+            return Ok(result);
+        }
         let outcome = self
             .store
             .consume_email_verification(&hash_token(token), Utc::now())
@@ -103,6 +120,7 @@ impl AuthService {
                 return Ok(EmailVerificationResult {
                     user,
                     session_token: None,
+                    user_in_response: false,
                 });
             }
             EmailVerificationOutcome::Verified(user) => user,
@@ -135,10 +153,100 @@ impl AuthService {
         Ok(EmailVerificationResult {
             user,
             session_token,
+            user_in_response: false,
         })
     }
 
-    async fn deliver_verification_email(
+    async fn consume_change_email_token(
+        &self,
+        token: &str,
+        current: Option<(&SessionWithUser, &str)>,
+        callback_url: Option<&str>,
+    ) -> Result<Option<EmailVerificationResult>, AuthError> {
+        let token_hash = hash_token(token);
+        for purpose in [
+            super::change_email::CHANGE_CONFIRMATION_PURPOSE,
+            super::change_email::CHANGE_VERIFICATION_PURPOSE,
+        ] {
+            let Some(found) = self.store.find_verification(purpose, &token_hash).await? else {
+                continue;
+            };
+            if found.expires_at <= Utc::now() {
+                let _ = self
+                    .store
+                    .consume_verification(purpose, &token_hash, Utc::now())
+                    .await;
+                return Err(AuthError::TokenExpired);
+            }
+            let (user, email, new_email) = self.change_email_token_user(&found, current).await?;
+            let value = self
+                .store
+                .consume_verification(purpose, &token_hash, Utc::now())
+                .await?
+                .ok_or_else(|| {
+                    if found.expires_at <= Utc::now() {
+                        AuthError::TokenExpired
+                    } else {
+                        AuthError::InvalidToken
+                    }
+                })?;
+            change_email_payload(&value)?;
+            if purpose == super::change_email::CHANGE_CONFIRMATION_PURPOSE {
+                self.deliver_change_verification(&user, &new_email, callback_url)
+                    .await?;
+                return Ok(Some(EmailVerificationResult {
+                    user,
+                    session_token: None,
+                    user_in_response: false,
+                }));
+            }
+            let updated = self
+                .store
+                .update_user_email(user.id, &email, &new_email, true)
+                .await?
+                .ok_or(AuthError::VerificationUserNotFound)?;
+            let session_token = match current {
+                Some((_, token)) => Some(token.to_owned()),
+                None => Some(
+                    self.create_session(
+                        updated.clone(),
+                        AuthenticationMethod::EmailVerified,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await?
+                    .token,
+                ),
+            };
+            return Ok(Some(EmailVerificationResult {
+                user: updated,
+                session_token,
+                user_in_response: true,
+            }));
+        }
+        Ok(None)
+    }
+
+    async fn change_email_token_user(
+        &self,
+        value: &VerificationValue,
+        current: Option<(&SessionWithUser, &str)>,
+    ) -> Result<(AuthUser, String, String), AuthError> {
+        let (user_id, email, new_email) = change_email_payload(value)?;
+        let user = self
+            .store
+            .find_user_by_id(user_id)
+            .await?
+            .filter(|user| user.email == email)
+            .ok_or(AuthError::VerificationUserNotFound)?;
+        if current.is_some_and(|(session, _)| session.user.email != email) {
+            return Err(AuthError::InvalidUser);
+        }
+        Ok((user, email, new_email))
+    }
+
+    pub(super) async fn deliver_verification_email(
         &self,
         user: AuthUser,
         callback_url: Option<&str>,
@@ -176,7 +284,7 @@ impl AuthService {
         Ok(())
     }
 
-    fn verification_url(
+    pub(super) fn verification_url(
         &self,
         token: &str,
         callback_url: Option<&str>,
@@ -191,5 +299,29 @@ impl AuthService {
             .append_pair("token", token)
             .append_pair("callbackURL", callback_url.unwrap_or("/"));
         Ok(url.into())
+    }
+}
+
+fn change_email_payload(
+    value: &VerificationValue,
+) -> Result<(uuid::Uuid, String, String), AuthError> {
+    let user_id = value
+        .payload
+        .get("userId")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|value| uuid::Uuid::parse_str(value).ok());
+    let email = value
+        .payload
+        .get("email")
+        .and_then(serde_json::Value::as_str);
+    let new_email = value
+        .payload
+        .get("newEmail")
+        .and_then(serde_json::Value::as_str);
+    match (user_id, email, new_email) {
+        (Some(user_id), Some(email), Some(new_email)) => {
+            Ok((user_id, email.into(), new_email.into()))
+        }
+        _ => Err(AuthError::InvalidToken),
     }
 }

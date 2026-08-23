@@ -7,6 +7,7 @@ use axum::{
 use serde::Serialize;
 
 mod admin;
+mod credential;
 mod plugin;
 
 pub(crate) fn auth_error(error: AuthError) -> Response {
@@ -24,7 +25,7 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
             .into_response();
     }
     let (status, code, message) = match &error {
-        error if is_credential_error(error) => credential_error_details(error),
+        error if credential::is_error(error) => credential::details(error),
         AuthError::RateLimited => (
             StatusCode::TOO_MANY_REQUESTS,
             "TOO_MANY_REQUESTS",
@@ -134,85 +135,6 @@ fn delete_user_error_details(error: &AuthError) -> ErrorDetails {
             "FAILED_TO_GET_USER_INFO",
             "Failed to get user info",
         ),
-    }
-}
-
-fn is_credential_error(error: &AuthError) -> bool {
-    matches!(
-        error,
-        AuthError::InvalidCredentials
-            | AuthError::InvalidEmailOrPassword
-            | AuthError::InvalidEmail
-            | AuthError::EmailPasswordDisabled
-            | AuthError::EmailPasswordSignUpDisabled
-            | AuthError::EmailNotVerified
-            | AuthError::VerificationEmailNotEnabled
-            | AuthError::EmailMismatch
-            | AuthError::EmailAlreadyVerified
-            | AuthError::InvalidToken
-            | AuthError::TokenExpired
-            | AuthError::VerificationUserNotFound
-            | AuthError::ResetPasswordDisabled
-            | AuthError::InvalidPasswordResetToken
-            | AuthError::PasswordResetUserNotFound
-    )
-}
-
-fn credential_error_details(error: &AuthError) -> ErrorDetails {
-    match error {
-        AuthError::InvalidCredentials => (
-            StatusCode::UNAUTHORIZED,
-            "INVALID_USERNAME_OR_PASSWORD",
-            "Invalid username or password",
-        ),
-        AuthError::InvalidEmailOrPassword => (
-            StatusCode::UNAUTHORIZED,
-            "INVALID_EMAIL_OR_PASSWORD",
-            "Invalid email or password",
-        ),
-        AuthError::InvalidEmail => (StatusCode::BAD_REQUEST, "INVALID_EMAIL", "Invalid email"),
-        AuthError::EmailPasswordDisabled => (
-            StatusCode::BAD_REQUEST,
-            "EMAIL_PASSWORD_DISABLED",
-            "Email and password is not enabled",
-        ),
-        AuthError::EmailPasswordSignUpDisabled => (
-            StatusCode::BAD_REQUEST,
-            "EMAIL_PASSWORD_SIGN_UP_DISABLED",
-            "Email and password sign up is not enabled",
-        ),
-        AuthError::EmailNotVerified => (
-            StatusCode::FORBIDDEN,
-            "EMAIL_NOT_VERIFIED",
-            "Email not verified",
-        ),
-        AuthError::VerificationEmailNotEnabled => (
-            StatusCode::BAD_REQUEST,
-            "VERIFICATION_EMAIL_NOT_ENABLED",
-            "Verification email isn't enabled",
-        ),
-        AuthError::EmailMismatch => (StatusCode::BAD_REQUEST, "EMAIL_MISMATCH", "Email mismatch"),
-        AuthError::EmailAlreadyVerified => (
-            StatusCode::BAD_REQUEST,
-            "EMAIL_ALREADY_VERIFIED",
-            "Email is already verified",
-        ),
-        AuthError::TokenExpired => (StatusCode::UNAUTHORIZED, "TOKEN_EXPIRED", "Token expired"),
-        AuthError::VerificationUserNotFound => {
-            (StatusCode::UNAUTHORIZED, "USER_NOT_FOUND", "User not found")
-        }
-        AuthError::ResetPasswordDisabled => (
-            StatusCode::BAD_REQUEST,
-            "RESET_PASSWORD_DISABLED",
-            "Reset password isn't enabled",
-        ),
-        AuthError::InvalidPasswordResetToken => {
-            (StatusCode::BAD_REQUEST, "INVALID_TOKEN", "Invalid token")
-        }
-        AuthError::PasswordResetUserNotFound => {
-            (StatusCode::BAD_REQUEST, "USER_NOT_FOUND", "User not found")
-        }
-        _ => (StatusCode::UNAUTHORIZED, "INVALID_TOKEN", "Invalid token"),
     }
 }
 

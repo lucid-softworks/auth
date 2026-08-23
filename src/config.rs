@@ -1,6 +1,6 @@
 use crate::{
     AuthError, AuthPlugin, CookieConfig, EmailVerificationConfig, PasswordBreachChecker,
-    PasswordResetCallback, PasswordResetEmailSender, TrustedOrigin, UserConfig,
+    PasswordResetCallback, PasswordResetEmailSender, SessionConfig, TrustedOrigin, UserConfig,
     client_ip::IpAddressConfig,
 };
 use chrono::Duration;
@@ -29,6 +29,7 @@ pub struct AuthConfig {
     pub email_and_password: EmailPasswordConfig,
     pub email_verification: EmailVerificationConfig,
     pub user: UserConfig,
+    pub session: SessionConfig,
     /// Better Auth-compatible client-IP tracking and trusted proxy settings.
     pub ip_address: IpAddressConfig,
     /// Additional browser origins allowed to call authentication endpoints or
@@ -95,6 +96,7 @@ impl AuthConfig {
             email_and_password: EmailPasswordConfig::default(),
             email_verification: EmailVerificationConfig::default(),
             user: UserConfig::default(),
+            session: SessionConfig::default(),
             ip_address: IpAddressConfig::default(),
             trusted_origins: Vec::new(),
             plugins: Vec::new(),
@@ -225,8 +227,48 @@ impl AuthConfig {
                 "a base URL is required when a delete-account sender is configured".into(),
             ));
         }
+        validate_additional_field_config(self)?;
         Ok(())
     }
+}
+
+fn validate_additional_field_config(config: &AuthConfig) -> Result<(), AuthError> {
+    crate::additional_fields::validate_field_names(
+        "user",
+        &config.user.additional_fields,
+        &[
+            "id",
+            "name",
+            "email",
+            "emailVerified",
+            "image",
+            "createdAt",
+            "updatedAt",
+            "username",
+            "displayUsername",
+            "isAnonymous",
+            "role",
+            "banned",
+            "banReason",
+            "banExpires",
+            "twoFactorEnabled",
+        ],
+    )?;
+    crate::additional_fields::validate_field_names(
+        "session",
+        &config.session.additional_fields,
+        &[
+            "id",
+            "token",
+            "userId",
+            "expiresAt",
+            "createdAt",
+            "updatedAt",
+            "ipAddress",
+            "userAgent",
+            "impersonatedBy",
+        ],
+    )
 }
 
 fn normalize_base_path(value: &str) -> Result<String, AuthError> {

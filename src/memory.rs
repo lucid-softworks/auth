@@ -88,6 +88,16 @@ impl AuthStore for MemoryStore {
         user::update_profile(self, user_id, update).await
     }
 
+    async fn update_user_email(
+        &self,
+        user_id: Uuid,
+        expected_email: &str,
+        new_email: &str,
+        email_verified: bool,
+    ) -> Result<Option<AuthUser>, AuthError> {
+        user::update_email(self, user_id, expected_email, new_email, email_verified).await
+    }
+
     async fn consume_email_verification(
         &self,
         token_hash: &str,
@@ -338,6 +348,24 @@ impl AuthStore for MemoryStore {
             .get(&session.user_id)
             .cloned()
             .map(|user| (session, user)))
+    }
+
+    async fn update_session_fields(
+        &self,
+        session_id: Uuid,
+        fields: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<AuthSession>, AuthError> {
+        let mut state = self.state.write().await;
+        let Some(session) = state
+            .sessions
+            .values_mut()
+            .find(|session| session.id == session_id)
+        else {
+            return Ok(None);
+        };
+        session.additional_fields.extend(fields);
+        session.updated_at = Utc::now();
+        Ok(Some(session.clone()))
     }
 
     async fn delete_session(&self, token_hash: &str) -> Result<(), AuthError> {

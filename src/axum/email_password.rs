@@ -127,15 +127,24 @@ async fn verify_email(
     let token = super::http::session_token(&service, &headers);
     let session = current_session(&service, &headers).await;
     let current = session.as_ref().zip(token.as_deref());
-    match service.verify_email_token(&query.token, current).await {
+    match service
+        .verify_email_token_with_callback(&query.token, current, query.callback_url.as_deref())
+        .await
+    {
         Ok(result) => {
             let response = match query.callback_url {
                 Some(callback_url) => redirect(&callback_url),
-                None => Json(VerifyEmailResponse {
-                    status: true,
-                    user: None,
-                })
-                .into_response(),
+                None => {
+                    let user = if result.user_in_response {
+                        match service.better_auth_user(&result.user).await {
+                            Ok(user) => Some(user),
+                            Err(error) => return auth_error(error),
+                        }
+                    } else {
+                        None
+                    };
+                    Json(VerifyEmailResponse { status: true, user }).into_response()
+                }
             };
             match result.session_token {
                 Some(token) => with_session_cookie(&service, &token, Some(true), response),
@@ -170,6 +179,7 @@ fn verification_error_code(error: &AuthError) -> Option<&'static str> {
         AuthError::TokenExpired => Some("TOKEN_EXPIRED"),
         AuthError::VerificationUserNotFound => Some("USER_NOT_FOUND"),
         AuthError::InvalidToken => Some("INVALID_TOKEN"),
+        AuthError::InvalidUser => Some("INVALID_USER"),
         _ => None,
     }
 }

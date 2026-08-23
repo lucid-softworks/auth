@@ -36,6 +36,7 @@ pub(crate) async fn create(
             updated_at: now,
             ip_address: None,
             user_agent: Some("official Better Auth client conformance".into()),
+            additional_fields: serde_json::Map::new(),
         })
         .await
         .expect("persist fixture session");

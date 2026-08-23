@@ -45,6 +45,7 @@ pub(super) async fn assert_promotion_is_atomic(
             updated_at: now,
             ip_address: None,
             user_agent: None,
+            additional_fields: serde_json::Map::new(),
         })
         .await?;
     store

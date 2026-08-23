@@ -60,9 +60,9 @@ scoped to the unimplemented account lifecycle described above.
 | `requestPasswordReset` (`POST /request-password-reset`) | Supported | Native async `sendResetPassword`, exact `redirectTo`, enumeration-resistant response/timing work, one-hour default expiry, and hashed persisted token identifiers; [#11](https://github.com/lucid-softworks/auth/issues/11). |
 | `resetPassword` (`GET /reset-password/:token`, `POST /reset-password`) | Supported | Exact `callbackURL`, compatible callback/error redirects, body and query tokens, password policy, atomic single-use replacement, optional session revocation, and native `onPasswordReset`; [#11](https://github.com/lucid-softworks/auth/issues/11). |
 | `changePassword` (`POST /change-password`) | Supported | Current-password flow and optional other-session revocation are implemented. |
-| `updateUser` (`POST /update-user`) | Partial | Core name/image and username-plugin fields are supported. Broader additional-field hooks remain in [#12](https://github.com/lucid-softworks/auth/issues/12) and [#60](https://github.com/lucid-softworks/auth/issues/60). |
-| `updateSession` (`POST /update-session`) | Planned | [#12](https://github.com/lucid-softworks/auth/issues/12). |
-| `changeEmail` (`POST /change-email`) | Planned | Immediate and verified modes: [#12](https://github.com/lucid-softworks/auth/issues/12). |
+| `updateUser` (`POST /update-user`) | Supported | Core name/image, username-plugin fields, and typed configured additional fields; input-disabled and output-only fields are protected, returned-false fields are omitted, and the session cookie is refreshed; [#12](https://github.com/lucid-softworks/auth/issues/12). General database lifecycle hooks remain [#60](https://github.com/lucid-softworks/auth/issues/60). |
+| `updateSession` (`POST /update-session`) | Supported | Typed configured additional fields persist in memory/PostgreSQL, protected core fields cannot be overwritten, returned-false fields are omitted, and the updated session/cookie shape passes the official client; [#12](https://github.com/lucid-softworks/auth/issues/12). |
+| `changeEmail` (`POST /change-email`) | Supported | Disabled-by-default, immediate unverified-account updates, verified one-step changes, optional current-address confirmation, enumeration-resistant existing-address handling, atomic uniqueness, callback URLs, and session refresh; [#12](https://github.com/lucid-softworks/auth/issues/12). |
 | `deleteUser` and deletion callback | Supported | Disabled by default; password, fresh-session, and purpose-bound verification-token modes; exact `callbackURL`, callback redirects, cookie clearing, native before/after callbacks, plugin hooks, and transactional adapter cleanup; [#13](https://github.com/lucid-softworks/auth/issues/13). |
 | `listSessions` (`GET /list-sessions`) | Partial | Listing works, but freshness and returned token semantics differ; [#58](https://github.com/lucid-softworks/auth/issues/58). |
 | `revokeSession` (`POST /revoke-session`) | Partial | Works with the opaque session identifier returned by this server. Full session parity is [#58](https://github.com/lucid-softworks/auth/issues/58). |
@@ -73,7 +73,7 @@ scoped to the unimplemented account lifecycle described above.
 | `linkSocial`, `unlinkAccount` | Planned | [#15](https://github.com/lucid-softworks/auth/issues/15). |
 | `getAccessToken`, `refreshToken` | Planned | Encrypted provider-token lifecycle: [#15](https://github.com/lucid-softworks/auth/issues/15). |
 | Core rate limiting | Partial | Durable username/IP throttling exists; configurable per-endpoint parity is [#59](https://github.com/lucid-softworks/auth/issues/59). |
-| Database hooks and additional fields | Planned | [#60](https://github.com/lucid-softworks/auth/issues/60). |
+| Database hooks and additional fields | Partial | Typed user/session additional fields are persisted, filtered, and supported by the update routes. Create defaults/transforms/validators, account/verification fields, and full before/after database hooks remain [#60](https://github.com/lucid-softworks/auth/issues/60). |
 
 ## Authentication plugins
 

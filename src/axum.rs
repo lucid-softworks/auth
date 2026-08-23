@@ -108,10 +108,7 @@ async fn get_session(
                     Err(error) => return auth_error(error),
                 };
                 Json(Some(SessionResponse {
-                    session: crate::protocol::better_auth::BetterAuthSession::from_session(
-                        &session.session,
-                        token,
-                    ),
+                    session: service.better_auth_session(&session.session, token),
                     user,
                 }))
                 .into_response()
@@ -126,10 +123,8 @@ async fn get_session(
                     Err(error) => return auth_error(error),
                 };
                 Json(Some(SessionResponse {
-                    session: crate::protocol::better_auth::BetterAuthSession::from_session(
-                        &plugin_session.session.session,
-                        plugin_session.token,
-                    ),
+                    session: service
+                        .better_auth_session(&plugin_session.session.session, plugin_session.token),
                     user,
                 }))
                 .into_response()
@@ -141,10 +136,8 @@ async fn get_session(
                         Err(error) => return auth_error(error),
                     };
                     Json(Some(SessionResponse {
-                        session: crate::protocol::better_auth::BetterAuthSession::from_session(
-                            &session.session,
-                            "development-bypass",
-                        ),
+                        session: service
+                            .better_auth_session(&session.session, "development-bypass"),
                         user,
                     }))
                     .into_response()

@@ -161,6 +161,7 @@ pub(super) async fn update_profile(
     if let Some(display_username) = update.display_username {
         user.display_username = Some(display_username);
     }
+    user.additional_fields.extend(update.additional_fields);
     user.updated_at = Utc::now();
     let updated = user.clone();
     if previous_username != updated.username {
@@ -171,6 +172,39 @@ pub(super) async fn update_profile(
             state.usernames.insert(username.clone(), user_id);
         }
     }
+    Ok(Some(updated))
+}
+
+pub(super) async fn update_email(
+    store: &MemoryStore,
+    user_id: Uuid,
+    expected_email: &str,
+    new_email: &str,
+    email_verified: bool,
+) -> Result<Option<AuthUser>, AuthError> {
+    let expected_email = expected_email.to_lowercase();
+    let new_email = new_email.to_lowercase();
+    let mut state = store.state.write().await;
+    if state
+        .emails
+        .get(&new_email)
+        .is_some_and(|owner| *owner != user_id)
+    {
+        return Err(AuthError::UserAlreadyExistsEmail);
+    }
+    let Some(user) = state
+        .users
+        .get_mut(&user_id)
+        .filter(|user| user.email == expected_email)
+    else {
+        return Ok(None);
+    };
+    user.email = new_email.clone();
+    user.email_verified = email_verified;
+    user.updated_at = Utc::now();
+    let updated = user.clone();
+    state.emails.remove(&expected_email);
+    state.emails.insert(new_email, user_id);
     Ok(Some(updated))
 }
 

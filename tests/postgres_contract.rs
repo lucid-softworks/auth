@@ -1,14 +1,17 @@
 use lucid_auth::{
-    AdminPlugin, AuditPlugin, AuthConfig, AuthError, AuthService, AuthUser, EmailSignUpInput,
-    GuestCapabilityPlugin, NewPasswordUser, OperatorSecurityConfig, OperatorSecurityPlugin,
-    OwnerPolicyPlugin, PasskeyConfig, PasskeyPlugin, PluginMigration, PluginMigrationContribution,
-    StepUpPolicyConfig, StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin, UsernameError,
-    UsernamePlugin, postgres::PostgresStore,
+    AdditionalField, AdditionalFieldType, AdminPlugin, AuditPlugin, AuthConfig, AuthError,
+    AuthService, AuthUser, EmailSignUpInput, GuestCapabilityPlugin, NewPasswordUser,
+    OperatorSecurityConfig, OperatorSecurityPlugin, OwnerPolicyPlugin, PasskeyConfig,
+    PasskeyPlugin, PluginMigration, PluginMigrationContribution, StepUpPolicyConfig,
+    StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin, UsernameError, UsernamePlugin,
+    postgres::PostgresStore,
 };
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use uuid::Uuid;
 
+#[path = "postgres_contract/account_update.rs"]
+mod account_update;
 #[path = "postgres_contract/admin.rs"]
 mod admin;
 #[path = "postgres_contract/api_key.rs"]
@@ -69,13 +72,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     plugin_migrations_are_idempotent(&store, &pool).await?;
     assert_extension_tables_absent(&pool).await?;
 
-    let mut config = AuthConfig::new([42_u8; 32])?;
-    config.email_and_password.enabled = true;
-    config.user.delete_user.enabled = true;
-    config.add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))?;
-    register_contract_plugins(&mut config, &store)?;
-    let api_keys = api_key::register(&mut config)?;
-    let service = Arc::new(AuthService::new(store.clone(), config));
+    let (service, api_keys) = contract_service(&store)?;
     let user = service
         .provision_password_user(NewPasswordUser {
             username: "owner".into(),
@@ -88,6 +85,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     migrate_legacy_extensions(&service, &store, &pool, user.id).await?;
     let signed_in = authenticate_owner(&service, &user).await?;
     admin::assert_query_and_update(&service, &signed_in.session).await?;
+    account_update::assert_persistence(&service, &store, &signed_in.session, &pool).await?;
     let step_up_session = step_up::authenticate_fixture(&service, &store).await?;
     step_up::assert_atomic(&service, &store, &pool, &step_up_session).await?;
 
@@ -111,6 +109,26 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
         .await?;
     admin.close().await;
     Ok(())
+}
+
+fn contract_service(
+    store: &Arc<PostgresStore>,
+) -> Result<(Arc<AuthService>, lucid_auth::ApiKeyConfiguration), AuthError> {
+    let mut config = AuthConfig::new([42_u8; 32])?;
+    config.email_and_password.enabled = true;
+    config.user.delete_user.enabled = true;
+    config.user.additional_fields.insert(
+        "timezone".into(),
+        AdditionalField::new(AdditionalFieldType::String),
+    );
+    config.session.additional_fields.insert(
+        "theme".into(),
+        AdditionalField::new(AdditionalFieldType::String),
+    );
+    config.add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))?;
+    register_contract_plugins(&mut config, store)?;
+    let api_keys = api_key::register(&mut config)?;
+    Ok((Arc::new(AuthService::new(store.clone(), config)), api_keys))
 }
 
 fn register_contract_plugins(
