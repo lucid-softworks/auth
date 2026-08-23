@@ -5,26 +5,29 @@ the official Better Auth JavaScript client. It implements a deliberately
 tested Better Auth-compatible HTTP and session surface without executing or
 embedding a JavaScript authentication server.
 
-The initial compatibility target is Better Auth `1.6.29` and covers:
+The initial compatibility target is Better Auth `1.6.29`. See the
+[compatibility matrix](COMPATIBILITY.md) for method-level coverage, known
+limitations, the Better Auth `1.7.1` upgrade plan, and links to every tracked
+gap. The currently supported surface covers:
 
 - `getSession` and `useSession`
 - username/password sign-in
 - sign-out
 - anonymous guest sign-in
-- passkey enrollment, listing and sign-in through `@better-auth/passkey`
-- passkey MFA enforcement by role and one-time recovery codes through Better Auth's
-  official `twoFactorClient`
+- the current `@better-auth/passkey` enrollment, listing and sign-in route subset
+- passkey MFA enforcement by role and the backup-code methods exposed by Better
+  Auth's official `twoFactorClient`
 - password changes plus current-user session listing and revocation
 - passkey rename and removal
-- admin user listing, creation, role assignment, disabling, password reset and removal
-- admin session revocation and bounded impersonation
+- the documented admin-client subset for user lifecycle, session revocation and
+  bounded impersonation
 - owner-issued, time-bounded guest capability grants and security audit events
 - optional HIBP Pwned Passwords screening with Better Auth-compatible errors
 - durable account and client-address sign-in throttling through the configured store
 - enforced password replacement for administrator-created and reset credentials
-- user-owned API keys with Better Auth-compatible ownership, expiry, permissions,
-  prefixes, rate limits, and one-time secret display
-- Better Auth session cookies and response shapes
+- native user-owned API keys with ownership, expiry, permissions, prefixes, rate
+  limits, and one-time secret display; official API-key client routes are planned
+- Better Auth-compatible cookies and response shapes for the supported routes
 
 The library keeps authentication protocol details separate from host-product
 authorization. Applications provide their own permission vocabulary while
