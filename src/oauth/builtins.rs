@@ -288,6 +288,9 @@ impl SocialProvider for BuiltinProvider {
     fn supports_id_token_sign_in(&self) -> bool {
         self.kind == BuiltinProviderKind::Line || self.config.supports_id_token_sign_in()
     }
+    fn supports_token_refresh(&self) -> bool {
+        true
+    }
     fn validate_configuration(&self) -> Result<(), AuthError> {
         self.config.validate_configuration()?;
         if self.kind == BuiltinProviderKind::Cognito
@@ -321,5 +324,8 @@ impl SocialProvider for BuiltinProvider {
         provider_user: Option<&serde_json::Value>,
     ) -> Result<OAuthUserInfo, AuthError> {
         super::builtin_http::user_info(self, tokens, expected_nonce, provider_user).await
+    }
+    async fn refresh_access_token(&self, refresh_token: &str) -> Result<OAuthTokens, AuthError> {
+        super::builtin_http::refresh_access_token(self, refresh_token).await
     }
 }

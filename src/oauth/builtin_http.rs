@@ -57,6 +57,23 @@ pub(super) async fn exchange_code(
         .await
 }
 
+pub(super) async fn refresh_access_token(
+    provider: &BuiltinProvider,
+    refresh_token: &str,
+) -> Result<OAuthTokens, AuthError> {
+    if provider.kind == BuiltinProviderKind::Wechat {
+        let mut url = Url::parse("https://api.weixin.qq.com/sns/oauth2/refresh_token")
+            .map_err(|_| AuthError::OAuthFailedToRefreshToken)?;
+        url.query_pairs_mut()
+            .append_pair("appid", &provider.config.client_id)
+            .append_pair("grant_type", "refresh_token")
+            .append_pair("refresh_token", refresh_token);
+        return super::parse_token_response(fetch_json(reqwest::Client::new().get(url)).await?)
+            .map_err(|_| AuthError::OAuthFailedToRefreshToken);
+    }
+    provider.config.refresh_access_token(refresh_token).await
+}
+
 pub(super) async fn user_info(
     provider: &BuiltinProvider,
     tokens: &OAuthTokens,

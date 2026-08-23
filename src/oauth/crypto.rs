@@ -13,6 +13,40 @@ pub(crate) fn encrypt(secret: &[u8], value: Option<String>) -> Result<Option<Str
     value.map(|value| encrypt_value(secret, &value)).transpose()
 }
 
+pub(crate) fn decrypt(secret: &[u8], value: Option<&str>) -> Result<Option<String>, AuthError> {
+    value.map(|value| decrypt_value(secret, value)).transpose()
+}
+
+fn decrypt_value(secret: &[u8], value: &str) -> Result<String, AuthError> {
+    let envelope = value
+        .strip_prefix(PREFIX)
+        .ok_or(AuthError::OAuthInvalidToken)?;
+    let (nonce, ciphertext) = envelope
+        .split_once('.')
+        .ok_or(AuthError::OAuthInvalidToken)?;
+    let nonce = URL_SAFE_NO_PAD
+        .decode(nonce)
+        .map_err(|_| AuthError::OAuthInvalidToken)?;
+    let ciphertext = URL_SAFE_NO_PAD
+        .decode(ciphertext)
+        .map_err(|_| AuthError::OAuthInvalidToken)?;
+    if nonce.len() != 24 {
+        return Err(AuthError::OAuthInvalidToken);
+    }
+    let key = Sha256::digest([b"lucid-auth:oauth-key:v1".as_slice(), secret].concat());
+    let cipher = XChaCha20Poly1305::new_from_slice(&key).map_err(|_| AuthError::Worker)?;
+    let plaintext = cipher
+        .decrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: &ciphertext,
+                aad: AAD,
+            },
+        )
+        .map_err(|_| AuthError::OAuthInvalidToken)?;
+    String::from_utf8(plaintext).map_err(|_| AuthError::OAuthInvalidToken)
+}
+
 fn encrypt_value(secret: &[u8], value: &str) -> Result<String, AuthError> {
     let key = Sha256::digest([b"lucid-auth:oauth-key:v1".as_slice(), secret].concat());
     let cipher = XChaCha20Poly1305::new_from_slice(&key).map_err(|_| AuthError::Worker)?;
@@ -46,5 +80,7 @@ mod tests {
         assert_ne!(first, second);
         assert!(!first.contains("provider-secret"));
         assert!(first.starts_with(PREFIX));
+        assert_eq!(decrypt_value(&secret, &first).unwrap(), "provider-secret");
+        assert!(decrypt_value(&[8_u8; 32], &first).is_err());
     }
 }

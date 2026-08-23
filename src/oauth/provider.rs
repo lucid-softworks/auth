@@ -147,6 +147,9 @@ pub trait SocialProvider: Send + Sync {
     fn supports_id_token_sign_in(&self) -> bool {
         false
     }
+    fn supports_token_refresh(&self) -> bool {
+        false
+    }
     fn validate_configuration(&self) -> Result<(), AuthError> {
         Ok(())
     }
@@ -167,6 +170,10 @@ pub trait SocialProvider: Send + Sync {
         expected_nonce: Option<&str>,
         provider_user: Option<&Value>,
     ) -> Result<OAuthUserInfo, AuthError>;
+
+    async fn refresh_access_token(&self, _refresh_token: &str) -> Result<OAuthTokens, AuthError> {
+        Err(AuthError::OAuthTokenRefreshNotSupported(self.id().into()))
+    }
 }
 
 #[async_trait]
@@ -197,6 +204,10 @@ impl SocialProvider for OAuthProviderConfig {
 
     fn supports_id_token_sign_in(&self) -> bool {
         self.oidc.is_some()
+    }
+
+    fn supports_token_refresh(&self) -> bool {
+        true
     }
 
     fn validate_configuration(&self) -> Result<(), AuthError> {
@@ -369,5 +380,43 @@ impl SocialProvider for OAuthProviderConfig {
                 .ok_or(AuthError::OAuthUserInfoUnavailable)?
         };
         map_profile(self, profile)
+    }
+
+    async fn refresh_access_token(&self, refresh_token: &str) -> Result<OAuthTokens, AuthError> {
+        let mut form = vec![
+            ("grant_type", "refresh_token".to_owned()),
+            ("refresh_token", refresh_token.to_owned()),
+            (&self.token_client_id_parameter, self.client_id.clone()),
+        ];
+        if self.token_endpoint_auth == TokenEndpointAuth::ClientSecretPost
+            && let Some(secret) = &self.client_secret
+        {
+            form.push(("client_secret", secret.clone()));
+        }
+        let encoded = url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(form)
+            .finish();
+        let mut request = reqwest::Client::new()
+            .post(&self.token_endpoint)
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
+            .body(encoded);
+        if self.token_endpoint_auth == TokenEndpointAuth::ClientSecretBasic {
+            request = request.basic_auth(&self.client_id, self.client_secret.as_deref());
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|_| AuthError::OAuthFailedToRefreshToken)?;
+        if !response.status().is_success() {
+            return Err(AuthError::OAuthFailedToRefreshToken);
+        }
+        let value = response
+            .json::<Value>()
+            .await
+            .map_err(|_| AuthError::OAuthFailedToRefreshToken)?;
+        parse_token_response(value).map_err(|_| AuthError::OAuthFailedToRefreshToken)
     }
 }

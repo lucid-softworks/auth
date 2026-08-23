@@ -1021,6 +1021,79 @@ async function conformance(origin) {
     success(await client.signOut(), "signOut after social OAuth");
   });
 
+  await runCase("linked account and provider token clients", async () => {
+    await transport.useFixtureSession("strong");
+    const linked = success(
+      await client.linkSocial({
+        provider: "conformance-oauth",
+        idToken: {
+          token: "official-link-id-token",
+          nonce: "official-link-nonce",
+          accessToken: "official-link-access-token",
+          refreshToken: "official-link-refresh-token",
+        },
+        disableRedirect: true,
+      }),
+      "linkSocial",
+    );
+    assert.deepEqual(linked, { url: "", status: true, redirect: false });
+    transport.assertRequest("/api/auth/link-social", "POST", {
+      provider: "conformance-oauth",
+      idToken: {
+        token: "official-link-id-token",
+        nonce: "official-link-nonce",
+        accessToken: "official-link-access-token",
+        refreshToken: "official-link-refresh-token",
+      },
+      disableRedirect: true,
+    });
+
+    const accounts = success(await client.listAccounts(), "listAccounts");
+    const account = accounts.find(
+      (candidate) => candidate.providerId === "conformance-oauth",
+    );
+    assert.ok(account);
+    assert.deepEqual(account.scopes, []);
+    assert.equal(account.issuer, "https://issuer.conformance.invalid");
+    assert.equal(account.accountId, "official-linked-subject");
+
+    const access = success(
+      await client.getAccessToken({ accountId: account.id }),
+      "getAccessToken",
+    );
+    assert.equal(access.accessToken, "official-link-access-token");
+    assert.equal(access.idToken, "official-link-id-token");
+
+    const refreshed = success(
+      await client.refreshToken({ accountId: account.id }),
+      "refreshToken",
+    );
+    assert.equal(refreshed.accessToken, "official-refreshed-access-token");
+    assert.equal(refreshed.refreshToken, "official-refreshed-refresh-token");
+    assert.equal(refreshed.providerId, "conformance-oauth");
+    assert.equal(refreshed.accountId, account.id);
+
+    const info = success(
+      await client.accountInfo({ query: { accountId: account.id } }),
+      "accountInfo",
+    );
+    assert.equal(info.account.id, account.id);
+    assert.equal(info.account.accountId, "official-linked-subject");
+    assert.equal(info.user.email, "luna@example.com");
+    assert.equal(info.data.fixture, "linked-account");
+
+    const unlinked = success(
+      await client.unlinkAccount({ accountId: account.id }),
+      "unlinkAccount",
+    );
+    assert.equal(unlinked.status, true);
+    const remaining = success(await client.listAccounts(), "listAccounts after unlink");
+    assert.ok(
+      remaining.every((candidate) => candidate.id !== account.id),
+      "unlinked account must no longer be listed",
+    );
+  });
+
   await runCase("current-user deletion client", async () => {
     success(
       await client.signUp.email({

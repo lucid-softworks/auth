@@ -30,6 +30,7 @@ pub struct AuthConfig {
     pub email_verification: EmailVerificationConfig,
     pub user: UserConfig,
     pub session: SessionConfig,
+    pub account: AccountConfig,
     /// Better Auth-compatible built-in or custom social providers.
     pub(crate) social_providers: Vec<Arc<dyn crate::SocialProvider>>,
     pub(crate) trusted_social_providers: Vec<String>,
@@ -100,6 +101,7 @@ impl AuthConfig {
             email_verification: EmailVerificationConfig::default(),
             user: UserConfig::default(),
             session: SessionConfig::default(),
+            account: AccountConfig::default(),
             social_providers: Vec::new(),
             trusted_social_providers: Vec::new(),
             ip_address: IpAddressConfig::default(),
@@ -292,6 +294,33 @@ impl AuthConfig {
             }
         }
         Ok(())
+    }
+}
+
+/// Better Auth 1.7 account-linking policy.
+#[derive(Debug, Clone, Default)]
+pub struct AccountConfig {
+    pub account_linking: AccountLinkingConfig,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccountLinkingConfig {
+    pub enabled: bool,
+    pub allow_different_emails: bool,
+    pub allow_unlinking_all: bool,
+    pub disable_implicit_linking: bool,
+    pub require_local_email_verified: bool,
+}
+
+impl Default for AccountLinkingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            allow_different_emails: false,
+            allow_unlinking_all: false,
+            disable_implicit_linking: false,
+            require_local_email_verified: true,
+        }
     }
 }
 

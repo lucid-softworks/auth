@@ -1,4 +1,6 @@
 mod access;
+mod account_lifecycle;
+pub(crate) mod account_types;
 mod admin_update;
 mod api_key;
 mod api_key_policy;
@@ -10,6 +12,7 @@ mod guest;
 #[cfg(feature = "axum")]
 pub(crate) mod magic_link;
 mod oauth;
+mod oauth_state;
 mod operator_security;
 mod passkey;
 mod password;
@@ -21,6 +24,7 @@ mod session;
 mod session_create;
 mod session_update;
 mod two_factor;
+mod types;
 mod user;
 mod user_deletion;
 mod username;
@@ -47,7 +51,8 @@ use uuid::Uuid;
 pub use api_key::{ApiKeySortDirection, ApiKeyUpdate};
 pub use email_password::{EmailSignUpInput, EmailSignUpResult};
 pub use email_verification::EmailVerificationResult;
-pub use oauth::{OAuthCallbackResult, SocialSignInInput, SocialSignInResult};
+pub use oauth::{SocialIdTokenInput, SocialSignInInput, SocialSignInResult};
+pub use oauth_state::OAuthCallbackResult;
 pub use passkey::{
     PasskeyRegistrationRequest, PasskeyRegistrationResult, PasskeyRegistrationVerification,
 };
@@ -56,25 +61,10 @@ pub use password::PasswordChangeResult;
 pub(crate) use two_factor::{
     BackupCodeVerification, TwoFactorEnableResult, TwoFactorSignInOutcome, TwoFactorVerification,
 };
+pub use types::{HashedPasswordUser, SignInResult};
 pub use user_deletion::DeleteUserResult;
 
 type HmacSha256 = Hmac<Sha256>;
-
-#[derive(Debug, Clone)]
-pub struct SignInResult {
-    pub token: String,
-    pub session: SessionWithUser,
-}
-
-/// Closed-registration account provisioned from an existing Argon2 password hash.
-#[derive(Debug, Clone)]
-pub struct HashedPasswordUser {
-    pub username: String,
-    pub name: String,
-    pub email: Option<String>,
-    pub password_hash: String,
-    pub role: String,
-}
 
 #[derive(Clone)]
 pub struct AuthService {

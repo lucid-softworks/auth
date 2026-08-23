@@ -1,7 +1,8 @@
 use lucid_auth::{
-    AdditionalField, AdditionalFieldType, AdminPlugin, AuditPlugin, AuthConfig, AuthError,
-    AuthService, AuthStore, AuthUser, EmailSignUpInput, GuestCapabilityPlugin, NewPasswordUser,
-    OAuthAccount, OperatorSecurityConfig, OperatorSecurityPlugin, OwnerPolicyPlugin, PasskeyConfig,
+    AccountDeleteOutcome, AdditionalField, AdditionalFieldType, AdminPlugin, AuditPlugin,
+    AuthConfig, AuthError, AuthService, AuthUser, EmailSignUpInput, GuestCapabilityPlugin,
+    NewPasswordUser, OAuthAccount, OAuthAccountStore, OAuthTokenUpdateOutcome,
+    OperatorSecurityConfig, OperatorSecurityPlugin, OwnerPolicyPlugin, PasskeyConfig,
     PasskeyPlugin, PluginMigration, PluginMigrationContribution, StepUpPolicyConfig,
     StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin, UsernameError, UsernamePlugin,
     postgres::PostgresStore,

@@ -1,5 +1,5 @@
 use super::MemoryStore;
-use crate::{AuthError, AuthUser, UserProfileUpdate, UsernameError};
+use crate::{AuthError, AuthUser, OAuthAccount, UserProfileUpdate, UsernameError};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
@@ -24,7 +24,12 @@ pub(super) async fn create_password(
         state.usernames.insert(username.clone(), user.id);
     }
     state.emails.insert(user.email.clone(), user.id);
-    state.passwords.insert(user.id, password_hash);
+    state.passwords.insert(user.id, password_hash.clone());
+    let account = credential_account(&user, password_hash);
+    state.oauth_accounts.insert(
+        (account.issuer.clone(), account.account_id.clone()),
+        account,
+    );
     state.users.insert(user.id, user.clone());
     Ok(user)
 }
@@ -57,7 +62,15 @@ pub(super) async fn upsert_password(
         state.users.insert(user.id, user.clone());
         user
     };
-    state.passwords.entry(stored.id).or_insert(password_hash);
+    state
+        .passwords
+        .entry(stored.id)
+        .or_insert_with(|| password_hash.clone());
+    let account = credential_account(&stored, password_hash);
+    state
+        .oauth_accounts
+        .entry((account.issuer.clone(), account.account_id.clone()))
+        .or_insert(account);
     Ok(stored)
 }
 
@@ -229,6 +242,9 @@ pub(super) async fn promote_email_owner(
     }
     state.passwords.remove(&user_id);
     state
+        .oauth_accounts
+        .retain(|_, account| account.user_id != user_id || account.provider_id != "credential");
+    state
         .sessions
         .retain(|_, session| session.user_id != user_id);
     let user = state
@@ -257,9 +273,18 @@ pub(super) async fn update_password_hash(
         .passwords
         .get_mut(&user_id)
         .ok_or(AuthError::CredentialAccountNotFound)?;
-    *stored = password_hash;
+    *stored = password_hash.clone();
+    let now = Utc::now();
+    if let Some(account) = state
+        .oauth_accounts
+        .values_mut()
+        .find(|account| account.user_id == user_id && account.provider_id == "credential")
+    {
+        account.password = Some(password_hash);
+        account.updated_at = now;
+    }
     if let Some(user) = state.users.get_mut(&user_id) {
-        user.updated_at = Utc::now();
+        user.updated_at = now;
     }
     Ok(())
 }
@@ -273,9 +298,38 @@ pub(super) async fn set_password_hash(
     if !state.users.contains_key(&user_id) {
         return Err(AuthError::NotFound);
     }
-    state.passwords.insert(user_id, password_hash);
+    state.passwords.insert(user_id, password_hash.clone());
+    let user = state
+        .users
+        .get(&user_id)
+        .expect("user checked above")
+        .clone();
+    let account = credential_account(&user, password_hash);
+    state
+        .oauth_accounts
+        .entry((account.issuer.clone(), account.account_id.clone()))
+        .or_insert(account);
     if let Some(user) = state.users.get_mut(&user_id) {
         user.updated_at = Utc::now();
     }
     Ok(())
+}
+
+fn credential_account(user: &AuthUser, password: String) -> OAuthAccount {
+    OAuthAccount {
+        id: Uuid::new_v4(),
+        user_id: user.id,
+        issuer: "local:credential".into(),
+        account_id: user.id.to_string(),
+        provider_id: "credential".into(),
+        access_token: None,
+        refresh_token: None,
+        id_token: None,
+        access_token_expires_at: None,
+        refresh_token_expires_at: None,
+        scope: None,
+        password: Some(password),
+        created_at: user.created_at,
+        updated_at: user.updated_at,
+    }
 }

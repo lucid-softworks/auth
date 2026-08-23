@@ -89,6 +89,10 @@ name = "social_oauth_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "account_lifecycle_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "client_ip_contract"
 required-features = ["axum"]
 

@@ -53,7 +53,7 @@ pub(super) async fn assert_issuer_qualified_accounts(
         "shared-subject",
         "provider-two",
     );
-    store.link_oauth_account(second).await?;
+    store.link_oauth_account(second.clone()).await?;
     assert_eq!(
         store
             .find_oauth_account_owner("https://issuer-two.example", "shared-subject")
@@ -75,7 +75,62 @@ pub(super) async fn assert_issuer_qualified_accounts(
         Err(AuthError::UserAlreadyExists)
     ));
 
+    assert_token_rotation_is_atomic(store, user_id, &second).await?;
     assert_oauth_columns(pool).await?;
+    Ok(())
+}
+
+async fn assert_token_rotation_is_atomic(
+    store: &PostgresStore,
+    user_id: Uuid,
+    second: &OAuthAccount,
+) -> Result<(), AuthError> {
+    let stored = store
+        .find_oauth_account_owner(&second.issuer, &second.account_id)
+        .await?
+        .expect("linked account")
+        .account;
+    let mut rotated = stored.clone();
+    rotated.access_token = Some("rotated-access".into());
+    rotated.refresh_token = Some("rotated-refresh".into());
+    rotated.updated_at += chrono::Duration::milliseconds(1);
+    assert!(matches!(
+        store
+            .compare_and_swap_oauth_tokens(
+                rotated,
+                stored.refresh_token.as_deref(),
+                stored.updated_at,
+            )
+            .await?,
+        OAuthTokenUpdateOutcome::Updated(_)
+    ));
+    let mut stale = stored.clone();
+    stale.access_token = Some("stale-access".into());
+    stale.updated_at += chrono::Duration::milliseconds(2);
+    let OAuthTokenUpdateOutcome::Stale(winner) = store
+        .compare_and_swap_oauth_tokens(stale, stored.refresh_token.as_deref(), stored.updated_at)
+        .await?
+    else {
+        panic!("stale refresh must reload the winning token set");
+    };
+    assert_eq!(winner.access_token.as_deref(), Some("rotated-access"));
+
+    assert_eq!(
+        store.delete_user_account(user_id, second.id, false).await?,
+        AccountDeleteOutcome::Deleted
+    );
+    let final_account = store
+        .list_user_accounts(user_id)
+        .await?
+        .into_iter()
+        .next()
+        .expect("remaining account");
+    assert_eq!(
+        store
+            .delete_user_account(user_id, final_account.id, false)
+            .await?,
+        AccountDeleteOutcome::LastAccount
+    );
     Ok(())
 }
 

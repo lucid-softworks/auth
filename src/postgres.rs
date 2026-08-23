@@ -1,6 +1,6 @@
 use crate::{
-    AuthError, AuthSession, AuthStore, AuthUser, EmailVerificationOutcome, OAuthAccount,
-    OAuthAccountOwner, PasskeyDeleteOutcome, PasswordResetOutcome, StoredPasskey,
+    AuthError, AuthSession, AuthStore, AuthUser, EmailVerificationOutcome, PasskeyDeleteOutcome,
+    PasswordResetOutcome, StoredPasskey,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -139,33 +139,6 @@ impl AuthStore for PostgresStore {
 
     async fn create_user_without_account(&self, user: AuthUser) -> Result<AuthUser, AuthError> {
         user::create_without_account(&self.pool, user).await
-    }
-
-    async fn find_oauth_account_owner(
-        &self,
-        issuer: &str,
-        account_id: &str,
-    ) -> Result<Option<OAuthAccountOwner>, AuthError> {
-        oauth::find_owner(&self.pool, issuer, account_id).await
-    }
-
-    async fn create_oauth_user(
-        &self,
-        user: AuthUser,
-        account: OAuthAccount,
-    ) -> Result<OAuthAccountOwner, AuthError> {
-        oauth::create_user(&self.pool, user, account).await
-    }
-
-    async fn link_oauth_account(&self, account: OAuthAccount) -> Result<OAuthAccount, AuthError> {
-        oauth::link(&self.pool, account).await
-    }
-
-    async fn update_oauth_account_tokens(
-        &self,
-        account: OAuthAccount,
-    ) -> Result<OAuthAccount, AuthError> {
-        oauth::update_tokens(&self.pool, account).await
     }
 
     async fn find_user_by_username(&self, username: &str) -> Result<Option<AuthUser>, AuthError> {

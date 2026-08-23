@@ -127,6 +127,30 @@ pub enum AuthError {
     OAuthAccountNotLinked,
     #[error("social sign up is disabled")]
     OAuthSignupDisabled,
+    #[error("the account was not found")]
+    AccountNotFound,
+    #[error("the final account cannot be unlinked")]
+    FailedToUnlinkLastAccount,
+    #[error("the social account is already linked")]
+    SocialAccountAlreadyLinked,
+    #[error("account linking is not allowed")]
+    LinkingNotAllowed,
+    #[error("linking an account with a different email is not allowed")]
+    LinkingDifferentEmailsNotAllowed,
+    #[error("provider {0} is not supported")]
+    OAuthProviderNotSupported(String),
+    #[error("provider {0} does not support token refreshing")]
+    OAuthTokenRefreshNotSupported(String),
+    #[error("the account is not associated with a configured social provider")]
+    OAuthProviderNotConfigured,
+    #[error("the account has no refresh token")]
+    OAuthRefreshTokenNotFound,
+    #[error("failed to refresh the provider access token")]
+    OAuthFailedToRefreshToken,
+    #[error("failed to obtain a valid provider access token")]
+    OAuthFailedToGetAccessToken,
+    #[error("the account has no access token")]
+    OAuthAccessTokenNotFound,
     #[error("the redirect URL is not trusted")]
     InvalidRedirectUrl,
     #[error("the error callback URL is not trusted")]

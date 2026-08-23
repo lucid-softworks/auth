@@ -1,11 +1,17 @@
-use super::{AuthService, SignInResult, random_token};
+#[cfg(feature = "axum")]
+use super::oauth_state::OAuthCallbackResult;
+use super::{
+    AuthService, SignInResult,
+    oauth_state::{OAuthLinkState, OAuthState},
+    random_token,
+};
 use crate::{
     AuthError, AuthUser, AuthenticationMethod, OAuthAccount, OAuthTokens, OAuthUserInfo,
     VerificationValue,
     oauth::{AuthorizationRequest, crypto},
 };
 use chrono::{Duration, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use uuid::Uuid;
@@ -35,19 +41,6 @@ pub struct SocialSignInInput {
     pub additional_data: serde_json::Map<String, Value>,
 }
 
-fn preserve_oauth_tokens(account: &mut OAuthAccount, previous: &OAuthAccount) {
-    account.scope = previous.scope.clone();
-    if account.access_token.is_none() {
-        account.access_token.clone_from(&previous.access_token);
-    }
-    if account.refresh_token.is_none() {
-        account.refresh_token.clone_from(&previous.refresh_token);
-    }
-    if account.id_token.is_none() {
-        account.id_token.clone_from(&previous.id_token);
-    }
-}
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SocialIdTokenInput {
@@ -67,26 +60,7 @@ pub enum SocialSignInResult {
         state: String,
     },
     Session(Box<SignInResult>),
-}
-
-#[derive(Debug, Clone)]
-pub struct OAuthCallbackResult {
-    pub session: SignInResult,
-    pub redirect_url: String,
-    pub is_new_user: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct OAuthState {
-    pub provider: String,
-    pub callback_url: String,
-    pub code_verifier: String,
-    pub error_url: Option<String>,
-    pub new_user_url: Option<String>,
-    pub request_sign_up: bool,
-    pub id_token_nonce: Option<String>,
-    pub additional_data: serde_json::Map<String, Value>,
+    Linked,
 }
 
 impl AuthService {
@@ -113,7 +87,7 @@ impl AuthService {
                 .sign_in_social_id_token(provider.as_ref(), input, ip_address, user_agent)
                 .await;
         }
-        self.start_social_authorization(provider.as_ref(), input)
+        self.start_social_authorization(provider.as_ref(), input, None)
             .await
     }
 
@@ -151,10 +125,11 @@ impl AuthService {
         Ok(SocialSignInResult::Session(Box::new(session)))
     }
 
-    async fn start_social_authorization(
+    pub(super) async fn start_social_authorization(
         &self,
         provider: &dyn crate::SocialProvider,
         input: SocialSignInInput,
+        link: Option<OAuthLinkState>,
     ) -> Result<SocialSignInResult, AuthError> {
         let base_url = self.oauth_base_url()?;
         let callback_url = input.callback_url.unwrap_or_else(|| base_url.clone());
@@ -171,6 +146,7 @@ impl AuthService {
             request_sign_up: input.request_sign_up,
             id_token_nonce: id_token_nonce.clone(),
             additional_data: input.additional_data,
+            link,
         };
         self.save_oauth_state(&state, &state_data).await?;
         let url = provider.create_authorization_url(&AuthorizationRequest {
@@ -256,6 +232,15 @@ impl AuthService {
         let user_info = provider
             .get_user_info(&tokens, state.id_token_nonce.as_deref(), provider_user)
             .await?;
+        if let Some(link) = state.link {
+            self.link_oauth_identity(provider.as_ref(), &link, tokens, user_info)
+                .await?;
+            return Ok(OAuthCallbackResult {
+                session: None,
+                redirect_url: state.callback_url,
+                is_new_user: false,
+            });
+        }
         let (session, is_new_user) = self
             .finish_oauth_sign_in(
                 provider.as_ref(),
@@ -272,7 +257,7 @@ impl AuthService {
             state.callback_url
         };
         Ok(OAuthCallbackResult {
-            session,
+            session: Some(session),
             redirect_url,
             is_new_user,
         })
@@ -323,7 +308,7 @@ impl AuthService {
             account.id = owner.account.id;
             account.user_id = owner.user.id;
             account.created_at = owner.account.created_at;
-            preserve_oauth_tokens(&mut account, &owner.account);
+            super::account_lifecycle::preserve_oauth_tokens(&mut account, &owner.account);
             self.store.update_oauth_account_tokens(account).await?;
             return Ok((owner.user, false));
         }
@@ -333,7 +318,12 @@ impl AuthService {
                 .trusted_social_providers
                 .iter()
                 .any(|trusted| trusted == provider.id());
-            if (!trusted && !user_info.email_verified) || !user.email_verified {
+            let linking = &self.config.account.account_linking;
+            if !linking.enabled
+                || linking.disable_implicit_linking
+                || (!trusted && !user_info.email_verified)
+                || (linking.require_local_email_verified && !user.email_verified)
+            {
                 return Err(AuthError::OAuthAccountNotLinked);
             }
             account.user_id = user.id;
@@ -377,7 +367,7 @@ impl AuthService {
         Ok((owner.user, true))
     }
 
-    fn oauth_account(
+    pub(super) fn oauth_account(
         &self,
         provider_id: &str,
         user_info: &OAuthUserInfo,

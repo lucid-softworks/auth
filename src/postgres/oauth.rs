@@ -1,5 +1,8 @@
 use super::{UserRow, storage_error};
-use crate::{AuthError, AuthUser, OAuthAccount, OAuthAccountOwner};
+use crate::{
+    AccountDeleteOutcome, AuthError, AuthUser, OAuthAccount, OAuthAccountOwner,
+    OAuthTokenUpdateOutcome,
+};
 use chrono::{DateTime, Utc};
 use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use uuid::Uuid;
@@ -10,6 +13,58 @@ const ACCOUNT_COLUMNS: &str = "id, user_id, issuer, account_id, provider_id, acc
 
 const USER_COLUMNS: &str = "id, username, display_username, name, email, email_verified, image, \
     additional_fields, role, is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at";
+
+#[async_trait::async_trait]
+impl crate::OAuthAccountStore for super::PostgresStore {
+    async fn find_oauth_account_owner(
+        &self,
+        issuer: &str,
+        account_id: &str,
+    ) -> Result<Option<OAuthAccountOwner>, AuthError> {
+        find_owner(&self.pool, issuer, account_id).await
+    }
+    async fn create_oauth_user(
+        &self,
+        user: AuthUser,
+        account: OAuthAccount,
+    ) -> Result<OAuthAccountOwner, AuthError> {
+        create_user(&self.pool, user, account).await
+    }
+    async fn link_oauth_account(&self, account: OAuthAccount) -> Result<OAuthAccount, AuthError> {
+        link(&self.pool, account).await
+    }
+    async fn update_oauth_account_tokens(
+        &self,
+        account: OAuthAccount,
+    ) -> Result<OAuthAccount, AuthError> {
+        update_tokens(&self.pool, account).await
+    }
+    async fn list_user_accounts(&self, user_id: Uuid) -> Result<Vec<OAuthAccount>, AuthError> {
+        list(&self.pool, user_id).await
+    }
+    async fn delete_user_account(
+        &self,
+        user_id: Uuid,
+        account_id: Uuid,
+        allow_last: bool,
+    ) -> Result<AccountDeleteOutcome, AuthError> {
+        delete(&self.pool, user_id, account_id, allow_last).await
+    }
+    async fn compare_and_swap_oauth_tokens(
+        &self,
+        account: OAuthAccount,
+        expected_refresh_token: Option<&str>,
+        expected_updated_at: DateTime<Utc>,
+    ) -> Result<OAuthTokenUpdateOutcome, AuthError> {
+        compare_and_swap_tokens(
+            &self.pool,
+            account,
+            expected_refresh_token,
+            expected_updated_at,
+        )
+        .await
+    }
+}
 
 #[derive(FromRow)]
 struct AccountRow {
@@ -196,4 +251,88 @@ fn unique_or_storage(error: sqlx::Error) -> AuthError {
     } else {
         storage_error(error)
     }
+}
+
+pub(super) async fn list(pool: &PgPool, user_id: Uuid) -> Result<Vec<OAuthAccount>, AuthError> {
+    sqlx::query_as::<_, AccountRow>(&format!(
+        "SELECT {ACCOUNT_COLUMNS} FROM lucid_auth_accounts WHERE user_id = $1 \
+         ORDER BY created_at, id"
+    ))
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+    .map(|rows| rows.into_iter().map(OAuthAccount::from).collect())
+    .map_err(storage_error)
+}
+
+pub(super) async fn delete(
+    pool: &PgPool,
+    user_id: Uuid,
+    account_id: Uuid,
+    allow_last: bool,
+) -> Result<AccountDeleteOutcome, AuthError> {
+    let mut transaction = pool.begin().await.map_err(storage_error)?;
+    let ids = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM lucid_auth_accounts WHERE user_id = $1 FOR UPDATE",
+    )
+    .bind(user_id)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(storage_error)?;
+    if !ids.contains(&account_id) {
+        return Ok(AccountDeleteOutcome::NotFound);
+    }
+    if ids.len() == 1 && !allow_last {
+        return Ok(AccountDeleteOutcome::LastAccount);
+    }
+    sqlx::query("DELETE FROM lucid_auth_accounts WHERE id = $1 AND user_id = $2")
+        .bind(account_id)
+        .bind(user_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage_error)?;
+    transaction.commit().await.map_err(storage_error)?;
+    Ok(AccountDeleteOutcome::Deleted)
+}
+
+pub(super) async fn compare_and_swap_tokens(
+    pool: &PgPool,
+    account: OAuthAccount,
+    expected_refresh_token: Option<&str>,
+    expected_updated_at: DateTime<Utc>,
+) -> Result<OAuthTokenUpdateOutcome, AuthError> {
+    let updated = sqlx::query_as::<_, AccountRow>(&format!(
+        "UPDATE lucid_auth_accounts SET access_token = $4, refresh_token = $5, id_token = $6, \
+         access_token_expires_at = $7, refresh_token_expires_at = $8, updated_at = $9 \
+         WHERE id = $1 AND user_id = $2 AND updated_at = $3 \
+         AND refresh_token IS NOT DISTINCT FROM $10 RETURNING {ACCOUNT_COLUMNS}"
+    ))
+    .bind(account.id)
+    .bind(account.user_id)
+    .bind(expected_updated_at)
+    .bind(&account.access_token)
+    .bind(&account.refresh_token)
+    .bind(&account.id_token)
+    .bind(account.access_token_expires_at)
+    .bind(account.refresh_token_expires_at)
+    .bind(account.updated_at)
+    .bind(expected_refresh_token)
+    .fetch_optional(pool)
+    .await
+    .map_err(storage_error)?;
+    if let Some(updated) = updated {
+        return Ok(OAuthTokenUpdateOutcome::Updated(updated.into()));
+    }
+    let current = sqlx::query_as::<_, AccountRow>(&format!(
+        "SELECT {ACCOUNT_COLUMNS} FROM lucid_auth_accounts WHERE id = $1 AND user_id = $2"
+    ))
+    .bind(account.id)
+    .bind(account.user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(storage_error)?;
+    Ok(match current {
+        Some(current) => OAuthTokenUpdateOutcome::Stale(current.into()),
+        None => OAuthTokenUpdateOutcome::NotFound,
+    })
 }

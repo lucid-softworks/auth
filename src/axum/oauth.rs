@@ -96,6 +96,9 @@ async fn sign_in_social(
                 }),
             )
         }
+        Ok(SocialSignInResult::Linked) => auth_error(AuthError::InvalidRequest(
+            "linked-account response is invalid for social sign-in".into(),
+        )),
         Err(error) => auth_error(error),
     }
 }
@@ -184,15 +187,16 @@ async fn oauth_callback(
         )
         .await
     {
-        Ok(result) => clear_state_cookie(
-            &service,
-            with_session_cookie(
-                &service,
-                &result.session.token,
-                Some(true),
-                redirect(&result.redirect_url),
-            ),
-        ),
+        Ok(result) => {
+            let response = redirect(&result.redirect_url);
+            let response = match result.session {
+                Some(session) => {
+                    with_session_cookie(&service, &session.token, Some(true), response)
+                }
+                None => response,
+            };
+            clear_state_cookie(&service, response)
+        }
         Err(error) => clear_state_cookie(
             &service,
             redirect_error(&error_url, callback_error_code(&error), None),

@@ -26,6 +26,8 @@ supported surface covers:
 - password, fresh-session, and email-confirmed current-user deletion
 - native social OAuth/OIDC sign-in and callbacks for every Better Auth 1.7.1
   built-in provider, with issuer-qualified accounts and encrypted provider tokens
+- the complete linked-account lifecycle: `listAccounts`, `linkSocial`,
+  `unlinkAccount`, `accountInfo`, `getAccessToken`, and `refreshToken`
 - passkey rename and removal
 - all 15 official admin-client methods, including configurable permissions,
   filtering, additional fields, session revocation, bans, and impersonation
@@ -73,6 +75,13 @@ access, refresh, and ID tokens are randomized encrypted envelopes in both
 stores. PostgreSQL migration `0015_oauth_accounts.sql` deliberately replaces
 the old provider-qualified uniqueness model rather than retaining an
 incompatible fallback.
+
+Linked-account policy lives under `config.account.account_linking`. Explicit
+links require a provider-verified email unless the provider is trusted, require
+the current user's email by default, and cannot unlink the final account unless
+`allow_unlinking_all` is enabled. Provider-token reads and rotations remain
+session-bound to the account owner; refresh rotation uses an atomic
+compare-and-swap so concurrent requests return the winning token set.
 
 Username is an optional native plugin. Register it explicitly to add username
 fields to email signup and current-user updates and to mount the official

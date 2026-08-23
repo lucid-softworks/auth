@@ -33,6 +33,14 @@ impl SocialProvider for ConformanceSocialProvider {
         false
     }
 
+    fn supports_id_token_sign_in(&self) -> bool {
+        true
+    }
+
+    fn supports_token_refresh(&self) -> bool {
+        true
+    }
+
     fn create_authorization_url(
         &self,
         request: &AuthorizationRequest,
@@ -69,10 +77,27 @@ impl SocialProvider for ConformanceSocialProvider {
 
     async fn get_user_info(
         &self,
-        _tokens: &OAuthTokens,
+        tokens: &OAuthTokens,
         expected_nonce: Option<&str>,
         _provider_user: Option<&Value>,
     ) -> Result<OAuthUserInfo, AuthError> {
+        if tokens.id_token.as_deref() == Some("official-link-id-token") {
+            if expected_nonce.is_some_and(|nonce| nonce != "official-link-nonce") {
+                return Err(AuthError::OAuthInvalidToken);
+            }
+            return Ok(OAuthUserInfo {
+                account_id: "official-linked-subject".into(),
+                issuer: "https://issuer.conformance.invalid".into(),
+                name: "Luna Linked".into(),
+                email: "luna@example.com".into(),
+                email_verified: true,
+                image: Some("https://provider.conformance.invalid/linked.png".into()),
+                profile: serde_json::Map::from_iter([(
+                    "fixture".into(),
+                    Value::String("linked-account".into()),
+                )]),
+            });
+        }
         if expected_nonce.is_none() {
             return Err(AuthError::OAuthInvalidToken);
         }
@@ -84,6 +109,18 @@ impl SocialProvider for ConformanceSocialProvider {
             email_verified: true,
             image: Some("https://provider.conformance.invalid/avatar.png".into()),
             profile: serde_json::Map::new(),
+        })
+    }
+
+    async fn refresh_access_token(&self, refresh_token: &str) -> Result<OAuthTokens, AuthError> {
+        if refresh_token != "official-link-refresh-token" {
+            return Err(AuthError::OAuthInvalidToken);
+        }
+        Ok(OAuthTokens {
+            access_token: Some("official-refreshed-access-token".into()),
+            refresh_token: Some("official-refreshed-refresh-token".into()),
+            access_token_expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
+            ..OAuthTokens::default()
         })
     }
 }

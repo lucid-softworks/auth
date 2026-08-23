@@ -7,7 +7,7 @@ use axum::{
 use http_body_util::BodyExt;
 use lucid_auth::{
     AuthConfig, AuthError, AuthService, AuthStore, AuthUser, AuthorizationRequest, MemoryStore,
-    OAuthTokens, OAuthUserInfo, SocialProvider,
+    OAuthAccountStore, OAuthTokens, OAuthUserInfo, SocialProvider,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};

@@ -44,10 +44,24 @@ pub struct OAuthAccountOwner {
     pub user: AuthUser,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AccountDeleteOutcome {
+    Deleted,
+    NotFound,
+    LastAccount,
+}
+
+#[derive(Debug, Clone)]
+pub enum OAuthTokenUpdateOutcome {
+    Updated(OAuthAccount),
+    Stale(OAuthAccount),
+    NotFound,
+}
+
 /// Persistence boundary required by [`crate::AuthService`].
 #[async_trait]
 pub trait AuthStore:
-    AccessStore + ApiKeyStore + SecurityStore + VerificationStore + Send + Sync
+    AccessStore + ApiKeyStore + OAuthAccountStore + SecurityStore + VerificationStore + Send + Sync
 {
     async fn create_password_user(
         &self,
@@ -64,26 +78,6 @@ pub trait AuthStore:
     async fn create_anonymous_user(&self, user: AuthUser) -> Result<AuthUser, AuthError>;
 
     async fn create_user_without_account(&self, user: AuthUser) -> Result<AuthUser, AuthError>;
-
-    async fn find_oauth_account_owner(
-        &self,
-        issuer: &str,
-        account_id: &str,
-    ) -> Result<Option<OAuthAccountOwner>, AuthError>;
-
-    /// Creates a provider account and its new user in one atomic operation.
-    async fn create_oauth_user(
-        &self,
-        user: AuthUser,
-        account: OAuthAccount,
-    ) -> Result<OAuthAccountOwner, AuthError>;
-
-    async fn link_oauth_account(&self, account: OAuthAccount) -> Result<OAuthAccount, AuthError>;
-
-    async fn update_oauth_account_tokens(
-        &self,
-        account: OAuthAccount,
-    ) -> Result<OAuthAccount, AuthError>;
 
     async fn find_user_by_username(&self, username: &str) -> Result<Option<AuthUser>, AuthError>;
 
@@ -197,6 +191,38 @@ pub trait AuthStore:
         &self,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), AuthError>;
+}
+
+#[async_trait]
+pub trait OAuthAccountStore: Send + Sync {
+    async fn find_oauth_account_owner(
+        &self,
+        issuer: &str,
+        account_id: &str,
+    ) -> Result<Option<OAuthAccountOwner>, AuthError>;
+    async fn create_oauth_user(
+        &self,
+        user: AuthUser,
+        account: OAuthAccount,
+    ) -> Result<OAuthAccountOwner, AuthError>;
+    async fn link_oauth_account(&self, account: OAuthAccount) -> Result<OAuthAccount, AuthError>;
+    async fn update_oauth_account_tokens(
+        &self,
+        account: OAuthAccount,
+    ) -> Result<OAuthAccount, AuthError>;
+    async fn list_user_accounts(&self, user_id: Uuid) -> Result<Vec<OAuthAccount>, AuthError>;
+    async fn delete_user_account(
+        &self,
+        user_id: Uuid,
+        account_id: Uuid,
+        allow_last: bool,
+    ) -> Result<AccountDeleteOutcome, AuthError>;
+    async fn compare_and_swap_oauth_tokens(
+        &self,
+        account: OAuthAccount,
+        expected_refresh_token: Option<&str>,
+        expected_updated_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<OAuthTokenUpdateOutcome, AuthError>;
 }
 
 /// Durable one-time state for verification, OAuth, and challenge flows.

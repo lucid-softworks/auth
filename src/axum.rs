@@ -14,6 +14,7 @@ use axum::{
 use std::sync::Arc;
 
 mod account;
+mod account_lifecycle;
 pub(crate) mod admin;
 pub(crate) mod body;
 mod cors;
@@ -38,6 +39,7 @@ where
         .route("/sign-out", post(sign_out))
         .route("/sign-in/anonymous", post(sign_in_anonymous))
         .merge(oauth::router())
+        .merge(account_lifecycle::router())
         .merge(email_password::router())
         .merge(account::router())
         .merge(user_deletion::router());

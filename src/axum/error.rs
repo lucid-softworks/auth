@@ -8,10 +8,14 @@ use serde::Serialize;
 
 mod admin;
 mod credential;
+mod oauth;
 mod plugin;
 
 pub(crate) fn auth_error(error: AuthError) -> Response {
     if let Some(response) = plugin::response(&error) {
+        return response;
+    }
+    if let Some(response) = oauth::response(&error) {
         return response;
     }
     if let AuthError::AccountDisabled(message) = &error {
@@ -68,7 +72,7 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
         | AuthError::InvalidErrorCallbackUrl
         | AuthError::InvalidNewUserCallbackUrl
         | AuthError::CrossSiteNavigationLogin => request_security_error_details(&error),
-        error if is_oauth_error(error) => oauth_error_details(error),
+        error if oauth::is_error(error) => oauth::details(error),
         AuthError::InvalidConfiguration(_)
         | AuthError::Storage(_)
         | AuthError::Worker
@@ -86,59 +90,8 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
     (status, Json(ErrorResponse { code, message })).into_response()
 }
 
-fn is_oauth_error(error: &AuthError) -> bool {
-    matches!(
-        error,
-        AuthError::OAuthProviderNotFound
-            | AuthError::OAuthIdTokenNotSupported
-            | AuthError::OAuthInvalidCode
-            | AuthError::OAuthInvalidToken
-            | AuthError::OAuthUserInfoUnavailable
-            | AuthError::OAuthEmailNotFound
-            | AuthError::OAuthStateMismatch
-            | AuthError::OAuthIssuerMismatch
-            | AuthError::OAuthNonceBindingMissing
-            | AuthError::OAuthAccountNotLinked
-            | AuthError::OAuthSignupDisabled
-    )
-}
-
-fn oauth_error_details(error: &AuthError) -> ErrorDetails {
-    match error {
-        AuthError::OAuthProviderNotFound => (
-            StatusCode::NOT_FOUND,
-            "PROVIDER_NOT_FOUND",
-            "Provider not found",
-        ),
-        AuthError::OAuthIdTokenNotSupported => (
-            StatusCode::NOT_FOUND,
-            "ID_TOKEN_NOT_SUPPORTED",
-            "ID token sign in is not supported for this provider",
-        ),
-        AuthError::OAuthInvalidToken => {
-            (StatusCode::UNAUTHORIZED, "INVALID_TOKEN", "Invalid token")
-        }
-        AuthError::OAuthEmailNotFound => (
-            StatusCode::UNAUTHORIZED,
-            "USER_EMAIL_NOT_FOUND",
-            "User email not found",
-        ),
-        AuthError::OAuthAccountNotLinked => (
-            StatusCode::UNAUTHORIZED,
-            "OAUTH_LINK_ERROR",
-            "account not linked",
-        ),
-        AuthError::OAuthSignupDisabled => (
-            StatusCode::UNAUTHORIZED,
-            "OAUTH_LINK_ERROR",
-            "signup disabled",
-        ),
-        _ => (
-            StatusCode::UNAUTHORIZED,
-            "FAILED_TO_GET_USER_INFO",
-            "Failed to get user info",
-        ),
-    }
+pub(super) fn dynamic_error(status: StatusCode, code: &'static str, message: &str) -> Response {
+    (status, Json(DynamicErrorResponse { code, message })).into_response()
 }
 
 #[derive(Serialize)]

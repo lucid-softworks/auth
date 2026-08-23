@@ -51,7 +51,7 @@ pub use audit::{
 };
 pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use client_ip::IpAddressConfig;
-pub use config::{AuthConfig, EmailPasswordConfig};
+pub use config::{AccountConfig, AccountLinkingConfig, AuthConfig, EmailPasswordConfig};
 pub use cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
 pub use email::{
     EmailVerificationConfig, PasswordResetCallback, PasswordResetEmail, PasswordResetEmailSender,
@@ -97,20 +97,25 @@ pub use plugin::{
 };
 #[cfg(feature = "axum")]
 pub use plugin::{AxumPluginRoute, PluginSession};
+pub use service::account_types::{
+    LinkedAccount, ProviderAccountIdentity, ProviderAccountInfo, ProviderAccountUser,
+    ProviderTokenResponse,
+};
 pub use service::{
     ApiKeySortDirection, ApiKeyUpdate, AuthService, DeleteUserResult, EmailSignUpInput,
     EmailSignUpResult, EmailVerificationResult, HashedPasswordUser, OAuthCallbackResult,
     PasskeyRegistrationRequest, PasskeyRegistrationResult, PasskeyRegistrationVerification,
-    PasswordChangeResult, SignInResult, SocialSignInInput, SocialSignInResult,
+    PasswordChangeResult, SignInResult, SocialIdTokenInput, SocialSignInInput, SocialSignInResult,
 };
 pub use step_up::{
     MemoryStepUpStore, RecoveryCodeStatus, StepUpAssurance, StepUpError, StepUpPolicyConfig,
     StepUpPolicyPlugin, StepUpPolicyService, StepUpSession, StepUpSessionProjection, StepUpStore,
 };
 pub use store::{
-    AccessStore, ApiKeyStore, ApiKeyUseOutcome, AuthStore, EmailVerificationOutcome,
-    OAuthAccountOwner, PasskeyDeleteOutcome, PasswordResetOutcome, SecurityStore,
-    UserProfileUpdate, VerificationStore,
+    AccessStore, AccountDeleteOutcome, ApiKeyStore, ApiKeyUseOutcome, AuthStore,
+    EmailVerificationOutcome, OAuthAccountOwner, OAuthAccountStore, OAuthTokenUpdateOutcome,
+    PasskeyDeleteOutcome, PasswordResetOutcome, SecurityStore, UserProfileUpdate,
+    VerificationStore,
 };
 pub use two_factor::{
     AccountLockoutConfig, BackupCodeConfig, MemoryTwoFactorStore, OtpConfig, TotpConfig,
