@@ -122,9 +122,9 @@ pub(super) async fn consume_password_reset(
     };
     sqlx::query(
         "INSERT INTO lucid_auth_accounts \
-         (id, user_id, provider_id, account_id, password_hash, created_at, updated_at) \
-         VALUES ($1, $2, 'credential', $3, $4, $5, $5) \
-         ON CONFLICT (user_id, provider_id) DO UPDATE SET \
+         (id, user_id, issuer, provider_id, account_id, password_hash, created_at, updated_at) \
+         VALUES ($1, $2, 'local:credential', 'credential', $3, $4, $5, $5) \
+         ON CONFLICT (issuer, account_id) DO UPDATE SET \
            password_hash = EXCLUDED.password_hash, updated_at = EXCLUDED.updated_at",
     )
     .bind(uuid::Uuid::new_v4())

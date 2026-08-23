@@ -105,6 +105,28 @@ pub enum AuthError {
     MissingOrigin,
     #[error("the callback URL is not trusted")]
     InvalidCallbackUrl,
+    #[error("the social provider was not found")]
+    OAuthProviderNotFound,
+    #[error("the social provider does not support ID-token sign in")]
+    OAuthIdTokenNotSupported,
+    #[error("the OAuth authorization code is invalid")]
+    OAuthInvalidCode,
+    #[error("the OAuth token is invalid")]
+    OAuthInvalidToken,
+    #[error("the OAuth provider did not return usable user information")]
+    OAuthUserInfoUnavailable,
+    #[error("the OAuth provider did not return an email address")]
+    OAuthEmailNotFound,
+    #[error("the OAuth state is missing, expired, or does not match")]
+    OAuthStateMismatch,
+    #[error("the OAuth issuer does not match the configured provider")]
+    OAuthIssuerMismatch,
+    #[error("the OAuth provider requires a bound ID-token nonce")]
+    OAuthNonceBindingMissing,
+    #[error("the OAuth account is not linked")]
+    OAuthAccountNotLinked,
+    #[error("social sign up is disabled")]
+    OAuthSignupDisabled,
     #[error("the redirect URL is not trusted")]
     InvalidRedirectUrl,
     #[error("the error callback URL is not trusted")]

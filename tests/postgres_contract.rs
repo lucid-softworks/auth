@@ -1,7 +1,7 @@
 use lucid_auth::{
     AdditionalField, AdditionalFieldType, AdminPlugin, AuditPlugin, AuthConfig, AuthError,
-    AuthService, AuthUser, EmailSignUpInput, GuestCapabilityPlugin, NewPasswordUser,
-    OperatorSecurityConfig, OperatorSecurityPlugin, OwnerPolicyPlugin, PasskeyConfig,
+    AuthService, AuthStore, AuthUser, EmailSignUpInput, GuestCapabilityPlugin, NewPasswordUser,
+    OAuthAccount, OperatorSecurityConfig, OperatorSecurityPlugin, OwnerPolicyPlugin, PasskeyConfig,
     PasskeyPlugin, PluginMigration, PluginMigrationContribution, StepUpPolicyConfig,
     StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin, UsernameError, UsernamePlugin,
     postgres::PostgresStore,
@@ -22,6 +22,8 @@ mod audit;
 mod guest_capability;
 #[path = "postgres_contract/magic_link.rs"]
 mod magic_link;
+#[path = "postgres_contract/oauth.rs"]
+mod oauth;
 #[path = "postgres_contract/operator_security.rs"]
 mod operator_security;
 #[path = "postgres_contract/passkey.rs"]
@@ -71,6 +73,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     store.migrate().await?;
     plugin_migrations_are_idempotent(&store, &pool).await?;
     assert_extension_tables_absent(&pool).await?;
+    oauth::assert_issuer_qualified_accounts(&store, &pool).await?;
 
     let (service, api_keys) = contract_service(&store)?;
     let user = service

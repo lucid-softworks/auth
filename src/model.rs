@@ -13,6 +13,7 @@ pub enum AuthenticationMethod {
     Passkey,
     TwoFactor,
     Extension,
+    OAuth,
 }
 
 impl AuthenticationMethod {
@@ -24,6 +25,7 @@ impl AuthenticationMethod {
             Self::Passkey => "passkey",
             Self::TwoFactor => "two_factor",
             Self::Extension => "extension",
+            Self::OAuth => "oauth",
         }
     }
 
@@ -35,6 +37,7 @@ impl AuthenticationMethod {
             "email_verified" => Self::EmailVerified,
             "two_factor" => Self::TwoFactor,
             "extension" => Self::Extension,
+            "oauth" => Self::OAuth,
             _ => Self::Password,
         }
     }
@@ -56,6 +59,30 @@ pub struct AuthUser {
     pub banned: bool,
     pub ban_reason: Option<String>,
     pub ban_expires: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// A Better Auth 1.7 issuer-qualified external or credential account.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OAuthAccount {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub issuer: String,
+    pub account_id: String,
+    pub provider_id: String,
+    #[serde(skip_serializing)]
+    pub access_token: Option<String>,
+    #[serde(skip_serializing)]
+    pub refresh_token: Option<String>,
+    #[serde(skip_serializing)]
+    pub id_token: Option<String>,
+    pub access_token_expires_at: Option<DateTime<Utc>>,
+    pub refresh_token_expires_at: Option<DateTime<Utc>>,
+    pub scope: Option<String>,
+    #[serde(skip_serializing)]
+    pub password: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

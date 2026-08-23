@@ -14,6 +14,7 @@ mod guest_capability;
 mod magic_link;
 mod memory;
 mod model;
+mod oauth;
 mod operator_security;
 mod origin;
 mod owner_policy;
@@ -68,7 +69,11 @@ pub use magic_link::{
 pub use memory::MemoryStore;
 pub use model::{
     ApiKey, AuthSession, AuthUser, AuthenticationMethod, IssuedApiKey, NewApiKey, NewPasswordUser,
-    Principal, SessionWithUser, StoredPasskey, VerificationValue, VerifiedApiKey,
+    OAuthAccount, Principal, SessionWithUser, StoredPasskey, VerificationValue, VerifiedApiKey,
+};
+pub use oauth::{
+    AuthorizationRequest, BuiltinProvider, BuiltinProviderKind, OAuthProviderConfig, OAuthTokens,
+    OAuthUserInfo, OidcConfig, ProfileMap, SocialProvider, TokenEndpointAuth,
 };
 pub use operator_security::{
     OperatorSecurityConfig, OperatorSecurityError, OperatorSecurityPlugin, OperatorSecurityService,
@@ -94,8 +99,9 @@ pub use plugin::{
 pub use plugin::{AxumPluginRoute, PluginSession};
 pub use service::{
     ApiKeySortDirection, ApiKeyUpdate, AuthService, DeleteUserResult, EmailSignUpInput,
-    EmailSignUpResult, EmailVerificationResult, HashedPasswordUser, PasskeyRegistrationRequest,
-    PasskeyRegistrationResult, PasskeyRegistrationVerification, PasswordChangeResult, SignInResult,
+    EmailSignUpResult, EmailVerificationResult, HashedPasswordUser, OAuthCallbackResult,
+    PasskeyRegistrationRequest, PasskeyRegistrationResult, PasskeyRegistrationVerification,
+    PasswordChangeResult, SignInResult, SocialSignInInput, SocialSignInResult,
 };
 pub use step_up::{
     MemoryStepUpStore, RecoveryCodeStatus, StepUpAssurance, StepUpError, StepUpPolicyConfig,
@@ -103,8 +109,8 @@ pub use step_up::{
 };
 pub use store::{
     AccessStore, ApiKeyStore, ApiKeyUseOutcome, AuthStore, EmailVerificationOutcome,
-    PasskeyDeleteOutcome, PasswordResetOutcome, SecurityStore, UserProfileUpdate,
-    VerificationStore,
+    OAuthAccountOwner, PasskeyDeleteOutcome, PasswordResetOutcome, SecurityStore,
+    UserProfileUpdate, VerificationStore,
 };
 pub use two_factor::{
     AccountLockoutConfig, BackupCodeConfig, MemoryTwoFactorStore, OtpConfig, TotpConfig,

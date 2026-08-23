@@ -1,6 +1,6 @@
 use crate::{
-    AuthError, AuthSession, AuthStore, AuthUser, EmailVerificationOutcome, PasskeyDeleteOutcome,
-    PasswordResetOutcome, StoredPasskey,
+    AuthError, AuthSession, AuthStore, AuthUser, EmailVerificationOutcome, OAuthAccount,
+    OAuthAccountOwner, PasskeyDeleteOutcome, PasswordResetOutcome, StoredPasskey,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -12,6 +12,7 @@ mod api_key;
 mod audit;
 mod guest_capability;
 mod migrate;
+mod oauth;
 mod operator_security;
 mod passkey;
 mod plugin;
@@ -89,9 +90,9 @@ impl AuthStore for PostgresStore {
         .map_err(storage_error)?;
         sqlx::query(
             "INSERT INTO lucid_auth_accounts \
-             (id, user_id, provider_id, account_id, password_hash, created_at, updated_at) \
-             VALUES ($1, $2, 'credential', $3, $4, $5, $5) \
-             ON CONFLICT (user_id, provider_id) DO NOTHING",
+             (id, user_id, issuer, provider_id, account_id, password_hash, created_at, updated_at) \
+             VALUES ($1, $2, 'local:credential', 'credential', $3, $4, $5, $5) \
+             ON CONFLICT (issuer, account_id) DO NOTHING",
         )
         .bind(Uuid::new_v4())
         .bind(stored.id)
@@ -138,6 +139,33 @@ impl AuthStore for PostgresStore {
 
     async fn create_user_without_account(&self, user: AuthUser) -> Result<AuthUser, AuthError> {
         user::create_without_account(&self.pool, user).await
+    }
+
+    async fn find_oauth_account_owner(
+        &self,
+        issuer: &str,
+        account_id: &str,
+    ) -> Result<Option<OAuthAccountOwner>, AuthError> {
+        oauth::find_owner(&self.pool, issuer, account_id).await
+    }
+
+    async fn create_oauth_user(
+        &self,
+        user: AuthUser,
+        account: OAuthAccount,
+    ) -> Result<OAuthAccountOwner, AuthError> {
+        oauth::create_user(&self.pool, user, account).await
+    }
+
+    async fn link_oauth_account(&self, account: OAuthAccount) -> Result<OAuthAccount, AuthError> {
+        oauth::link(&self.pool, account).await
+    }
+
+    async fn update_oauth_account_tokens(
+        &self,
+        account: OAuthAccount,
+    ) -> Result<OAuthAccount, AuthError> {
+        oauth::update_tokens(&self.pool, account).await
     }
 
     async fn find_user_by_username(&self, username: &str) -> Result<Option<AuthUser>, AuthError> {

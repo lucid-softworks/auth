@@ -981,6 +981,46 @@ async function conformance(origin) {
     success(await client.signOut(), "signOut");
   });
 
+  await runCase("core social OAuth client and callback", async () => {
+    transport.clearCookies();
+    const social = success(
+      await client.signIn.social({
+        provider: "conformance-oauth",
+        callbackURL: "/oauth/existing",
+        newUserCallbackURL: "/oauth/new",
+        errorCallbackURL: `${origin}/oauth/error`,
+        disableRedirect: true,
+        additionalParams: { prompt: "consent" },
+      }),
+      "signIn.social",
+    );
+    assert.equal(social.redirect, false);
+    const authorize = new URL(social.url);
+    assert.equal(authorize.origin, "https://provider.conformance.invalid");
+    assert.equal(authorize.searchParams.get("code_challenge_method"), "S256");
+    assert.ok(authorize.searchParams.get("nonce"));
+    const state = authorize.searchParams.get("state");
+    assert.ok(state);
+    transport.assertRequest("/api/auth/sign-in/social", "POST", {
+      provider: "conformance-oauth",
+      callbackURL: "/oauth/existing",
+      newUserCallbackURL: "/oauth/new",
+      errorCallbackURL: `${origin}/oauth/error`,
+      disableRedirect: true,
+      additionalParams: { prompt: "consent" },
+    });
+    const callback = await transport.fetch(
+      `${origin}/api/auth/callback/conformance-oauth?code=official-client-code&state=${encodeURIComponent(state)}&iss=${encodeURIComponent("https://issuer.conformance.invalid")}`,
+      { redirect: "manual" },
+    );
+    assert.equal(callback.status, 302);
+    assert.equal(callback.headers.get("location"), "/oauth/new");
+    const session = success(await client.getSession(), "getSession after social OAuth");
+    assert.equal(session.user.email, "official-social@example.com");
+    assert.equal(session.user.image, "https://provider.conformance.invalid/avatar.png");
+    success(await client.signOut(), "signOut after social OAuth");
+  });
+
   await runCase("current-user deletion client", async () => {
     success(
       await client.signUp.email({

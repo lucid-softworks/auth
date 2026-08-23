@@ -104,8 +104,8 @@ pub(super) async fn create_password_user(
     .map_err(user_insert_error)?;
     sqlx::query(
         "INSERT INTO lucid_auth_accounts \
-         (id, user_id, provider_id, account_id, password_hash, created_at, updated_at) \
-         VALUES ($1, $2, 'credential', $3, $4, $5, $5)",
+         (id, user_id, issuer, provider_id, account_id, password_hash, created_at, updated_at) \
+         VALUES ($1, $2, 'local:credential', 'credential', $3, $4, $5, $5)",
     )
     .bind(Uuid::new_v4())
     .bind(stored.id)
@@ -271,9 +271,9 @@ pub(super) async fn set_password_hash(
     let mut transaction = pool.begin().await.map_err(storage_error)?;
     sqlx::query(
         "INSERT INTO lucid_auth_accounts \
-         (id, user_id, provider_id, account_id, password_hash, created_at, updated_at) \
-         VALUES ($1, $2, 'credential', $3, $4, NOW(), NOW()) \
-         ON CONFLICT (user_id, provider_id) DO UPDATE SET \
+         (id, user_id, issuer, provider_id, account_id, password_hash, created_at, updated_at) \
+         VALUES ($1, $2, 'local:credential', 'credential', $3, $4, NOW(), NOW()) \
+         ON CONFLICT (issuer, account_id) DO UPDATE SET \
            password_hash = EXCLUDED.password_hash, updated_at = NOW()",
     )
     .bind(Uuid::new_v4())

@@ -9,6 +9,7 @@ mod email_verification;
 mod guest;
 #[cfg(feature = "axum")]
 pub(crate) mod magic_link;
+mod oauth;
 mod operator_security;
 mod passkey;
 mod password;
@@ -46,6 +47,7 @@ use uuid::Uuid;
 pub use api_key::{ApiKeySortDirection, ApiKeyUpdate};
 pub use email_password::{EmailSignUpInput, EmailSignUpResult};
 pub use email_verification::EmailVerificationResult;
+pub use oauth::{OAuthCallbackResult, SocialSignInInput, SocialSignInResult};
 pub use passkey::{
     PasskeyRegistrationRequest, PasskeyRegistrationResult, PasskeyRegistrationVerification,
 };
@@ -113,6 +115,13 @@ impl AuthService {
 
     pub(crate) fn admin_config(&self) -> Result<&crate::AdminConfig, AuthError> {
         self.admin_plugin().map(crate::AdminPlugin::config)
+    }
+
+    pub(crate) fn social_provider(&self, id: &str) -> Option<&Arc<dyn crate::SocialProvider>> {
+        self.config
+            .social_providers
+            .iter()
+            .find(|provider| provider.id() == id)
     }
 
     pub(crate) fn default_user_role(&self) -> String {

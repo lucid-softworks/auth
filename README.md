@@ -24,6 +24,8 @@ supported surface covers:
 - typed current-user and current-session additional-field updates
 - immediate, verified, and current-address-confirmed email changes
 - password, fresh-session, and email-confirmed current-user deletion
+- native social OAuth/OIDC sign-in and callbacks for every Better Auth 1.7.1
+  built-in provider, with issuer-qualified accounts and encrypted provider tokens
 - passkey rename and removal
 - all 15 official admin-client methods, including configurable permissions,
   filtering, additional fields, session revocation, bans, and impersonation
@@ -41,6 +43,36 @@ The library keeps authentication protocol details separate from host-product
 authorization. Core principals contain actor, subject, session, and credential
 provenance only. An explicitly enabled host-policy plugin may project a role;
 core-only principals leave it unset.
+
+Social providers use the same `signIn.social` and `/callback/:provider` wire
+contract as Better Auth. Register a built-in after setting the public base URL:
+
+```rust
+config.set_base_url("https://auth.example.com")?;
+config.add_social_provider(BuiltinProvider::new(
+    BuiltinProviderKind::Google,
+    std::env::var("GOOGLE_CLIENT_ID")?,
+    std::env::var("GOOGLE_CLIENT_SECRET")?,
+))?;
+```
+
+The built-in vocabulary is Apple, Atlassian, Cognito, Discord, Dropbox,
+Facebook, Figma, GitHub, GitLab, Google, Hugging Face, Kakao, Kick, LINE,
+Linear, LinkedIn, Microsoft, Naver, Notion, Paybin, PayPal, Polar, Railway,
+Reddit, Roblox, Salesforce, Slack, Spotify, TikTok, Twitch, X/Twitter, Vercel,
+VK, WeChat, and Zoom. Cognito, self-hosted GitLab, and tenant-specific Microsoft
+setups have focused constructors; `config_mut` exposes documented endpoint,
+scope, token-authentication, and profile policies. Implement `SocialProvider`
+to add a provider without changing OAuth state, callback, account, token, or
+session orchestration.
+
+OAuth state is durable, signed-cookie-bound, expiring, and single-use. PKCE,
+OIDC nonce, signature, issuer, audience, maximum-age, and redirect-URI checks
+are provider-driven. Accounts use Better Auth 1.7's `(issuer, accountId)` key;
+access, refresh, and ID tokens are randomized encrypted envelopes in both
+stores. PostgreSQL migration `0015_oauth_accounts.sql` deliberately replaces
+the old provider-qualified uniqueness model rather than retaining an
+incompatible fallback.
 
 Username is an optional native plugin. Register it explicitly to add username
 fields to email signup and current-user updates and to mount the official

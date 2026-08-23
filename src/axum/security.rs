@@ -17,6 +17,11 @@ pub(super) async fn validate_browser_request(
     request: Request,
     next: Next,
 ) -> Response {
+    let is_oauth_callback = request.method() == Method::POST
+        && request
+            .uri()
+            .path()
+            .starts_with(&format!("{}/callback/", service.base_path()));
     if is_safe_method(request.method()) {
         return match validate_redirect_fields(&service, request).await {
             Ok(request) => next.run(request).await,
@@ -27,7 +32,7 @@ pub(super) async fn validate_browser_request(
     let fetch_site = header_text(headers, "sec-fetch-site");
     let fetch_mode = header_text(headers, "sec-fetch-mode");
     let fetch_dest = header_text(headers, "sec-fetch-dest");
-    if fetch_site == Some("cross-site") && fetch_mode == Some("navigate") {
+    if !is_oauth_callback && fetch_site == Some("cross-site") && fetch_mode == Some("navigate") {
         return auth_error(AuthError::CrossSiteNavigationLogin);
     }
 
@@ -37,7 +42,7 @@ pub(super) async fn validate_browser_request(
         || fetch_dest.is_some()
         || supplied_origin.is_some();
     let uses_cookies = headers.contains_key(header::COOKIE);
-    if browser_metadata_present || uses_cookies {
+    if !is_oauth_callback && (browser_metadata_present || uses_cookies) {
         let Some(origin) = supplied_origin.filter(|origin| *origin != "null") else {
             return auth_error(AuthError::MissingOrigin);
         };

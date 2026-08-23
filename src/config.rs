@@ -30,6 +30,9 @@ pub struct AuthConfig {
     pub email_verification: EmailVerificationConfig,
     pub user: UserConfig,
     pub session: SessionConfig,
+    /// Better Auth-compatible built-in or custom social providers.
+    pub(crate) social_providers: Vec<Arc<dyn crate::SocialProvider>>,
+    pub(crate) trusted_social_providers: Vec<String>,
     /// Better Auth-compatible client-IP tracking and trusted proxy settings.
     pub ip_address: IpAddressConfig,
     /// Additional browser origins allowed to call authentication endpoints or
@@ -97,6 +100,8 @@ impl AuthConfig {
             email_verification: EmailVerificationConfig::default(),
             user: UserConfig::default(),
             session: SessionConfig::default(),
+            social_providers: Vec::new(),
+            trusted_social_providers: Vec::new(),
             ip_address: IpAddressConfig::default(),
             trusted_origins: Vec::new(),
             plugins: Vec::new(),
@@ -149,6 +154,45 @@ impl AuthConfig {
 
     pub fn trust_origin(&mut self, origin: &str) -> Result<(), AuthError> {
         self.trusted_origins.push(TrustedOrigin::parse(origin)?);
+        Ok(())
+    }
+
+    pub fn add_social_provider<P>(&mut self, provider: P) -> Result<(), AuthError>
+    where
+        P: crate::SocialProvider + 'static,
+    {
+        self.add_social_provider_arc(Arc::new(provider))
+    }
+
+    pub fn add_social_provider_arc(
+        &mut self,
+        provider: Arc<dyn crate::SocialProvider>,
+    ) -> Result<(), AuthError> {
+        let id = provider.id();
+        if id.trim().is_empty() || self.social_providers.iter().any(|item| item.id() == id) {
+            return Err(AuthError::InvalidConfiguration(format!(
+                "social provider '{id}' has an empty or duplicate id"
+            )));
+        }
+        self.social_providers.push(provider);
+        Ok(())
+    }
+
+    /// Trusts a provider's email-verification assertion for implicit linking.
+    /// The existing local account must still have a verified matching email.
+    pub fn trust_social_provider(&mut self, provider_id: &str) -> Result<(), AuthError> {
+        if provider_id.trim().is_empty() {
+            return Err(AuthError::InvalidConfiguration(
+                "trusted social provider id must not be empty".into(),
+            ));
+        }
+        if !self
+            .trusted_social_providers
+            .iter()
+            .any(|trusted| trusted == provider_id)
+        {
+            self.trusted_social_providers.push(provider_id.into());
+        }
         Ok(())
     }
 
@@ -228,6 +272,25 @@ impl AuthConfig {
             ));
         }
         validate_additional_field_config(self)?;
+        if !self.social_providers.is_empty() && self.base_url.is_none() {
+            return Err(AuthError::InvalidConfiguration(
+                "a base URL is required when social providers are configured".into(),
+            ));
+        }
+        for provider in &self.social_providers {
+            provider.validate_configuration()?;
+        }
+        for trusted in &self.trusted_social_providers {
+            if !self
+                .social_providers
+                .iter()
+                .any(|provider| provider.id() == trusted)
+            {
+                return Err(AuthError::InvalidConfiguration(format!(
+                    "trusted social provider '{trusted}' is not configured"
+                )));
+            }
+        }
         Ok(())
     }
 }

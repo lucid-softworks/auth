@@ -10,9 +10,7 @@ use lucid_auth::{
     ApiKeyConfiguration, ApiKeyPlugin, AuthConfig, AuthService,
     MagicLinkConfig, MagicLinkEmail, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore,
     NewPasswordUser, OtpConfig, PasskeyConfig, PasskeyPlugin, PasswordResetEmail,
-    PluginDescriptor, TotpConfig, TwoFactorConfig, TwoFactorOtp, TwoFactorPlugin, UsernamePlugin,
-    VerificationEmail,
-    protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+    TotpConfig, TwoFactorConfig, TwoFactorOtp, TwoFactorPlugin, UsernamePlugin, VerificationEmail,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -21,8 +19,10 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 mod email;
+mod metadata;
 mod native_plugin;
 mod session_fixture;
+mod social_provider;
 
 use email::{
     ConformanceEmailSender, ConformanceMagicLinkSender, ConformanceMessages,
@@ -32,7 +32,7 @@ use native_plugin::ConformancePlugin;
 
 #[derive(Clone)]
 struct Fixture {
-    service: Arc<AuthService>,
+    pub(crate) service: Arc<AuthService>,
     pub(crate) store: Arc<MemoryStore>,
     pub(crate) owner_id: Uuid,
     verification_emails: Arc<Mutex<Vec<VerificationEmail>>>,
@@ -50,8 +50,8 @@ async fn main() {
     let origin = format!("http://localhost:{port}");
     let fixture = fixture(&origin).await;
     let app = Router::new()
-        .route("/__conformance__/version", get(compatible_version))
-        .route("/__conformance__/plugins", get(plugin_metadata))
+        .route("/__conformance__/version", get(metadata::compatible_version))
+        .route("/__conformance__/plugins", get(metadata::plugin_metadata))
         .route(
             "/__conformance__/verification-token/{email}",
             get(verification_token),
@@ -83,14 +83,6 @@ async fn main() {
     )
     .await
     .expect("serve conformance fixture");
-}
-
-async fn compatible_version() -> Json<serde_json::Value> {
-    Json(json!({ "betterAuth": COMPATIBLE_BETTER_AUTH_VERSION }))
-}
-
-async fn plugin_metadata(Extension(fixture): Extension<Fixture>) -> Json<Vec<PluginDescriptor>> {
-    Json(fixture.service.plugin_metadata().to_vec())
 }
 
 async fn verification_token(
@@ -210,6 +202,9 @@ fn conformance_config(origin: &str, messages: &ConformanceMessages) -> AuthConfi
     config
         .set_base_url(origin)
         .expect("localhost fixture origin");
+    config
+        .add_social_provider(social_provider::ConformanceSocialProvider)
+        .expect("unique social provider");
     config
         .add_plugin(UsernamePlugin::default())
         .expect("unique username plugin");

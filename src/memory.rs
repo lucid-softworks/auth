@@ -1,6 +1,7 @@
 use crate::{
     ApiKey, AuthError, AuthSession, AuthStore, AuthUser, EmailVerificationOutcome, GuestGrant,
-    PasskeyDeleteOutcome, PasswordResetOutcome, StoredPasskey, VerificationValue,
+    OAuthAccount, OAuthAccountOwner, PasskeyDeleteOutcome, PasswordResetOutcome, StoredPasskey,
+    VerificationValue,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -14,6 +15,7 @@ use uuid::Uuid;
 mod access;
 mod api_key;
 mod guest_capability;
+mod oauth;
 mod operator_security;
 mod security;
 mod user;
@@ -25,6 +27,7 @@ struct MemoryState {
     usernames: HashMap<String, Uuid>,
     emails: HashMap<String, Uuid>,
     passwords: HashMap<Uuid, String>,
+    oauth_accounts: HashMap<(String, String), OAuthAccount>,
     sessions: HashMap<String, AuthSession>,
     passkeys: HashMap<Uuid, StoredPasskey>,
     guest_grants: HashMap<Uuid, GuestGrant>,
@@ -70,6 +73,33 @@ impl AuthStore for MemoryStore {
 
     async fn create_user_without_account(&self, user: AuthUser) -> Result<AuthUser, AuthError> {
         user::create_without_account(self, user).await
+    }
+
+    async fn find_oauth_account_owner(
+        &self,
+        issuer: &str,
+        account_id: &str,
+    ) -> Result<Option<OAuthAccountOwner>, AuthError> {
+        oauth::find_owner(self, issuer, account_id).await
+    }
+
+    async fn create_oauth_user(
+        &self,
+        user: AuthUser,
+        account: OAuthAccount,
+    ) -> Result<OAuthAccountOwner, AuthError> {
+        oauth::create_user(self, user, account).await
+    }
+
+    async fn link_oauth_account(&self, account: OAuthAccount) -> Result<OAuthAccount, AuthError> {
+        oauth::link(self, account).await
+    }
+
+    async fn update_oauth_account_tokens(
+        &self,
+        account: OAuthAccount,
+    ) -> Result<OAuthAccount, AuthError> {
+        oauth::update_tokens(self, account).await
     }
 
     async fn find_user_by_username(&self, username: &str) -> Result<Option<AuthUser>, AuthError> {

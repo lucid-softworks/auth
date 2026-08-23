@@ -34,7 +34,7 @@ semantics, persistence, and an end-to-end client test must all agree.
 | Upstream change area | Native compatibility impact |
 | --- | --- |
 | Sessions | Supported session, sign-out, and cookie paths pass the 1.7.1 client. Client-side `hydrateSession` needs no server endpoint. Fresh session-list semantics remain explicitly partial in [#58](https://github.com/lucid-softworks/auth/issues/58). |
-| OAuth identity and schema | Better Auth 1.7 requires issuer-qualified provider identity. Social OAuth and account rows are not currently claimed; their native schema and migration will implement the 1.7 model in [#14](https://github.com/lucid-softworks/auth/issues/14) and [#15](https://github.com/lucid-softworks/auth/issues/15), without retaining an obsolete identity shape. |
+| OAuth identity and schema | Supported issuer-qualified `(issuer, accountId)` identity, atomic user/account creation, implicit-link verification policy, and encrypted provider-token storage. Migration `0015` removes the obsolete provider-qualified uniqueness model rather than retaining a fallback; social sign-in is [#14](https://github.com/lucid-softworks/auth/issues/14), while explicit account/token management remains [#15](https://github.com/lucid-softworks/auth/issues/15). |
 | Two-factor responses | Supported through optional `TwoFactorPlugin`: the official 1.7.1 discriminated enable response, all eight browser-client endpoints, server-only TOTP generation and backup-code viewing, challenge/trust cookies, and encrypted factor storage are covered by [#20](https://github.com/lucid-softworks/auth/issues/20). |
 | Passwordless cleanup | Magic Link implements the 1.7 mailbox-proven account/session cleanup and atomic token lifecycle. Email OTP and phone OTP remain [#23](https://github.com/lucid-softworks/auth/issues/23) and [#24](https://github.com/lucid-softworks/auth/issues/24). |
 | Custom and secondary storage | The native memory/PostgreSQL contracts are unaffected by TypeScript adapter internals. Secondary storage and stateless sessions remain [#58](https://github.com/lucid-softworks/auth/issues/58); hooks remain [#60](https://github.com/lucid-softworks/auth/issues/60). |
@@ -43,8 +43,10 @@ semantics, persistence, and an end-to-end client test must all agree.
 
 Migration `0010_email_password.sql` normalizes persisted email addresses, adds
 case-insensitive uniqueness, and allows core email/password users without a
-username. Better Auth's 1.7 issuer-qualified OAuth identity changes remain
-scoped to the unimplemented account lifecycle described above.
+username. Migration `0015_oauth_accounts.sql` applies Better Auth 1.7's
+issuer-qualified OAuth identity and encrypted access-, refresh-, and ID-token
+columns. The incompatible `(providerId, accountId)` uniqueness constraint is
+removed rather than supported as a legacy identity fallback.
 
 ## Core client API
 
@@ -68,7 +70,7 @@ scoped to the unimplemented account lifecycle described above.
 | `revokeSession` (`POST /revoke-session`) | Partial | Works with the opaque session identifier returned by this server. Full session parity is [#58](https://github.com/lucid-softworks/auth/issues/58). |
 | `revokeOtherSessions` | Supported | Stateful sessions only. |
 | `revokeSessions` | Supported | Stateful sessions only. |
-| `signIn.social` and provider callback | Planned | Native OAuth/OIDC engine and built-in provider descriptors: [#14](https://github.com/lucid-softworks/auth/issues/14). |
+| `signIn.social` and provider callback | Supported | Exact `callbackURL`, `newUserCallbackURL`, and `errorCallbackURL` casing; redirect and direct ID-token branches; durable cookie-bound one-time state; reserved-parameter rejection; PKCE; provider-driven nonce and OIDC signature/issuer/audience/age checks; GET/form-POST callbacks; verified-email implicit-link policy; issuer-qualified accounts; encrypted tokens; all 35 Better Auth 1.7.1 built-ins plus the native `SocialProvider` extension trait. The official client and OAuth/OIDC attack fixtures cover the complete flow; [#14](https://github.com/lucid-softworks/auth/issues/14). |
 | `listAccounts`, `accountInfo` | Planned | [#15](https://github.com/lucid-softworks/auth/issues/15). |
 | `linkSocial`, `unlinkAccount` | Planned | [#15](https://github.com/lucid-softworks/auth/issues/15). |
 | `getAccessToken`, `refreshToken` | Planned | Encrypted provider-token lifecycle: [#15](https://github.com/lucid-softworks/auth/issues/15). |
@@ -146,16 +148,16 @@ scoped to the unimplemented account lifecycle described above.
 | Managed email service | Planned | [#56](https://github.com/lucid-softworks/auth/issues/56). |
 | Managed SMS service | Planned | [#57](https://github.com/lucid-softworks/auth/issues/57). |
 
-Provider integrations will be optional native Rust modules. Authentication must
-remain usable during provider outages unless an application explicitly selects
-a fail-closed security policy.
+Provider integrations are opt-in native Rust configurations. An unregistered or
+unavailable provider does not affect password, passkey, or other configured
+authentication methods.
 
 ## Storage and deployment
 
 | Capability | Status | Tracking and limitations |
 | --- | --- | --- |
 | In-memory store | Supported | Intended for tests and single-process development. |
-| PostgreSQL | Supported | Core migrations include normalized email uniqueness and username-optional credential accounts; optional plugins contribute their own tables. Lifecycle, concurrent case-variant signup, plugin migration idempotence, atomic API-key claims, and atomic two-factor replay/backup-code/lockout writes run in the live contract. Broader schema generation is [#68](https://github.com/lucid-softworks/auth/issues/68). |
+| PostgreSQL | Supported | Core migrations include normalized email uniqueness, username-optional credential accounts, and Better Auth 1.7 issuer-qualified OAuth accounts with encrypted-token columns. Optional plugins contribute their own tables. Lifecycle, same-subject/different-issuer identity, concurrent case-variant signup, plugin migration idempotence, atomic API-key claims, and atomic two-factor replay/backup-code/lockout writes run in the live contract. Broader schema generation is [#68](https://github.com/lucid-softworks/auth/issues/68). |
 | Verification challenges | Supported | Purpose-scoped, expiring values are persisted by both stores and consumed atomically across service instances; [#8](https://github.com/lucid-softworks/auth/issues/8). |
 | SQLite | Planned | [#61](https://github.com/lucid-softworks/auth/issues/61). |
 | MySQL | Planned | [#62](https://github.com/lucid-softworks/auth/issues/62). |

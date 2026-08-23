@@ -27,10 +27,11 @@ data-encoding = "2"
 hex = "0.4"
 hmac = "0.12"
 ipnet = "2"
+jsonwebtoken = { version = "10.2", default-features = false, features = ["rust_crypto"] }
 percent-encoding = "2"
 rand = "0.10"
 rand_core = { version = "0.6", features = ["getrandom"] }
-reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_cbor_2 = "0.13"
@@ -81,6 +82,10 @@ required-features = ["postgres"]
 
 [[test]]
 name = "request_security_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "social_oauth_contract"
 required-features = ["axum"]
 
 [[test]]

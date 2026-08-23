@@ -20,6 +20,7 @@ mod cors;
 mod email_password;
 mod error;
 pub(crate) mod http;
+mod oauth;
 mod security;
 mod user_deletion;
 
@@ -36,6 +37,7 @@ where
         .route("/get-session", get(get_session))
         .route("/sign-out", post(sign_out))
         .route("/sign-in/anonymous", post(sign_in_anonymous))
+        .merge(oauth::router())
         .merge(email_password::router())
         .merge(account::router())
         .merge(user_deletion::router());

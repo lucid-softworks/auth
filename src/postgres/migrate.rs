@@ -1,7 +1,7 @@
 use super::{PostgresStore, storage_error};
 use crate::AuthError;
 
-const MIGRATIONS: [(i64, &str, &str); 10] = [
+const MIGRATIONS: [(i64, &str, &str); 11] = [
     (
         1,
         "initial authentication schema",
@@ -51,6 +51,11 @@ const MIGRATIONS: [(i64, &str, &str); 10] = [
         14,
         "Better Auth additional session fields",
         include_str!("../../migrations/0014_session_additional_fields.sql"),
+    ),
+    (
+        15,
+        "Better Auth issuer-qualified OAuth accounts",
+        include_str!("../../migrations/0015_oauth_accounts.sql"),
     ),
 ];
 

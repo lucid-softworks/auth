@@ -137,6 +137,9 @@ impl AccessStore for MemoryStore {
         state.emails.remove(&user.email);
         state.passwords.remove(&user_id);
         state
+            .oauth_accounts
+            .retain(|_, account| account.user_id != user_id);
+        state
             .passkeys
             .retain(|_, passkey| passkey.user_id != user_id);
         let removed_grants: Vec<_> = state
