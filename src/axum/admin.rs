@@ -23,13 +23,13 @@ where
     S: Clone + Send + Sync + 'static,
 {
     Router::new()
-        .route("/api/auth/admin/list-users", get(list_users))
-        .route("/api/auth/admin/create-user", post(create_user))
-        .route("/api/auth/admin/set-user-password", post(set_user_password))
-        .route("/api/auth/admin/remove-user", post(remove_user))
-        .route("/api/auth/admin/set-role", post(set_role))
-        .route("/api/auth/admin/ban-user", post(ban_user))
-        .route("/api/auth/admin/unban-user", post(unban_user))
+        .route("/admin/list-users", get(list_users))
+        .route("/admin/create-user", post(create_user))
+        .route("/admin/set-user-password", post(set_user_password))
+        .route("/admin/remove-user", post(remove_user))
+        .route("/admin/set-role", post(set_role))
+        .route("/admin/ban-user", post(ban_user))
+        .route("/admin/unban-user", post(unban_user))
         .merge(session::router())
 }
 

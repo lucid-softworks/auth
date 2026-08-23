@@ -20,6 +20,7 @@ use webauthn_rs::prelude::{PublicKeyCredential, RegisterPublicKeyCredential};
 
 mod account;
 mod admin;
+mod cors;
 mod guest;
 mod http;
 mod security;
@@ -34,37 +35,31 @@ pub fn router<S>(service: Arc<AuthService>) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
-    Router::new()
-        .route("/api/auth/get-session", get(get_session))
-        .route("/api/auth/sign-in/username", post(sign_in_username))
-        .route("/api/auth/sign-out", post(sign_out))
-        .route("/api/auth/sign-in/anonymous", post(sign_in_anonymous))
+    let routes = Router::new()
+        .route("/get-session", get(get_session))
+        .route("/sign-in/username", post(sign_in_username))
+        .route("/sign-out", post(sign_out))
+        .route("/sign-in/anonymous", post(sign_in_anonymous))
+        .route("/is-username-available", post(is_username_available))
         .route(
-            "/api/auth/is-username-available",
-            post(is_username_available),
-        )
-        .route(
-            "/api/auth/passkey/generate-register-options",
+            "/passkey/generate-register-options",
             get(generate_passkey_registration_options),
         )
         .route(
-            "/api/auth/passkey/verify-registration",
+            "/passkey/verify-registration",
             post(verify_passkey_registration),
         )
         .route(
-            "/api/auth/passkey/generate-authenticate-options",
+            "/passkey/generate-authenticate-options",
             get(generate_passkey_authentication_options),
         )
         .route(
-            "/api/auth/passkey/verify-authentication",
+            "/passkey/verify-authentication",
             post(verify_passkey_authentication),
         )
-        .route(
-            "/api/auth/passkey/list-user-passkeys",
-            get(list_user_passkeys),
-        )
-        .route("/api/auth/passkey/delete-passkey", post(delete_passkey))
-        .route("/api/auth/passkey/update-passkey", post(update_passkey))
+        .route("/passkey/list-user-passkeys", get(list_user_passkeys))
+        .route("/passkey/delete-passkey", post(delete_passkey))
+        .route("/passkey/update-passkey", post(update_passkey))
         .merge(account::router())
         .merge(admin::router())
         .merge(guest::router())
@@ -72,7 +67,12 @@ where
             service.clone(),
             security::validate_browser_request,
         ))
-        .layer(Extension(service))
+        .layer(middleware::from_fn_with_state(
+            service.clone(),
+            cors::credentialed_trusted_origins,
+        ))
+        .layer(Extension(service.clone()));
+    Router::new().nest(service.base_path(), routes)
 }
 
 #[derive(Debug, Deserialize)]

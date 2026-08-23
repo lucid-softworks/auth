@@ -23,22 +23,16 @@ where
     S: Clone + Send + Sync + 'static,
 {
     Router::new()
-        .route("/api/auth/change-password", post(change_password))
-        .route("/api/auth/list-sessions", get(list_sessions))
-        .route("/api/auth/revoke-session", post(revoke_session))
+        .route("/change-password", post(change_password))
+        .route("/list-sessions", get(list_sessions))
+        .route("/revoke-session", post(revoke_session))
+        .route("/revoke-other-sessions", post(revoke_other_sessions))
+        .route("/revoke-sessions", post(revoke_sessions))
         .route(
-            "/api/auth/revoke-other-sessions",
-            post(revoke_other_sessions),
-        )
-        .route("/api/auth/revoke-sessions", post(revoke_sessions))
-        .route(
-            "/api/auth/two-factor/generate-backup-codes",
+            "/two-factor/generate-backup-codes",
             post(generate_backup_codes),
         )
-        .route(
-            "/api/auth/two-factor/verify-backup-code",
-            post(verify_backup_code),
-        )
+        .route("/two-factor/verify-backup-code", post(verify_backup_code))
 }
 
 async fn generate_backup_codes(

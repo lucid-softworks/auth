@@ -20,12 +20,12 @@ where
 {
     Router::new()
         .route(
-            "/api/auth/guest-grants",
+            "/guest-grants",
             get(list_guest_grants).post(issue_guest_grant),
         )
-        .route("/api/auth/guest-grants/revoke", post(revoke_guest_grant))
-        .route("/api/auth/sign-in/guest-grant", post(redeem_guest_grant))
-        .route("/api/auth/access/audit", get(list_audit_events))
+        .route("/guest-grants/revoke", post(revoke_guest_grant))
+        .route("/sign-in/guest-grant", post(redeem_guest_grant))
+        .route("/access/audit", get(list_audit_events))
 }
 
 #[derive(Debug, Deserialize)]

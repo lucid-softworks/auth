@@ -20,23 +20,11 @@ where
     S: Clone + Send + Sync + 'static,
 {
     Router::new()
-        .route(
-            "/api/auth/admin/list-user-sessions",
-            post(list_user_sessions),
-        )
-        .route(
-            "/api/auth/admin/revoke-user-session",
-            post(revoke_user_session),
-        )
-        .route(
-            "/api/auth/admin/revoke-user-sessions",
-            post(revoke_user_sessions),
-        )
-        .route("/api/auth/admin/impersonate-user", post(impersonate_user))
-        .route(
-            "/api/auth/admin/stop-impersonating",
-            post(stop_impersonating),
-        )
+        .route("/admin/list-user-sessions", post(list_user_sessions))
+        .route("/admin/revoke-user-session", post(revoke_user_session))
+        .route("/admin/revoke-user-sessions", post(revoke_user_sessions))
+        .route("/admin/impersonate-user", post(impersonate_user))
+        .route("/admin/stop-impersonating", post(stop_impersonating))
 }
 
 #[derive(Debug, Deserialize)]

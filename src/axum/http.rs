@@ -1,6 +1,6 @@
 use crate::{
-    AuthError, AuthService, SessionWithUser,
-    protocol::better_auth::{ErrorResponse, PASSKEY_CHALLENGE_COOKIE_NAME, SESSION_COOKIE_NAME},
+    AuthError, AuthService, SessionWithUser, cookie::ResolvedCookie,
+    protocol::better_auth::ErrorResponse,
 };
 use axum::{
     Extension, Json,
@@ -21,7 +21,8 @@ pub(super) async fn current_session(
 }
 
 pub(super) fn challenge_token(service: &AuthService, headers: &HeaderMap) -> Option<String> {
-    signed_cookie_token(service, headers, PASSKEY_CHALLENGE_COOKIE_NAME)
+    let cookie = service.challenge_cookie();
+    signed_cookie_token(service, headers, &cookie.name)
 }
 
 pub(super) fn with_challenge_cookie(
@@ -29,15 +30,10 @@ pub(super) fn with_challenge_cookie(
     token: &str,
     body: impl IntoResponse,
 ) -> Response {
+    let cookie = service.challenge_cookie();
     with_cookie(
         body,
-        named_cookie(
-            PASSKEY_CHALLENGE_COOKIE_NAME,
-            &service.signed_cookie_value(token),
-            300,
-            service.cookie_secure(),
-            true,
-        ),
+        serialize_cookie(&cookie, &service.signed_cookie_value(token), Some(300)),
     )
 }
 
@@ -47,21 +43,24 @@ pub(super) fn with_session_cookie(
     remember_me: Option<bool>,
     body: impl IntoResponse,
 ) -> Response {
-    let cookie = session_cookie(
-        &service.signed_cookie_value(token),
-        service.session_ttl().num_seconds(),
-        service.cookie_secure(),
-        remember_me != Some(false),
-    );
-    with_cookie(body, cookie)
+    let cookie = service.session_cookie();
+    let max_age = (remember_me != Some(false)).then(|| service.session_ttl().num_seconds());
+    with_cookie(
+        body,
+        serialize_cookie(&cookie, &service.signed_cookie_value(token), max_age),
+    )
 }
 
 pub(super) fn clear_session_cookie(service: &AuthService, body: impl IntoResponse) -> Response {
-    with_cookie(body, session_cookie("", 0, service.cookie_secure(), true))
+    with_cookie(
+        body,
+        serialize_cookie(&service.session_cookie(), "", Some(0)),
+    )
 }
 
 pub fn session_token(service: &AuthService, headers: &HeaderMap) -> Option<String> {
-    signed_cookie_token(service, headers, SESSION_COOKIE_NAME)
+    let cookie = service.session_cookie();
+    signed_cookie_token(service, headers, &cookie.name)
 }
 
 fn signed_cookie_token(service: &AuthService, headers: &HeaderMap, name: &str) -> Option<String> {
@@ -98,31 +97,26 @@ pub(super) fn client_ip(
     )
 }
 
-fn session_cookie(value: &str, max_age_seconds: i64, secure: bool, persistent: bool) -> String {
-    named_cookie(
-        SESSION_COOKIE_NAME,
-        value,
-        max_age_seconds,
-        secure,
-        persistent,
-    )
-}
-
-fn named_cookie(
-    name: &str,
-    value: &str,
-    max_age_seconds: i64,
-    secure: bool,
-    persistent: bool,
-) -> String {
-    let mut cookie = format!("{name}={value}; HttpOnly; SameSite=Lax; Path=/");
-    if persistent {
-        cookie.push_str(&format!("; Max-Age={max_age_seconds}"));
+fn serialize_cookie(cookie: &ResolvedCookie, value: &str, max_age_seconds: Option<i64>) -> String {
+    let mut serialized = format!("{}={value}", cookie.name);
+    if cookie.attributes.http_only {
+        serialized.push_str("; HttpOnly");
     }
-    if secure {
-        cookie.push_str("; Secure");
+    serialized.push_str(&format!(
+        "; SameSite={}; Path={}",
+        cookie.attributes.same_site.as_str(),
+        cookie.attributes.path
+    ));
+    if let Some(domain) = &cookie.attributes.domain {
+        serialized.push_str(&format!("; Domain={domain}"));
     }
-    cookie
+    if let Some(max_age) = max_age_seconds {
+        serialized.push_str(&format!("; Max-Age={max_age}"));
+    }
+    if cookie.attributes.secure {
+        serialized.push_str("; Secure");
+    }
+    serialized
 }
 
 fn with_cookie(body: impl IntoResponse, cookie: String) -> Response {
@@ -384,10 +378,27 @@ mod tests {
 
     #[test]
     fn session_cookie_matches_the_better_auth_cookie_name() {
-        let cookie = session_cookie("token.signature", 300, false, true);
+        let cookie = crate::CookieConfig::default().resolve(
+            crate::cookie::CookieKind::SessionToken,
+            false,
+            None,
+        );
+        let cookie = serialize_cookie(&cookie, "token.signature", Some(300));
         assert_eq!(
             cookie,
             "better-auth.session_token=token.signature; HttpOnly; SameSite=Lax; Path=/; Max-Age=300"
+        );
+    }
+
+    #[test]
+    fn cookie_expiration_preserves_creation_scope() {
+        let mut config = crate::CookieConfig::default();
+        config.default_attributes.path = Some("/auth".into());
+        config.default_attributes.domain = Some(".example.com".into());
+        let cookie = config.resolve(crate::cookie::CookieKind::SessionToken, true, None);
+        assert_eq!(
+            serialize_cookie(&cookie, "", Some(0)),
+            "__Secure-better-auth.session_token=; HttpOnly; SameSite=Lax; Path=/auth; Domain=.example.com; Max-Age=0; Secure"
         );
     }
 }

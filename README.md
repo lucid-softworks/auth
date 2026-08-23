@@ -95,4 +95,12 @@ the trusted edge to the first untrusted hop. `ip_address_headers`,
 `ipv6_subnet`, and `disable_ip_tracking` correspond to Better Auth's advanced
 IP-address options.
 
+Routes mount at `/api/auth` by default. `AuthConfig::set_base_url` and
+`set_base_path` configure HTTPS production origins and custom mounts; an HTTPS
+base URL also selects Better Auth's `__Secure-` cookie names. `CookieConfig`
+supports the Better Auth prefix, per-cookie names and attributes, and optional
+cross-subdomain scope. Call `AuthConfig::enable_cors` to answer credentialed
+preflights for trusted origins; untrusted origins remain blocked by the same
+CSRF policy.
+
 This project is not affiliated with Better Auth.

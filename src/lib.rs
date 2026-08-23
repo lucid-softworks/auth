@@ -2,6 +2,8 @@
 
 mod breached_password;
 mod client_ip;
+mod config;
+mod cookie;
 mod error;
 mod memory;
 mod model;
@@ -17,6 +19,8 @@ pub mod protocol;
 
 pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use client_ip::IpAddressConfig;
+pub use config::{AuthConfig, PasskeyConfig};
+pub use cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
 pub use error::AuthError;
 pub use memory::MemoryStore;
 pub use model::{
@@ -26,7 +30,7 @@ pub use model::{
 };
 pub use origin::TrustedOrigin;
 pub use service::{
-    AuthConfig, AuthService, HashedPasswordUser, PasskeyConfig, PasskeyRegistrationResult,
-    PasswordChangeResult, RecoveryCodeStatus, SignInResult,
+    AuthService, HashedPasswordUser, PasskeyRegistrationResult, PasswordChangeResult,
+    RecoveryCodeStatus, SignInResult,
 };
 pub use store::{AccessStore, ApiKeyStore, AuthStore, PasskeyDeleteOutcome, SecurityStore};

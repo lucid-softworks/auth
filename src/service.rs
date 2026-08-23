@@ -7,10 +7,12 @@ mod recovery;
 mod session;
 mod user;
 
-use crate::PasswordBreachChecker;
+#[cfg(feature = "axum")]
+use crate::TrustedOrigin;
+#[cfg(feature = "axum")]
+use crate::cookie::{CookieKind, ResolvedCookie};
 use crate::{
-    Assurance, AuthError, AuthSession, AuthStore, AuthUser, Principal, SessionWithUser,
-    TrustedOrigin, client_ip::IpAddressConfig,
+    Assurance, AuthConfig, AuthError, AuthSession, AuthStore, AuthUser, Principal, SessionWithUser,
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Duration, Utc};
@@ -29,69 +31,6 @@ pub use password::PasswordChangeResult;
 pub use recovery::RecoveryCodeStatus;
 
 type HmacSha256 = Hmac<Sha256>;
-
-/// Runtime behavior for an authentication service.
-#[derive(Clone)]
-pub struct AuthConfig {
-    pub secret: Vec<u8>,
-    pub session_ttl: Duration,
-    pub cookie_secure: bool,
-    pub allow_anonymous: bool,
-    pub development_bypass: bool,
-    pub max_attempts: usize,
-    pub max_ip_attempts: usize,
-    pub lockout_window: Duration,
-    pub passkeys: Option<PasskeyConfig>,
-    pub password_breach_checker: Option<Arc<dyn PasswordBreachChecker>>,
-    /// Better Auth-compatible client-IP tracking and trusted proxy settings.
-    pub ip_address: IpAddressConfig,
-    /// Additional browser origins allowed to call authentication endpoints or
-    /// receive absolute callback redirects.
-    pub trusted_origins: Vec<TrustedOrigin>,
-    pub required_mfa_roles: Vec<String>,
-    /// Maximum age of strong authentication for security-sensitive operations.
-    pub step_up_ttl: Duration,
-}
-
-/// Stable relying-party settings used for WebAuthn ceremonies.
-#[derive(Debug, Clone)]
-pub struct PasskeyConfig {
-    pub rp_id: String,
-    pub rp_origin: String,
-    pub rp_name: String,
-}
-
-impl AuthConfig {
-    pub fn new(secret: impl Into<Vec<u8>>) -> Result<Self, AuthError> {
-        let secret = secret.into();
-        if secret.len() < 32 {
-            return Err(AuthError::InvalidConfiguration(
-                "secret must contain at least 32 bytes".into(),
-            ));
-        }
-        Ok(Self {
-            secret,
-            session_ttl: Duration::days(7),
-            cookie_secure: false,
-            allow_anonymous: false,
-            development_bypass: false,
-            max_attempts: 5,
-            max_ip_attempts: 15,
-            lockout_window: Duration::minutes(5),
-            passkeys: None,
-            password_breach_checker: None,
-            ip_address: IpAddressConfig::default(),
-            trusted_origins: Vec::new(),
-            required_mfa_roles: Vec::new(),
-            step_up_ttl: Duration::days(1),
-        })
-    }
-
-    pub fn trust_origin(&mut self, origin: &str) -> Result<(), AuthError> {
-        self.trusted_origins.push(TrustedOrigin::parse(origin)?);
-        Ok(())
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct SignInResult {
@@ -132,12 +71,50 @@ impl AuthService {
     }
 
     pub fn cookie_secure(&self) -> bool {
-        self.config.cookie_secure
+        self.config.use_secure_cookies.unwrap_or_else(|| {
+            self.config
+                .base_url
+                .as_ref()
+                .is_some_and(|url| url.scheme() == "https")
+        })
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn base_path(&self) -> &str {
+        self.config.base_path()
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn cors_enabled(&self) -> bool {
+        self.config.cors_enabled
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn session_cookie(&self) -> ResolvedCookie {
+        self.resolve_cookie(CookieKind::SessionToken)
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn challenge_cookie(&self) -> ResolvedCookie {
+        self.resolve_cookie(CookieKind::PasskeyChallenge)
+    }
+
+    #[cfg(feature = "axum")]
+    fn resolve_cookie(&self, kind: CookieKind) -> ResolvedCookie {
+        self.config.cookies.resolve(
+            kind,
+            self.cookie_secure(),
+            self.config.base_url.as_ref().and_then(|url| url.host_str()),
+        )
     }
 
     #[cfg(feature = "axum")]
     pub(crate) fn trusts_origin(&self, origin: &str) -> bool {
-        self.config
+        self.config.base_url.as_ref().is_some_and(|url| {
+            TrustedOrigin::parse(&url.origin().ascii_serialization())
+                .is_ok_and(|trusted| trusted.matches(origin))
+        }) || self
+            .config
             .trusted_origins
             .iter()
             .any(|trusted| trusted.matches(origin))

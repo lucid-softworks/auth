@@ -67,3 +67,7 @@ required-features = ["axum"]
 [[test]]
 name = "client_ip_contract"
 required-features = ["axum"]
+
+[[test]]
+name = "deployment_contract"
+required-features = ["axum"]
