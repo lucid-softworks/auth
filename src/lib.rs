@@ -1,6 +1,7 @@
 //! Native authentication with a Better Auth-compatible HTTP surface.
 
 mod api_key;
+mod audit;
 mod breached_password;
 mod client_ip;
 mod config;
@@ -29,6 +30,10 @@ pub use api_key::{
     ApiKeyConfiguration, ApiKeyError, ApiKeyExpirationConfig, ApiKeyGenerator, ApiKeyPlugin,
     ApiKeyRateLimitConfig, ApiKeyReference, ApiKeyStartingCharactersConfig,
 };
+pub use audit::{
+    AUDIT_ACTION_VOCABULARY_VERSION, AuditEvent, AuditMetadata, AuditOutcome, AuditPlugin,
+    AuditStore, MemoryAuditStore,
+};
 pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use client_ip::IpAddressConfig;
 pub use config::{AuthConfig, EmailPasswordConfig};
@@ -48,8 +53,8 @@ pub use magic_link::{
 };
 pub use memory::MemoryStore;
 pub use model::{
-    ApiKey, Assurance, AuditEvent, AuthSession, AuthUser, IssuedApiKey, NewApiKey, NewPasswordUser,
-    Principal, SessionWithUser, StoredPasskey, VerificationValue, VerifiedApiKey,
+    ApiKey, Assurance, AuthSession, AuthUser, IssuedApiKey, NewApiKey, NewPasswordUser, Principal,
+    SessionWithUser, StoredPasskey, VerificationValue, VerifiedApiKey,
 };
 pub use origin::TrustedOrigin;
 pub use passkey::{

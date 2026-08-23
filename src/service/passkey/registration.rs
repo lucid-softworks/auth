@@ -166,14 +166,24 @@ impl AuthService {
         let replacement_session = self
             .create_passkey_registration_session(verification.create_session, actor, user_id)
             .await?;
-        self.audit(
-            user_id,
-            actor.map(|actor| actor.user.id),
-            "passkey.enrolled",
-            Some(stored.id.to_string()),
-            json!({}),
-        )
-        .await?;
+        if let Some(actor) = actor {
+            self.audit(
+                actor.user.id,
+                Some(user_id),
+                "passkey.enrolled",
+                Some(stored.id.to_string()),
+                json!({}),
+            )
+            .await;
+        } else {
+            self.audit_actorless(
+                Some(user_id),
+                "passkey.enrolled",
+                Some(stored.id.to_string()),
+                json!({}),
+            )
+            .await;
+        }
         Ok(PasskeyRegistrationResult {
             passkey: stored,
             replacement_session,

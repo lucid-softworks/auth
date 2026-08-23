@@ -1,34 +1,8 @@
 use super::{PostgresStore, SessionRow, UserRow, storage_error};
-use crate::{AccessStore, AuditEvent, AuthError, AuthSession, AuthUser};
+use crate::{AccessStore, AuthError, AuthSession, AuthUser};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use sqlx::FromRow;
 use uuid::Uuid;
-
-#[derive(FromRow)]
-struct AuditEventRow {
-    id: Uuid,
-    actor_user_id: Option<Uuid>,
-    subject_user_id: Option<Uuid>,
-    action: String,
-    target: Option<String>,
-    metadata: serde_json::Value,
-    created_at: DateTime<Utc>,
-}
-
-impl From<AuditEventRow> for AuditEvent {
-    fn from(row: AuditEventRow) -> Self {
-        Self {
-            id: row.id,
-            actor_user_id: row.actor_user_id,
-            subject_user_id: row.subject_user_id,
-            action: row.action,
-            target: row.target,
-            metadata: row.metadata,
-            created_at: row.created_at,
-        }
-    }
-}
 
 const USER_COLUMNS: &str = "id, username, display_username, name, email, email_verified, image, \
     role, is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at";
@@ -163,42 +137,10 @@ impl AccessStore for PostgresStore {
             .map_err(storage_error)
     }
 
-    async fn append_audit_event(&self, event: AuditEvent) -> Result<(), AuthError> {
-        sqlx::query(
-            "INSERT INTO lucid_auth_audit_events \
-             (id, actor_user_id, subject_user_id, action, target, metadata, created_at) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7)",
-        )
-        .bind(event.id)
-        .bind(event.actor_user_id)
-        .bind(event.subject_user_id)
-        .bind(event.action)
-        .bind(event.target)
-        .bind(event.metadata)
-        .bind(event.created_at)
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(storage_error)
-    }
-
-    async fn list_audit_events(&self, limit: usize) -> Result<Vec<AuditEvent>, AuthError> {
-        sqlx::query_as::<_, AuditEventRow>(
-            "SELECT id, actor_user_id, subject_user_id, action, target, metadata, created_at \
-             FROM lucid_auth_audit_events ORDER BY created_at DESC LIMIT $1",
-        )
-        .bind(limit as i64)
-        .fetch_all(&self.pool)
-        .await
-        .map(|rows| rows.into_iter().map(AuditEvent::from).collect())
-        .map_err(storage_error)
-    }
-
     async fn recover_sole_owner(
         &self,
         user_id: Uuid,
         password_hash: String,
-        event: AuditEvent,
     ) -> Result<bool, AuthError> {
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
         let owners = sqlx::query_scalar::<_, Uuid>(
@@ -246,21 +188,6 @@ impl AccessStore for PostgresStore {
             .execute(&mut *transaction)
             .await
             .map_err(storage_error)?;
-        sqlx::query(
-            "INSERT INTO lucid_auth_audit_events \
-             (id, actor_user_id, subject_user_id, action, target, metadata, created_at) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7)",
-        )
-        .bind(event.id)
-        .bind(event.actor_user_id)
-        .bind(event.subject_user_id)
-        .bind(event.action)
-        .bind(event.target)
-        .bind(event.metadata)
-        .bind(event.created_at)
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage_error)?;
         transaction.commit().await.map_err(storage_error)?;
         Ok(true)
     }

@@ -1,7 +1,9 @@
-use super::http::{auth_error, current_session};
-use crate::{AuditEvent, AuthError, AuthService};
+use crate::{
+    AuditEvent, AuthError, AuthService, AxumPluginRoute,
+    axum::http::{auth_error, current_session},
+};
 use axum::{
-    Extension, Json, Router,
+    Extension, Json,
     extract::Query,
     http::HeaderMap,
     response::{IntoResponse, Response},
@@ -10,11 +12,11 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-pub(super) fn router<S>() -> Router<S>
-where
-    S: Clone + Send + Sync + 'static,
-{
-    Router::new().route("/access/audit", get(list_audit_events))
+pub(super) fn routes(_service: Arc<AuthService>) -> Vec<AxumPluginRoute> {
+    vec![AxumPluginRoute::new(
+        "/access/audit",
+        get(list_audit_events),
+    )]
 }
 
 #[derive(Debug, Default, Deserialize)]

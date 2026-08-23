@@ -72,7 +72,7 @@ impl AuthService {
             Some(user.id.to_string()),
             json!({ "role": user.role, "username": user.username }),
         )
-        .await?;
+        .await;
         Ok(user)
     }
 
@@ -105,7 +105,8 @@ impl AuthService {
             Some(user_id.to_string()),
             json!({ "revokedSessions": true, "resetMfa": true }),
         )
-        .await
+        .await;
+        Ok(())
     }
 
     pub async fn remove_user(
@@ -134,7 +135,8 @@ impl AuthService {
             Some(user_id.to_string()),
             json!({ "name": target.name, "role": target.role, "username": target.username }),
         )
-        .await
+        .await;
+        Ok(())
     }
 }
 

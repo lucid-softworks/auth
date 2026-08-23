@@ -1,7 +1,7 @@
 use super::{AuthService, hash_token, random_token};
 use crate::{
-    Assurance, AuditEvent, AuthError, AuthUser, GuestCapabilityPlugin, GuestCapabilityPrincipal,
-    GuestGrant, GuestGrantSignInResult, IssuedGuestGrant, NewGuestGrant,
+    Assurance, AuthError, AuthUser, GuestCapabilityPlugin, GuestCapabilityPrincipal, GuestGrant,
+    GuestGrantSignInResult, IssuedGuestGrant, NewGuestGrant,
 };
 use chrono::{Duration, Utc};
 use serde_json::json;
@@ -50,7 +50,7 @@ impl AuthService {
                 "maxUses": grant.max_uses,
             }),
         )
-        .await?;
+        .await;
         Ok(IssuedGuestGrant { grant, token })
     }
 
@@ -107,17 +107,13 @@ impl AuthService {
             self.store.delete_user(result.session.user.id).await?;
             return Err(AuthError::InvalidGuestGrant);
         }
-        self.store
-            .append_audit_event(AuditEvent {
-                id: Uuid::new_v4(),
-                actor_user_id: None,
-                subject_user_id: Some(result.session.user.id),
-                action: "guest_grant.redeemed".into(),
-                target: Some(grant.id.to_string()),
-                metadata: json!({ "label": grant.label, "uses": grant.uses }),
-                created_at: now,
-            })
-            .await?;
+        self.audit_actorless(
+            Some(result.session.user.id),
+            "guest_grant.redeemed",
+            Some(grant.id.to_string()),
+            json!({ "label": grant.label, "uses": grant.uses }),
+        )
+        .await;
         Ok(GuestGrantSignInResult::new(result, grant.id))
     }
 
@@ -167,7 +163,8 @@ impl AuthService {
             Some(grant_id.to_string()),
             json!({}),
         )
-        .await
+        .await;
+        Ok(())
     }
 
     fn guest_capability(&self) -> Result<&GuestCapabilityPlugin, AuthError> {

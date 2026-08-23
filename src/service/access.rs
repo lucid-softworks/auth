@@ -3,7 +3,10 @@ use super::{
     password::{hash_password, normalize_username},
     user::validate_managed_role,
 };
-use crate::{Assurance, AuditEvent, AuthError, AuthSession, AuthUser, SessionWithUser};
+use crate::{
+    Assurance, AuditEvent, AuditMetadata, AuditOutcome, AuditPlugin, AuthError, AuthSession,
+    AuthUser, SessionWithUser,
+};
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -26,29 +29,28 @@ impl AuthService {
             .await?
             .filter(|user| !user.is_anonymous && user.role == "owner")
             .ok_or(AuthError::SoleOwnerRecoveryUnavailable)?;
-        let event = AuditEvent {
-            id: Uuid::new_v4(),
-            actor_user_id: None,
-            subject_user_id: Some(target.id),
-            action: "owner.recovered_locally".into(),
-            target: Some(target.id.to_string()),
-            metadata: json!({
-                "sessionsRevoked": true,
-                "mfaReset": true,
-                "passwordChangeRequired": true,
-            }),
-            created_at: Utc::now(),
-        };
         let recovered = self
             .store
-            .recover_sole_owner(target.id, hash_password(password).await?, event)
+            .recover_sole_owner(target.id, hash_password(password).await?)
             .await?;
         if !recovered {
             return Err(AuthError::SoleOwnerRecoveryUnavailable);
         }
         self.store
             .clear_auth_failures(&super::account_limit_key(&username))
-            .await
+            .await?;
+        self.audit_actorless(
+            Some(target.id),
+            "owner.recovered_locally",
+            Some(target.id.to_string()),
+            json!({
+                "sessionsRevoked": true,
+                "mfaReset": true,
+                "replacementRequired": true,
+            }),
+        )
+        .await;
+        Ok(())
     }
 
     pub async fn list_users(
@@ -92,7 +94,7 @@ impl AuthService {
             Some(user_id.to_string()),
             json!({ "from": target.role, "to": role }),
         )
-        .await?;
+        .await;
         Ok(updated)
     }
 
@@ -125,7 +127,7 @@ impl AuthService {
             Some(user_id.to_string()),
             json!({ "reason": reason, "expiresAt": expires_at }),
         )
-        .await?;
+        .await;
         Ok(updated)
     }
 
@@ -146,7 +148,7 @@ impl AuthService {
             Some(user_id.to_string()),
             json!({}),
         )
-        .await?;
+        .await;
         Ok(updated)
     }
 
@@ -179,7 +181,8 @@ impl AuthService {
             Some(session_id.to_string()),
             json!({}),
         )
-        .await
+        .await;
+        Ok(())
     }
 
     pub async fn revoke_user_sessions(
@@ -202,7 +205,8 @@ impl AuthService {
             Some(user_id.to_string()),
             json!({}),
         )
-        .await
+        .await;
+        Ok(())
     }
 
     pub async fn impersonate_user(
@@ -242,7 +246,7 @@ impl AuthService {
             Some(result.session.session.id.to_string()),
             json!({ "expiresAt": result.session.session.expires_at }),
         )
-        .await?;
+        .await;
         Ok(result)
     }
 
@@ -277,7 +281,7 @@ impl AuthService {
             Some(session.session.id.to_string()),
             json!({}),
         )
-        .await?;
+        .await;
         Ok(result)
     }
 
@@ -287,7 +291,11 @@ impl AuthService {
         limit: usize,
     ) -> Result<Vec<AuditEvent>, AuthError> {
         require_owner(actor)?;
-        self.store.list_audit_events(limit.clamp(1, 200)).await
+        let plugin = self
+            .plugins
+            .find::<AuditPlugin>()
+            .ok_or(AuthError::NotFound)?;
+        plugin.store.list_audit_events(limit.clamp(1, 200)).await
     }
 
     pub(super) async fn protect_final_owner(
@@ -311,18 +319,58 @@ impl AuthService {
         action: &str,
         target: Option<String>,
         metadata: Value,
-    ) -> Result<(), AuthError> {
-        self.store
-            .append_audit_event(AuditEvent {
-                id: Uuid::new_v4(),
-                actor_user_id: Some(actor_user_id),
-                subject_user_id,
-                action: action.to_owned(),
-                target,
-                metadata,
-                created_at: Utc::now(),
-            })
-            .await
+    ) {
+        self.record_audit_event(
+            Some(actor_user_id),
+            subject_user_id,
+            action,
+            target,
+            metadata,
+        )
+        .await;
+    }
+
+    pub(super) async fn audit_actorless(
+        &self,
+        subject_user_id: Option<Uuid>,
+        action: &str,
+        target: Option<String>,
+        metadata: Value,
+    ) {
+        self.record_audit_event(None, subject_user_id, action, target, metadata)
+            .await;
+    }
+
+    async fn record_audit_event(
+        &self,
+        actor_user_id: Option<Uuid>,
+        subject_user_id: Option<Uuid>,
+        action: &str,
+        target: Option<String>,
+        metadata: Value,
+    ) {
+        let Some(plugin) = self.plugins.find::<AuditPlugin>() else {
+            return;
+        };
+        let Ok(metadata) = AuditMetadata::new(metadata) else {
+            return;
+        };
+        let _ = plugin
+            .store
+            .record_audit_event(
+                AuditEvent {
+                    id: Uuid::new_v4(),
+                    actor_user_id,
+                    subject_user_id,
+                    action: action.to_owned(),
+                    target,
+                    outcome: AuditOutcome::Success,
+                    metadata,
+                    created_at: Utc::now(),
+                },
+                plugin.max_events,
+            )
+            .await;
     }
 }
 

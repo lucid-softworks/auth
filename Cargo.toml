@@ -57,6 +57,10 @@ name = "access_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "audit_plugin_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "api_key_contract"
 required-features = ["axum"]
 

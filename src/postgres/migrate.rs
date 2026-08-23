@@ -1,7 +1,7 @@
 use super::{PostgresStore, storage_error};
 use crate::AuthError;
 
-const MIGRATIONS: [(i64, &str, &str); 9] = [
+const MIGRATIONS: [(i64, &str, &str); 8] = [
     (
         1,
         "initial authentication schema",
@@ -11,11 +11,6 @@ const MIGRATIONS: [(i64, &str, &str); 9] = [
         2,
         "legacy WebAuthn passkey storage",
         include_str!("../../migrations/0002_passkeys.sql"),
-    ),
-    (
-        3,
-        "access administration and audit",
-        include_str!("../../migrations/0003_access_audit.sql"),
     ),
     (
         4,

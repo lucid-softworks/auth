@@ -185,18 +185,6 @@ pub struct VerifiedApiKey {
     pub user: AuthUser,
 }
 
-/// Security-relevant action retained for owner review.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AuditEvent {
-    pub id: Uuid,
-    pub actor_user_id: Option<Uuid>,
-    pub subject_user_id: Option<Uuid>,
-    pub action: String,
-    pub target: Option<String>,
-    pub metadata: serde_json::Value,
-    pub created_at: DateTime<Utc>,
-}
-
 /// Server-side session metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuthSession {

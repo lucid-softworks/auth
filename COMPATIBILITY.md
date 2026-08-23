@@ -191,9 +191,14 @@ claims:
   ([#71](https://github.com/lucid-softworks/auth/issues/71));
 - role-driven passkey assurance and step-up policy ([#72](https://github.com/lucid-softworks/auth/issues/72));
 - mandatory temporary-password and sole-owner recovery policy ([#73](https://github.com/lucid-softworks/auth/issues/73));
-- product security audit events ([#74](https://github.com/lucid-softworks/auth/issues/74));
+- optional `AuditPlugin` with a versioned action vocabulary, typed outcomes,
+  structurally validated metadata, fail-open lifecycle recording, bounded
+  memory/PostgreSQL retention, identity anonymization, and a plugin-owned
+  `/access/audit` route ([#74](https://github.com/lucid-softworks/auth/issues/74));
 - custom owner-policy behavior layered around Admin ([#75](https://github.com/lucid-softworks/auth/issues/75)).
 
 These extensions must continue to compose safely with compatibility work, but a
 Better Auth client is not expected to know about them unless an application adds
-its own client methods.
+its own client methods. In particular, `AuditPlugin` is not the Better Auth
+Infrastructure Dashboard audit-log integration tracked in
+[#54](https://github.com/lucid-softworks/auth/issues/54).

@@ -419,5 +419,4 @@ const CORE_ENDPOINTS: &[(PluginHttpMethod, &str)] = &[
     (PluginHttpMethod::Post, "/admin/revoke-user-sessions"),
     (PluginHttpMethod::Post, "/admin/impersonate-user"),
     (PluginHttpMethod::Post, "/admin/stop-impersonating"),
-    (PluginHttpMethod::Get, "/access/audit"),
 ];

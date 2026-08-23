@@ -1,5 +1,5 @@
 use super::MemoryStore;
-use crate::{AccessStore, AuditEvent, AuthError, AuthSession, AuthUser};
+use crate::{AccessStore, AuthError, AuthSession, AuthUser};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -94,14 +94,6 @@ impl AccessStore for MemoryStore {
         state.guest_sessions.retain(|session_id, grant_id| {
             !removed_sessions.contains(session_id) && !removed_grants.contains(grant_id)
         });
-        for event in &mut state.audit_events {
-            if event.actor_user_id == Some(user_id) {
-                event.actor_user_id = None;
-            }
-            if event.subject_user_id == Some(user_id) {
-                event.subject_user_id = None;
-            }
-        }
         Ok(())
     }
 
@@ -137,29 +129,10 @@ impl AccessStore for MemoryStore {
         Ok(())
     }
 
-    async fn append_audit_event(&self, event: AuditEvent) -> Result<(), AuthError> {
-        self.state.write().await.audit_events.push(event);
-        Ok(())
-    }
-
-    async fn list_audit_events(&self, limit: usize) -> Result<Vec<AuditEvent>, AuthError> {
-        Ok(self
-            .state
-            .read()
-            .await
-            .audit_events
-            .iter()
-            .rev()
-            .take(limit)
-            .cloned()
-            .collect())
-    }
-
     async fn recover_sole_owner(
         &self,
         user_id: Uuid,
         password_hash: String,
-        event: AuditEvent,
     ) -> Result<bool, AuthError> {
         let mut state = self.state.write().await;
         let owners: Vec<_> = state
@@ -187,7 +160,6 @@ impl AccessStore for MemoryStore {
             .passkeys
             .retain(|_, passkey| passkey.user_id != user_id);
         state.recovery_codes.remove(&user_id);
-        state.audit_events.push(event);
         Ok(true)
     }
 }

@@ -165,7 +165,7 @@ impl AuthService {
             None,
             json!({ "revokedOtherSessions": revoke_other_sessions }),
         )
-        .await?;
+        .await;
         Ok(PasswordChangeResult {
             user: updated_user,
             replacement_session,

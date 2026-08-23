@@ -43,7 +43,7 @@ impl AuthService {
             None,
             json!({ "count": codes.len() }),
         )
-        .await?;
+        .await;
         Ok(codes)
     }
 
@@ -113,7 +113,7 @@ impl AuthService {
             Some(result.session.session.id.to_string()),
             json!({ "remaining": remaining }),
         )
-        .await?;
+        .await;
         Ok(result)
     }
 

@@ -1,6 +1,6 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{
-    AuthConfig, AuthError, AuthService, AuthStore, AuthUser, EmailSignUpInput,
+    AuditPlugin, AuthConfig, AuthError, AuthService, AuthStore, AuthUser, EmailSignUpInput,
     EmailVerificationOutcome, GuestCapabilityPlugin, NewPasswordUser, PasskeyConfig, PasskeyPlugin,
     PasswordResetOutcome, PluginMigration, PluginMigrationContribution, UsernameError,
     UsernamePlugin, VerificationStore, VerificationValue, postgres::PostgresStore,
@@ -13,6 +13,8 @@ use uuid::Uuid;
 
 #[path = "postgres_contract/api_key.rs"]
 mod api_key;
+#[path = "postgres_contract/audit.rs"]
+mod audit;
 #[path = "postgres_contract/guest_capability.rs"]
 mod guest_capability;
 #[path = "postgres_contract/magic_link.rs"]
@@ -57,13 +59,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     store.migrate().await?;
     store.migrate().await?;
     plugin_migrations_are_idempotent(&store, &pool).await?;
-    assert_eq!(passkey_public_key_column_count(&pool).await?, 0);
-    api_key::assert_table_absent(&pool).await?;
-    assert!(
-        !sqlx::query_scalar::<_, bool>("SELECT to_regclass('lucid_auth_guest_grants') IS NOT NULL")
-            .fetch_one(&pool)
-            .await?
-    );
+    assert_extension_tables_absent(&pool).await?;
 
     let mut config = AuthConfig::new([42_u8; 32])?;
     config.email_and_password.enabled = true;
@@ -71,6 +67,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     config.add_plugin(UsernamePlugin::default())?;
     config.add_plugin(PasskeyPlugin::new(PasskeyConfig::default()))?;
     config.add_plugin(GuestCapabilityPlugin::new(store.clone()))?;
+    config.add_plugin(AuditPlugin::new(store.clone()).with_max_events(100))?;
     let api_keys = api_key::register(&mut config)?;
     let service = Arc::new(AuthService::new(store.clone(), config));
     let user = service
@@ -84,11 +81,13 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
         .await?;
     let legacy = insert_legacy_passkey(&pool, user.id).await?;
     let legacy_guest = guest_capability::insert_legacy_shape(&pool, user.id).await?;
+    let legacy_audit = audit::insert_legacy_shape(&pool, user.id).await?;
     store.migrate_plugins(&service.plugin_migrations()).await?;
     store.migrate_plugins(&service.plugin_migrations()).await?;
     assert_eq!(passkey_public_key_column_count(&pool).await?, 1);
     assert_legacy_passkey_migrated(&store, &legacy).await?;
     guest_capability::assert_legacy_migrated(&pool, legacy_guest).await?;
+    audit::assert_legacy_migrated(&store, &pool, legacy_audit).await?;
     let signed_in = authenticate_owner(&service, &user).await?;
 
     verification_values_are_atomic(&store, user.id).await?;
@@ -101,12 +100,27 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     user_deletion::assert_transactional(&service, &pool).await?;
     passkey_counters_are_atomic(&store, user.id).await?;
     api_key::assert_limits_are_atomic(&service, &api_keys, &signed_in.session).await?;
+    audit::assert_retention_is_atomic(&store, &pool, user.id).await?;
 
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
         .execute(&admin)
         .await?;
     admin.close().await;
+    Ok(())
+}
+
+async fn assert_extension_tables_absent(
+    pool: &sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(passkey_public_key_column_count(pool).await?, 0);
+    api_key::assert_table_absent(pool).await?;
+    audit::assert_table_absent(pool).await?;
+    assert!(
+        !sqlx::query_scalar::<_, bool>("SELECT to_regclass('lucid_auth_guest_grants') IS NOT NULL")
+            .fetch_one(pool)
+            .await?
+    );
     Ok(())
 }
 

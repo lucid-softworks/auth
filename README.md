@@ -80,6 +80,39 @@ lucid-auth database, enabling the plugin preserves existing grants, migrates
 legacy session links, and removes the old core session column; leaving it
 disabled retains the legacy grant table as unused data.
 
+Product security auditing is another optional lucid-auth extension. Core stores
+have no audit methods, core migrations create no audit table, and
+`/access/audit` is absent unless `AuditPlugin` is registered. Memory-backed
+applications provide a separate sink:
+
+```rust
+let auth_store = Arc::new(MemoryStore::default());
+let audit_store = Arc::new(MemoryAuditStore::default());
+config.add_plugin(AuditPlugin::new(audit_store).with_max_events(10_000))?;
+let auth = AuthService::new(auth_store, config);
+```
+
+For PostgreSQL, pass the same `Arc<PostgresStore>` to `AuditPlugin` and apply the
+service's plugin migrations. The plugin owns its table, retention operation,
+and owner-only listing route. Both bundled stores return newest-first events,
+ordering equal timestamps by event ID. Recording is deliberately fail-open: a
+sink failure never rolls back a completed authentication or administrative
+write, while an explicit audit-list request reports sink errors. User deletion
+anonymizes actor and subject references. `AuditMetadata` recursively rejects
+password-, cookie-, token-, OTP-, secret-, challenge-, API-key-, and
+credential-bearing field names, including authorization and bearer fields; the
+same validation runs during deserialization.
+
+Audit action vocabulary version `1` contains `owner.recovered_locally`,
+`user.created`, `user.role.changed`, `user.banned`, `user.unbanned`,
+`user.removed`, `password.changed`, `password.reset_by_owner`,
+`session.revoked`, `session.user_revoked`, `session.others_revoked`,
+`session.all_revoked`, `impersonation.started`, `impersonation.stopped`,
+`passkey.enrolled`, `passkey.renamed`, `passkey.deleted`,
+`recovery_codes.generated`, `recovery_code.used`, `guest_grant.issued`,
+`guest_grant.redeemed`, and `guest_grant.revoked`. This native vocabulary is
+not Better Auth Infrastructure Dashboard audit-log compatibility.
+
 Passkey is also optional. Register it explicitly; without the plugin, its seven
 routes do not exist:
 
@@ -102,13 +135,15 @@ schema includes `publicKey`, exact `credentialID`, counters, device type, backup
 state, transports, and AAGUID. Challenges are durable and single-use, while
 signature counters use compare-and-swap persistence.
 
-The existing role-driven assurance, backup-code, sole-owner, and audit policies
+The existing role-driven assurance, backup-code, sole-owner, and owner policies
 are project-specific extensions rather than Better Auth passkey
 behavior. Their extraction into optional native plugins is tracked in
-[#72](https://github.com/lucid-softworks/auth/issues/72) through
-[#75](https://github.com/lucid-softworks/auth/issues/75). Guest capabilities have
-already moved to their optional lucid extension plugin; the Better Auth
-passkey endpoints do not impose those custom deletion or step-up rules.
+[#72](https://github.com/lucid-softworks/auth/issues/72),
+[#73](https://github.com/lucid-softworks/auth/issues/73), and
+[#75](https://github.com/lucid-softworks/auth/issues/75). Guest capabilities and
+product security auditing have moved to optional lucid extension plugins; the
+Better Auth passkey endpoints do not impose those custom deletion or step-up
+rules.
 
 Core email/password authentication is disabled by default, matching Better
 Auth. Enable it with `config.email_and_password.enabled = true`; the same
@@ -227,7 +262,8 @@ which is reapplied only while the configured password hash remains active.
 primitive for a host CLI. It atomically refuses multi-owner installations,
 replaces the sole owner's password, clears bans, sessions, passkeys, and recovery
 codes, marks the password temporary, and appends an actorless audit event. It is
-not routed by the crate's Axum compatibility surface.
+not routed by the crate's Axum compatibility surface. The event is recorded only
+when `AuditPlugin` is enabled.
 
 WebAuthn relying-party and origin configuration lives on `PasskeyConfig`.
 Registration and authentication challenges are stored through the configured

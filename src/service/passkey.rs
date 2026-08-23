@@ -60,7 +60,7 @@ impl AuthService {
             Some(passkey_id.to_string()),
             json!({ "name": name }),
         )
-        .await?;
+        .await;
         Ok(passkey)
     }
 
@@ -94,7 +94,8 @@ impl AuthService {
             Some(passkey_id.to_string()),
             json!({ "remaining": remaining }),
         )
-        .await
+        .await;
+        Ok(())
     }
 
     pub async fn start_passkey_authentication(

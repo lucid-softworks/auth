@@ -1,12 +1,15 @@
 use super::*;
-use crate::{AuthConfig, MemoryStore, NewPasswordUser, StoredPasskey};
+use crate::{
+    AuditPlugin, AuthConfig, MemoryAuditStore, MemoryStore, NewPasswordUser, StoredPasskey,
+};
 use std::sync::Arc;
 
 async fn owner_and_member() -> (AuthService, SignInResult, AuthUser) {
-    let service = AuthService::new(
-        Arc::new(MemoryStore::default()),
-        AuthConfig::new([8_u8; 32]).unwrap(),
-    );
+    let mut config = AuthConfig::new([8_u8; 32]).unwrap();
+    config
+        .add_plugin(AuditPlugin::new(Arc::new(MemoryAuditStore::default())))
+        .unwrap();
+    let service = AuthService::new(Arc::new(MemoryStore::default()), config);
     service
         .provision_password_user(NewPasswordUser {
             username: "owner".into(),
@@ -153,8 +156,7 @@ async fn local_recovery_resets_only_the_sole_owner_and_records_it() {
         .unwrap();
     assert!(recovered.session.user.must_change_password);
     let event = service
-        .store
-        .list_audit_events(1)
+        .list_audit_events(&owner.session, 1)
         .await
         .unwrap()
         .pop()

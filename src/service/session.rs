@@ -37,7 +37,7 @@ impl AuthService {
                 Some(session_id.to_string()),
                 json!({ "selfService": true }),
             )
-            .await?;
+            .await;
         }
         Ok(())
     }
@@ -57,7 +57,8 @@ impl AuthService {
             Some(actor.session.id.to_string()),
             json!({}),
         )
-        .await
+        .await;
+        Ok(())
     }
 
     pub async fn revoke_all_current_user_sessions(
@@ -65,6 +66,7 @@ impl AuthService {
         actor: &SessionWithUser,
     ) -> Result<(), AuthError> {
         require_account_session(actor)?;
+        self.store.delete_user_sessions(actor.user.id).await?;
         self.audit(
             actor.user.id,
             Some(actor.user.id),
@@ -72,8 +74,8 @@ impl AuthService {
             None,
             json!({}),
         )
-        .await?;
-        self.store.delete_user_sessions(actor.user.id).await
+        .await;
+        Ok(())
     }
 }
 
