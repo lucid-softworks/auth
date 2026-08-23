@@ -105,4 +105,19 @@ cross-subdomain scope. Call `AuthConfig::enable_cors` to answer credentialed
 preflights for trusted origins; untrusted origins remain blocked by the same
 CSRF policy.
 
+## Conformance tests
+
+The black-box suite installs the exact official Better Auth client versions in
+`conformance/package-lock.json` and runs them against an ephemeral native Rust
+server:
+
+```sh
+npm ci --prefix conformance --ignore-scripts
+npm test --prefix conformance
+```
+
+It currently exercises session, username, anonymous, admin, passkey ceremony
+startup/listing, and two-factor backup-code client behavior. The fixture and
+Node dependencies are excluded from the published crate.
+
 This project is not affiliated with Better Auth.

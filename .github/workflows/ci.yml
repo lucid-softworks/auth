@@ -30,6 +30,11 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: conformance/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -47,6 +52,10 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/lucid_auth_test
         run: cargo test --features postgres --test postgres_contract -- --ignored
+      - name: Install official Better Auth clients
+        run: npm ci --prefix conformance --ignore-scripts
+      - name: Test the official Better Auth clients
+        run: npm test --prefix conformance
       - name: Verify the package
         run: cargo package
 

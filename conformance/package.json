@@ -1,0 +1,12 @@
+{
+  "name": "lucid-auth-conformance",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "dependencies": {
+    "@better-auth/passkey": "1.6.29",
+    "better-auth": "1.6.29"
+  }
+}

@@ -9,6 +9,7 @@ license = "MIT"
 repository = "https://github.com/lucid-softworks/auth"
 keywords = ["authentication", "better-auth", "axum", "passkey"]
 categories = ["authentication", "web-programming"]
+exclude = ["conformance/"]
 
 [features]
 default = ["axum"]

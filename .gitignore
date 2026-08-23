@@ -1,2 +1,4 @@
 /Cargo.lock
 /target/
+conformance/node_modules/
+conformance/server/target/
