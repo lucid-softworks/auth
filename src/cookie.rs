@@ -40,7 +40,6 @@ pub struct CookieConfig {
     pub prefix: String,
     pub default_attributes: CookieAttributes,
     pub session_token: CookieOptions,
-    pub passkey_challenge: CookieOptions,
     cross_subdomain_enabled: bool,
     cross_subdomain_domain: Option<String>,
 }
@@ -51,7 +50,6 @@ impl Default for CookieConfig {
             prefix: "better-auth".into(),
             default_attributes: CookieAttributes::default(),
             session_token: CookieOptions::default(),
-            passkey_challenge: CookieOptions::default(),
             cross_subdomain_enabled: false,
             cross_subdomain_domain: None,
         }
@@ -81,17 +79,28 @@ impl CookieConfig {
         secure_name: bool,
         base_url_host: Option<&str>,
     ) -> ResolvedCookie {
-        let options = match kind {
-            CookieKind::SessionToken => &self.session_token,
-            CookieKind::PasskeyChallenge => &self.passkey_challenge,
-        };
-        let suffix = match kind {
+        self.resolve_with_suffix(kind, None, secure_name, base_url_host)
+    }
+
+    #[cfg(any(feature = "axum", test))]
+    pub(crate) fn resolve_with_suffix(
+        &self,
+        kind: CookieKind,
+        suffix_override: Option<&str>,
+        secure_name: bool,
+        base_url_host: Option<&str>,
+    ) -> ResolvedCookie {
+        let default_suffix = match kind {
             CookieKind::SessionToken => "session_token",
             CookieKind::PasskeyChallenge => "better-auth-passkey",
         };
+        let suffix = suffix_override.unwrap_or(default_suffix);
+        let options = match kind {
+            CookieKind::SessionToken => Some(&self.session_token),
+            CookieKind::PasskeyChallenge => None,
+        };
         let unprefixed_name = options
-            .name
-            .clone()
+            .and_then(|options| options.name.clone())
             .unwrap_or_else(|| format!("{}.{suffix}", self.prefix));
         let name = if secure_name {
             format!("__Secure-{unprefixed_name}")
@@ -106,30 +115,24 @@ impl CookieConfig {
         });
         let attributes = ResolvedCookieAttributes {
             path: options
-                .attributes
-                .path
+                .and_then(|options| options.attributes.path.clone())
                 .clone()
                 .or_else(|| self.default_attributes.path.clone())
                 .unwrap_or_else(|| "/".into()),
             domain: options
-                .attributes
-                .domain
-                .clone()
+                .and_then(|options| options.attributes.domain.clone())
                 .or_else(|| self.default_attributes.domain.clone())
                 .or_else(|| cross_subdomain.flatten()),
             same_site: options
-                .attributes
-                .same_site
+                .and_then(|options| options.attributes.same_site)
                 .or(self.default_attributes.same_site)
                 .unwrap_or(SameSite::Lax),
             secure: options
-                .attributes
-                .secure
+                .and_then(|options| options.attributes.secure)
                 .or(self.default_attributes.secure)
                 .unwrap_or(secure_name),
             http_only: options
-                .attributes
-                .http_only
+                .and_then(|options| options.attributes.http_only)
                 .or(self.default_attributes.http_only)
                 .unwrap_or(true),
         };

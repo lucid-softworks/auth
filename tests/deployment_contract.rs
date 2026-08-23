@@ -3,7 +3,9 @@ use axum::{
     body::Body,
     http::{Request, StatusCode, header},
 };
-use lucid_auth::{AuthConfig, AuthService, MemoryStore, NewPasswordUser, PasskeyConfig, SameSite};
+use lucid_auth::{
+    AuthConfig, AuthService, MemoryStore, NewPasswordUser, PasskeyConfig, PasskeyPlugin, SameSite,
+};
 use serde_json::json;
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -111,13 +113,16 @@ async fn passkey_challenge_uses_the_configured_secure_cookie_scope() {
     let app = application(|config| {
         config.set_base_url("https://auth.example.com").unwrap();
         config.cookies.prefix = "lucid".into();
-        config.cookies.passkey_challenge.name = Some("passkey-challenge".into());
-        config.cookies.passkey_challenge.attributes.path = Some("/api/auth".into());
-        config.passkeys = Some(PasskeyConfig {
-            rp_id: "example.com".into(),
-            rp_origin: "https://auth.example.com".into(),
-            rp_name: "Example".into(),
-        });
+        config.cookies.default_attributes.path = Some("/api/auth".into());
+        config
+            .add_plugin(PasskeyPlugin::new(PasskeyConfig {
+                rp_id: Some("example.com".into()),
+                rp_name: Some("Example".into()),
+                origins: Some(vec!["https://auth.example.com".into()]),
+                webauthn_challenge_cookie: "passkey-challenge".into(),
+                ..PasskeyConfig::default()
+            }))
+            .unwrap();
     })
     .await;
     let response = app
@@ -150,7 +155,7 @@ async fn passkey_challenge_uses_the_configured_secure_cookie_scope() {
         .unwrap()
         .to_str()
         .unwrap();
-    assert!(cookie.starts_with("__Secure-passkey-challenge="));
+    assert!(cookie.starts_with("__Secure-lucid.passkey-challenge="));
     assert!(cookie.contains("; Path=/api/auth; Max-Age=300; Secure"));
 }
 

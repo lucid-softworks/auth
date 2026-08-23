@@ -901,6 +901,7 @@ dependencies = [
  "rand_core 0.6.4",
  "reqwest",
  "serde",
+ "serde_cbor_2",
  "serde_json",
  "serde_urlencoded",
  "sha1",
@@ -910,6 +911,7 @@ dependencies = [
  "url",
  "uuid",
  "webauthn-rs",
+ "webauthn-rs-core",
 ]
 
 [[package]]

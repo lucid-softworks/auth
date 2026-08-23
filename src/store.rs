@@ -93,9 +93,23 @@ pub trait AuthStore:
 
     async fn list_passkeys(&self, user_id: Uuid) -> Result<Vec<StoredPasskey>, AuthError>;
 
-    async fn list_all_passkeys(&self) -> Result<Vec<StoredPasskey>, AuthError>;
+    async fn find_passkey_by_id(
+        &self,
+        passkey_id: Uuid,
+    ) -> Result<Option<StoredPasskey>, AuthError>;
 
-    async fn update_passkey(&self, passkey: StoredPasskey) -> Result<(), AuthError>;
+    async fn find_passkey_by_credential_id(
+        &self,
+        credential_id: &str,
+    ) -> Result<Option<StoredPasskey>, AuthError>;
+
+    /// Updates verified authenticator state only if its persisted signature
+    /// counter still matches the value used during verification.
+    async fn update_passkey_after_authentication(
+        &self,
+        passkey: StoredPasskey,
+        expected_counter: u32,
+    ) -> Result<bool, AuthError>;
 
     async fn update_passkey_name(
         &self,

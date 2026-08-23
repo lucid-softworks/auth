@@ -9,7 +9,7 @@ const MIGRATIONS: [(i64, &str, &str); 10] = [
     ),
     (
         2,
-        "WebAuthn passkeys",
+        "legacy WebAuthn passkey storage",
         include_str!("../../migrations/0002_passkeys.sql"),
     ),
     (

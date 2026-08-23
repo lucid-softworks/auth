@@ -33,7 +33,9 @@ use uuid::Uuid;
 
 pub use email_password::{EmailSignUpInput, EmailSignUpResult};
 pub use email_verification::EmailVerificationResult;
-pub use passkey::PasskeyRegistrationResult;
+pub use passkey::{
+    PasskeyRegistrationRequest, PasskeyRegistrationResult, PasskeyRegistrationVerification,
+};
 pub use password::PasswordChangeResult;
 pub use recovery::RecoveryCodeStatus;
 
@@ -122,8 +124,13 @@ impl AuthService {
     }
 
     #[cfg(feature = "axum")]
-    pub(crate) fn challenge_cookie(&self) -> ResolvedCookie {
-        self.resolve_cookie(CookieKind::PasskeyChallenge)
+    pub(crate) fn passkey_challenge_cookie(&self, suffix: &str) -> ResolvedCookie {
+        self.config.cookies.resolve_with_suffix(
+            CookieKind::PasskeyChallenge,
+            Some(suffix),
+            self.cookie_secure(),
+            self.config.base_url.as_ref().and_then(|url| url.host_str()),
+        )
     }
 
     #[cfg(feature = "axum")]

@@ -11,8 +11,9 @@ use axum::{
 use http_body_util::BodyExt;
 use lucid_auth::{
     AfterAuthEvent, AuthConfig, AuthError, AuthPlugin, AuthService, AxumPluginRoute,
-    BeforeAuthEvent, MemoryStore, NewPasswordUser, PluginClientMetadata, PluginDescriptor,
-    PluginEndpoint, PluginHttpMethod, PluginMiddleware, PluginMigration,
+    BeforeAuthEvent, MemoryStore, NewPasswordUser, PasskeyConfig, PasskeyPlugin,
+    PluginClientMetadata, PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginMiddleware,
+    PluginMigration,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -128,6 +129,46 @@ async fn plugin_contributes_route_middleware_hooks_migration_and_client_metadata
     let body: Value =
         serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
     assert_eq!(body, json!({ "plugin": "native-test" }));
+}
+
+#[tokio::test]
+async fn passkey_routes_and_metadata_exist_only_when_the_plugin_is_enabled() {
+    let without = Arc::new(AuthService::new(
+        Arc::new(MemoryStore::default()),
+        AuthConfig::new([96_u8; 32]).unwrap(),
+    ));
+    let response = lucid_auth::axum::router(without)
+        .oneshot(
+            HttpRequest::get("/api/auth/passkey/list-user-passkeys")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let mut config = AuthConfig::new([97_u8; 32]).unwrap();
+    config
+        .add_plugin(PasskeyPlugin::new(PasskeyConfig::default()))
+        .unwrap();
+    let with = Arc::new(AuthService::try_new(Arc::new(MemoryStore::default()), config).unwrap());
+    let descriptor = with.plugin_metadata()[0];
+    assert_eq!(descriptor.id, "passkey");
+    assert_eq!(descriptor.endpoints.len(), 7);
+    assert_eq!(descriptor.client.unwrap().package, "@better-auth/passkey");
+    assert_eq!(
+        with.plugin_migrations()[0].migration.id,
+        "better-auth-passkey-schema"
+    );
+    let response = lucid_auth::axum::router(with)
+        .oneshot(
+            HttpRequest::get("/api/auth/passkey/list-user-passkeys")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
 struct MetadataPlugin(PluginDescriptor);

@@ -45,6 +45,11 @@ impl PostgresStore {
                 .execute(&mut *transaction)
                 .await
                 .map_err(storage_error)?;
+            if contribution.plugin_id == "passkey"
+                && contribution.migration.id == "better-auth-passkey-schema"
+            {
+                super::passkey::backfill_public_keys(&mut transaction).await?;
+            }
             sqlx::query(
                 "INSERT INTO lucid_auth_plugin_migrations \
                  (plugin_id, migration_id, description) VALUES ($1, $2, $3)",

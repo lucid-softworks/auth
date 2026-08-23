@@ -211,17 +211,41 @@ impl AuthStore for MemoryStore {
             .collect())
     }
 
-    async fn list_all_passkeys(&self) -> Result<Vec<StoredPasskey>, AuthError> {
-        Ok(self.state.read().await.passkeys.values().cloned().collect())
-    }
-
-    async fn update_passkey(&self, passkey: StoredPasskey) -> Result<(), AuthError> {
-        self.state
-            .write()
+    async fn find_passkey_by_credential_id(
+        &self,
+        credential_id: &str,
+    ) -> Result<Option<StoredPasskey>, AuthError> {
+        Ok(self
+            .state
+            .read()
             .await
             .passkeys
-            .insert(passkey.id, passkey);
-        Ok(())
+            .values()
+            .find(|passkey| passkey.credential_id == credential_id)
+            .cloned())
+    }
+
+    async fn find_passkey_by_id(
+        &self,
+        passkey_id: Uuid,
+    ) -> Result<Option<StoredPasskey>, AuthError> {
+        Ok(self.state.read().await.passkeys.get(&passkey_id).cloned())
+    }
+
+    async fn update_passkey_after_authentication(
+        &self,
+        passkey: StoredPasskey,
+        expected_counter: u32,
+    ) -> Result<bool, AuthError> {
+        let mut state = self.state.write().await;
+        let Some(current) = state.passkeys.get(&passkey.id) else {
+            return Ok(false);
+        };
+        if current.counter != expected_counter {
+            return Ok(false);
+        }
+        state.passkeys.insert(passkey.id, passkey);
+        Ok(true)
     }
 
     async fn update_passkey_name(
@@ -267,9 +291,6 @@ impl AuthStore for MemoryStore {
         }
         state.passkeys.remove(&passkey_id);
         let remaining = count - 1;
-        if remaining == 0 {
-            state.recovery_codes.remove(&user_id);
-        }
         Ok(PasskeyDeleteOutcome::Deleted { remaining })
     }
 

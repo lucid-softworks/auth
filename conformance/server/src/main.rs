@@ -7,8 +7,8 @@ use axum::{
 };
 use lucid_auth::{
     AuthConfig, AuthService, MagicLinkConfig, MagicLinkEmail, MagicLinkPlugin, MemoryStore,
-    NewPasswordUser, PasskeyConfig, PasswordResetEmail, PluginDescriptor, VerificationEmail,
-    protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+    NewPasswordUser, PasskeyConfig, PasskeyPlugin, PasswordResetEmail, PluginDescriptor,
+    VerificationEmail, protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
 };
 use serde_json::json;
 use std::{io::Write, net::SocketAddr, sync::Arc};
@@ -142,11 +142,14 @@ async fn fixture(origin: &str) -> Fixture {
     config
         .set_base_url(origin)
         .expect("localhost fixture origin");
-    config.passkeys = Some(PasskeyConfig {
-        rp_id: "localhost".into(),
-        rp_origin: origin.into(),
-        rp_name: "lucid-auth conformance".into(),
-    });
+    config
+        .add_plugin(PasskeyPlugin::new(PasskeyConfig {
+            rp_id: Some("localhost".into()),
+            rp_name: Some("lucid-auth conformance".into()),
+            origins: Some(vec![origin.into()]),
+            ..PasskeyConfig::default()
+        }))
+        .expect("unique passkey plugin");
     config
         .add_plugin(ConformancePlugin)
         .expect("unique conformance plugin");

@@ -25,7 +25,7 @@ semantics, persistence, and an end-to-end client test must all agree.
 | Capability | Status | Notes |
 | --- | --- | --- |
 | Better Auth 1.7.1 wire baseline | Partial | This is the sole declared target. Partial plugin rows below qualify the claim; [#3](https://github.com/lucid-softworks/auth/issues/3). |
-| Official JavaScript client conformance | Supported | CI drives the pinned `1.7.1` vanilla email/password, email-verification, and password-reset clients plus username, anonymous, admin, passkey, two-factor, and a native test-client plugin against an ephemeral server; [#2](https://github.com/lucid-softworks/auth/issues/2). |
+| Official JavaScript client conformance | Supported | CI drives the pinned `1.7.1` vanilla email/password, email-verification, and password-reset clients plus username, anonymous, admin, every passkey client method, two-factor, and a native test-client plugin against an ephemeral server. Passkey registration/authentication use real signatures from an in-process virtual authenticator; [#2](https://github.com/lucid-softworks/auth/issues/2). |
 | Native plugin extension API | Supported | Typed routes, middleware, lifecycle hooks, ordered PostgreSQL migrations, cookies/rate-limit declarations, dependency/conflict checks, and exact-version client metadata; [#4](https://github.com/lucid-softworks/auth/issues/4). |
 | Community plugin SDK | Planned | Native plugin packaging and certification policy: [#67](https://github.com/lucid-softworks/auth/issues/67). |
 
@@ -81,7 +81,7 @@ scoped to the unimplemented account lifecycle described above.
 | --- | --- | --- |
 | Username | Partial | Login and availability work; signup, update, normalization, and full validation are [#16](https://github.com/lucid-softworks/auth/issues/16). |
 | Anonymous | Partial | Sign-in works; deletion and conversion/linking are [#17](https://github.com/lucid-softworks/auth/issues/17). |
-| Passkey | Partial | All seven route names and durable, single-use registration/authentication challenges exist, but schema/options/freshness parity remains in [#19](https://github.com/lucid-softworks/auth/issues/19). |
+| Passkey | Supported | Optional `PasskeyPlugin`; all seven official methods, exact schema/casing, origin arrays or request-origin fallback, fresh and passkey-first registration, context/resolver/callback options, authenticator selection, extensions, `createSession`, durable single-use challenges, atomic counters, and lossless legacy credential migration; [#19](https://github.com/lucid-softworks/auth/issues/19). |
 | Two-Factor Authentication | Partial | Backup-code generation and redemption work through a custom passkey-MFA session model. TOTP, OTP, trusted devices, enable/disable, and official challenge semantics are [#20](https://github.com/lucid-softworks/auth/issues/20). |
 | Magic Link | Supported | Official `magicLinkClient` sign-in and verification pass. Native delivery receives email, token, URL, metadata, and request context; exact callback fields, signup policy, expiry, plain/hashed/custom token storage, custom generation, durable single-use redemption, redirects, and 1.7 mailbox cleanup are covered by [#22](https://github.com/lucid-softworks/auth/issues/22). |
 | Email OTP | Planned | [#23](https://github.com/lucid-softworks/auth/issues/23). |
@@ -186,13 +186,11 @@ framework concerns; deployment guidance is tracked in
 The following are supported lucid-auth features, not Better Auth compatibility
 claims:
 
-- owner-issued, time-bounded guest capability grants;
-- actor/subject-aware bounded impersonation;
-- host-defined roles and authorization metadata;
-- passkey assurance and role-driven step-up policy;
-- mandatory replacement of administrator-issued temporary passwords;
-- local sole-owner recovery;
-- security audit events.
+- owner-issued, time-bounded guest capability grants ([#71](https://github.com/lucid-softworks/auth/issues/71));
+- role-driven passkey assurance and step-up policy ([#72](https://github.com/lucid-softworks/auth/issues/72));
+- mandatory temporary-password and sole-owner recovery policy ([#73](https://github.com/lucid-softworks/auth/issues/73));
+- product security audit events ([#74](https://github.com/lucid-softworks/auth/issues/74));
+- custom owner-policy behavior layered around Admin ([#75](https://github.com/lucid-softworks/auth/issues/75)).
 
 These extensions must continue to compose safely with compatibility work, but a
 Better Auth client is not expected to know about them unless an application adds

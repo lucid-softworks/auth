@@ -1,15 +1,23 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{
     Assurance, AuthConfig, AuthError, AuthService, AuthSession, AuthStore, AuthUser,
-    EmailSignUpInput, EmailVerificationOutcome, NewPasswordUser, PasswordResetOutcome,
-    PluginMigration, PluginMigrationContribution, VerificationStore, VerificationValue,
-    postgres::PostgresStore,
+    EmailSignUpInput, EmailVerificationOutcome, NewPasswordUser, PasskeyConfig, PasskeyPlugin,
+    PasswordResetOutcome, PluginMigration, PluginMigrationContribution, VerificationStore,
+    VerificationValue, postgres::PostgresStore,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use uuid::Uuid;
+
+#[path = "postgres_contract/passkey.rs"]
+mod passkey;
+
+use passkey::{
+    assert_legacy_passkey_migrated, insert_legacy_passkey, passkey_counters_are_atomic,
+    passkey_public_key_column_count,
+};
 
 #[tokio::test]
 #[ignore = "requires a PostgreSQL server in DATABASE_URL"]
@@ -41,9 +49,11 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     store.migrate().await?;
     store.migrate().await?;
     plugin_migrations_are_idempotent(&store, &pool).await?;
+    assert_eq!(passkey_public_key_column_count(&pool).await?, 0);
 
     let mut config = AuthConfig::new([42_u8; 32])?;
     config.email_and_password.enabled = true;
+    config.add_plugin(PasskeyPlugin::new(PasskeyConfig::default()))?;
     let service = AuthService::new(store.clone(), config);
     let user = service
         .provision_password_user(NewPasswordUser {
@@ -54,6 +64,10 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
             role: "owner".into(),
         })
         .await?;
+    let legacy = insert_legacy_passkey(&pool, user.id).await?;
+    store.migrate_plugins(&service.plugin_migrations()).await?;
+    assert_eq!(passkey_public_key_column_count(&pool).await?, 1);
+    assert_legacy_passkey_migrated(&store, &legacy).await?;
     let signed_in = service
         .sign_in_username(
             "owner",
@@ -72,6 +86,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     password_reset_is_atomic(&store, &pool, user.id).await?;
     magic_link_promotion_is_atomic(&store, &pool).await?;
     email_signup_is_case_insensitive(&service, &pool).await?;
+    passkey_counters_are_atomic(&store, user.id).await?;
 
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))

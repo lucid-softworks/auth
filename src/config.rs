@@ -11,6 +11,8 @@ use url::Url;
 pub struct AuthConfig {
     pub secret: Vec<u8>,
     pub session_ttl: Duration,
+    /// Better Auth session freshness window. Zero disables freshness checks.
+    pub session_fresh_age: Duration,
     /// Explicitly controls secure cookies. When unset, an HTTPS base URL uses
     /// secure cookies and an HTTP or absent base URL does not.
     pub use_secure_cookies: Option<bool>,
@@ -20,7 +22,6 @@ pub struct AuthConfig {
     pub max_attempts: usize,
     pub max_ip_attempts: usize,
     pub lockout_window: Duration,
-    pub passkeys: Option<PasskeyConfig>,
     pub password_breach_checker: Option<Arc<dyn PasswordBreachChecker>>,
     /// Better Auth-compatible email/password behavior. The flow is disabled
     /// by default, matching Better Auth.
@@ -38,14 +39,6 @@ pub struct AuthConfig {
     pub(crate) base_url: Option<Url>,
     pub(crate) base_path: String,
     pub(crate) cors_enabled: bool,
-}
-
-/// Stable relying-party settings used for WebAuthn ceremonies.
-#[derive(Debug, Clone)]
-pub struct PasskeyConfig {
-    pub rp_id: String,
-    pub rp_origin: String,
-    pub rp_name: String,
 }
 
 /// Core email/password settings matching Better Auth 1.7.1 defaults.
@@ -91,6 +84,7 @@ impl AuthConfig {
         Ok(Self {
             secret,
             session_ttl: Duration::days(7),
+            session_fresh_age: Duration::days(1),
             use_secure_cookies: None,
             cookies: CookieConfig::default(),
             allow_anonymous: false,
@@ -98,7 +92,6 @@ impl AuthConfig {
             max_attempts: 5,
             max_ip_attempts: 15,
             lockout_window: Duration::minutes(5),
-            passkeys: None,
             password_breach_checker: None,
             email_and_password: EmailPasswordConfig::default(),
             email_verification: EmailVerificationConfig::default(),
@@ -184,6 +177,11 @@ impl AuthConfig {
     }
 
     pub(crate) fn validate(&self) -> Result<(), AuthError> {
+        if self.session_fresh_age < Duration::zero() {
+            return Err(AuthError::InvalidConfiguration(
+                "session fresh age must not be negative".into(),
+            ));
+        }
         let password = &self.email_and_password;
         if password.min_password_length == 0
             || password.max_password_length < password.min_password_length

@@ -10,6 +10,7 @@ mod magic_link;
 mod memory;
 mod model;
 mod origin;
+mod passkey;
 mod plugin;
 mod service;
 mod store;
@@ -22,7 +23,7 @@ pub mod protocol;
 
 pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use client_ip::IpAddressConfig;
-pub use config::{AuthConfig, EmailPasswordConfig, PasskeyConfig};
+pub use config::{AuthConfig, EmailPasswordConfig};
 pub use cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
 pub use email::{
     EmailVerificationConfig, PasswordResetCallback, PasswordResetEmail, PasswordResetEmailSender,
@@ -40,6 +41,13 @@ pub use model::{
     StoredPasskey, VerificationValue, VerifiedApiKey,
 };
 pub use origin::TrustedOrigin;
+pub use passkey::{
+    PasskeyAuthenticationCallback, PasskeyAuthenticationConfig, PasskeyAuthenticationVerified,
+    PasskeyAuthenticatorSelection, PasskeyConfig, PasskeyExtensions, PasskeyExtensionsResolver,
+    PasskeyPlugin, PasskeyRegistrationCallback, PasskeyRegistrationConfig,
+    PasskeyRegistrationOverride, PasskeyRegistrationUser, PasskeyRegistrationUserResolver,
+    PasskeyRegistrationVerified,
+};
 #[cfg(feature = "axum")]
 pub use plugin::AxumPluginRoute;
 pub use plugin::{
@@ -49,7 +57,8 @@ pub use plugin::{
 };
 pub use service::{
     AuthService, EmailSignUpInput, EmailSignUpResult, EmailVerificationResult, HashedPasswordUser,
-    PasskeyRegistrationResult, PasswordChangeResult, RecoveryCodeStatus, SignInResult,
+    PasskeyRegistrationRequest, PasskeyRegistrationResult, PasskeyRegistrationVerification,
+    PasswordChangeResult, RecoveryCodeStatus, SignInResult,
 };
 pub use store::{
     AccessStore, ApiKeyStore, AuthStore, EmailVerificationOutcome, PasskeyDeleteOutcome,

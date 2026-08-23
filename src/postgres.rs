@@ -10,6 +10,7 @@ use uuid::Uuid;
 mod access;
 mod api_key;
 mod migrate;
+mod passkey;
 mod plugin;
 mod rows;
 mod security;
@@ -17,7 +18,7 @@ mod session;
 mod user;
 mod verification;
 
-use rows::{PasskeyRow, SessionRow, UserRow};
+use rows::{SessionRow, UserRow};
 
 /// PostgreSQL/SQLx persistence adapter.
 #[derive(Clone)]
@@ -237,70 +238,33 @@ impl AuthStore for PostgresStore {
     }
 
     async fn save_passkey(&self, passkey: StoredPasskey) -> Result<StoredPasskey, AuthError> {
-        sqlx::query_as::<_, PasskeyRow>(
-            "INSERT INTO lucid_auth_passkeys \
-             (id, user_id, name, credential_id, credential, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7) \
-             RETURNING id, user_id, name, credential_id, credential, created_at, updated_at",
-        )
-        .bind(passkey.id)
-        .bind(passkey.user_id)
-        .bind(&passkey.name)
-        .bind(&passkey.credential_id)
-        .bind(&passkey.credential)
-        .bind(passkey.created_at)
-        .bind(passkey.updated_at)
-        .fetch_one(&self.pool)
-        .await
-        .map(StoredPasskey::from)
-        .map_err(|error| {
-            if error
-                .as_database_error()
-                .is_some_and(|database| database.is_unique_violation())
-            {
-                AuthError::CredentialAlreadyRegistered
-            } else {
-                storage_error(error)
-            }
-        })
+        passkey::save(&self.pool, passkey).await
     }
 
     async fn list_passkeys(&self, user_id: Uuid) -> Result<Vec<StoredPasskey>, AuthError> {
-        sqlx::query_as::<_, PasskeyRow>(
-            "SELECT id, user_id, name, credential_id, credential, created_at, updated_at \
-             FROM lucid_auth_passkeys WHERE user_id = $1 ORDER BY created_at",
-        )
-        .bind(user_id)
-        .fetch_all(&self.pool)
-        .await
-        .map(|rows| rows.into_iter().map(StoredPasskey::from).collect())
-        .map_err(storage_error)
+        passkey::list_for_user(&self.pool, user_id).await
     }
 
-    async fn list_all_passkeys(&self) -> Result<Vec<StoredPasskey>, AuthError> {
-        sqlx::query_as::<_, PasskeyRow>(
-            "SELECT id, user_id, name, credential_id, credential, created_at, updated_at \
-             FROM lucid_auth_passkeys ORDER BY created_at",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map(|rows| rows.into_iter().map(StoredPasskey::from).collect())
-        .map_err(storage_error)
+    async fn find_passkey_by_credential_id(
+        &self,
+        credential_id: &str,
+    ) -> Result<Option<StoredPasskey>, AuthError> {
+        passkey::find_by_credential_id(&self.pool, credential_id).await
     }
 
-    async fn update_passkey(&self, passkey: StoredPasskey) -> Result<(), AuthError> {
-        sqlx::query(
-            "UPDATE lucid_auth_passkeys SET name = $2, credential = $3, updated_at = $4 \
-             WHERE id = $1",
-        )
-        .bind(passkey.id)
-        .bind(&passkey.name)
-        .bind(&passkey.credential)
-        .bind(passkey.updated_at)
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(storage_error)
+    async fn find_passkey_by_id(
+        &self,
+        passkey_id: Uuid,
+    ) -> Result<Option<StoredPasskey>, AuthError> {
+        passkey::find_by_id(&self.pool, passkey_id).await
+    }
+
+    async fn update_passkey_after_authentication(
+        &self,
+        passkey: StoredPasskey,
+        expected_counter: u32,
+    ) -> Result<bool, AuthError> {
+        passkey::compare_and_swap(&self.pool, passkey, expected_counter).await
     }
 
     async fn update_passkey_name(
@@ -309,18 +273,7 @@ impl AuthStore for PostgresStore {
         passkey_id: Uuid,
         name: String,
     ) -> Result<Option<StoredPasskey>, AuthError> {
-        sqlx::query_as::<_, PasskeyRow>(
-            "UPDATE lucid_auth_passkeys SET name = $3, updated_at = NOW() \
-             WHERE id = $1 AND user_id = $2 \
-             RETURNING id, user_id, name, credential_id, credential, created_at, updated_at",
-        )
-        .bind(passkey_id)
-        .bind(user_id)
-        .bind(name)
-        .fetch_optional(&self.pool)
-        .await
-        .map(|row| row.map(StoredPasskey::from))
-        .map_err(storage_error)
+        passkey::rename(&self.pool, user_id, passkey_id, name).await
     }
 
     async fn delete_passkey(
@@ -329,58 +282,11 @@ impl AuthStore for PostgresStore {
         passkey_id: Uuid,
         minimum_remaining: usize,
     ) -> Result<PasskeyDeleteOutcome, AuthError> {
-        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
-        sqlx::query("SELECT id FROM lucid_auth_users WHERE id = $1 FOR UPDATE")
-            .bind(user_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(storage_error)?;
-        let owned = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM lucid_auth_passkeys WHERE id = $1 AND user_id = $2)",
-        )
-        .bind(passkey_id)
-        .bind(user_id)
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(storage_error)?;
-        if !owned {
-            return Ok(PasskeyDeleteOutcome::NotFound);
-        }
-        let count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_passkeys WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(storage_error)?;
-        if count <= i64::try_from(minimum_remaining).unwrap_or(i64::MAX) {
-            return Ok(PasskeyDeleteOutcome::MinimumRequired);
-        }
-        sqlx::query("DELETE FROM lucid_auth_passkeys WHERE id = $1 AND user_id = $2")
-            .bind(passkey_id)
-            .bind(user_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(storage_error)?;
-        let remaining = usize::try_from(count - 1).unwrap_or(usize::MAX);
-        if remaining == 0 {
-            sqlx::query("DELETE FROM lucid_auth_recovery_codes WHERE user_id = $1")
-                .bind(user_id)
-                .execute(&mut *transaction)
-                .await
-                .map_err(storage_error)?;
-        }
-        transaction.commit().await.map_err(storage_error)?;
-        Ok(PasskeyDeleteOutcome::Deleted { remaining })
+        passkey::delete(&self.pool, user_id, passkey_id, minimum_remaining).await
     }
 
     async fn delete_user_passkeys(&self, user_id: Uuid) -> Result<(), AuthError> {
-        sqlx::query("DELETE FROM lucid_auth_passkeys WHERE user_id = $1")
-            .bind(user_id)
-            .execute(&self.pool)
-            .await
-            .map(|_| ())
-            .map_err(storage_error)
+        passkey::delete_for_user(&self.pool, user_id).await
     }
 
     async fn find_user_by_id(&self, user_id: Uuid) -> Result<Option<AuthUser>, AuthError> {

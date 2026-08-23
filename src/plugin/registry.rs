@@ -179,13 +179,7 @@ fn core_cookie_owners(config: &AuthConfig) -> HashMap<String, &'static str> {
         .name
         .clone()
         .unwrap_or_else(|| format!("{}.session_token", config.cookies.prefix));
-    let challenge = config
-        .cookies
-        .passkey_challenge
-        .name
-        .clone()
-        .unwrap_or_else(|| format!("{}.better-auth-passkey", config.cookies.prefix));
-    [session, challenge]
+    [session]
         .into_iter()
         .flat_map(|name| [name.clone(), format!("__Secure-{name}")])
         .map(|name| (name, "core"))
@@ -373,16 +367,6 @@ const CORE_ENDPOINTS: &[(PluginHttpMethod, &str)] = &[
     (PluginHttpMethod::Post, "/sign-out"),
     (PluginHttpMethod::Post, "/sign-in/anonymous"),
     (PluginHttpMethod::Post, "/is-username-available"),
-    (PluginHttpMethod::Get, "/passkey/generate-register-options"),
-    (PluginHttpMethod::Post, "/passkey/verify-registration"),
-    (
-        PluginHttpMethod::Get,
-        "/passkey/generate-authenticate-options",
-    ),
-    (PluginHttpMethod::Post, "/passkey/verify-authentication"),
-    (PluginHttpMethod::Get, "/passkey/list-user-passkeys"),
-    (PluginHttpMethod::Post, "/passkey/delete-passkey"),
-    (PluginHttpMethod::Post, "/passkey/update-passkey"),
     (PluginHttpMethod::Post, "/change-password"),
     (PluginHttpMethod::Get, "/list-sessions"),
     (PluginHttpMethod::Post, "/revoke-session"),

@@ -11,7 +11,7 @@ pub(crate) use super::error::auth_error;
 
 pub(crate) type PeerAddress = Option<Extension<ConnectInfo<SocketAddr>>>;
 
-pub(super) async fn current_session(
+pub(crate) async fn current_session(
     service: &AuthService,
     headers: &HeaderMap,
 ) -> Option<SessionWithUser> {
@@ -19,17 +19,22 @@ pub(super) async fn current_session(
     service.session(&token).await.ok().flatten()
 }
 
-pub(super) fn challenge_token(service: &AuthService, headers: &HeaderMap) -> Option<String> {
-    let cookie = service.challenge_cookie();
+pub(crate) fn challenge_token(
+    service: &AuthService,
+    headers: &HeaderMap,
+    cookie_suffix: &str,
+) -> Option<String> {
+    let cookie = service.passkey_challenge_cookie(cookie_suffix);
     signed_cookie_token(service, headers, &cookie.name)
 }
 
-pub(super) fn with_challenge_cookie(
+pub(crate) fn with_challenge_cookie(
     service: &AuthService,
+    cookie_suffix: &str,
     token: &str,
     body: impl IntoResponse,
 ) -> Response {
-    let cookie = service.challenge_cookie();
+    let cookie = service.passkey_challenge_cookie(cookie_suffix);
     with_cookie(
         body,
         serialize_cookie(&cookie, &service.signed_cookie_value(token), Some(300)),

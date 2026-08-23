@@ -83,13 +83,26 @@ pub struct NewPasswordUser {
 
 /// A persisted WebAuthn credential owned by one account.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StoredPasskey {
     pub id: Uuid,
     pub user_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(rename = "credentialID")]
     pub credential_id: String,
+    pub public_key: String,
+    pub counter: u32,
+    pub device_type: String,
+    pub backed_up: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transports: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aaguid: Option<String>,
+    #[serde(skip)]
     pub credential: serde_json::Value,
     pub created_at: DateTime<Utc>,
+    #[serde(skip)]
     pub updated_at: DateTime<Utc>,
 }
 

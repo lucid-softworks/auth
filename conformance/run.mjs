@@ -11,6 +11,7 @@ import {
   usernameClient,
 } from "better-auth/client/plugins";
 import { passkeyClient } from "@better-auth/passkey/client";
+import { installVirtualAuthenticator } from "./virtual-authenticator.mjs";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
 const betterAuthPackage = JSON.parse(
@@ -78,6 +79,10 @@ class BrowserTransport {
     assert.equal(response.status, 200);
   }
 
+  clearCookies() {
+    this.cookies.clear();
+  }
+
   assertRequest(pathname, method, body = undefined) {
     const request = this.requests.findLast(
       (candidate) => candidate.pathname === pathname && candidate.method === method,
@@ -105,6 +110,7 @@ async function runCase(name, callback) {
 }
 
 async function conformance(origin) {
+  installVirtualAuthenticator(origin);
   const transport = new BrowserTransport(origin);
   const client = createAuthClient({
     baseURL: origin,
@@ -370,21 +376,74 @@ async function conformance(origin) {
   });
 
   await runCase("passkey client", async () => {
-    const passkeys = success(
+    const emptyPasskeys = success(
       await client.passkey.listUserPasskeys(),
       "passkey.listUserPasskeys",
     );
-    assert.deepEqual(passkeys, []);
+    assert.deepEqual(emptyPasskeys, []);
     transport.assertRequest("/api/auth/passkey/list-user-passkeys", "GET");
 
-    const registration = await client.passkey.addPasskey({ name: "Conformance key" });
-    assert.equal(registration.data, null);
-    assert.notEqual(registration.error, null);
+    const registration = success(
+      await client.passkey.addPasskey({
+        name: "Conformance key",
+        authenticatorAttachment: "platform",
+        context: "official-client",
+        createSession: true,
+      }),
+      "passkey.addPasskey",
+    );
+    assert.equal(registration.name, "Conformance key");
+    assert.equal(registration.deviceType, "singleDevice");
+    assert.equal(registration.backedUp, false);
+    assert.equal(registration.transports, "internal");
+    assert.equal(registration.user.id, registration.userId);
+    assert.equal(typeof registration.session.token, "string");
     const options = transport.assertRequest(
       "/api/auth/passkey/generate-register-options",
       "GET",
     );
     assert.match(options.search, /name=Conformance/);
+    assert.match(options.search, /authenticatorAttachment=platform/);
+    assert.match(options.search, /context=official-client/);
+    transport.assertRequest("/api/auth/passkey/verify-registration", "POST");
+
+    const passkeys = success(
+      await client.passkey.listUserPasskeys(),
+      "passkey.listUserPasskeys registered",
+    );
+    assert.equal(passkeys.length, 1);
+    assert.equal(passkeys[0].credentialID, registration.credentialID);
+
+    const updated = success(
+      await client.passkey.updatePasskey({ id: passkeys[0].id, name: "Updated key" }),
+      "passkey.updatePasskey",
+    );
+    assert.equal(updated.passkey.name, "Updated key");
+    transport.assertRequest("/api/auth/passkey/update-passkey", "POST", {
+      id: passkeys[0].id,
+      name: "Updated key",
+    });
+
+    transport.clearCookies();
+    const authentication = success(
+      await client.signIn.passkey(),
+      "signIn.passkey",
+    );
+    assert.equal(authentication.user.id, registration.userId);
+    transport.assertRequest(
+      "/api/auth/passkey/generate-authenticate-options",
+      "GET",
+    );
+    transport.assertRequest("/api/auth/passkey/verify-authentication", "POST");
+
+    const deleted = success(
+      await client.passkey.deletePasskey({ id: passkeys[0].id }),
+      "passkey.deletePasskey",
+    );
+    assert.equal(deleted.status, true);
+    transport.assertRequest("/api/auth/passkey/delete-passkey", "POST", {
+      id: passkeys[0].id,
+    });
   });
 
   await runCase("two-factor backup-code client", async () => {

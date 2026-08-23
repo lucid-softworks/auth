@@ -17,7 +17,7 @@ supported surface covers:
 - username/password sign-in
 - sign-out
 - anonymous guest sign-in
-- the current `@better-auth/passkey` enrollment, listing and sign-in route subset
+- the complete `@better-auth/passkey` client surface as an optional native plugin
 - passkey MFA enforcement by role and the backup-code methods exposed by Better
   Auth's official `twoFactorClient`
 - password changes plus current-user session listing and revocation
@@ -39,23 +39,34 @@ authorization. Applications provide their own permission vocabulary while
 using the authenticated principal's role, actor, subject, guest grant and
 assurance metadata.
 
-Passkey enrollment requires an existing session. Roles listed in
-`AuthConfig::required_mfa_roles` must enroll a passkey during their next
-password sign-in. Once enrolled, password verification produces
-`password_pending_passkey` assurance until either the passkey ceremony upgrades
-it to `password_and_passkey` or a one-time recovery code upgrades it to
-`recovery`. Existing password-only sessions are invalidated when their role is
-configured to require MFA. Security-sensitive owner operations additionally
-require strong authentication no older than `AuthConfig::step_up_ttl`. Recovery
-codes are only shown when generated, stored as keyed hashes, replaced as a set,
-and consumed atomically. Adding another passkey or removing one requires recent
-strong authentication. Required-MFA accounts cannot remove their final passkey,
-and deleting the final optional passkey also clears now-unusable recovery codes.
-These lifecycle checks are atomic in both stores. An administrative password reset clears sessions,
-passkeys, and recovery codes so the account can enroll again.
+Passkey is an optional native plugin. Register it explicitly; without the plugin,
+its seven routes do not exist:
 
-The session response includes `stepUpRequired` so an official Better Auth client
-can prompt for passkey authentication before submitting sensitive changes.
+```rust
+let passkeys = PasskeyConfig {
+    rp_id: Some("example.com".into()),
+    rp_name: Some("Example".into()),
+    origins: Some(vec!["https://app.example.com".into()]),
+    ..PasskeyConfig::default()
+};
+config.add_plugin(PasskeyPlugin::new(passkeys))?;
+```
+
+`origins: None` uses the verification request's `Origin`, matching Better Auth;
+an explicit vector accepts any configured origin. Registration supports the
+official `name`, `context`, `authenticatorAttachment`, authenticator-selection,
+extension, fresh-session, `createSession`, and passkey-first `resolveUser`
+semantics through native Rust configuration and callbacks. The official client
+schema includes `publicKey`, exact `credentialID`, counters, device type, backup
+state, transports, and AAGUID. Challenges are durable and single-use, while
+signature counters use compare-and-swap persistence.
+
+The existing role-driven assurance, backup-code, sole-owner, guest-grant, and
+audit policies are project-specific extensions rather than Better Auth passkey
+behavior. Their extraction into optional native plugins is tracked in
+[#71](https://github.com/lucid-softworks/auth/issues/71) through
+[#75](https://github.com/lucid-softworks/auth/issues/75); the Better Auth
+passkey endpoints do not impose those custom deletion or step-up rules.
 
 Core email/password authentication is disabled by default, matching Better
 Auth. Enable it with `config.email_and_password.enabled = true`; the same
@@ -145,10 +156,10 @@ replaces the sole owner's password, clears bans, sessions, passkeys, and recover
 codes, marks the password temporary, and appends an actorless audit event. It is
 not routed by the crate's Axum compatibility surface.
 
-WebAuthn relying-party configuration is explicit and must use HTTPS except for
-the browser's `localhost` development exception. Registration and authentication
-challenges are stored through the configured backend, expire after five minutes,
-and are atomically consumed once, including across service instances.
+WebAuthn relying-party and origin configuration lives on `PasskeyConfig`.
+Registration and authentication challenges are stored through the configured
+backend, expire after five minutes, and are atomically consumed once, including
+across service instances.
 
 Cookie-authenticated browser mutations require a trusted `Origin` or `Referer`
 and reject cross-site navigation login attempts. Same-origin requests are
@@ -188,8 +199,10 @@ npm ci --prefix conformance --ignore-scripts
 npm test --prefix conformance
 ```
 
-It currently exercises session, username, anonymous, admin, passkey ceremony
-startup/listing, and two-factor backup-code client behavior. The fixture and
-Node dependencies are excluded from the published crate.
+It currently exercises session, username, anonymous, admin, all official passkey
+client methods (including complete registration and authentication signatures
+through an in-process virtual authenticator), and two-factor backup-code client
+behavior. The fixture and Node dependencies are excluded from the published
+crate.
 
 This project is not affiliated with Better Auth.

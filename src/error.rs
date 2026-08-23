@@ -37,6 +37,10 @@ pub enum AuthError {
     AnonymousAccessDisabled,
     #[error("the session is invalid or expired")]
     InvalidSession,
+    #[error("authentication is required")]
+    Unauthorized,
+    #[error("the session is not fresh")]
+    SessionNotFresh,
     #[error("the account is disabled")]
     AccountDisabled,
     #[error("the requested authentication resource was not found")]
@@ -59,6 +63,8 @@ pub enum AuthError {
     PasswordCheckUnavailable,
     #[error("the passkey was not found")]
     PasskeyNotFound,
+    #[error("the passkey used for authentication was not found")]
+    PasskeyAuthenticationNotFound,
     #[error("an MFA-required account must keep at least one passkey")]
     LastPasskey,
     #[error("the current account is not permitted to perform this action")]
@@ -89,12 +95,22 @@ pub enum AuthError {
     CrossSiteNavigationLogin,
     #[error("the authentication request is invalid: {0}")]
     InvalidRequest(String),
-    #[error("passkey support is not configured")]
-    PasskeyDisabled,
     #[error("a passkey ceremony is missing or expired")]
     PasskeyChallengeExpired,
     #[error("passkey verification failed")]
     PasskeyVerificationFailed,
+    #[error("the WebAuthn request origin is missing")]
+    PasskeyOriginMissing,
+    #[error("passkey registration verification failed")]
+    PasskeyRegistrationFailed,
+    #[error("passkey registration requires an authenticated session")]
+    PasskeySessionRequired,
+    #[error("the session cannot register this passkey")]
+    PasskeyRegistrationForbidden,
+    #[error("passkey registration requires a user resolver")]
+    PasskeyResolverRequired,
+    #[error("the resolved passkey user is invalid")]
+    PasskeyResolvedUserInvalid,
     #[error("the passkey is already registered")]
     CredentialAlreadyRegistered,
     #[error("recovery codes are not enabled for this account")]

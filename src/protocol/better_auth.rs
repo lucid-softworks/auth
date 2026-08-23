@@ -260,11 +260,30 @@ pub struct ErrorResponse {
 #[serde(rename_all = "camelCase")]
 pub struct BetterAuthPasskey {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub user_id: String,
+    pub public_key: String,
+    #[serde(rename = "credentialID")]
     pub credential_id: String,
+    pub counter: u32,
+    pub device_type: String,
+    pub backed_up: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transports: Option<String>,
     pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aaguid: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PasskeyRegistrationResponse {
+    #[serde(flatten)]
+    pub passkey: BetterAuthPasskey,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<BetterAuthSession>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<BetterAuthUser>,
 }
 
 impl From<&StoredPasskey> for BetterAuthPasskey {
@@ -273,9 +292,14 @@ impl From<&StoredPasskey> for BetterAuthPasskey {
             id: passkey.id.to_string(),
             name: passkey.name.clone(),
             user_id: passkey.user_id.to_string(),
+            public_key: passkey.public_key.clone(),
             credential_id: passkey.credential_id.clone(),
+            counter: passkey.counter,
+            device_type: passkey.device_type.clone(),
+            backed_up: passkey.backed_up,
+            transports: passkey.transports.clone(),
             created_at: passkey.created_at,
-            updated_at: passkey.updated_at,
+            aaguid: passkey.aaguid.clone(),
         }
     }
 }

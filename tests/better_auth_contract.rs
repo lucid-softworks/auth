@@ -7,7 +7,7 @@ use chrono::{Duration, Utc};
 use http_body_util::BodyExt;
 use lucid_auth::{
     Assurance, AuthConfig, AuthService, AuthSession, AuthStore, MemoryStore, NewPasswordUser,
-    PasskeyConfig, StoredPasskey,
+    PasskeyConfig, PasskeyPlugin, StoredPasskey,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -19,11 +19,14 @@ async fn application() -> Router {
     let mut config = AuthConfig::new([19_u8; 32]).unwrap();
     config.allow_anonymous = true;
     config.trust_origin("http://localhost").unwrap();
-    config.passkeys = Some(PasskeyConfig {
-        rp_id: "localhost".into(),
-        rp_origin: "http://localhost:5173".into(),
-        rp_name: "Example App".into(),
-    });
+    config
+        .add_plugin(PasskeyPlugin::new(PasskeyConfig {
+            rp_id: Some("localhost".into()),
+            rp_name: Some("Example App".into()),
+            origins: Some(vec!["http://localhost:5173".into()]),
+            ..PasskeyConfig::default()
+        }))
+        .unwrap();
     let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
     service
         .provision_password_user(NewPasswordUser {
@@ -51,11 +54,14 @@ async fn application() -> Router {
 async fn recovery_application() -> (Router, Arc<AuthService>, Arc<MemoryStore>) {
     let mut config = AuthConfig::new([29_u8; 32]).unwrap();
     config.trust_origin("http://localhost").unwrap();
-    config.passkeys = Some(PasskeyConfig {
-        rp_id: "localhost".into(),
-        rp_origin: "http://localhost:5173".into(),
-        rp_name: "Example App".into(),
-    });
+    config
+        .add_plugin(PasskeyPlugin::new(PasskeyConfig {
+            rp_id: Some("localhost".into()),
+            rp_name: Some("Example App".into()),
+            origins: Some(vec!["http://localhost:5173".into()]),
+            ..PasskeyConfig::default()
+        }))
+        .unwrap();
     let store = Arc::new(MemoryStore::default());
     let service = Arc::new(AuthService::new(store.clone(), config));
     let user = service
@@ -75,6 +81,12 @@ async fn recovery_application() -> (Router, Arc<AuthService>, Arc<MemoryStore>) 
             user_id: user.id,
             name: Some("Security key".into()),
             credential_id: "credential".into(),
+            public_key: "cHVibGljLWtleQ==".into(),
+            counter: 7,
+            device_type: "multiDevice".into(),
+            backed_up: true,
+            transports: Some("internal,hybrid".into()),
+            aaguid: Some("00000000-0000-0000-0000-000000000000".into()),
             credential: json!({}),
             created_at: now,
             updated_at: now,
@@ -196,30 +208,6 @@ async fn official_username_and_session_contract_round_trip() {
     assert_eq!(body["user"]["name"], "Luna");
     assert_eq!(body["session"]["assurance"], "password");
     assert_eq!(body["session"]["stepUpRequired"], false);
-
-    let response = app
-        .oneshot(
-            Request::get("/api/auth/passkey/generate-register-options")
-                .header(header::COOKIE, cookie)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    assert!(
-        response
-            .headers()
-            .get(header::SET_COOKIE)
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .starts_with("better-auth.better-auth-passkey=")
-    );
-    let body: Value =
-        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    assert_eq!(body["rp"]["id"], "localhost");
-    assert_eq!(body["user"]["name"], "luna");
 }
 
 #[tokio::test]

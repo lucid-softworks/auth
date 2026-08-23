@@ -24,6 +24,7 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
             "The account is disabled",
         ),
         AuthError::Forbidden
+        | AuthError::SessionNotFresh
         | AuthError::StepUpRequired
         | AuthError::NotFound
         | AuthError::UserAlreadyExists
@@ -37,12 +38,7 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
         | AuthError::PasswordTooShort
         | AuthError::PasswordTooLong
         | AuthError::PasswordCompromised => password_error_details(&error),
-        AuthError::PasskeyNotFound
-        | AuthError::LastPasskey
-        | AuthError::PasskeyDisabled
-        | AuthError::PasskeyChallengeExpired
-        | AuthError::PasskeyVerificationFailed
-        | AuthError::CredentialAlreadyRegistered => passkey_error_details(&error),
+        error if is_passkey_error(error) => passkey_error_details(error),
         AuthError::RecoveryCodesNotEnabled | AuthError::InvalidRecoveryCode => {
             recovery_error_details(&error)
         }
@@ -51,6 +47,7 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
             "INVALID_SESSION",
             "The session is invalid or expired",
         ),
+        AuthError::Unauthorized => (StatusCode::UNAUTHORIZED, "UNAUTHORIZED", "Unauthorized"),
         AuthError::InvalidApiKey => (
             StatusCode::UNAUTHORIZED,
             "INVALID_API_KEY",
@@ -78,6 +75,24 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
         ),
     };
     (status, Json(ErrorResponse { code, message })).into_response()
+}
+
+fn is_passkey_error(error: &AuthError) -> bool {
+    matches!(
+        error,
+        AuthError::PasskeyNotFound
+            | AuthError::PasskeyAuthenticationNotFound
+            | AuthError::LastPasskey
+            | AuthError::PasskeyChallengeExpired
+            | AuthError::PasskeyVerificationFailed
+            | AuthError::PasskeyOriginMissing
+            | AuthError::PasskeyRegistrationFailed
+            | AuthError::PasskeySessionRequired
+            | AuthError::PasskeyRegistrationForbidden
+            | AuthError::PasskeyResolverRequired
+            | AuthError::PasskeyResolvedUserInvalid
+            | AuthError::CredentialAlreadyRegistered
+    )
 }
 
 type ErrorDetails = (StatusCode, &'static str, &'static str);
@@ -208,6 +223,11 @@ fn access_error_details(error: &AuthError) -> ErrorDetails {
             "FORBIDDEN",
             "You do not have permission to perform this action",
         ),
+        AuthError::SessionNotFresh => (
+            StatusCode::FORBIDDEN,
+            "SESSION_NOT_FRESH",
+            "Session is not fresh",
+        ),
         AuthError::StepUpRequired => (
             StatusCode::FORBIDDEN,
             "STEP_UP_REQUIRED",
@@ -286,32 +306,60 @@ fn passkey_error_details(error: &AuthError) -> ErrorDetails {
         AuthError::PasskeyNotFound => (
             StatusCode::NOT_FOUND,
             "PASSKEY_NOT_FOUND",
-            "The passkey was not found",
+            "Passkey not found",
+        ),
+        AuthError::PasskeyAuthenticationNotFound => (
+            StatusCode::UNAUTHORIZED,
+            "PASSKEY_NOT_FOUND",
+            "Passkey not found",
         ),
         AuthError::LastPasskey => (
             StatusCode::CONFLICT,
             "LAST_PASSKEY",
             "An MFA-required account must keep at least one passkey",
         ),
-        AuthError::PasskeyDisabled => (
-            StatusCode::NOT_IMPLEMENTED,
-            "PASSKEY_NOT_CONFIGURED",
-            "Passkey authentication is not configured",
-        ),
         AuthError::PasskeyChallengeExpired => (
             StatusCode::BAD_REQUEST,
             "CHALLENGE_NOT_FOUND",
-            "The passkey challenge is missing or expired",
+            "Challenge not found",
         ),
         AuthError::PasskeyVerificationFailed => (
             StatusCode::UNAUTHORIZED,
             "AUTHENTICATION_FAILED",
-            "Passkey verification failed",
+            "Authentication failed",
+        ),
+        AuthError::PasskeyOriginMissing => {
+            (StatusCode::BAD_REQUEST, "BAD_REQUEST", "origin missing")
+        }
+        AuthError::PasskeyRegistrationFailed => (
+            StatusCode::BAD_REQUEST,
+            "FAILED_TO_VERIFY_REGISTRATION",
+            "Failed to verify registration",
+        ),
+        AuthError::PasskeySessionRequired => (
+            StatusCode::UNAUTHORIZED,
+            "SESSION_REQUIRED",
+            "Passkey registration requires an authenticated session",
+        ),
+        AuthError::PasskeyRegistrationForbidden => (
+            StatusCode::UNAUTHORIZED,
+            "YOU_ARE_NOT_ALLOWED_TO_REGISTER_THIS_PASSKEY",
+            "You are not allowed to register this passkey",
+        ),
+        AuthError::PasskeyResolverRequired => (
+            StatusCode::BAD_REQUEST,
+            "RESOLVE_USER_REQUIRED",
+            "Passkey registration requires either an authenticated session or a resolveUser callback when requireSession is false",
+        ),
+        AuthError::PasskeyResolvedUserInvalid => (
+            StatusCode::BAD_REQUEST,
+            "RESOLVED_USER_INVALID",
+            "Resolved user is invalid",
         ),
         _ => (
             StatusCode::BAD_REQUEST,
-            "ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED",
-            "The passkey is already registered",
+            "PREVIOUSLY_REGISTERED",
+            "Previously registered",
         ),
     }
 }
