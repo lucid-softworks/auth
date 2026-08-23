@@ -48,6 +48,8 @@ pub trait AuthStore:
 
     async fn create_anonymous_user(&self, user: AuthUser) -> Result<AuthUser, AuthError>;
 
+    async fn create_user_without_account(&self, user: AuthUser) -> Result<AuthUser, AuthError>;
+
     async fn find_user_by_username(&self, username: &str) -> Result<Option<AuthUser>, AuthError>;
 
     async fn find_user_by_email(&self, email: &str) -> Result<Option<AuthUser>, AuthError>;
@@ -66,6 +68,12 @@ pub trait AuthStore:
         now: chrono::DateTime<chrono::Utc>,
         revoke_sessions: bool,
     ) -> Result<PasswordResetOutcome, AuthError>;
+
+    async fn promote_email_owner(
+        &self,
+        user_id: Uuid,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<AuthUser>, AuthError>;
 
     async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError>;
 

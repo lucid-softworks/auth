@@ -5,7 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
-pub(super) fn auth_error(error: AuthError) -> Response {
+pub(crate) fn auth_error(error: AuthError) -> Response {
     let (status, code, message) = match &error {
         error if is_credential_error(error) => credential_error_details(error),
         AuthError::RateLimited => (

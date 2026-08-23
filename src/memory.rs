@@ -14,6 +14,7 @@ use uuid::Uuid;
 mod access;
 mod api_key;
 mod security;
+mod user;
 mod verification;
 
 #[derive(Default)]
@@ -47,111 +48,34 @@ pub struct MemoryStore {
 impl AuthStore for MemoryStore {
     async fn create_password_user(
         &self,
-        mut user: AuthUser,
+        user: AuthUser,
         password_hash: String,
     ) -> Result<AuthUser, AuthError> {
-        user.email = user.email.to_lowercase();
-        let mut state = self.state.write().await;
-        if user
-            .username
-            .as_ref()
-            .is_some_and(|username| state.usernames.contains_key(username))
-            || state.emails.contains_key(&user.email)
-        {
-            return Err(AuthError::UserAlreadyExists);
-        }
-        if let Some(username) = &user.username {
-            state.usernames.insert(username.clone(), user.id);
-        }
-        state.emails.insert(user.email.clone(), user.id);
-        state.passwords.insert(user.id, password_hash);
-        state.users.insert(user.id, user.clone());
-        Ok(user)
+        user::create_password(self, user, password_hash).await
     }
 
     async fn upsert_password_user(
         &self,
-        mut user: AuthUser,
+        user: AuthUser,
         password_hash: String,
     ) -> Result<AuthUser, AuthError> {
-        user.email = user.email.to_lowercase();
-        let username = user
-            .username
-            .as_deref()
-            .ok_or_else(|| AuthError::Storage("password user requires a username".into()))?
-            .to_owned();
-        let mut state = self.state.write().await;
-        let existing_id = state.usernames.get(&username).copied();
-        if state
-            .emails
-            .get(&user.email)
-            .is_some_and(|owner| Some(*owner) != existing_id)
-        {
-            return Err(AuthError::UserAlreadyExists);
-        }
-        let stored = if let Some(id) = existing_id {
-            let configured_hash_is_active = state
-                .passwords
-                .get(&id)
-                .is_some_and(|stored| stored == &password_hash);
-            let previous_email = state
-                .users
-                .get(&id)
-                .ok_or_else(|| AuthError::Storage("username index is inconsistent".into()))?
-                .email
-                .clone();
-            let existing = state
-                .users
-                .get_mut(&id)
-                .ok_or_else(|| AuthError::Storage("username index is inconsistent".into()))?;
-            existing.name = user.name;
-            existing.email = user.email;
-            existing.role = user.role;
-            if user.must_change_password && configured_hash_is_active {
-                existing.must_change_password = true;
-            }
-            existing.updated_at = user.updated_at;
-            let stored = existing.clone();
-            state.emails.remove(&previous_email);
-            state.emails.insert(stored.email.clone(), id);
-            stored
-        } else {
-            state.usernames.insert(username, user.id);
-            state.emails.insert(user.email.clone(), user.id);
-            state.users.insert(user.id, user.clone());
-            user
-        };
-        state.passwords.entry(stored.id).or_insert(password_hash);
-        Ok(stored)
+        user::upsert_password(self, user, password_hash).await
     }
 
-    async fn create_anonymous_user(&self, mut user: AuthUser) -> Result<AuthUser, AuthError> {
-        user.email = user.email.to_lowercase();
-        let mut state = self.state.write().await;
-        if state.emails.contains_key(&user.email) {
-            return Err(AuthError::UserAlreadyExists);
-        }
-        state.emails.insert(user.email.clone(), user.id);
-        state.users.insert(user.id, user.clone());
-        Ok(user)
+    async fn create_anonymous_user(&self, user: AuthUser) -> Result<AuthUser, AuthError> {
+        user::create_without_account(self, user).await
+    }
+
+    async fn create_user_without_account(&self, user: AuthUser) -> Result<AuthUser, AuthError> {
+        user::create_without_account(self, user).await
     }
 
     async fn find_user_by_username(&self, username: &str) -> Result<Option<AuthUser>, AuthError> {
-        let state = self.state.read().await;
-        Ok(state
-            .usernames
-            .get(username)
-            .and_then(|id| state.users.get(id))
-            .cloned())
+        user::find_by_username(self, username).await
     }
 
     async fn find_user_by_email(&self, email: &str) -> Result<Option<AuthUser>, AuthError> {
-        let state = self.state.read().await;
-        Ok(state
-            .emails
-            .get(&email.to_lowercase())
-            .and_then(|id| state.users.get(id))
-            .cloned())
+        user::find_by_email(self, email).await
     }
 
     async fn consume_email_verification(
@@ -234,8 +158,16 @@ impl AuthStore for MemoryStore {
         Ok(PasswordResetOutcome::Reset(Box::new(user.clone())))
     }
 
+    async fn promote_email_owner(
+        &self,
+        user_id: Uuid,
+        now: DateTime<Utc>,
+    ) -> Result<Option<AuthUser>, AuthError> {
+        user::promote_email_owner(self, user_id, now).await
+    }
+
     async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError> {
-        Ok(self.state.read().await.passwords.get(&user_id).cloned())
+        user::find_password_hash(self, user_id).await
     }
 
     async fn update_password_hash(
@@ -243,17 +175,7 @@ impl AuthStore for MemoryStore {
         user_id: Uuid,
         password_hash: String,
     ) -> Result<(), AuthError> {
-        let mut state = self.state.write().await;
-        let stored = state
-            .passwords
-            .get_mut(&user_id)
-            .ok_or(AuthError::CredentialAccountNotFound)?;
-        *stored = password_hash;
-        if let Some(user) = state.users.get_mut(&user_id) {
-            user.must_change_password = false;
-            user.updated_at = Utc::now();
-        }
-        Ok(())
+        user::update_password_hash(self, user_id, password_hash).await
     }
 
     async fn set_password_hash(
@@ -261,16 +183,7 @@ impl AuthStore for MemoryStore {
         user_id: Uuid,
         password_hash: String,
     ) -> Result<(), AuthError> {
-        let mut state = self.state.write().await;
-        if !state.users.contains_key(&user_id) {
-            return Err(AuthError::NotFound);
-        }
-        state.passwords.insert(user_id, password_hash);
-        if let Some(user) = state.users.get_mut(&user_id) {
-            user.must_change_password = true;
-            user.updated_at = Utc::now();
-        }
-        Ok(())
+        user::set_password_hash(self, user_id, password_hash).await
     }
 
     async fn save_passkey(&self, passkey: StoredPasskey) -> Result<StoredPasskey, AuthError> {
@@ -370,7 +283,7 @@ impl AuthStore for MemoryStore {
     }
 
     async fn find_user_by_id(&self, user_id: Uuid) -> Result<Option<AuthUser>, AuthError> {
-        Ok(self.state.read().await.users.get(&user_id).cloned())
+        user::find_by_id(self, user_id).await
     }
 
     async fn create_session(&self, session: AuthSession) -> Result<(), AuthError> {

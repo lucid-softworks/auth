@@ -7,9 +7,9 @@ use axum::{
 };
 use std::net::SocketAddr;
 
-pub(super) use super::error::auth_error;
+pub(crate) use super::error::auth_error;
 
-pub(super) type PeerAddress = Option<Extension<ConnectInfo<SocketAddr>>>;
+pub(crate) type PeerAddress = Option<Extension<ConnectInfo<SocketAddr>>>;
 
 pub(super) async fn current_session(
     service: &AuthService,
@@ -36,7 +36,7 @@ pub(super) fn with_challenge_cookie(
     )
 }
 
-pub(super) fn with_session_cookie(
+pub(crate) fn with_session_cookie(
     service: &AuthService,
     token: &str,
     remember_me: Option<bool>,
@@ -73,14 +73,14 @@ fn signed_cookie_token(service: &AuthService, headers: &HeaderMap, name: &str) -
     service.verify_cookie_value(cookie_value)
 }
 
-pub(super) fn user_agent(headers: &HeaderMap) -> Option<String> {
+pub(crate) fn user_agent(headers: &HeaderMap) -> Option<String> {
     headers
         .get(header::USER_AGENT)
         .and_then(|value| value.to_str().ok())
         .map(|value| value.chars().take(512).collect())
 }
 
-pub(super) fn client_ip(
+pub(crate) fn client_ip(
     service: &AuthService,
     headers: &HeaderMap,
     peer: PeerAddress,

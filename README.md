@@ -85,6 +85,23 @@ callback endpoint accepts exact `callbackURL`; incorrectly cased aliases are not
 supported. Only a SHA-256 token identifier is stored, and password replacement,
 single-use token consumption, and optional session revocation are atomic.
 
+Magic Link is an optional native plugin. Implement `MagicLinkSender`, construct
+`MagicLinkConfig`, and register `MagicLinkPlugin` with `AuthConfig::add_plugin`.
+Its two routes work with Better Auth 1.7.1's official `magicLinkClient`:
+
+```rust
+let mut magic_link = MagicLinkConfig::new(Arc::new(MyMagicLinkSender));
+magic_link.token_storage = MagicLinkTokenStorage::Hashed;
+config.add_plugin(MagicLinkPlugin::new(magic_link))?;
+```
+
+The default five-minute link is purpose-bound, atomically single-use, and uses
+Better Auth's plain-token storage default; select `Hashed` or provide a native
+custom hasher when persisted token secrecy is required. Delivery receives the
+email, verification URL, token, metadata, and a narrowed request context.
+`callbackURL`, `newUserCallbackURL`, and `errorCallbackURL` use Better Auth's
+exact casing, and all redirects pass the configured trusted-origin policy.
+
 API-key secrets contain 384 random bits and are never stored. The database keeps
 only a salted Argon2id verifier plus a random public key identifier used for a
 single-row lookup. Issuance and revocation require a real, non-impersonated

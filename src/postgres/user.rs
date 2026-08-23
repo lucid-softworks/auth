@@ -119,6 +119,80 @@ pub(super) async fn create_password_user(
     Ok(AuthUser::from(stored))
 }
 
+pub(super) async fn create_without_account(
+    pool: &PgPool,
+    mut user: AuthUser,
+) -> Result<AuthUser, AuthError> {
+    user.email = user.email.to_lowercase();
+    sqlx::query_as::<_, UserRow>(
+        "INSERT INTO lucid_auth_users \
+         (id, username, display_username, name, email, email_verified, image, role, \
+          is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) \
+         RETURNING id, username, display_username, name, email, email_verified, image, role, \
+           is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at",
+    )
+    .bind(user.id)
+    .bind(&user.username)
+    .bind(&user.display_username)
+    .bind(&user.name)
+    .bind(&user.email)
+    .bind(user.email_verified)
+    .bind(&user.image)
+    .bind(&user.role)
+    .bind(user.is_anonymous)
+    .bind(user.must_change_password)
+    .bind(user.banned)
+    .bind(&user.ban_reason)
+    .bind(user.ban_expires)
+    .bind(user.created_at)
+    .bind(user.updated_at)
+    .fetch_one(pool)
+    .await
+    .map(AuthUser::from)
+    .map_err(user_insert_error)
+}
+
+pub(super) async fn promote_email_owner(
+    pool: &PgPool,
+    user_id: Uuid,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<Option<AuthUser>, AuthError> {
+    let mut transaction = pool.begin().await.map_err(storage_error)?;
+    let user = load_by_id_transaction(&mut transaction, user_id).await?;
+    let Some(user) = user else {
+        transaction.commit().await.map_err(storage_error)?;
+        return Ok(None);
+    };
+    if user.email_verified {
+        transaction.commit().await.map_err(storage_error)?;
+        return Ok(Some(user));
+    }
+    sqlx::query("DELETE FROM lucid_auth_accounts WHERE user_id = $1")
+        .bind(user_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage_error)?;
+    sqlx::query("DELETE FROM lucid_auth_sessions WHERE user_id = $1")
+        .bind(user_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage_error)?;
+    let user = sqlx::query_as::<_, UserRow>(
+        "UPDATE lucid_auth_users SET email_verified = TRUE, updated_at = $2 WHERE id = $1 \
+         RETURNING id, username, display_username, name, email, email_verified, image, role, \
+           is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at",
+    )
+    .bind(user_id)
+    .bind(now)
+    .fetch_one(&mut *transaction)
+    .await
+    .map(AuthUser::from)
+    .map_err(storage_error)?;
+    transaction.commit().await.map_err(storage_error)?;
+    Ok(Some(user))
+}
+
 pub(super) async fn set_password_hash(
     pool: &PgPool,
     user_id: Uuid,

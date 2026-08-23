@@ -9,7 +9,7 @@ use axum::{
 use serde::de::DeserializeOwned;
 
 /// Better Auth's credential routes accept JSON and URL-encoded form bodies.
-pub(super) struct BetterAuthBody<T>(pub T);
+pub(crate) struct BetterAuthBody<T>(pub T);
 
 impl<S, T> FromRequest<S> for BetterAuthBody<T>
 where

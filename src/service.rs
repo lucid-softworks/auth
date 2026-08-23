@@ -3,6 +3,8 @@ mod api_key;
 mod email_password;
 mod email_verification;
 mod guest;
+#[cfg(feature = "axum")]
+pub(crate) mod magic_link;
 mod passkey;
 mod password;
 mod password_reset;

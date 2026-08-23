@@ -6,6 +6,7 @@ mod config;
 mod cookie;
 mod email;
 mod error;
+mod magic_link;
 mod memory;
 mod model;
 mod origin;
@@ -28,6 +29,10 @@ pub use email::{
     VerificationEmail, VerificationEmailSender,
 };
 pub use error::AuthError;
+pub use magic_link::{
+    MagicLinkConfig, MagicLinkEmail, MagicLinkPlugin, MagicLinkRequestContext, MagicLinkSender,
+    MagicLinkTokenGenerator, MagicLinkTokenHasher, MagicLinkTokenStorage,
+};
 pub use memory::MemoryStore;
 pub use model::{
     ApiKey, Assurance, AuditEvent, AuthSession, AuthUser, GuestGrant, IssuedApiKey,

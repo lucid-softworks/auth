@@ -175,18 +175,21 @@ async fn request_and_callback_match_exact_better_auth_fields() {
         "http://localhost/choose?error=INVALID_TOKEN"
     );
 
-    let wrong_case = app
+    assert_wrong_callback_case_rejected(app, &message.token).await;
+}
+
+async fn assert_wrong_callback_case_rejected(app: Router, token: &str) {
+    let response = app
         .oneshot(
             Request::get(format!(
-                "/api/auth/reset-password/{}?callbackUrl=%2Fwrong",
-                message.token
+                "/api/auth/reset-password/{token}?callbackUrl=%2Fwrong"
             ))
             .body(Body::empty())
             .unwrap(),
         )
         .await
         .unwrap();
-    assert_eq!(wrong_case.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]

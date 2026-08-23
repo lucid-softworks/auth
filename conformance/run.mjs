@@ -6,6 +6,7 @@ import { createAuthClient } from "better-auth/client";
 import {
   adminClient,
   anonymousClient,
+  magicLinkClient,
   twoFactorClient,
   usernameClient,
 } from "better-auth/client/plugins";
@@ -114,6 +115,7 @@ async function conformance(origin) {
       adminClient(),
       twoFactorClient(),
       passkeyClient(),
+      magicLinkClient(),
       nativePluginClient,
     ],
   });
@@ -127,8 +129,11 @@ async function conformance(origin) {
     const plugins = await transport.fetch(`${origin}/__conformance__/plugins`);
     assert.equal(plugins.status, 200);
     const metadata = await plugins.json();
-    assert.equal(metadata[0].client.betterAuthVersion, betterAuthPackage.version);
-    assert.equal(metadata[0].endpoints[0].clientMethod, "nativePlugin.ping");
+    const nativePlugin = metadata.find((plugin) => plugin.id === "conformance");
+    const magicLink = metadata.find((plugin) => plugin.id === "magic-link");
+    assert.equal(nativePlugin.client.betterAuthVersion, betterAuthPackage.version);
+    assert.equal(nativePlugin.endpoints[0].clientMethod, "nativePlugin.ping");
+    assert.equal(magicLink.client.factory, "magicLinkClient");
   });
 
   await runCase("native plugin client metadata and route", async () => {
@@ -406,6 +411,40 @@ async function conformance(origin) {
       "twoFactor.verifyBackupCode",
     );
     assert.equal(typeof verified.token, "string");
+  });
+
+  await runCase("magic-link client", async () => {
+    const email = "magic-client@example.com";
+    const sent = success(
+      await client.signIn.magicLink({
+        email,
+        name: "Magic Client",
+        metadata: { source: "official-client" },
+      }),
+      "signIn.magicLink",
+    );
+    assert.deepEqual(sent, { status: true });
+    transport.assertRequest("/api/auth/sign-in/magic-link", "POST", {
+      email,
+      name: "Magic Client",
+      metadata: { source: "official-client" },
+    });
+
+    const tokenResponse = await transport.fetch(
+      `${origin}/__conformance__/magic-link-token/${email}`,
+    );
+    assert.equal(tokenResponse.status, 200);
+    const { token } = await tokenResponse.json();
+    const verified = success(
+      await client.magicLink.verify({ query: { token } }),
+      "magicLink.verify",
+    );
+    assert.equal(verified.user.email, email);
+    assert.equal(verified.user.emailVerified, true);
+    assert.equal(typeof verified.token, "string");
+    const request = transport.assertRequest("/api/auth/magic-link/verify", "GET");
+    assert.equal(new URLSearchParams(request.search).get("token"), token);
+    success(await client.signOut(), "signOut after magic link");
   });
 
   await runCase("anonymous and sign-out clients", async () => {

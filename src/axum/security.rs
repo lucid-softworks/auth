@@ -68,10 +68,10 @@ async fn validate_redirect_fields(
     service: &AuthService,
     mut request: Request,
 ) -> Result<Request, AuthError> {
-    let query_callback = request.uri().query().and_then(|query| {
+    let query_fields = request.uri().query().map(|query| {
         url::form_urlencoded::parse(query.as_bytes())
-            .find(|(name, _)| name == "callbackURL")
-            .map(|(_, value)| value.into_owned())
+            .map(|(name, value)| (name.into_owned(), Value::String(value.into_owned())))
+            .collect::<Map<_, _>>()
     });
     let body_fields = if is_inspected_body(request.headers()) {
         let body = std::mem::replace(request.body_mut(), Body::empty());
@@ -88,48 +88,53 @@ async fn validate_redirect_fields(
         None
     };
 
-    let body_callback = body_fields
-        .as_ref()
-        .and_then(|fields| fields.get("callbackURL"));
-    let callback = truthy_string(body_callback, "callbackURL")?
-        .map(str::to_owned)
-        .or(query_callback);
-    if let Some(callback) = callback {
-        validate_callback_url(
-            service,
-            request.headers(),
-            &callback,
-            AuthError::InvalidCallbackUrl,
-        )?;
+    if let Some(fields) = query_fields {
+        validate_redirect_map(service, request.headers(), &fields)?;
     }
-    let Some(fields) = body_fields else {
-        return Ok(request);
-    };
+    if let Some(fields) = body_fields {
+        validate_redirect_map(service, request.headers(), &fields)?;
+    }
+    Ok(request)
+}
+
+fn validate_redirect_map(
+    service: &AuthService,
+    headers: &HeaderMap,
+    fields: &Map<String, Value>,
+) -> Result<(), AuthError> {
     validate_body_redirect(
         service,
-        request.headers(),
-        &fields,
+        headers,
+        fields,
+        "callbackURL",
+        "callbackURL",
+        AuthError::InvalidCallbackUrl,
+    )?;
+    validate_body_redirect(
+        service,
+        headers,
+        fields,
         "redirectTo",
-        "redirectURL",
+        "redirectTo",
         AuthError::InvalidRedirectUrl,
     )?;
     validate_body_redirect(
         service,
-        request.headers(),
-        &fields,
+        headers,
+        fields,
         "errorCallbackURL",
         "errorCallbackURL",
         AuthError::InvalidErrorCallbackUrl,
     )?;
     validate_body_redirect(
         service,
-        request.headers(),
-        &fields,
+        headers,
+        fields,
         "newUserCallbackURL",
         "newUserCallbackURL",
         AuthError::InvalidNewUserCallbackUrl,
     )?;
-    Ok(request)
+    Ok(())
 }
 
 fn validate_body_redirect(

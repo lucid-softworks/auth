@@ -1,8 +1,9 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{
-    AuthConfig, AuthError, AuthService, AuthStore, EmailSignUpInput, EmailVerificationOutcome,
-    NewPasswordUser, PasswordResetOutcome, PluginMigration, PluginMigrationContribution,
-    VerificationStore, VerificationValue, postgres::PostgresStore,
+    Assurance, AuthConfig, AuthError, AuthService, AuthSession, AuthStore, AuthUser,
+    EmailSignUpInput, EmailVerificationOutcome, NewPasswordUser, PasswordResetOutcome,
+    PluginMigration, PluginMigrationContribution, VerificationStore, VerificationValue,
+    postgres::PostgresStore,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -69,6 +70,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     verification_values_are_atomic(&store, user.id).await?;
     email_verification_is_atomic(&store, &user).await?;
     password_reset_is_atomic(&store, &pool, user.id).await?;
+    magic_link_promotion_is_atomic(&store, &pool).await?;
     email_signup_is_case_insensitive(&service, &pool).await?;
 
     pool.close().await;
@@ -76,6 +78,80 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
         .execute(&admin)
         .await?;
     admin.close().await;
+    Ok(())
+}
+
+async fn magic_link_promotion_is_atomic(
+    store: &PostgresStore,
+    pool: &sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let now = Utc::now();
+    let user = store
+        .create_password_user(
+            AuthUser {
+                id: Uuid::new_v4(),
+                username: None,
+                display_username: None,
+                name: "Unverified magic-link user".into(),
+                email: "postgres-magic@example.com".into(),
+                email_verified: false,
+                image: None,
+                role: "member".into(),
+                is_anonymous: false,
+                must_change_password: false,
+                banned: false,
+                ban_reason: None,
+                ban_expires: None,
+                created_at: now,
+                updated_at: now,
+            },
+            "credential-hash".into(),
+        )
+        .await?;
+    store
+        .create_session(AuthSession {
+            id: Uuid::new_v4(),
+            user_id: user.id,
+            token_hash: "unproven-magic-session".into(),
+            actor_user_id: None,
+            guest_grant_id: None,
+            assurance: Assurance::Password,
+            expires_at: now + Duration::hours(1),
+            created_at: now,
+            updated_at: now,
+            ip_address: None,
+            user_agent: None,
+        })
+        .await?;
+    store
+        .create_verification(VerificationValue {
+            purpose: "magic-link".into(),
+            identifier: "postgres-magic-token".into(),
+            payload: json!({ "email": user.email }),
+            expires_at: now + Duration::minutes(1),
+            created_at: now,
+        })
+        .await?;
+    let (left, right) = tokio::join!(
+        store.consume_verification("magic-link", "postgres-magic-token", now),
+        store.consume_verification("magic-link", "postgres-magic-token", now)
+    );
+    assert_eq!(
+        usize::from(left?.is_some()) + usize::from(right?.is_some()),
+        1
+    );
+    let promoted = store.promote_email_owner(user.id, now).await?.unwrap();
+    assert!(promoted.email_verified);
+    assert!(store.find_password_hash(user.id).await?.is_none());
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM lucid_auth_sessions WHERE user_id = $1",
+        )
+        .bind(user.id)
+        .fetch_one(pool)
+        .await?,
+        0
+    );
     Ok(())
 }
 

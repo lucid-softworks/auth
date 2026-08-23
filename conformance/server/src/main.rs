@@ -1,95 +1,35 @@
-use async_trait::async_trait;
 use axum::{
     Extension, Json, Router,
-    extract::{Path, Request},
-    http::{HeaderValue, StatusCode, header},
-    middleware::{self, Next},
+    extract::Path,
+    http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{MethodRouter, get, post},
+    routing::{get, post},
 };
-use chrono::{Duration, Utc};
 use lucid_auth::{
-    Assurance, AuthConfig, AuthPlugin, AuthService, AuthSession, AuthStore, AxumPluginRoute,
-    MemoryStore, NewPasswordUser, PasskeyConfig, PasswordResetEmail, PluginClientMetadata,
-    PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginMiddleware, PluginMigration,
-    PluginRateLimit, StoredPasskey, VerificationEmail,
+    AuthConfig, AuthService, MagicLinkConfig, MagicLinkEmail, MagicLinkPlugin, MemoryStore,
+    NewPasswordUser, PasskeyConfig, PasswordResetEmail, PluginDescriptor, VerificationEmail,
     protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
 };
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::{io::Write, net::SocketAddr, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
 mod email;
+mod native_plugin;
+mod session_fixture;
 
-use email::ConformanceEmailSender;
+use email::{ConformanceEmailSender, ConformanceMagicLinkSender};
+use native_plugin::ConformancePlugin;
 
 #[derive(Clone)]
 struct Fixture {
     service: Arc<AuthService>,
-    store: Arc<MemoryStore>,
-    owner_id: Uuid,
+    pub(crate) store: Arc<MemoryStore>,
+    pub(crate) owner_id: Uuid,
     verification_emails: Arc<Mutex<Vec<VerificationEmail>>>,
     password_reset_emails: Arc<Mutex<Vec<PasswordResetEmail>>>,
-}
-
-struct ConformancePlugin;
-
-const PLUGIN_ENDPOINTS: &[PluginEndpoint] = &[PluginEndpoint {
-    method: PluginHttpMethod::Get,
-    path: "/native-plugin/ping",
-    client_method: "nativePlugin.ping",
-}];
-const PLUGIN_MIDDLEWARE: &[PluginMiddleware] = &[PluginMiddleware {
-    id: "conformance-header",
-}];
-const PLUGIN_RATE_LIMITS: &[PluginRateLimit] = &[PluginRateLimit {
-    path: "/native-plugin/ping",
-    window_seconds: 60,
-    max_requests: 60,
-}];
-const PLUGIN_MIGRATIONS: &[PluginMigration] = &[PluginMigration {
-    id: "create-pings",
-    description: "conformance plugin pings",
-    sql: "CREATE TABLE IF NOT EXISTS lucid_auth_conformance_pings (id TEXT PRIMARY KEY)",
-}];
-
-#[async_trait]
-impl AuthPlugin for ConformancePlugin {
-    fn descriptor(&self) -> PluginDescriptor {
-        PluginDescriptor {
-            id: "conformance",
-            display_name: "Native conformance plugin",
-            version: "1.0.0",
-            dependencies: &[],
-            conflicts: &[],
-            endpoints: PLUGIN_ENDPOINTS,
-            cookies: &[],
-            rate_limits: PLUGIN_RATE_LIMITS,
-            middleware: PLUGIN_MIDDLEWARE,
-            client: Some(PluginClientMetadata::current(
-                "lucid-auth-conformance",
-                "./native-plugin-client.mjs",
-                "nativePluginClient",
-            )),
-        }
-    }
-
-    fn migrations(&self) -> &'static [PluginMigration] {
-        PLUGIN_MIGRATIONS
-    }
-
-    fn routes(&self, _service: Arc<AuthService>) -> Vec<AxumPluginRoute> {
-        vec![AxumPluginRoute::new(
-            "/native-plugin/ping",
-            get(plugin_ping),
-        )]
-    }
-
-    fn middleware(&self, route: MethodRouter, _service: Arc<AuthService>) -> MethodRouter {
-        route.layer(middleware::from_fn(mark_plugin_response))
-    }
+    magic_links: Arc<Mutex<Vec<MagicLinkEmail>>>,
 }
 
 #[tokio::main]
@@ -112,8 +52,12 @@ async fn main() {
             get(password_reset_token),
         )
         .route(
+            "/__conformance__/magic-link-token/{email}",
+            get(magic_link_token),
+        )
+        .route(
             "/__conformance__/session/{assurance}",
-            post(create_fixture_session),
+            post(session_fixture::create),
         )
         .merge(lucid_auth::axum::router(fixture.service.clone()))
         .layer(Extension(fixture));
@@ -134,13 +78,6 @@ async fn compatible_version() -> Json<serde_json::Value> {
 
 async fn plugin_metadata(Extension(fixture): Extension<Fixture>) -> Json<Vec<PluginDescriptor>> {
     Json(fixture.service.plugin_metadata().to_vec())
-}
-
-async fn plugin_ping() -> Json<serde_json::Value> {
-    Json(json!({
-        "plugin": "conformance",
-        "betterAuth": COMPATIBLE_BETTER_AUTH_VERSION,
-    }))
 }
 
 async fn verification_token(
@@ -173,18 +110,22 @@ async fn password_reset_token(
     }
 }
 
-async fn mark_plugin_response(request: Request, next: Next) -> Response {
-    let mut response = next.run(request).await;
-    response
-        .headers_mut()
-        .insert("x-native-plugin", HeaderValue::from_static("conformance"));
-    response
+async fn magic_link_token(
+    Extension(fixture): Extension<Fixture>,
+    Path(email): Path<String>,
+) -> Response {
+    let sent = fixture.magic_links.lock().await;
+    match sent.iter().rev().find(|message| message.email == email) {
+        Some(message) => Json(json!({ "token": message.token })).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 async fn fixture(origin: &str) -> Fixture {
     let store = Arc::new(MemoryStore::default());
     let verification_emails = Arc::new(Mutex::new(Vec::new()));
     let password_reset_emails = Arc::new(Mutex::new(Vec::new()));
+    let magic_links = Arc::new(Mutex::new(Vec::new()));
     let mut config = AuthConfig::new([82_u8; 32]).expect("fixture secret");
     config.allow_anonymous = true;
     config.email_and_password.enabled = true;
@@ -209,6 +150,13 @@ async fn fixture(origin: &str) -> Fixture {
     config
         .add_plugin(ConformancePlugin)
         .expect("unique conformance plugin");
+    config
+        .add_plugin(MagicLinkPlugin::new(MagicLinkConfig::new(Arc::new(
+            ConformanceMagicLinkSender {
+                messages: magic_links.clone(),
+            },
+        ))))
+        .expect("unique magic-link plugin");
     let service = Arc::new(
         AuthService::try_new(store.clone(), config).expect("valid conformance plugin registry"),
     );
@@ -228,67 +176,6 @@ async fn fixture(origin: &str) -> Fixture {
         owner_id: owner.id,
         verification_emails,
         password_reset_emails,
+        magic_links,
     }
-}
-
-async fn create_fixture_session(
-    Extension(fixture): Extension<Fixture>,
-    Path(assurance): Path<String>,
-) -> Response {
-    let assurance = match assurance.as_str() {
-        "strong" => Assurance::PasswordAndPasskey,
-        "pending" => Assurance::PasswordPendingPasskey,
-        _ => return StatusCode::NOT_FOUND.into_response(),
-    };
-    let token = Uuid::new_v4().to_string();
-    let now = Utc::now();
-    if assurance == Assurance::PasswordAndPasskey
-        && fixture
-            .store
-            .list_passkeys(fixture.owner_id)
-            .await
-            .expect("list fixture passkeys")
-            .is_empty()
-    {
-        fixture
-            .store
-            .save_passkey(StoredPasskey {
-                id: Uuid::new_v4(),
-                user_id: fixture.owner_id,
-                name: Some("Conformance key".into()),
-                credential_id: "conformance-credential".into(),
-                credential: json!({}),
-                created_at: now,
-                updated_at: now,
-            })
-            .await
-            .expect("persist fixture passkey");
-    }
-    fixture
-        .store
-        .create_session(AuthSession {
-            id: Uuid::new_v4(),
-            user_id: fixture.owner_id,
-            token_hash: hex::encode(Sha256::digest(token.as_bytes())),
-            actor_user_id: None,
-            guest_grant_id: None,
-            assurance,
-            expires_at: now + Duration::hours(1),
-            created_at: now,
-            updated_at: now,
-            ip_address: None,
-            user_agent: Some("official Better Auth client conformance".into()),
-        })
-        .await
-        .expect("persist fixture session");
-    let cookie = format!(
-        "better-auth.session_token={}; Path=/; HttpOnly; SameSite=Lax",
-        fixture.service.signed_cookie_value(&token)
-    );
-    let mut response = Json(json!({ "status": true })).into_response();
-    response.headers_mut().insert(
-        header::SET_COOKIE,
-        HeaderValue::from_str(&cookie).expect("fixture cookie header"),
-    );
-    response
 }

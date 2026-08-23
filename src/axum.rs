@@ -20,12 +20,12 @@ use webauthn_rs::prelude::{PublicKeyCredential, RegisterPublicKeyCredential};
 
 mod account;
 mod admin;
-mod body;
+pub(crate) mod body;
 mod cors;
 mod email_password;
 mod error;
 mod guest;
-mod http;
+pub(crate) mod http;
 mod security;
 
 pub use self::http::session_token;

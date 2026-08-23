@@ -143,6 +143,10 @@ impl AuthStore for PostgresStore {
         .map_err(storage_error)
     }
 
+    async fn create_user_without_account(&self, user: AuthUser) -> Result<AuthUser, AuthError> {
+        user::create_without_account(&self.pool, user).await
+    }
+
     async fn find_user_by_username(&self, username: &str) -> Result<Option<AuthUser>, AuthError> {
         user::load_by_username(&self.pool, username).await
     }
@@ -174,6 +178,14 @@ impl AuthStore for PostgresStore {
             revoke_sessions,
         )
         .await
+    }
+
+    async fn promote_email_owner(
+        &self,
+        user_id: Uuid,
+        now: DateTime<Utc>,
+    ) -> Result<Option<AuthUser>, AuthError> {
+        user::promote_email_owner(&self.pool, user_id, now).await
     }
 
     async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError> {

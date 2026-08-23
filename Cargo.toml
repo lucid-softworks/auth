@@ -93,3 +93,7 @@ required-features = ["axum"]
 [[test]]
 name = "password_reset_contract"
 required-features = ["axum"]
+
+[[test]]
+name = "magic_link_contract"
+required-features = ["axum"]
