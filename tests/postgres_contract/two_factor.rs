@@ -53,7 +53,10 @@ pub(super) async fn assert_atomic(
     assert_eq!(usize::from(left?) + usize::from(right?), 1);
     let locked = store.find_two_factor(user_id).await?.unwrap();
     assert_eq!(locked.failed_verification_count, 2);
-    assert_eq!(locked.locked_until, Some(locked_until));
+    assert_eq!(
+        locked.locked_until.map(|value| value.timestamp_micros()),
+        Some(locked_until.timestamp_micros())
+    );
 
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
