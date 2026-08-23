@@ -1,8 +1,9 @@
 # lucid-auth
 
-`lucid-auth` is a native Rust authentication library with a deliberately
-tested compatibility surface for the official Better Auth JavaScript client.
-It does not execute or embed a JavaScript authentication server.
+`lucid-auth` is a native Rust authentication backend for applications using
+the official Better Auth JavaScript client. It implements a deliberately
+tested Better Auth-compatible HTTP and session surface without executing or
+embedding a JavaScript authentication server.
 
 The initial compatibility target is Better Auth `1.6.29` and covers:
 
