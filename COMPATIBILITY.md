@@ -65,7 +65,7 @@ semantics, persistence, and an end-to-end client test must all agree.
 | --- | --- | --- |
 | Username | Partial | Login and availability work; signup, update, normalization, and full validation are [#16](https://github.com/lucid-softworks/auth/issues/16). |
 | Anonymous | Partial | Sign-in works; deletion and conversion/linking are [#17](https://github.com/lucid-softworks/auth/issues/17). |
-| Passkey | Partial | All seven route names exist, but schema/options/freshness and durable challenges need [#8](https://github.com/lucid-softworks/auth/issues/8) and [#19](https://github.com/lucid-softworks/auth/issues/19). |
+| Passkey | Partial | All seven route names and durable, single-use registration/authentication challenges exist, but schema/options/freshness parity remains in [#19](https://github.com/lucid-softworks/auth/issues/19). |
 | Two-Factor Authentication | Partial | Backup-code generation and redemption work through a custom passkey-MFA session model. TOTP, OTP, trusted devices, enable/disable, and official challenge semantics are [#20](https://github.com/lucid-softworks/auth/issues/20). |
 | Magic Link | Planned | [#22](https://github.com/lucid-softworks/auth/issues/22). |
 | Email OTP | Planned | [#23](https://github.com/lucid-softworks/auth/issues/23). |
@@ -139,6 +139,7 @@ a fail-closed security policy.
 | --- | --- | --- |
 | In-memory store | Supported | Intended for tests and single-process development. |
 | PostgreSQL | Supported | Core current-schema migration and contract exist; broader schema generation is [#68](https://github.com/lucid-softworks/auth/issues/68). |
+| Verification challenges | Supported | Purpose-scoped, expiring values are persisted by both stores and consumed atomically across service instances; [#8](https://github.com/lucid-softworks/auth/issues/8). |
 | SQLite | Planned | [#61](https://github.com/lucid-softworks/auth/issues/61). |
 | MySQL | Planned | [#62](https://github.com/lucid-softworks/auth/issues/62). |
 | MongoDB | Planned | [#63](https://github.com/lucid-softworks/auth/issues/63). |

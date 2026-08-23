@@ -10,6 +10,7 @@ mod migrate;
 mod rows;
 mod security;
 mod user;
+mod verification;
 
 use rows::{PasskeyRow, SessionRow, UserRow};
 

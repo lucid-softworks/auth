@@ -26,11 +26,13 @@ pub use memory::MemoryStore;
 pub use model::{
     ApiKey, Assurance, AuditEvent, AuthSession, AuthUser, GuestGrant, IssuedApiKey,
     IssuedGuestGrant, NewApiKey, NewGuestGrant, NewPasswordUser, Principal, SessionWithUser,
-    StoredPasskey, VerifiedApiKey,
+    StoredPasskey, VerificationValue, VerifiedApiKey,
 };
 pub use origin::TrustedOrigin;
 pub use service::{
     AuthService, HashedPasswordUser, PasskeyRegistrationResult, PasswordChangeResult,
     RecoveryCodeStatus, SignInResult,
 };
-pub use store::{AccessStore, ApiKeyStore, AuthStore, PasskeyDeleteOutcome, SecurityStore};
+pub use store::{
+    AccessStore, ApiKeyStore, AuthStore, PasskeyDeleteOutcome, SecurityStore, VerificationStore,
+};

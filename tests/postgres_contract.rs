@@ -1,4 +1,9 @@
-use lucid_auth::{AuthConfig, AuthService, NewPasswordUser, postgres::PostgresStore};
+use chrono::{Duration, Utc};
+use lucid_auth::{
+    AuthConfig, AuthService, NewPasswordUser, VerificationStore, VerificationValue,
+    postgres::PostgresStore,
+};
+use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -29,11 +34,11 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
         .connect(&database_url)
         .await?;
 
-    let store = PostgresStore::new(pool.clone());
+    let store = Arc::new(PostgresStore::new(pool.clone()));
     store.migrate().await?;
     store.migrate().await?;
 
-    let service = AuthService::new(Arc::new(store), AuthConfig::new([42_u8; 32])?);
+    let service = AuthService::new(store.clone(), AuthConfig::new([42_u8; 32])?);
     let user = service
         .provision_password_user(NewPasswordUser {
             username: "owner".into(),
@@ -56,10 +61,53 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     assert_eq!(signed_in.session.principal().subject_id, user.id);
     assert!(service.session(&signed_in.token).await?.is_some());
 
+    verification_values_are_atomic(&store, user.id).await?;
+
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
         .execute(&admin)
         .await?;
     admin.close().await;
+    Ok(())
+}
+
+async fn verification_values_are_atomic(
+    store: &PostgresStore,
+    user_id: Uuid,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let now = Utc::now();
+    store
+        .create_verification(VerificationValue {
+            purpose: "contract".into(),
+            identifier: "single-use".into(),
+            payload: json!({ "subject": user_id }),
+            expires_at: now + Duration::minutes(1),
+            created_at: now,
+        })
+        .await?;
+    let (left, right) = tokio::join!(
+        store.consume_verification("contract", "single-use", now),
+        store.consume_verification("contract", "single-use", now)
+    );
+    assert_eq!(
+        usize::from(left?.is_some()) + usize::from(right?.is_some()),
+        1
+    );
+
+    store
+        .create_verification(VerificationValue {
+            purpose: "contract".into(),
+            identifier: "expired".into(),
+            payload: json!({}),
+            expires_at: now - Duration::seconds(1),
+            created_at: now - Duration::minutes(1),
+        })
+        .await?;
+    assert!(
+        store
+            .consume_verification("contract", "expired", now)
+            .await?
+            .is_none()
+    );
     Ok(())
 }

@@ -74,7 +74,9 @@ codes, marks the password temporary, and appends an actorless audit event. It is
 not routed by the crate's Axum compatibility surface.
 
 WebAuthn relying-party configuration is explicit and must use HTTPS except for
-the browser's `localhost` development exception.
+the browser's `localhost` development exception. Registration and authentication
+challenges are stored through the configured backend, expire after five minutes,
+and are atomically consumed once, including across service instances.
 
 Cookie-authenticated browser mutations require a trusted `Origin` or `Referer`
 and reject cross-site navigation login attempts. Same-origin requests are

@@ -17,13 +17,11 @@ use crate::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Duration, Utc};
 use hmac::{Hmac, Mac};
-use passkey::PasskeyCeremony;
 use session::{hash_token, random_token};
 use sha2::Sha256;
 #[cfg(feature = "axum")]
 use std::net::IpAddr;
-use std::{collections::HashMap, sync::Arc};
-use tokio::sync::Mutex;
+use std::sync::Arc;
 use uuid::Uuid;
 
 pub use passkey::PasskeyRegistrationResult;
@@ -54,7 +52,6 @@ pub struct HashedPasswordUser {
 pub struct AuthService {
     store: Arc<dyn AuthStore>,
     config: Arc<AuthConfig>,
-    passkey_ceremonies: Arc<Mutex<HashMap<String, PasskeyCeremony>>>,
 }
 
 impl AuthService {
@@ -62,7 +59,6 @@ impl AuthService {
         Self {
             store,
             config: Arc::new(config),
-            passkey_ceremonies: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 

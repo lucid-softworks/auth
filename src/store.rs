@@ -1,4 +1,7 @@
-use crate::{ApiKey, AuditEvent, AuthError, AuthSession, AuthUser, GuestGrant, StoredPasskey};
+use crate::{
+    ApiKey, AuditEvent, AuthError, AuthSession, AuthUser, GuestGrant, StoredPasskey,
+    VerificationValue,
+};
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -12,7 +15,9 @@ pub enum PasskeyDeleteOutcome {
 
 /// Persistence boundary required by [`crate::AuthService`].
 #[async_trait]
-pub trait AuthStore: AccessStore + ApiKeyStore + SecurityStore + Send + Sync {
+pub trait AuthStore:
+    AccessStore + ApiKeyStore + SecurityStore + VerificationStore + Send + Sync
+{
     async fn create_password_user(
         &self,
         user: AuthUser,
@@ -82,6 +87,26 @@ pub trait AuthStore: AccessStore + ApiKeyStore + SecurityStore + Send + Sync {
         &self,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), AuthError>;
+}
+
+/// Durable one-time state for verification, OAuth, and challenge flows.
+#[async_trait]
+pub trait VerificationStore: Send + Sync {
+    async fn create_verification(&self, value: VerificationValue) -> Result<(), AuthError>;
+
+    /// Atomically consumes a matching unexpired value. Concurrent callers may
+    /// never receive the same record twice.
+    async fn consume_verification(
+        &self,
+        purpose: &str,
+        identifier: &str,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<VerificationValue>, AuthError>;
+
+    async fn delete_expired_verifications(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, AuthError>;
 }
 
 /// Persistence boundary for Better Auth-compatible API keys.

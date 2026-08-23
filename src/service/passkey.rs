@@ -1,6 +1,9 @@
 use super::{AuthService, SignInResult, random_token};
-use crate::{Assurance, AuthError, PasskeyDeleteOutcome, SessionWithUser, StoredPasskey};
-use chrono::{DateTime, Duration, Utc};
+use crate::{
+    Assurance, AuthError, PasskeyDeleteOutcome, SessionWithUser, StoredPasskey, VerificationValue,
+};
+use chrono::{Duration, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 use webauthn_rs::prelude::{
@@ -9,18 +12,19 @@ use webauthn_rs::prelude::{
     WebauthnBuilder,
 };
 
-#[derive(Debug, Clone)]
+const REGISTRATION_PURPOSE: &str = "passkey-registration";
+const AUTHENTICATION_PURPOSE: &str = "passkey-authentication";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) enum PasskeyCeremony {
     Registration {
         user_id: Uuid,
         state: PasskeyRegistration,
-        expires_at: DateTime<Utc>,
     },
     Authentication {
         passkeys: Vec<StoredPasskey>,
         state: PasskeyAuthentication,
         prior_user_id: Option<Uuid>,
-        expires_at: DateTime<Utc>,
     },
 }
 
@@ -112,14 +116,15 @@ impl AuthService {
             .start_passkey_registration(actor.user.id, username, &actor.user.name, exclude)
             .map_err(|_| AuthError::PasskeyVerificationFailed)?;
         let token = random_token();
-        self.passkey_ceremonies.lock().await.insert(
-            token.clone(),
+        self.store_passkey_ceremony(
+            REGISTRATION_PURPOSE,
+            &token,
             PasskeyCeremony::Registration {
                 user_id: actor.user.id,
                 state,
-                expires_at: Utc::now() + Duration::minutes(5),
             },
-        );
+        )
+        .await?;
         Ok((token, options))
     }
 
@@ -130,8 +135,9 @@ impl AuthService {
         response: RegisterPublicKeyCredential,
         name: Option<String>,
     ) -> Result<PasskeyRegistrationResult, AuthError> {
-        let PasskeyCeremony::Registration { user_id, state, .. } =
-            self.consume_passkey_ceremony(token).await?
+        let PasskeyCeremony::Registration { user_id, state, .. } = self
+            .consume_passkey_ceremony(REGISTRATION_PURPOSE, token)
+            .await?
         else {
             return Err(AuthError::PasskeyChallengeExpired);
         };
@@ -212,15 +218,16 @@ impl AuthService {
             .start_passkey_authentication(&passkeys)
             .map_err(|_| AuthError::PasskeyVerificationFailed)?;
         let token = random_token();
-        self.passkey_ceremonies.lock().await.insert(
-            token.clone(),
+        self.store_passkey_ceremony(
+            AUTHENTICATION_PURPOSE,
+            &token,
             PasskeyCeremony::Authentication {
                 passkeys: stored,
                 state,
                 prior_user_id: current_session.map(|session| session.user.id),
-                expires_at: Utc::now() + Duration::minutes(5),
             },
-        );
+        )
+        .await?;
         Ok((token, options))
     }
 
@@ -236,7 +243,9 @@ impl AuthService {
             state,
             prior_user_id,
             ..
-        } = self.consume_passkey_ceremony(token).await?
+        } = self
+            .consume_passkey_ceremony(AUTHENTICATION_PURPOSE, token)
+            .await?
         else {
             return Err(AuthError::PasskeyChallengeExpired);
         };
@@ -304,16 +313,37 @@ impl AuthService {
         Ok(())
     }
 
-    async fn consume_passkey_ceremony(&self, token: &str) -> Result<PasskeyCeremony, AuthError> {
+    async fn store_passkey_ceremony(
+        &self,
+        purpose: &str,
+        token: &str,
+        ceremony: PasskeyCeremony,
+    ) -> Result<(), AuthError> {
         let now = Utc::now();
-        let mut ceremonies = self.passkey_ceremonies.lock().await;
-        ceremonies.retain(|_, ceremony| match ceremony {
-            PasskeyCeremony::Registration { expires_at, .. }
-            | PasskeyCeremony::Authentication { expires_at, .. } => *expires_at > now,
-        });
-        ceremonies
-            .remove(token)
-            .ok_or(AuthError::PasskeyChallengeExpired)
+        self.store.delete_expired_verifications(now).await?;
+        self.store
+            .create_verification(VerificationValue {
+                purpose: purpose.into(),
+                identifier: token.into(),
+                payload: serde_json::to_value(ceremony)
+                    .map_err(|error| AuthError::Storage(error.to_string()))?,
+                expires_at: now + Duration::minutes(5),
+                created_at: now,
+            })
+            .await
+    }
+
+    async fn consume_passkey_ceremony(
+        &self,
+        purpose: &str,
+        token: &str,
+    ) -> Result<PasskeyCeremony, AuthError> {
+        let value = self
+            .store
+            .consume_verification(purpose, token, Utc::now())
+            .await?
+            .ok_or(AuthError::PasskeyChallengeExpired)?;
+        serde_json::from_value(value.payload).map_err(|_| AuthError::PasskeyChallengeExpired)
     }
 }
 

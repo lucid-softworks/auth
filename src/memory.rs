@@ -1,6 +1,6 @@
 use crate::{
     ApiKey, AuditEvent, AuthError, AuthSession, AuthStore, AuthUser, GuestGrant,
-    PasskeyDeleteOutcome, StoredPasskey,
+    PasskeyDeleteOutcome, StoredPasskey, VerificationValue,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -14,6 +14,7 @@ use uuid::Uuid;
 mod access;
 mod api_key;
 mod security;
+mod verification;
 
 #[derive(Default)]
 struct MemoryState {
@@ -27,6 +28,7 @@ struct MemoryState {
     audit_events: Vec<AuditEvent>,
     rate_limits: HashMap<String, RateLimitWindow>,
     recovery_codes: HashMap<Uuid, HashSet<String>>,
+    verifications: HashMap<(String, String), VerificationValue>,
 }
 
 struct RateLimitWindow {

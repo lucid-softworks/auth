@@ -90,6 +90,16 @@ pub struct StoredPasskey {
     pub updated_at: DateTime<Utc>,
 }
 
+/// A durable, one-time verification or protocol challenge.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VerificationValue {
+    pub purpose: String,
+    pub identifier: String,
+    pub payload: serde_json::Value,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
 /// A time-bounded capability grant that can be exchanged for a guest session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GuestGrant {

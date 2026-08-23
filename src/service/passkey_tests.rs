@@ -1,5 +1,6 @@
 use super::*;
-use crate::{AuthConfig, AuthStore, MemoryStore, NewPasswordUser, SecurityStore};
+use crate::{AuthConfig, AuthStore, MemoryStore, NewPasswordUser, PasskeyConfig, SecurityStore};
+use chrono::DateTime;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -94,6 +95,50 @@ async fn required_mfa_preserves_one_passkey_under_concurrent_deletion() {
         service.list_passkeys(session.user.id).await.unwrap().len(),
         1
     );
+}
+
+#[tokio::test]
+async fn passkey_ceremonies_cross_service_instances_and_consume_once() {
+    let store = Arc::new(MemoryStore::default());
+    let mut config = AuthConfig::new([49_u8; 32]).unwrap();
+    config.passkeys = Some(PasskeyConfig {
+        rp_id: "localhost".into(),
+        rp_origin: "http://localhost:5173".into(),
+        rp_name: "Local".into(),
+    });
+    let first = AuthService::new(store.clone(), config.clone());
+    let second = AuthService::new(store, config);
+    first
+        .provision_password_user(NewPasswordUser {
+            username: "luna".into(),
+            name: "Luna".into(),
+            email: None,
+            password: "password".into(),
+            role: "owner".into(),
+        })
+        .await
+        .unwrap();
+    let session = first
+        .sign_in_username("luna", "password".into(), None, None)
+        .await
+        .unwrap()
+        .session;
+    let (token, _) = first.start_passkey_registration(&session).await.unwrap();
+
+    let ceremony = second
+        .consume_passkey_ceremony(REGISTRATION_PURPOSE, &token)
+        .await
+        .unwrap();
+    assert!(matches!(
+        ceremony,
+        PasskeyCeremony::Registration { user_id, .. } if user_id == session.user.id
+    ));
+    assert!(matches!(
+        first
+            .consume_passkey_ceremony(REGISTRATION_PURPOSE, &token)
+            .await,
+        Err(AuthError::PasskeyChallengeExpired)
+    ));
 }
 
 fn test_passkey(user_id: Uuid, credential_id: &str, now: DateTime<Utc>) -> StoredPasskey {
