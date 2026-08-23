@@ -1,6 +1,7 @@
 mod access;
 mod api_key;
 mod email_password;
+mod email_verification;
 mod guest;
 mod passkey;
 mod password;
@@ -28,6 +29,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 pub use email_password::{EmailSignUpInput, EmailSignUpResult};
+pub use email_verification::EmailVerificationResult;
 pub use passkey::PasskeyRegistrationResult;
 pub use password::PasswordChangeResult;
 pub use recovery::RecoveryCodeStatus;

@@ -44,6 +44,20 @@ pub struct VerifyPasswordRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct SendVerificationEmailRequest {
+    pub email: String,
+    #[serde(rename = "callbackURL")]
+    pub callback_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VerifyEmailQuery {
+    pub token: String,
+    #[serde(rename = "callbackURL")]
+    pub callback_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct UsernameAvailabilityRequest {
     pub username: String,
 }
@@ -115,6 +129,12 @@ pub struct SignInResponse {
 pub struct EmailSignUpResponse {
     pub token: Option<String>,
     pub user: BetterAuthUser,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VerifyEmailResponse {
+    pub status: bool,
+    pub user: Option<BetterAuthUser>,
 }
 
 #[derive(Debug, Deserialize)]

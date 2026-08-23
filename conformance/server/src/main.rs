@@ -12,18 +12,24 @@ use lucid_auth::{
     Assurance, AuthConfig, AuthPlugin, AuthService, AuthSession, AuthStore, AxumPluginRoute,
     MemoryStore, NewPasswordUser, PasskeyConfig, PluginClientMetadata, PluginDescriptor,
     PluginEndpoint, PluginHttpMethod, PluginMiddleware, PluginMigration, PluginRateLimit,
-    StoredPasskey, protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+    StoredPasskey, VerificationEmail, protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{io::Write, net::SocketAddr, sync::Arc};
+use tokio::sync::Mutex;
 use uuid::Uuid;
+
+mod email;
+
+use email::ConformanceEmailSender;
 
 #[derive(Clone)]
 struct Fixture {
     service: Arc<AuthService>,
     store: Arc<MemoryStore>,
     owner_id: Uuid,
+    verification_emails: Arc<Mutex<Vec<VerificationEmail>>>,
 }
 
 struct ConformancePlugin;
@@ -96,6 +102,10 @@ async fn main() {
         .route("/__conformance__/version", get(compatible_version))
         .route("/__conformance__/plugins", get(plugin_metadata))
         .route(
+            "/__conformance__/verification-token/{email}",
+            get(verification_token),
+        )
+        .route(
             "/__conformance__/session/{assurance}",
             post(create_fixture_session),
         )
@@ -127,6 +137,21 @@ async fn plugin_ping() -> Json<serde_json::Value> {
     }))
 }
 
+async fn verification_token(
+    Extension(fixture): Extension<Fixture>,
+    Path(email): Path<String>,
+) -> Response {
+    let sent = fixture.verification_emails.lock().await;
+    match sent
+        .iter()
+        .rev()
+        .find(|message| message.user.email == email)
+    {
+        Some(message) => Json(json!({ "token": message.token })).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 async fn mark_plugin_response(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     response
@@ -137,9 +162,14 @@ async fn mark_plugin_response(request: Request, next: Next) -> Response {
 
 async fn fixture(origin: &str) -> Fixture {
     let store = Arc::new(MemoryStore::default());
+    let verification_emails = Arc::new(Mutex::new(Vec::new()));
     let mut config = AuthConfig::new([82_u8; 32]).expect("fixture secret");
     config.allow_anonymous = true;
     config.email_and_password.enabled = true;
+    config.email_verification.sender = Some(Arc::new(ConformanceEmailSender(
+        verification_emails.clone(),
+    )));
+    config.email_verification.auto_sign_in_after_verification = true;
     config
         .set_base_url(origin)
         .expect("localhost fixture origin");
@@ -168,6 +198,7 @@ async fn fixture(origin: &str) -> Fixture {
         service,
         store,
         owner_id: owner.id,
+        verification_emails,
     }
 }
 

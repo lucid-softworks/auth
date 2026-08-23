@@ -331,6 +331,7 @@ async fn concurrent_case_variant_signup_creates_one_account() {
         email: email.into(),
         password: "correct horse battery staple".into(),
         image: None,
+        callback_url: None,
         remember_me: None,
     };
     let (first, second) = tokio::join!(

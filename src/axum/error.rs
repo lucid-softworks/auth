@@ -12,7 +12,13 @@ pub(super) fn auth_error(error: AuthError) -> Response {
         | AuthError::InvalidEmail
         | AuthError::EmailPasswordDisabled
         | AuthError::EmailPasswordSignUpDisabled
-        | AuthError::EmailNotVerified => credential_error_details(&error),
+        | AuthError::EmailNotVerified
+        | AuthError::VerificationEmailNotEnabled
+        | AuthError::EmailMismatch
+        | AuthError::EmailAlreadyVerified
+        | AuthError::InvalidToken
+        | AuthError::TokenExpired
+        | AuthError::VerificationUserNotFound => credential_error_details(&error),
         AuthError::RateLimited => (
             StatusCode::TOO_MANY_REQUESTS,
             "TOO_MANY_REQUESTS",
@@ -105,11 +111,27 @@ fn credential_error_details(error: &AuthError) -> ErrorDetails {
             "EMAIL_PASSWORD_SIGN_UP_DISABLED",
             "Email and password sign up is not enabled",
         ),
-        _ => (
+        AuthError::EmailNotVerified => (
             StatusCode::FORBIDDEN,
             "EMAIL_NOT_VERIFIED",
             "Email not verified",
         ),
+        AuthError::VerificationEmailNotEnabled => (
+            StatusCode::BAD_REQUEST,
+            "VERIFICATION_EMAIL_NOT_ENABLED",
+            "Verification email isn't enabled",
+        ),
+        AuthError::EmailMismatch => (StatusCode::BAD_REQUEST, "EMAIL_MISMATCH", "Email mismatch"),
+        AuthError::EmailAlreadyVerified => (
+            StatusCode::BAD_REQUEST,
+            "EMAIL_ALREADY_VERIFIED",
+            "Email is already verified",
+        ),
+        AuthError::TokenExpired => (StatusCode::UNAUTHORIZED, "TOKEN_EXPIRED", "Token expired"),
+        AuthError::VerificationUserNotFound => {
+            (StatusCode::UNAUTHORIZED, "USER_NOT_FOUND", "User not found")
+        }
+        _ => (StatusCode::UNAUTHORIZED, "INVALID_TOKEN", "Invalid token"),
     }
 }
 

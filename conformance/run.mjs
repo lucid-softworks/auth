@@ -204,6 +204,40 @@ async function conformance(origin) {
     success(await client.signOut(), "signOut after email signin");
   });
 
+  await runCase("email verification clients", async () => {
+    const sent = success(
+      await client.sendVerificationEmail({
+        email: "email.user@example.com",
+        callbackURL: "/verified",
+      }),
+      "sendVerificationEmail",
+    );
+    assert.equal(sent.status, true);
+    transport.assertRequest("/api/auth/send-verification-email", "POST", {
+      email: "email.user@example.com",
+      callbackURL: "/verified",
+    });
+    const captured = await transport.fetch(
+      `${origin}/__conformance__/verification-token/email.user%40example.com`,
+    );
+    assert.equal(captured.status, 200);
+    const { token } = await captured.json();
+    const verified = success(
+      await client.verifyEmail({ query: { token } }),
+      "verifyEmail",
+    );
+    assert.equal(verified.status, true);
+    assert.equal(verified.user, null);
+    const session = success(await client.getSession(), "verified getSession");
+    assert.equal(session.user.emailVerified, true);
+
+    const replay = await client.verifyEmail({ query: { token } });
+    assert.equal(replay.data, null);
+    assert.equal(replay.error?.status, 401);
+    assert.equal(replay.error?.code, "INVALID_TOKEN");
+    success(await client.signOut(), "signOut after email verification");
+  });
+
   await runCase("username and session clients", async () => {
     const available = success(
       await client.isUsernameAvailable({ username: "available_user" }),

@@ -13,6 +13,15 @@ pub enum PasskeyDeleteOutcome {
     MinimumRequired,
 }
 
+#[derive(Debug, Clone)]
+pub enum EmailVerificationOutcome {
+    InvalidToken,
+    Expired,
+    UserNotFound,
+    AlreadyVerified(AuthUser),
+    Verified(AuthUser),
+}
+
 /// Persistence boundary required by [`crate::AuthService`].
 #[async_trait]
 pub trait AuthStore:
@@ -35,6 +44,13 @@ pub trait AuthStore:
     async fn find_user_by_username(&self, username: &str) -> Result<Option<AuthUser>, AuthError>;
 
     async fn find_user_by_email(&self, email: &str) -> Result<Option<AuthUser>, AuthError>;
+
+    /// Atomically consumes a purpose-bound token and marks its user verified.
+    async fn consume_email_verification(
+        &self,
+        token_hash: &str,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<EmailVerificationOutcome, AuthError>;
 
     async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError>;
 

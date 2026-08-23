@@ -7,12 +7,14 @@ use crate::{
     AuthError, AuthService, EmailSignUpInput,
     protocol::better_auth::{
         BetterAuthUser, EmailSignInRequest, EmailSignUpRequest, EmailSignUpResponse,
-        StatusResponse, VerifyPasswordRequest,
+        SendVerificationEmailRequest, StatusResponse, VerifyEmailQuery, VerifyEmailResponse,
+        VerifyPasswordRequest,
     },
 };
 use axum::{
     Extension, Json, Router,
-    http::{HeaderMap, HeaderValue, header},
+    extract::Query,
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::post,
 };
@@ -26,6 +28,82 @@ where
         .route("/sign-up/email", post(sign_up_email))
         .route("/sign-in/email", post(sign_in_email))
         .route("/verify-password", post(verify_password))
+        .route("/send-verification-email", post(send_verification_email))
+        .route("/verify-email", axum::routing::get(verify_email))
+}
+
+async fn send_verification_email(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Json(input): Json<SendVerificationEmailRequest>,
+) -> Response {
+    let session = current_session(&service, &headers).await;
+    match service
+        .send_verification_email(
+            &input.email,
+            input.callback_url.as_deref(),
+            session.as_ref(),
+        )
+        .await
+    {
+        Ok(()) => Json(StatusResponse { status: true }).into_response(),
+        Err(error) => auth_error(error),
+    }
+}
+
+async fn verify_email(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Query(query): Query<VerifyEmailQuery>,
+) -> Response {
+    let token = super::http::session_token(&service, &headers);
+    let session = current_session(&service, &headers).await;
+    let current = session.as_ref().zip(token.as_deref());
+    match service.verify_email_token(&query.token, current).await {
+        Ok(result) => {
+            let response = match query.callback_url {
+                Some(callback_url) => redirect(&callback_url),
+                None => Json(VerifyEmailResponse {
+                    status: true,
+                    user: None,
+                })
+                .into_response(),
+            };
+            match result.session_token {
+                Some(token) => with_session_cookie(&service, &token, Some(true), response),
+                None => response,
+            }
+        }
+        Err(error) => {
+            if let Some(callback_url) = query.callback_url
+                && let Some(code) = verification_error_code(&error)
+            {
+                return redirect_error(&callback_url, code);
+            }
+            auth_error(error)
+        }
+    }
+}
+
+fn redirect(callback_url: &str) -> Response {
+    match HeaderValue::from_str(callback_url) {
+        Ok(location) => (StatusCode::FOUND, [(header::LOCATION, location)]).into_response(),
+        Err(_) => auth_error(AuthError::InvalidCallbackUrl),
+    }
+}
+
+fn redirect_error(callback_url: &str, code: &str) -> Response {
+    let separator = if callback_url.contains('?') { '&' } else { '?' };
+    redirect(&format!("{callback_url}{separator}error={code}"))
+}
+
+fn verification_error_code(error: &AuthError) -> Option<&'static str> {
+    match error {
+        AuthError::TokenExpired => Some("TOKEN_EXPIRED"),
+        AuthError::VerificationUserNotFound => Some("USER_NOT_FOUND"),
+        AuthError::InvalidToken => Some("INVALID_TOKEN"),
+        _ => None,
+    }
 }
 
 async fn verify_password(
@@ -58,6 +136,7 @@ async fn sign_up_email(
                 email: input.email,
                 password: input.password,
                 image: input.image,
+                callback_url: input.callback_url,
                 remember_me: input.remember_me,
             },
             client_ip(&service, &headers, peer),
@@ -92,6 +171,7 @@ async fn sign_in_email(
             &input.email,
             input.password,
             input.remember_me,
+            input.callback_url.as_deref(),
             client_ip(&service, &headers, peer),
             user_agent(&headers),
         )

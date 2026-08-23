@@ -1,5 +1,5 @@
-use super::{PostgresStore, storage_error};
-use crate::{AuthError, VerificationStore, VerificationValue};
+use super::{PostgresStore, UserRow, storage_error};
+use crate::{AuthError, AuthUser, EmailVerificationOutcome, VerificationStore, VerificationValue};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
@@ -22,6 +22,67 @@ impl From<VerificationRow> for VerificationValue {
             created_at: row.created_at,
         }
     }
+}
+
+pub(super) async fn consume_email_verification(
+    pool: &sqlx::PgPool,
+    token_hash: &str,
+    now: DateTime<Utc>,
+) -> Result<EmailVerificationOutcome, AuthError> {
+    let mut transaction = pool.begin().await.map_err(storage_error)?;
+    let value = sqlx::query_as::<_, VerificationRow>(
+        "DELETE FROM lucid_auth_verifications \
+         WHERE purpose = 'email-verification' AND identifier = $1 \
+         RETURNING purpose, identifier, payload, expires_at, created_at",
+    )
+    .bind(token_hash)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(storage_error)?;
+    let Some(value) = value else {
+        transaction.commit().await.map_err(storage_error)?;
+        return Ok(EmailVerificationOutcome::InvalidToken);
+    };
+    if value.expires_at <= now {
+        transaction.commit().await.map_err(storage_error)?;
+        return Ok(EmailVerificationOutcome::Expired);
+    }
+    let email = value
+        .payload
+        .get("email")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| AuthError::Storage("email verification payload is invalid".into()))?;
+    let user = sqlx::query_as::<_, UserRow>(
+        "SELECT id, username, display_username, name, email, email_verified, image, role, \
+         is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at \
+         FROM lucid_auth_users WHERE LOWER(email) = LOWER($1) FOR UPDATE",
+    )
+    .bind(email)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(storage_error)?
+    .map(AuthUser::from);
+    let Some(user) = user else {
+        transaction.commit().await.map_err(storage_error)?;
+        return Ok(EmailVerificationOutcome::UserNotFound);
+    };
+    if user.email_verified {
+        transaction.commit().await.map_err(storage_error)?;
+        return Ok(EmailVerificationOutcome::AlreadyVerified(user));
+    }
+    let user = sqlx::query_as::<_, UserRow>(
+        "UPDATE lucid_auth_users SET email_verified = TRUE, updated_at = $2 WHERE id = $1 \
+         RETURNING id, username, display_username, name, email, email_verified, image, role, \
+           is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at",
+    )
+    .bind(user.id)
+    .bind(now)
+    .fetch_one(&mut *transaction)
+    .await
+    .map(AuthUser::from)
+    .map_err(storage_error)?;
+    transaction.commit().await.map_err(storage_error)?;
+    Ok(EmailVerificationOutcome::Verified(user))
 }
 
 #[async_trait]

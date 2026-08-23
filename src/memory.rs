@@ -1,6 +1,6 @@
 use crate::{
-    ApiKey, AuditEvent, AuthError, AuthSession, AuthStore, AuthUser, GuestGrant,
-    PasskeyDeleteOutcome, StoredPasskey, VerificationValue,
+    ApiKey, AuditEvent, AuthError, AuthSession, AuthStore, AuthUser, EmailVerificationOutcome,
+    GuestGrant, PasskeyDeleteOutcome, StoredPasskey, VerificationValue,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -152,6 +152,43 @@ impl AuthStore for MemoryStore {
             .get(&email.to_lowercase())
             .and_then(|id| state.users.get(id))
             .cloned())
+    }
+
+    async fn consume_email_verification(
+        &self,
+        token_hash: &str,
+        now: DateTime<Utc>,
+    ) -> Result<EmailVerificationOutcome, AuthError> {
+        let mut state = self.state.write().await;
+        let key = ("email-verification".to_owned(), token_hash.to_owned());
+        let Some(value) = state.verifications.remove(&key) else {
+            return Ok(EmailVerificationOutcome::InvalidToken);
+        };
+        if value.expires_at <= now {
+            return Ok(EmailVerificationOutcome::Expired);
+        }
+        let Some(email) = value
+            .payload
+            .get("email")
+            .and_then(serde_json::Value::as_str)
+        else {
+            return Err(AuthError::Storage(
+                "email verification payload is invalid".into(),
+            ));
+        };
+        let Some(user_id) = state.emails.get(email).copied() else {
+            return Ok(EmailVerificationOutcome::UserNotFound);
+        };
+        let user = state
+            .users
+            .get_mut(&user_id)
+            .ok_or_else(|| AuthError::Storage("email index is inconsistent".into()))?;
+        if user.email_verified {
+            return Ok(EmailVerificationOutcome::AlreadyVerified(user.clone()));
+        }
+        user.email_verified = true;
+        user.updated_at = now;
+        Ok(EmailVerificationOutcome::Verified(user.clone()))
     }
 
     async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError> {

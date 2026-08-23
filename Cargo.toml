@@ -35,7 +35,7 @@ sha1 = "0.10"
 sha2 = "0.10"
 sqlx = { version = "0.8", optional = true, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono"] }
 thiserror = "2"
-tokio = { version = "1", features = ["rt", "sync"] }
+tokio = { version = "1", features = ["rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 url = "2"
 webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation"] }
@@ -80,6 +80,10 @@ required-features = ["axum"]
 
 [[test]]
 name = "email_password_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "email_verification_contract"
 required-features = ["axum"]
 
 [[test]]

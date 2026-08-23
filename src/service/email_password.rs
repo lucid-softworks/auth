@@ -10,6 +10,7 @@ pub struct EmailSignUpInput {
     pub email: String,
     pub password: String,
     pub image: Option<String>,
+    pub callback_url: Option<String>,
     pub remember_me: Option<bool>,
 }
 
@@ -87,6 +88,8 @@ impl AuthService {
             Err(AuthError::UserAlreadyExists) => return Err(AuthError::UserAlreadyExistsEmail),
             Err(error) => return Err(error),
         };
+        self.maybe_send_signup_verification(&user, input.callback_url.as_deref())
+            .await?;
         if config.require_email_verification || !config.auto_sign_in {
             return Ok(EmailSignUpResult { token: None, user });
         }
@@ -104,6 +107,7 @@ impl AuthService {
         email: &str,
         password: String,
         remember_me: Option<bool>,
+        callback_url: Option<&str>,
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
@@ -127,6 +131,8 @@ impl AuthService {
             return Err(AuthError::AccountDisabled);
         }
         if self.config.email_and_password.require_email_verification && !user.email_verified {
+            self.maybe_send_signin_verification(&user, callback_url)
+                .await?;
             return Err(AuthError::EmailNotVerified);
         }
         self.store

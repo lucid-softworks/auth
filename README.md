@@ -12,6 +12,7 @@ supported surface covers:
 
 - `getSession` and `useSession`
 - core email/password signup, signin, and current-password verification
+- durable email verification with a native async delivery callback
 - username/password sign-in
 - sign-out
 - anonymous guest sign-in
@@ -61,6 +62,17 @@ configuration exposes signup enablement, auto-sign-in, verification-required
 mode, and password length bounds. Email identities are stored lowercase and
 enforced case-insensitively by both adapters. Wire input accepts Better Auth's
 exact `callbackURL` spelling only.
+
+Email delivery is supplied in-process by implementing
+`VerificationEmailSender` and assigning it to
+`config.email_verification.sender`. The callback receives a typed
+`VerificationEmail` containing the user, verification URL, and one-time token.
+Configure `AuthConfig::set_base_url` as well so delivered links use the public
+authentication origin and base path.
+`send_on_sign_up`, `send_on_sign_in`, `auto_sign_in_after_verification`, and
+`expires_in` mirror Better Auth's verification lifecycle. Only a SHA-256 token
+identifier is persisted; verification consumes it and updates `emailVerified`
+atomically, so replay and concurrent redemption fail.
 
 API-key secrets contain 384 random bits and are never stored. The database keeps
 only a salted Argon2id verifier plus a random public key identifier used for a

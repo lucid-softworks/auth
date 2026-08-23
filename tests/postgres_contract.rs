@@ -1,9 +1,11 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{
-    AuthConfig, AuthError, AuthService, EmailSignUpInput, NewPasswordUser, PluginMigration,
-    PluginMigrationContribution, VerificationStore, VerificationValue, postgres::PostgresStore,
+    AuthConfig, AuthError, AuthService, AuthStore, EmailSignUpInput, EmailVerificationOutcome,
+    NewPasswordUser, PluginMigration, PluginMigrationContribution, VerificationStore,
+    VerificationValue, postgres::PostgresStore,
 };
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -65,6 +67,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     assert!(service.session(&signed_in.token).await?.is_some());
 
     verification_values_are_atomic(&store, user.id).await?;
+    email_verification_is_atomic(&store, &user).await?;
     email_signup_is_case_insensitive(&service, &pool).await?;
 
     pool.close().await;
@@ -72,6 +75,43 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
         .execute(&admin)
         .await?;
     admin.close().await;
+    Ok(())
+}
+
+async fn email_verification_is_atomic(
+    store: &PostgresStore,
+    user: &lucid_auth::AuthUser,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let now = Utc::now();
+    let token_hash = hex::encode(Sha256::digest(b"postgres-email-verification"));
+    store
+        .create_verification(VerificationValue {
+            purpose: "email-verification".into(),
+            identifier: token_hash.clone(),
+            payload: json!({ "email": user.email }),
+            expires_at: now + Duration::minutes(1),
+            created_at: now,
+        })
+        .await?;
+    let (left, right) = tokio::join!(
+        store.consume_email_verification(&token_hash, now),
+        store.consume_email_verification(&token_hash, now)
+    );
+    let outcomes = [left?, right?];
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|outcome| matches!(outcome, EmailVerificationOutcome::Verified(_)))
+            .count(),
+        1
+    );
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|outcome| matches!(outcome, EmailVerificationOutcome::InvalidToken))
+            .count(),
+        1
+    );
     Ok(())
 }
 
@@ -110,6 +150,7 @@ async fn email_signup_is_case_insensitive(
         email: email.into(),
         password: "correct horse battery staple".into(),
         image: None,
+        callback_url: None,
         remember_me: None,
     };
     let (left, right) = tokio::join!(

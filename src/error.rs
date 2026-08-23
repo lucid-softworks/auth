@@ -13,6 +13,18 @@ pub enum AuthError {
     EmailPasswordSignUpDisabled,
     #[error("email is not verified")]
     EmailNotVerified,
+    #[error("verification email is not enabled")]
+    VerificationEmailNotEnabled,
+    #[error("email does not match the active session")]
+    EmailMismatch,
+    #[error("email is already verified")]
+    EmailAlreadyVerified,
+    #[error("verification token is invalid")]
+    InvalidToken,
+    #[error("verification token has expired")]
+    TokenExpired,
+    #[error("verification token user was not found")]
+    VerificationUserNotFound,
     #[error("too many sign-in attempts")]
     RateLimited,
     #[error("anonymous guest access is disabled")]

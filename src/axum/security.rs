@@ -18,7 +18,10 @@ pub(super) async fn validate_browser_request(
     next: Next,
 ) -> Response {
     if is_safe_method(request.method()) {
-        return next.run(request).await;
+        return match validate_redirect_fields(&service, request).await {
+            Ok(request) => next.run(request).await,
+            Err(error) => auth_error(error),
+        };
     }
     let headers = request.headers();
     let fetch_site = header_text(headers, "sec-fetch-site");

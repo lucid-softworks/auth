@@ -1,4 +1,7 @@
-use crate::{AuthError, AuthSession, AuthStore, AuthUser, PasskeyDeleteOutcome, StoredPasskey};
+use crate::{
+    AuthError, AuthSession, AuthStore, AuthUser, EmailVerificationOutcome, PasskeyDeleteOutcome,
+    StoredPasskey,
+};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -145,6 +148,14 @@ impl AuthStore for PostgresStore {
 
     async fn find_user_by_email(&self, email: &str) -> Result<Option<AuthUser>, AuthError> {
         user::load_by_email(&self.pool, email).await
+    }
+
+    async fn consume_email_verification(
+        &self,
+        token_hash: &str,
+        now: DateTime<Utc>,
+    ) -> Result<EmailVerificationOutcome, AuthError> {
+        verification::consume_email_verification(&self.pool, token_hash, now).await
     }
 
     async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError> {

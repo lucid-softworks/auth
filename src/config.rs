@@ -1,6 +1,6 @@
 use crate::{
-    AuthError, AuthPlugin, CookieConfig, PasswordBreachChecker, TrustedOrigin,
-    client_ip::IpAddressConfig,
+    AuthError, AuthPlugin, CookieConfig, EmailVerificationConfig, PasswordBreachChecker,
+    TrustedOrigin, client_ip::IpAddressConfig,
 };
 use chrono::Duration;
 use std::sync::Arc;
@@ -25,6 +25,7 @@ pub struct AuthConfig {
     /// Better Auth-compatible email/password behavior. The flow is disabled
     /// by default, matching Better Auth.
     pub email_and_password: EmailPasswordConfig,
+    pub email_verification: EmailVerificationConfig,
     /// Better Auth-compatible client-IP tracking and trusted proxy settings.
     pub ip_address: IpAddressConfig,
     /// Additional browser origins allowed to call authentication endpoints or
@@ -92,6 +93,7 @@ impl AuthConfig {
             passkeys: None,
             password_breach_checker: None,
             email_and_password: EmailPasswordConfig::default(),
+            email_verification: EmailVerificationConfig::default(),
             ip_address: IpAddressConfig::default(),
             trusted_origins: Vec::new(),
             required_mfa_roles: Vec::new(),
@@ -181,6 +183,16 @@ impl AuthConfig {
             return Err(AuthError::InvalidConfiguration(
                 "email/password bounds must have a positive minimum no greater than the maximum"
                     .into(),
+            ));
+        }
+        if self.email_verification.expires_in <= Duration::zero() {
+            return Err(AuthError::InvalidConfiguration(
+                "email verification expiry must be positive".into(),
+            ));
+        }
+        if self.email_verification.sender.is_some() && self.base_url.is_none() {
+            return Err(AuthError::InvalidConfiguration(
+                "a base URL is required when an email verification sender is configured".into(),
             ));
         }
         Ok(())

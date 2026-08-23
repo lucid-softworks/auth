@@ -4,6 +4,7 @@ mod breached_password;
 mod client_ip;
 mod config;
 mod cookie;
+mod email;
 mod error;
 mod memory;
 mod model;
@@ -22,6 +23,7 @@ pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use client_ip::IpAddressConfig;
 pub use config::{AuthConfig, EmailPasswordConfig, PasskeyConfig};
 pub use cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
+pub use email::{EmailVerificationConfig, VerificationEmail, VerificationEmailSender};
 pub use error::AuthError;
 pub use memory::MemoryStore;
 pub use model::{
@@ -38,9 +40,10 @@ pub use plugin::{
     PluginMigrationContribution, PluginRateLimit,
 };
 pub use service::{
-    AuthService, EmailSignUpInput, EmailSignUpResult, HashedPasswordUser,
+    AuthService, EmailSignUpInput, EmailSignUpResult, EmailVerificationResult, HashedPasswordUser,
     PasskeyRegistrationResult, PasswordChangeResult, RecoveryCodeStatus, SignInResult,
 };
 pub use store::{
-    AccessStore, ApiKeyStore, AuthStore, PasskeyDeleteOutcome, SecurityStore, VerificationStore,
+    AccessStore, ApiKeyStore, AuthStore, EmailVerificationOutcome, PasskeyDeleteOutcome,
+    SecurityStore, VerificationStore,
 };
