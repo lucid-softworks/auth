@@ -142,7 +142,7 @@ impl AuthService {
                 id,
                 username: Some("local".into()),
                 display_username: Some("Local development".into()),
-                name: "Local Haven".into(),
+                name: "Local application".into(),
                 email: "local@users.localhost".into(),
                 email_verified: false,
                 image: None,

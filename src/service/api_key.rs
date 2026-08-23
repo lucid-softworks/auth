@@ -286,9 +286,9 @@ mod tests {
 
     fn input() -> NewApiKey {
         NewApiKey {
-            config_id: "haven-mcp".into(),
+            config_id: "example-service".into(),
             name: "Codex".into(),
-            prefix: "haven_mcp_".into(),
+            prefix: "example_key_".into(),
             expires_at: Utc::now() + Duration::days(30),
             permissions: BTreeMap::from([
                 ("home".into(), vec!["read".into()]),
@@ -307,7 +307,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(issued.key.starts_with("haven_mcp_"));
+        assert!(issued.key.starts_with("example_key_"));
         assert!(!issued.api_key.key_hash.contains(&issued.key));
         assert_eq!(api_key_id(&issued.key), Some(issued.api_key.id));
         assert!(
@@ -316,7 +316,7 @@ mod tests {
                 .unwrap()
         );
         let verified = service
-            .verify_api_key(&issued.key, "haven-mcp")
+            .verify_api_key(&issued.key, "example-service")
             .await
             .unwrap();
         assert!(verified.api_key.permits("home", "read"));
@@ -327,7 +327,7 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(
-            service.verify_api_key(&issued.key, "haven-mcp").await,
+            service.verify_api_key(&issued.key, "example-service").await,
             Err(AuthError::InvalidApiKey)
         ));
     }
@@ -344,11 +344,11 @@ mod tests {
             Err(AuthError::InvalidApiKey)
         ));
         service
-            .verify_api_key(&issued.key, "haven-mcp")
+            .verify_api_key(&issued.key, "example-service")
             .await
             .unwrap();
         assert!(matches!(
-            service.verify_api_key(&issued.key, "haven-mcp").await,
+            service.verify_api_key(&issued.key, "example-service").await,
             Err(AuthError::RateLimited)
         ));
     }

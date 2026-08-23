@@ -21,7 +21,7 @@ async fn application() -> Router {
     config.passkeys = Some(PasskeyConfig {
         rp_id: "localhost".into(),
         rp_origin: "http://localhost:5173".into(),
-        rp_name: "Haven".into(),
+        rp_name: "Example App".into(),
     });
     let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
     service
@@ -52,7 +52,7 @@ async fn recovery_application() -> (Router, Arc<AuthService>, Arc<MemoryStore>) 
     config.passkeys = Some(PasskeyConfig {
         rp_id: "localhost".into(),
         rp_origin: "http://localhost:5173".into(),
-        rp_name: "Haven".into(),
+        rp_name: "Example App".into(),
     });
     let store = Arc::new(MemoryStore::default());
     let service = Arc::new(AuthService::new(store.clone(), config));
