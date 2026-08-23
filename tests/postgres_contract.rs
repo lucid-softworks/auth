@@ -1,9 +1,9 @@
 use lucid_auth::{
-    AccountDeleteOutcome, AdditionalField, AdditionalFieldType, AdminPlugin, AuditPlugin,
-    AuthConfig, AuthError, AuthService, AuthUser, EmailSignUpInput, GuestCapabilityPlugin,
-    NewPasswordUser, OAuthAccount, OAuthAccountStore, OAuthTokenUpdateOutcome,
-    OperatorSecurityConfig, OperatorSecurityPlugin, OwnerPolicyPlugin, PasskeyConfig,
-    PasskeyPlugin, PluginMigration, PluginMigrationContribution, StepUpPolicyConfig,
+    AccessStore, AccountDeleteOutcome, AdditionalField, AdditionalFieldType, AdminPlugin,
+    AnonymousPlugin, AuditPlugin, AuthConfig, AuthError, AuthService, AuthStore, AuthUser,
+    EmailSignUpInput, GuestCapabilityPlugin, NewPasswordUser, OAuthAccount, OAuthAccountStore,
+    OAuthTokenUpdateOutcome, OperatorSecurityConfig, OperatorSecurityPlugin, OwnerPolicyPlugin,
+    PasskeyConfig, PasskeyPlugin, PluginMigration, PluginMigrationContribution, StepUpPolicyConfig,
     StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin, UsernameError, UsernamePlugin,
     postgres::PostgresStore,
 };
@@ -15,6 +15,8 @@ use uuid::Uuid;
 mod account_update;
 #[path = "postgres_contract/admin.rs"]
 mod admin;
+#[path = "postgres_contract/anonymous.rs"]
+mod anonymous;
 #[path = "postgres_contract/api_key.rs"]
 mod api_key;
 #[path = "postgres_contract/audit.rs"]
@@ -87,6 +89,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
         })
         .await?;
     migrate_legacy_extensions(&service, &store, &pool, user.id).await?;
+    anonymous::assert_lifecycle(&service, &store).await?;
     let signed_in = authenticate_owner(&service, &user).await?;
     admin::assert_query_and_update(&service, &signed_in.session).await?;
     account_update::assert_persistence(&service, &store, &signed_in.session, &pool).await?;
@@ -130,6 +133,7 @@ fn contract_service(
         AdditionalField::new(AdditionalFieldType::String),
     );
     config.add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))?;
+    config.add_plugin(AnonymousPlugin::default())?;
     register_contract_plugins(&mut config, store)?;
     let api_keys = api_key::register(&mut config)?;
     Ok((Arc::new(AuthService::new(store.clone(), config)), api_keys))

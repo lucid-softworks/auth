@@ -32,6 +32,9 @@ async fn sign_in(
     headers: HeaderMap,
     BetterAuthBody(input): BetterAuthBody<UsernameSignInRequest>,
 ) -> Response {
+    let anonymous = crate::axum::http::current_session(&service, &headers)
+        .await
+        .filter(|session| session.user.is_anonymous);
     let callback_url = input.callback_url.clone();
     match service
         .sign_in_username_plugin(
@@ -51,6 +54,7 @@ async fn sign_in(
                 result,
                 input.remember_me,
                 callback_url,
+                anonymous,
             )
             .await
         }

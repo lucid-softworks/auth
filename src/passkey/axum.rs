@@ -232,6 +232,9 @@ async fn verify_authentication(
     headers: HeaderMap,
     Json(input): Json<VerifyAuthenticationRequest>,
 ) -> Response {
+    let anonymous = current_session(&service, &headers)
+        .await
+        .filter(|session| session.user.is_anonymous);
     let request_origin = request_origin(&headers);
     if config.origins.is_none() && request_origin.is_none() {
         return auth_error(AuthError::PasskeyOriginMissing);
@@ -252,6 +255,11 @@ async fn verify_authentication(
         .await
     {
         Ok(result) => {
+            if let Some(source) = anonymous.as_ref()
+                && let Err(error) = service.complete_anonymous_upgrade(source, &result).await
+            {
+                return auth_error(error);
+            }
             match service
                 .better_auth_session_response(&result.session, result.token.clone())
                 .await

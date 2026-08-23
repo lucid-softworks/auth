@@ -2,6 +2,7 @@ mod access;
 mod account_lifecycle;
 pub(crate) mod account_types;
 mod admin_update;
+mod anonymous;
 mod api_key;
 mod api_key_policy;
 mod audit;
@@ -12,6 +13,7 @@ mod guest;
 #[cfg(feature = "axum")]
 pub(crate) mod magic_link;
 mod oauth;
+mod oauth_sign_in;
 mod oauth_state;
 mod operator_security;
 mod passkey;
@@ -255,46 +257,6 @@ impl AuthService {
                 updated_at: now,
             },
         })
-    }
-
-    pub async fn sign_in_anonymous(
-        &self,
-        ip_address: Option<String>,
-        user_agent: Option<String>,
-    ) -> Result<SignInResult, AuthError> {
-        if !self.config.allow_anonymous {
-            return Err(AuthError::AnonymousAccessDisabled);
-        }
-        let now = Utc::now();
-        let id = Uuid::new_v4();
-        let user = self
-            .store
-            .create_anonymous_user(AuthUser {
-                id,
-                username: None,
-                display_username: None,
-                name: "Guest".into(),
-                email: format!("temp-{id}@users.localhost"),
-                email_verified: false,
-                image: None,
-                additional_fields: serde_json::Map::new(),
-                role: self.default_user_role(),
-                is_anonymous: true,
-                banned: false,
-                ban_reason: None,
-                ban_expires: None,
-                created_at: now,
-                updated_at: now,
-            })
-            .await?;
-        self.create_session(
-            user,
-            AuthenticationMethod::Anonymous,
-            None,
-            ip_address,
-            user_agent,
-        )
-        .await
     }
 
     pub async fn session(&self, token: &str) -> Result<Option<SessionWithUser>, AuthError> {

@@ -5,8 +5,8 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use lucid_auth::{
-    AuthConfig, AuthService, MemoryStore, NewPasswordUser, PasskeyConfig, PasskeyPlugin,
-    UsernamePlugin,
+    AnonymousPlugin, AuthConfig, AuthService, MemoryStore, NewPasswordUser, PasskeyConfig,
+    PasskeyPlugin, UsernamePlugin,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 async fn application() -> Router {
     let mut config = AuthConfig::new([19_u8; 32]).unwrap();
-    config.allow_anonymous = true;
+    config.add_plugin(AnonymousPlugin::default()).unwrap();
     config.trust_origin("http://localhost").unwrap();
     config.add_plugin(UsernamePlugin::default()).unwrap();
     config

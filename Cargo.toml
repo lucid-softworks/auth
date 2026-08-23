@@ -93,6 +93,10 @@ name = "account_lifecycle_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "anonymous_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "client_ip_contract"
 required-features = ["axum"]
 

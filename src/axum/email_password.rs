@@ -132,6 +132,21 @@ async fn verify_email(
         .await
     {
         Ok(result) => {
+            if let (Some(source), Some(token)) = (session.as_ref(), result.session_token.as_ref())
+                && source.user.is_anonymous
+            {
+                let upgraded = match service.session(token).await {
+                    Ok(Some(session)) => crate::SignInResult {
+                        token: token.clone(),
+                        session,
+                    },
+                    Ok(None) => return auth_error(AuthError::InvalidSession),
+                    Err(error) => return auth_error(error),
+                };
+                if let Err(error) = service.complete_anonymous_upgrade(source, &upgraded).await {
+                    return auth_error(error);
+                }
+            }
             let response = match query.callback_url {
                 Some(callback_url) => redirect(&callback_url),
                 None => {
@@ -207,6 +222,10 @@ async fn sign_up_email(
     headers: HeaderMap,
     BetterAuthBody(input): BetterAuthBody<EmailSignUpRequest>,
 ) -> Response {
+    let anonymous = current_session(&service, &headers)
+        .await
+        .filter(|session| session.user.is_anonymous);
+    let remember_me = input.remember_me;
     match service
         .sign_up_email(
             EmailSignUpInput {
@@ -225,6 +244,19 @@ async fn sign_up_email(
         .await
     {
         Ok(result) => {
+            if let (Some(source), Some(token)) = (anonymous.as_ref(), result.token.as_ref()) {
+                let upgraded = match service.session(token).await {
+                    Ok(Some(session)) => crate::SignInResult {
+                        token: token.clone(),
+                        session,
+                    },
+                    Ok(None) => return auth_error(AuthError::InvalidSession),
+                    Err(error) => return auth_error(error),
+                };
+                if let Err(error) = service.complete_anonymous_upgrade(source, &upgraded).await {
+                    return auth_error(error);
+                }
+            }
             let token = result.token.clone();
             let user = match service.better_auth_user(&result.user).await {
                 Ok(user) => user,
@@ -235,7 +267,7 @@ async fn sign_up_email(
                 user,
             });
             match token {
-                Some(token) => with_session_cookie(&service, &token, input.remember_me, response),
+                Some(token) => with_session_cookie(&service, &token, remember_me, response),
                 None => response.into_response(),
             }
         }
@@ -249,6 +281,9 @@ async fn sign_in_email(
     headers: HeaderMap,
     BetterAuthBody(input): BetterAuthBody<EmailSignInRequest>,
 ) -> Response {
+    let anonymous = current_session(&service, &headers)
+        .await
+        .filter(|session| session.user.is_anonymous);
     let callback_url = input.callback_url.clone();
     match service
         .sign_in_email(
@@ -268,6 +303,7 @@ async fn sign_in_email(
                 result,
                 input.remember_me,
                 callback_url,
+                anonymous,
             )
             .await
         }

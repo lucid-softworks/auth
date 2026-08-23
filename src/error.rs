@@ -51,8 +51,22 @@ pub enum AuthError {
     PasswordResetUserNotFound,
     #[error("too many sign-in attempts")]
     RateLimited,
-    #[error("anonymous guest access is disabled")]
-    AnonymousAccessDisabled,
+    #[error("email was not generated in a valid format")]
+    AnonymousInvalidEmail,
+    #[error("failed to create anonymous user")]
+    AnonymousUserCreationFailed,
+    #[error("could not create anonymous session")]
+    AnonymousSessionCreationFailed,
+    #[error("anonymous users cannot sign in again anonymously")]
+    AnonymousSignInAgain,
+    #[error("failed to delete anonymous user")]
+    AnonymousUserDeletionFailed,
+    #[error("failed to delete anonymous user sessions")]
+    AnonymousUserSessionDeletionFailed,
+    #[error("the user is not anonymous")]
+    UserIsNotAnonymous,
+    #[error("deleting anonymous users is disabled")]
+    AnonymousUserDeletionDisabled,
     #[error("the session is invalid or expired")]
     InvalidSession,
     #[error("authentication is required")]

@@ -177,7 +177,9 @@ fn conformance_config(origin: &str, messages: &ConformanceMessages) -> AuthConfi
     config
         .add_plugin(AdminPlugin::new(admin))
         .expect("unique admin plugin");
-    config.allow_anonymous = true;
+    config
+        .add_plugin(lucid_auth::AnonymousPlugin::default())
+        .expect("unique anonymous plugin");
     config.email_and_password.enabled = true;
     config.user.delete_user.enabled = true;
     config.user.change_email.enabled = true;

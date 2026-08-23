@@ -64,72 +64,12 @@ pub enum SocialSignInResult {
 }
 
 impl AuthService {
-    pub async fn sign_in_social(
-        &self,
-        input: SocialSignInInput,
-        ip_address: Option<String>,
-        user_agent: Option<String>,
-    ) -> Result<SocialSignInResult, AuthError> {
-        let provider = self
-            .social_provider(&input.provider)
-            .ok_or(AuthError::OAuthProviderNotFound)?;
-        if input
-            .additional_params
-            .keys()
-            .any(|name| crate::oauth::authorization_parameter_is_reserved(name))
-        {
-            return Err(AuthError::InvalidRequest(
-                "OAuth authorization parameters contain a reserved name".into(),
-            ));
-        }
-        if input.id_token.is_some() {
-            return self
-                .sign_in_social_id_token(provider.as_ref(), input, ip_address, user_agent)
-                .await;
-        }
-        self.start_social_authorization(provider.as_ref(), input, None)
-            .await
-    }
-
-    async fn sign_in_social_id_token(
-        &self,
-        provider: &dyn crate::SocialProvider,
-        input: SocialSignInInput,
-        ip_address: Option<String>,
-        user_agent: Option<String>,
-    ) -> Result<SocialSignInResult, AuthError> {
-        if !provider.supports_id_token_sign_in() {
-            return Err(AuthError::OAuthIdTokenNotSupported);
-        }
-        let id_token = input.id_token.ok_or(AuthError::OAuthInvalidToken)?;
-        let tokens = OAuthTokens {
-            access_token: id_token.access_token,
-            refresh_token: id_token.refresh_token,
-            id_token: Some(id_token.token),
-            access_token_expires_at: None,
-            ..OAuthTokens::default()
-        };
-        let user_info = provider
-            .get_user_info(&tokens, id_token.nonce.as_deref(), id_token.user.as_ref())
-            .await?;
-        let (session, _) = self
-            .finish_oauth_sign_in(
-                provider,
-                tokens,
-                user_info,
-                input.request_sign_up,
-                ip_address,
-                user_agent,
-            )
-            .await?;
-        Ok(SocialSignInResult::Session(Box::new(session)))
-    }
-
     pub(super) async fn start_social_authorization(
         &self,
         provider: &dyn crate::SocialProvider,
         input: SocialSignInInput,
         link: Option<OAuthLinkState>,
+        anonymous_user_id: Option<Uuid>,
     ) -> Result<SocialSignInResult, AuthError> {
         let base_url = self.oauth_base_url()?;
         let callback_url = input.callback_url.unwrap_or_else(|| base_url.clone());
@@ -147,6 +87,7 @@ impl AuthService {
             id_token_nonce: id_token_nonce.clone(),
             additional_data: input.additional_data,
             link,
+            anonymous_user_id,
         };
         self.save_oauth_state(&state, &state_data).await?;
         let url = provider.create_authorization_url(&AuthorizationRequest {
@@ -232,8 +173,8 @@ impl AuthService {
         let user_info = provider
             .get_user_info(&tokens, state.id_token_nonce.as_deref(), provider_user)
             .await?;
-        if let Some(link) = state.link {
-            self.link_oauth_identity(provider.as_ref(), &link, tokens, user_info)
+        if let Some(link) = &state.link {
+            self.link_oauth_identity(provider.as_ref(), link, tokens, user_info)
                 .await?;
             return Ok(OAuthCallbackResult {
                 session: None,
@@ -251,6 +192,12 @@ impl AuthService {
                 user_agent,
             )
             .await?;
+        if let Some(source) = self
+            .anonymous_upgrade_source(state.anonymous_user_id)
+            .await?
+        {
+            self.complete_anonymous_upgrade(&source, &session).await?;
+        }
         let redirect_url = if is_new_user {
             state.new_user_url.unwrap_or(state.callback_url)
         } else {
@@ -263,7 +210,7 @@ impl AuthService {
         })
     }
 
-    async fn finish_oauth_sign_in(
+    pub(super) async fn finish_oauth_sign_in(
         &self,
         provider: &dyn crate::SocialProvider,
         tokens: OAuthTokens,

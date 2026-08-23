@@ -1,8 +1,8 @@
 use super::{
     body::BetterAuthBody,
     http::{
-        PeerAddress, auth_error, client_ip, serialize_cookie, signed_cookie_token, user_agent,
-        with_cookie, with_session_cookie,
+        PeerAddress, auth_error, client_ip, current_session, serialize_cookie, signed_cookie_token,
+        user_agent, with_cookie, with_session_cookie,
     },
 };
 use crate::{AuthError, AuthService, SocialSignInInput, SocialSignInResult};
@@ -52,11 +52,15 @@ async fn sign_in_social(
     headers: HeaderMap,
     BetterAuthBody(input): BetterAuthBody<SocialSignInInput>,
 ) -> Response {
+    let anonymous = current_session(&service, &headers)
+        .await
+        .filter(|session| session.user.is_anonymous);
     match service
-        .sign_in_social(
+        .sign_in_social_with_source(
             input,
             client_ip(&service, &headers, peer),
             user_agent(&headers),
+            anonymous,
         )
         .await
     {

@@ -2,7 +2,9 @@ use super::{MagicLinkConfig, MagicLinkRequestContext};
 use crate::{
     AuthService, AxumPluginRoute,
     axum::body::BetterAuthBody,
-    axum::http::{PeerAddress, auth_error, client_ip, user_agent, with_session_cookie},
+    axum::http::{
+        PeerAddress, auth_error, client_ip, current_session, user_agent, with_session_cookie,
+    },
     protocol::better_auth::StatusResponse,
     service::magic_link::{MagicLinkRequest, MagicLinkVerificationError},
 };
@@ -91,6 +93,9 @@ async fn verify_magic_link(
     headers: HeaderMap,
     Query(query): Query<VerifyMagicLinkQuery>,
 ) -> Response {
+    let anonymous = current_session(&service, &headers)
+        .await
+        .filter(|session| session.user.is_anonymous);
     let callback = query.callback_url.filter(|value| !value.is_empty());
     let callback_url = match service.magic_link_callback_url(callback.as_deref()) {
         Ok(url) => url,
@@ -121,6 +126,13 @@ async fn verify_magic_link(
         .await
     {
         Ok(verified) => {
+            if let Some(source) = anonymous.as_ref()
+                && let Err(error) = service
+                    .complete_anonymous_upgrade(source, &verified.result)
+                    .await
+            {
+                return auth_error(error);
+            }
             let token = verified.result.token.clone();
             let response = match callback {
                 Some(_) if verified.is_new_user => redirect(&new_user_callback_url),

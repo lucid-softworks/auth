@@ -22,6 +22,7 @@ pub(crate) struct OAuthState {
     pub id_token_nonce: Option<String>,
     pub additional_data: serde_json::Map<String, Value>,
     pub link: Option<OAuthLinkState>,
+    pub anonymous_user_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

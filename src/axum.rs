@@ -1,8 +1,6 @@
 use crate::{
     AuthError, AuthService,
-    protocol::better_auth::{
-        AnonymousSignInResponse, SessionResponse, SignInResponse, SuccessResponse,
-    },
+    protocol::better_auth::{SessionResponse, SignInResponse, SuccessResponse},
 };
 use axum::{
     Extension, Json, Router,
@@ -26,9 +24,7 @@ mod security;
 mod user_deletion;
 
 pub use self::http::session_token;
-use self::http::{
-    PeerAddress, auth_error, clear_session_cookie, client_ip, user_agent, with_session_cookie,
-};
+use self::http::{auth_error, clear_session_cookie};
 
 pub fn router<S>(service: Arc<AuthService>) -> Router<S>
 where
@@ -37,7 +33,6 @@ where
     let mut routes = Router::new()
         .route("/get-session", get(get_session))
         .route("/sign-out", post(sign_out))
-        .route("/sign-in/anonymous", post(sign_in_anonymous))
         .merge(oauth::router())
         .merge(account_lifecycle::router())
         .merge(email_password::router())
@@ -74,30 +69,6 @@ pub(crate) async fn sign_in_response(
         url: callback_url,
         user: service.better_auth_user(&result.session.user).await?,
     })
-}
-
-async fn sign_in_anonymous(
-    Extension(service): Extension<Arc<AuthService>>,
-    peer: PeerAddress,
-    headers: HeaderMap,
-) -> Response {
-    match service
-        .sign_in_anonymous(client_ip(&service, &headers, peer), user_agent(&headers))
-        .await
-    {
-        Ok(result) => {
-            let user = match service.better_auth_user(&result.session.user).await {
-                Ok(user) => user,
-                Err(error) => return auth_error(error),
-            };
-            let response = AnonymousSignInResponse {
-                token: result.token.clone(),
-                user,
-            };
-            with_session_cookie(&service, &result.token, Some(true), Json(response))
-        }
-        Err(error) => auth_error(error),
-    }
 }
 
 async fn get_session(

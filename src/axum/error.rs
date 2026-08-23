@@ -7,6 +7,7 @@ use axum::{
 use serde::Serialize;
 
 mod admin;
+mod anonymous;
 mod credential;
 mod oauth;
 mod plugin;
@@ -35,11 +36,7 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
             "TOO_MANY_REQUESTS",
             "Too many sign-in attempts",
         ),
-        AuthError::AnonymousAccessDisabled => (
-            StatusCode::FORBIDDEN,
-            "ANONYMOUS_ACCESS_DISABLED",
-            "Anonymous guest access is disabled",
-        ),
+        error if anonymous::is_error(error) => anonymous::details(error),
         AuthError::Forbidden
         | AuthError::SessionNotFresh
         | AuthError::StepUpRequired

@@ -32,6 +32,9 @@ impl AuthService {
             output.ban_reason = None;
             output.ban_expires = None;
         }
+        if self.plugins.find::<crate::AnonymousPlugin>().is_some() {
+            output.is_anonymous = Some(user.is_anonymous);
+        }
         Ok(output)
     }
 

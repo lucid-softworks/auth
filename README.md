@@ -16,7 +16,7 @@ supported surface covers:
 - enumeration-resistant password-reset email and single-use reset redemption
 - the complete Better Auth username lifecycle as an optional native plugin
 - sign-out
-- anonymous guest sign-in
+- the complete official anonymous client lifecycle as an optional native plugin
 - the complete `@better-auth/passkey` client surface as an optional native plugin
 - the complete official `twoFactorClient` surface as an optional native plugin,
   including TOTP, delivered OTP, backup codes, and trusted devices
@@ -138,8 +138,26 @@ before the new-address verification is sent. Email normalization, uniqueness,
 single-use tokens, callback URLs, and session-cookie refresh are enforced in
 every mode.
 
+Better Auth anonymous users are an optional plugin and their routes and
+`isAnonymous` user field are absent until it is registered:
+
+```rust
+config.add_plugin(AnonymousPlugin::new(AnonymousPluginConfig {
+    email_domain_name: Some("guests.example.com".into()),
+    ..AnonymousPluginConfig::default()
+}))?;
+```
+
+The plugin supports `signIn.anonymous` and `deleteAnonymousUser`, configurable
+name/email generators, deletion policy, and a typed `on_link_account` callback.
+Successful email/password, username, and social sign-ins atomically claim the
+anonymous upgrade, invoke the callback once, and clean up the anonymous user
+and all of its sessions. Abandoned or concurrent attempts cannot invoke the
+callback twice.
+
 Guest capability grants are a lucid-auth extension, not part of Better Auth's
-Anonymous plugin. They are therefore absent by default. Register the optional
+Anonymous plugin lifecycle. They are therefore absent by default and are never
+claimed or deleted by anonymous-account conversion. Register the optional
 plugin with its extension store to mount `/guest-grants`,
 `/guest-grants/revoke`, and `/sign-in/guest-grant`:
 
@@ -531,9 +549,9 @@ npm ci --prefix conformance --ignore-scripts
 npm test --prefix conformance
 ```
 
-It currently exercises session, the full username lifecycle, anonymous, admin,
-all official passkey, user-owned API-key, magic-link, and two-factor client
-methods. Passkey registration and authentication use complete signatures
+It currently exercises session, the full username and anonymous lifecycles,
+admin, all official passkey, user-owned API-key, magic-link, and two-factor
+client methods. Passkey registration and authentication use complete signatures
 through an in-process virtual authenticator. The fixture and Node dependencies
 are excluded from the published crate.
 

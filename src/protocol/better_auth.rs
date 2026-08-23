@@ -152,7 +152,8 @@ pub struct BetterAuthUser {
     pub username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_username: Option<String>,
-    pub is_anonymous: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_anonymous: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -346,7 +347,7 @@ impl From<&AuthUser> for BetterAuthUser {
             additional_fields: user.additional_fields.clone(),
             username: user.username.clone(),
             display_username: user.display_username.clone(),
-            is_anonymous: user.is_anonymous,
+            is_anonymous: None,
             role: Some(user.role.clone()),
             banned: Some(user.banned),
             ban_reason: Some(user.ban_reason.clone()),

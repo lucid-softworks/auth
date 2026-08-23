@@ -18,7 +18,6 @@ pub struct AuthConfig {
     /// secure cookies and an HTTP or absent base URL does not.
     pub use_secure_cookies: Option<bool>,
     pub cookies: CookieConfig,
-    pub allow_anonymous: bool,
     pub development_bypass: bool,
     pub max_attempts: usize,
     pub max_ip_attempts: usize,
@@ -91,7 +90,6 @@ impl AuthConfig {
             session_fresh_age: Duration::days(1),
             use_secure_cookies: None,
             cookies: CookieConfig::default(),
-            allow_anonymous: false,
             development_bypass: false,
             max_attempts: 5,
             max_ip_attempts: 15,

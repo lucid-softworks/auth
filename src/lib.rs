@@ -2,6 +2,7 @@
 
 mod additional_fields;
 mod admin;
+mod anonymous;
 mod api_key;
 mod audit;
 mod breached_password;
@@ -40,6 +41,10 @@ pub use admin::{
     AdminConfig, AdminCreateUser, AdminError, AdminListCondition, AdminListOperator,
     AdminListUsersQuery, AdminPermissionSet, AdminPlugin, AdminRole, AdminSortDirection,
     AdminUserUpdate,
+};
+pub use anonymous::{
+    AnonymousEmailGenerator, AnonymousLinkAccount, AnonymousLinkAccountCallback,
+    AnonymousNameGenerator, AnonymousPlugin, AnonymousPluginConfig, AnonymousSignInContext,
 };
 pub use api_key::{
     ApiKeyConfiguration, ApiKeyError, ApiKeyExpirationConfig, ApiKeyGenerator, ApiKeyPlugin,

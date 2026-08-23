@@ -148,11 +148,13 @@ async function conformance(origin) {
     const nativePlugin = metadata.find((plugin) => plugin.id === "conformance");
     const magicLink = metadata.find((plugin) => plugin.id === "magic-link");
     const apiKey = metadata.find((plugin) => plugin.id === "api-key");
+    const anonymous = metadata.find((plugin) => plugin.id === "anonymous");
     const username = metadata.find((plugin) => plugin.id === "username");
     assert.equal(nativePlugin.client.betterAuthVersion, betterAuthPackage.version);
     assert.equal(nativePlugin.endpoints[0].clientMethod, "nativePlugin.ping");
     assert.equal(magicLink.client.factory, "magicLinkClient");
     assert.equal(apiKey.client.factory, "apiKeyClient");
+    assert.equal(anonymous.client.factory, "anonymousClient");
     assert.equal(username.client.factory, "usernameClient");
   });
 
@@ -978,11 +980,39 @@ async function conformance(origin) {
     assert.equal(anonymous.user.isAnonymous, true);
     assert.equal(anonymous.user.role, "user");
     transport.assertRequest("/api/auth/sign-in/anonymous", "POST", {});
-    success(await client.signOut(), "signOut");
+    const repeated = await client.signIn.anonymous();
+    assert.equal(
+      repeated.error?.code,
+      "ANONYMOUS_USERS_CANNOT_SIGN_IN_AGAIN_ANONYMOUSLY",
+    );
+    const deleted = success(
+      await client.deleteAnonymousUser(),
+      "deleteAnonymousUser",
+    );
+    assert.equal(deleted.success, true);
+    transport.assertRequest("/api/auth/delete-anonymous-user", "POST", {});
+
+    success(await client.signIn.anonymous(), "signIn.anonymous for email upgrade");
+    const upgraded = success(
+      await client.signUp.email({
+        name: "Anonymous Upgrade",
+        email: "anonymous-upgrade@example.com",
+        password: "correct horse battery staple",
+      }),
+      "signUp.email anonymous upgrade",
+    );
+    assert.equal(upgraded.user.isAnonymous, false);
+    const permanentDelete = await client.deleteAnonymousUser();
+    assert.equal(permanentDelete.error?.code, "USER_IS_NOT_ANONYMOUS");
+    success(await client.signOut(), "signOut after anonymous email upgrade");
   });
 
   await runCase("core social OAuth client and callback", async () => {
     transport.clearCookies();
+    const anonymous = success(
+      await client.signIn.anonymous(),
+      "signIn.anonymous for social upgrade",
+    );
     const social = success(
       await client.signIn.social({
         provider: "conformance-oauth",
@@ -1017,6 +1047,7 @@ async function conformance(origin) {
     assert.equal(callback.headers.get("location"), "/oauth/new");
     const session = success(await client.getSession(), "getSession after social OAuth");
     assert.equal(session.user.email, "official-social@example.com");
+    assert.notEqual(session.user.id, anonymous.user.id);
     assert.equal(session.user.image, "https://provider.conformance.invalid/avatar.png");
     success(await client.signOut(), "signOut after social OAuth");
   });

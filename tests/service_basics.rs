@@ -1,13 +1,15 @@
 use lucid_auth::{
-    AuthConfig, AuthService, AuthStore, AuthenticationMethod, MemoryStore, NewPasswordUser,
-    StoredPasskey,
+    AnonymousPlugin, AuthConfig, AuthService, AuthStore, AuthenticationMethod, MemoryStore,
+    NewPasswordUser, StoredPasskey,
 };
 use std::sync::Arc;
 use uuid::Uuid;
 
 fn service(allow_anonymous: bool) -> AuthService {
     let mut config = AuthConfig::new([7_u8; 32]).unwrap();
-    config.allow_anonymous = allow_anonymous;
+    if allow_anonymous {
+        config.add_plugin(AnonymousPlugin::default()).unwrap();
+    }
     AuthService::new(Arc::new(MemoryStore::default()), config)
 }
 
