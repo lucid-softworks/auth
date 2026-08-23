@@ -8,6 +8,7 @@ mod error;
 mod memory;
 mod model;
 mod origin;
+mod plugin;
 mod service;
 mod store;
 
@@ -29,6 +30,13 @@ pub use model::{
     StoredPasskey, VerificationValue, VerifiedApiKey,
 };
 pub use origin::TrustedOrigin;
+#[cfg(feature = "axum")]
+pub use plugin::AxumPluginRoute;
+pub use plugin::{
+    AfterAuthEvent, AuthPlugin, BeforeAuthEvent, PluginClientMetadata, PluginCookie,
+    PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginMiddleware, PluginMigration,
+    PluginMigrationContribution, PluginRateLimit,
+};
 pub use service::{
     AuthService, HashedPasswordUser, PasskeyRegistrationResult, PasswordChangeResult,
     RecoveryCodeStatus, SignInResult,

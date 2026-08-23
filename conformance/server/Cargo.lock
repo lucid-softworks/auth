@@ -915,6 +915,7 @@ dependencies = [
 name = "lucid-auth-conformance-server"
 version = "0.0.0"
 dependencies = [
+ "async-trait",
  "axum",
  "chrono",
  "hex",

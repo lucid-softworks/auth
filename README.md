@@ -28,6 +28,8 @@ supported surface covers:
 - native user-owned API keys with ownership, expiry, permissions, prefixes, rate
   limits, and one-time secret display; official API-key client routes are planned
 - Better Auth-compatible cookies and response shapes for the supported routes
+- native, dependency-ordered plugin routes, middleware, hooks, migrations, and
+  client compatibility metadata
 
 The library keeps authentication protocol details separate from host-product
 authorization. Applications provide their own permission vocabulary while
@@ -59,6 +61,28 @@ account session and recent strong authentication when the account's role is
 configured for MFA. Verification checks the owning account, expiry,
 configuration ID, permissions, revocation state, and an atomic per-key rate
 limit. Hosts decide which permission resources and actions are meaningful.
+
+Native plugins implement `AuthPlugin` and are registered with
+`AuthConfig::add_plugin`. Construct plugin-enabled services with
+`AuthService::try_new` so invalid IDs, missing or cyclic dependencies,
+conflicts, duplicate/core route ownership, cookie collisions, migration IDs,
+rate limits, middleware declarations, and mismatched Better Auth client
+versions fail before the router starts. Plugin routes remain inside the normal
+origin/CORS security boundary, while plugin middleware is scoped to the routes
+that plugin owns. Session lifecycle hooks run in validated dependency order.
+
+PostgreSQL hosts apply core migrations and then the service's validated plugin
+contributions:
+
+```rust
+store.migrate().await?;
+store.migrate_plugins(&service.plugin_migrations()).await?;
+```
+
+Plugin migrations are keyed by `(plugin_id, migration_id)`, share the core
+advisory migration lock, and are transactional and idempotent. See the
+[native plugin example](examples/native_plugin.rs) for a route, middleware,
+migration, cookie/rate-limit declarations, and official-client metadata.
 
 Accounts created by an owner and passwords reset by an owner are marked
 `must_change_password`. The Better Auth-compatible user response exposes that

@@ -20,6 +20,12 @@ const passkeyPackage = JSON.parse(
     new URL("node_modules/@better-auth/passkey/package.json", import.meta.url),
   ),
 );
+const nativePluginClient = {
+  id: "lucid-native-conformance",
+  version: "1.0.0",
+  $InferServerPlugin: {},
+  pathMethods: { "/native-plugin/ping": "GET" },
+};
 
 class BrowserTransport {
   constructor(origin) {
@@ -108,6 +114,7 @@ async function conformance(origin) {
       adminClient(),
       twoFactorClient(),
       passkeyClient(),
+      nativePluginClient,
     ],
   });
 
@@ -117,6 +124,20 @@ async function conformance(origin) {
     const response = await transport.fetch(`${origin}/__conformance__/version`);
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { betterAuth: betterAuthPackage.version });
+    const plugins = await transport.fetch(`${origin}/__conformance__/plugins`);
+    assert.equal(plugins.status, 200);
+    const metadata = await plugins.json();
+    assert.equal(metadata[0].client.betterAuthVersion, betterAuthPackage.version);
+    assert.equal(metadata[0].endpoints[0].clientMethod, "nativePlugin.ping");
+  });
+
+  await runCase("native plugin client metadata and route", async () => {
+    const data = success(await client.nativePlugin.ping(), "nativePlugin.ping");
+    assert.deepEqual(data, {
+      plugin: "conformance",
+      betterAuth: betterAuthPackage.version,
+    });
+    transport.assertRequest("/api/auth/native-plugin/ping", "GET");
   });
 
   await runCase("username and session clients", async () => {

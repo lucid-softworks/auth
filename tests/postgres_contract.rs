@@ -1,7 +1,7 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{
-    AuthConfig, AuthService, NewPasswordUser, VerificationStore, VerificationValue,
-    postgres::PostgresStore,
+    AuthConfig, AuthService, NewPasswordUser, PluginMigration, PluginMigrationContribution,
+    VerificationStore, VerificationValue, postgres::PostgresStore,
 };
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
@@ -37,6 +37,25 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     let store = Arc::new(PostgresStore::new(pool.clone()));
     store.migrate().await?;
     store.migrate().await?;
+    let plugin_migrations = [PluginMigrationContribution {
+        plugin_id: "postgres-contract",
+        migration: PluginMigration {
+            id: "create-records",
+            description: "PostgreSQL contract plugin records",
+            sql: "CREATE TABLE lucid_auth_contract_plugin_records (id TEXT PRIMARY KEY)",
+        },
+    }];
+    store.migrate_plugins(&plugin_migrations).await?;
+    store.migrate_plugins(&plugin_migrations).await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM lucid_auth_plugin_migrations \
+             WHERE plugin_id = 'postgres-contract' AND migration_id = 'create-records'",
+        )
+        .fetch_one(&pool)
+        .await?,
+        1
+    );
 
     let service = AuthService::new(store.clone(), AuthConfig::new([42_u8; 32])?);
     let user = service

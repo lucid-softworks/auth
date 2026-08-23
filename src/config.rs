@@ -1,5 +1,6 @@
 use crate::{
-    AuthError, CookieConfig, PasswordBreachChecker, TrustedOrigin, client_ip::IpAddressConfig,
+    AuthError, AuthPlugin, CookieConfig, PasswordBreachChecker, TrustedOrigin,
+    client_ip::IpAddressConfig,
 };
 use chrono::Duration;
 use std::sync::Arc;
@@ -29,6 +30,7 @@ pub struct AuthConfig {
     pub required_mfa_roles: Vec<String>,
     /// Maximum age of strong authentication for security-sensitive operations.
     pub step_up_ttl: Duration,
+    pub(crate) plugins: Vec<Arc<dyn AuthPlugin>>,
     pub(crate) base_url: Option<Url>,
     pub(crate) base_path: String,
     pub(crate) cors_enabled: bool,
@@ -66,6 +68,7 @@ impl AuthConfig {
             trusted_origins: Vec::new(),
             required_mfa_roles: Vec::new(),
             step_up_ttl: Duration::days(1),
+            plugins: Vec::new(),
             base_url: None,
             base_path: "/api/auth".into(),
             cors_enabled: false,
@@ -115,6 +118,30 @@ impl AuthConfig {
 
     pub fn trust_origin(&mut self, origin: &str) -> Result<(), AuthError> {
         self.trusted_origins.push(TrustedOrigin::parse(origin)?);
+        Ok(())
+    }
+
+    /// Enables a native plugin. Full dependency, conflict, and contribution
+    /// validation occurs in [`crate::AuthService::try_new`].
+    pub fn add_plugin<P>(&mut self, plugin: P) -> Result<(), AuthError>
+    where
+        P: AuthPlugin + 'static,
+    {
+        self.add_plugin_arc(Arc::new(plugin))
+    }
+
+    pub fn add_plugin_arc(&mut self, plugin: Arc<dyn AuthPlugin>) -> Result<(), AuthError> {
+        let id = plugin.descriptor().id;
+        if self
+            .plugins
+            .iter()
+            .any(|enabled| enabled.descriptor().id == id)
+        {
+            return Err(AuthError::InvalidConfiguration(format!(
+                "plugin '{id}' is enabled more than once"
+            )));
+        }
+        self.plugins.push(plugin);
         Ok(())
     }
 }

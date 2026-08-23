@@ -35,7 +35,7 @@ pub fn router<S>(service: Arc<AuthService>) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
-    let routes = Router::new()
+    let mut routes = Router::new()
         .route("/get-session", get(get_session))
         .route("/sign-in/username", post(sign_in_username))
         .route("/sign-out", post(sign_out))
@@ -62,7 +62,15 @@ where
         .route("/passkey/update-passkey", post(update_passkey))
         .merge(account::router())
         .merge(admin::router())
-        .merge(guest::router())
+        .merge(guest::router());
+    for plugin in service.plugins().plugins() {
+        for route in plugin.routes(service.clone()) {
+            let (path, route) = route.into_parts();
+            let route = plugin.middleware(route, service.clone());
+            routes = routes.route_service(path, route);
+        }
+    }
+    let routes = routes
         .layer(middleware::from_fn_with_state(
             service.clone(),
             security::validate_browser_request,

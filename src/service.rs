@@ -5,6 +5,7 @@ mod passkey;
 mod password;
 mod recovery;
 mod session;
+mod session_create;
 mod user;
 
 #[cfg(feature = "axum")]
@@ -12,10 +13,11 @@ use crate::TrustedOrigin;
 #[cfg(feature = "axum")]
 use crate::cookie::{CookieKind, ResolvedCookie};
 use crate::{
-    Assurance, AuthConfig, AuthError, AuthSession, AuthStore, AuthUser, Principal, SessionWithUser,
+    Assurance, AuthConfig, AuthError, AuthSession, AuthStore, AuthUser, PluginDescriptor,
+    PluginMigrationContribution, Principal, SessionWithUser, plugin::PluginRegistry,
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use hmac::{Hmac, Mac};
 use session::{hash_token, random_token};
 use sha2::Sha256;
@@ -52,14 +54,35 @@ pub struct HashedPasswordUser {
 pub struct AuthService {
     store: Arc<dyn AuthStore>,
     config: Arc<AuthConfig>,
+    plugins: Arc<PluginRegistry>,
 }
 
 impl AuthService {
     pub fn new(store: Arc<dyn AuthStore>, config: AuthConfig) -> Self {
-        Self {
+        Self::try_new(store, config)
+            .unwrap_or_else(|error| panic!("invalid native authentication plugin: {error}"))
+    }
+
+    pub fn try_new(store: Arc<dyn AuthStore>, config: AuthConfig) -> Result<Self, AuthError> {
+        let plugins = PluginRegistry::build(&config.plugins, &config)?;
+        Ok(Self {
             store,
             config: Arc::new(config),
-        }
+            plugins: Arc::new(plugins),
+        })
+    }
+
+    pub fn plugin_metadata(&self) -> &[PluginDescriptor] {
+        self.plugins.descriptors()
+    }
+
+    pub fn plugin_migrations(&self) -> Vec<PluginMigrationContribution> {
+        self.plugins.migrations()
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn plugins(&self) -> &PluginRegistry {
+        &self.plugins
     }
 
     pub fn session_ttl(&self) -> Duration {
@@ -271,64 +294,6 @@ impl AuthService {
         mac.update(token.as_bytes());
         mac.verify_slice(&decoded).ok()?;
         Some(token.to_owned())
-    }
-
-    async fn create_session(
-        &self,
-        user: AuthUser,
-        assurance: Assurance,
-        actor_user_id: Option<Uuid>,
-        guest_grant_id: Option<Uuid>,
-        ip_address: Option<String>,
-        user_agent: Option<String>,
-    ) -> Result<SignInResult, AuthError> {
-        self.create_session_until(
-            user,
-            assurance,
-            actor_user_id,
-            guest_grant_id,
-            None,
-            ip_address,
-            user_agent,
-        )
-        .await
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn create_session_until(
-        &self,
-        user: AuthUser,
-        assurance: Assurance,
-        actor_user_id: Option<Uuid>,
-        guest_grant_id: Option<Uuid>,
-        expires_at: Option<DateTime<Utc>>,
-        ip_address: Option<String>,
-        user_agent: Option<String>,
-    ) -> Result<SignInResult, AuthError> {
-        let token = random_token();
-        let now = Utc::now();
-        let session = AuthSession {
-            id: Uuid::new_v4(),
-            user_id: user.id,
-            token_hash: hash_token(&token),
-            actor_user_id,
-            guest_grant_id,
-            assurance,
-            expires_at: expires_at
-                .unwrap_or(now + self.config.session_ttl)
-                .min(now + self.config.session_ttl),
-            created_at: now,
-            updated_at: now,
-            ip_address,
-            user_agent,
-        };
-        self.store.delete_expired_sessions(now).await?;
-        self.store.create_session(session.clone()).await?;
-        Ok(SignInResult {
-            token,
-            session: SessionWithUser { session, user },
-            mfa_setup_required: false,
-        })
     }
 
     async fn enforce_rate_limit(

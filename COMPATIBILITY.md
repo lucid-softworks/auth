@@ -25,8 +25,8 @@ semantics, persistence, and an end-to-end client test must all agree.
 | Capability | Status | Notes |
 | --- | --- | --- |
 | Better Auth 1.7.1 wire baseline | Partial | This is the sole declared target. Partial plugin rows below qualify the claim; [#3](https://github.com/lucid-softworks/auth/issues/3). |
-| Official JavaScript client conformance | Supported | CI drives the pinned `1.7.1` vanilla client plus username, anonymous, admin, passkey, and two-factor plugins against an ephemeral server; [#2](https://github.com/lucid-softworks/auth/issues/2). |
-| Native plugin extension API | Planned | Routes, hooks, schema, middleware, and metadata: [#4](https://github.com/lucid-softworks/auth/issues/4). |
+| Official JavaScript client conformance | Supported | CI drives the pinned `1.7.1` vanilla client plus username, anonymous, admin, passkey, two-factor, and a native test-client plugin against an ephemeral server; [#2](https://github.com/lucid-softworks/auth/issues/2). |
+| Native plugin extension API | Supported | Typed routes, middleware, lifecycle hooks, ordered PostgreSQL migrations, cookies/rate-limit declarations, dependency/conflict checks, and exact-version client metadata; [#4](https://github.com/lucid-softworks/auth/issues/4). |
 | Community plugin SDK | Planned | Native plugin packaging and certification policy: [#67](https://github.com/lucid-softworks/auth/issues/67). |
 
 ### Better Auth 1.7.1 upgrade audit

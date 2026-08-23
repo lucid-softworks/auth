@@ -45,6 +45,10 @@ http-body-util = "0.1"
 serde_json = "1"
 tower = { version = "0.5", features = ["util"] }
 
+[[example]]
+name = "native_plugin"
+required-features = ["axum"]
+
 [[test]]
 name = "access_contract"
 required-features = ["axum"]
@@ -71,4 +75,8 @@ required-features = ["axum"]
 
 [[test]]
 name = "deployment_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "plugin_contract"
 required-features = ["axum"]
