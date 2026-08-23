@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { createAuthClient } from "better-auth/client";
 import {
@@ -11,6 +12,14 @@ import {
 import { passkeyClient } from "@better-auth/passkey/client";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
+const betterAuthPackage = JSON.parse(
+  await readFile(new URL("node_modules/better-auth/package.json", import.meta.url)),
+);
+const passkeyPackage = JSON.parse(
+  await readFile(
+    new URL("node_modules/@better-auth/passkey/package.json", import.meta.url),
+  ),
+);
 
 class BrowserTransport {
   constructor(origin) {
@@ -102,6 +111,14 @@ async function conformance(origin) {
     ],
   });
 
+  await runCase("Better Auth 1.7.1 baseline", async () => {
+    assert.equal(betterAuthPackage.version, "1.7.1");
+    assert.equal(passkeyPackage.version, betterAuthPackage.version);
+    const response = await transport.fetch(`${origin}/__conformance__/version`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { betterAuth: betterAuthPackage.version });
+  });
+
   await runCase("username and session clients", async () => {
     const available = success(
       await client.isUsernameAvailable({ username: "available_user" }),
@@ -133,6 +150,14 @@ async function conformance(origin) {
     assert.equal(session.user.username, "luna");
     assert.equal(session.session.assurance, "password");
     transport.assertRequest("/api/auth/get-session", "GET");
+
+    const rejected = await client.signIn.username({
+      username: "luna",
+      password: "wrong password",
+    });
+    assert.equal(rejected.data, null);
+    assert.equal(rejected.error?.status, 401);
+    assert.equal(rejected.error?.code, "INVALID_USERNAME_OR_PASSWORD");
   });
 
   await runCase("admin client", async () => {

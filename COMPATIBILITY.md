@@ -24,11 +24,27 @@ semantics, persistence, and an end-to-end client test must all agree.
 
 | Capability | Status | Notes |
 | --- | --- | --- |
-| Better Auth 1.6.29 wire baseline | Partial | This is the current declared target. Partial plugin rows below qualify the claim. |
-| Better Auth 1.7.1 wire baseline | Planned | Upgrade and behavioral audit: [#3](https://github.com/lucid-softworks/auth/issues/3). |
-| Official JavaScript client conformance | Supported | CI drives the pinned `1.6.29` vanilla client plus username, anonymous, admin, passkey, and two-factor plugins against an ephemeral server; [#2](https://github.com/lucid-softworks/auth/issues/2). |
+| Better Auth 1.7.1 wire baseline | Partial | This is the sole declared target. Partial plugin rows below qualify the claim; [#3](https://github.com/lucid-softworks/auth/issues/3). |
+| Official JavaScript client conformance | Supported | CI drives the pinned `1.7.1` vanilla client plus username, anonymous, admin, passkey, and two-factor plugins against an ephemeral server; [#2](https://github.com/lucid-softworks/auth/issues/2). |
 | Native plugin extension API | Planned | Routes, hooks, schema, middleware, and metadata: [#4](https://github.com/lucid-softworks/auth/issues/4). |
 | Community plugin SDK | Planned | Native plugin packaging and certification policy: [#67](https://github.com/lucid-softworks/auth/issues/67). |
+
+### Better Auth 1.7.1 upgrade audit
+
+| Upstream change area | Native compatibility impact |
+| --- | --- |
+| Sessions | Supported session, sign-out, and cookie paths pass the 1.7.1 client. Client-side `hydrateSession` needs no server endpoint. Fresh session-list semantics remain explicitly partial in [#58](https://github.com/lucid-softworks/auth/issues/58). |
+| OAuth identity and schema | Better Auth 1.7 requires issuer-qualified provider identity. Social OAuth and account rows are not currently claimed; their native schema and migration will implement the 1.7 model in [#14](https://github.com/lucid-softworks/auth/issues/14) and [#15](https://github.com/lucid-softworks/auth/issues/15), without retaining an obsolete identity shape. |
+| Two-factor responses | The official 1.7.1 backup-code generation and verification actions pass. The new discriminated enable response, TOTP, OTP, and trusted-device behavior remain [#20](https://github.com/lucid-softworks/auth/issues/20). |
+| Passwordless cleanup | Magic link, email OTP, phone OTP, and related cleanup are not claimed yet; their 1.7 contracts are tracked in [#22](https://github.com/lucid-softworks/auth/issues/22), [#23](https://github.com/lucid-softworks/auth/issues/23), and [#24](https://github.com/lucid-softworks/auth/issues/24). Durable one-time state is already available through [#8](https://github.com/lucid-softworks/auth/issues/8). |
+| Custom and secondary storage | The native memory/PostgreSQL contracts are unaffected by TypeScript adapter internals. Secondary storage and stateless sessions remain [#58](https://github.com/lucid-softworks/auth/issues/58); hooks remain [#60](https://github.com/lucid-softworks/auth/issues/60). |
+| Dynamic base URL and proxies | Forwarded host/IP data is accepted only through explicitly trusted proxies, matching 1.7 hardening; see [#6](https://github.com/lucid-softworks/auth/issues/6) and [#7](https://github.com/lucid-softworks/auth/issues/7). |
+| Error contracts | The 1.7.1 official client suite asserts structured status/code handling, including `401 INVALID_USERNAME_OR_PASSWORD`; each new endpoint must add its own error regressions before becoming Supported. |
+
+This baseline change requires no lucid-auth database migration for the currently
+supported surface. Better Auth's 1.7 account-identity migration applies to the
+unimplemented OAuth/account tables described above and will be introduced with
+those features rather than adding unused or legacy columns now.
 
 ## Core client API
 

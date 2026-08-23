@@ -3,12 +3,12 @@ use axum::{
     extract::Path,
     http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
 };
 use chrono::{Duration, Utc};
 use lucid_auth::{
     Assurance, AuthConfig, AuthService, AuthSession, AuthStore, MemoryStore, NewPasswordUser,
-    PasskeyConfig, StoredPasskey,
+    PasskeyConfig, StoredPasskey, protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -31,6 +31,7 @@ async fn main() {
     let origin = format!("http://localhost:{port}");
     let fixture = fixture(&origin).await;
     let app = Router::new()
+        .route("/__conformance__/version", get(compatible_version))
         .route(
             "/__conformance__/session/{assurance}",
             post(create_fixture_session),
@@ -46,6 +47,10 @@ async fn main() {
     )
     .await
     .expect("serve conformance fixture");
+}
+
+async fn compatible_version() -> Json<serde_json::Value> {
+    Json(json!({ "betterAuth": COMPATIBLE_BETTER_AUTH_VERSION }))
 }
 
 async fn fixture(origin: &str) -> Fixture {

@@ -5,10 +5,10 @@ the official Better Auth JavaScript client. It implements a deliberately
 tested Better Auth-compatible HTTP and session surface without executing or
 embedding a JavaScript authentication server.
 
-The initial compatibility target is Better Auth `1.6.29`. See the
+The compatibility target is Better Auth `1.7.1`. See the
 [compatibility matrix](COMPATIBILITY.md) for method-level coverage, known
-limitations, the Better Auth `1.7.1` upgrade plan, and links to every tracked
-gap. The currently supported surface covers:
+limitations, upgrade audit, and links to every tracked gap. The currently
+supported surface covers:
 
 - `getSession` and `useSession`
 - username/password sign-in

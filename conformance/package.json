@@ -6,7 +6,7 @@
     "test": "node run.mjs"
   },
   "dependencies": {
-    "@better-auth/passkey": "1.6.29",
-    "better-auth": "1.6.29"
+    "@better-auth/passkey": "1.7.1",
+    "better-auth": "1.7.1"
   }
 }
