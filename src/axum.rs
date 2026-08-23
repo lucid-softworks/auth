@@ -10,6 +10,7 @@ use crate::{
 use axum::{
     Extension, Json, Router,
     http::{HeaderMap, HeaderValue, header},
+    middleware,
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -21,6 +22,7 @@ mod account;
 mod admin;
 mod guest;
 mod http;
+mod security;
 
 pub use self::http::session_token;
 use self::http::{
@@ -66,6 +68,10 @@ where
         .merge(account::router())
         .merge(admin::router())
         .merge(guest::router())
+        .layer(middleware::from_fn_with_state(
+            service.clone(),
+            security::validate_browser_request,
+        ))
         .layer(Extension(service))
 }
 

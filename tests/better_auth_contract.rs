@@ -18,6 +18,7 @@ use uuid::Uuid;
 async fn application() -> Router {
     let mut config = AuthConfig::new([19_u8; 32]).unwrap();
     config.allow_anonymous = true;
+    config.trust_origin("http://localhost").unwrap();
     config.passkeys = Some(PasskeyConfig {
         rp_id: "localhost".into(),
         rp_origin: "http://localhost:5173".into(),
@@ -49,6 +50,7 @@ async fn application() -> Router {
 
 async fn recovery_application() -> (Router, Arc<AuthService>, Arc<MemoryStore>) {
     let mut config = AuthConfig::new([29_u8; 32]).unwrap();
+    config.trust_origin("http://localhost").unwrap();
     config.passkeys = Some(PasskeyConfig {
         rp_id: "localhost".into(),
         rp_origin: "http://localhost:5173".into(),
@@ -250,6 +252,7 @@ async fn official_two_factor_client_contract_generates_and_consumes_backup_codes
         .oneshot(
             Request::post("/api/auth/two-factor/generate-backup-codes")
                 .header(header::COOKIE, strong_cookie)
+                .header(header::ORIGIN, "http://localhost")
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(r#"{"password":"password"}"#))
                 .unwrap(),
@@ -270,6 +273,7 @@ async fn official_two_factor_client_contract_generates_and_consumes_backup_codes
         .oneshot(
             Request::post("/api/auth/two-factor/verify-backup-code")
                 .header(header::COOKIE, pending_cookie)
+                .header(header::ORIGIN, "http://localhost")
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(json!({ "code": code }).to_string()))
                 .unwrap(),
@@ -299,6 +303,7 @@ async fn official_two_factor_client_contract_generates_and_consumes_backup_codes
         .oneshot(
             Request::post("/api/auth/two-factor/verify-backup-code")
                 .header(header::COOKIE, pending_cookie)
+                .header(header::ORIGIN, "http://localhost")
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(json!({ "code": code }).to_string()))
                 .unwrap(),
@@ -310,7 +315,7 @@ async fn official_two_factor_client_contract_generates_and_consumes_backup_codes
 }
 
 #[tokio::test]
-async fn official_account_security_contract_changes_passwords_and_manages_sessions() {
+async fn official_account_security_contract_manages_sessions() {
     let app = application().await;
     let (current_cookie, _) = sign_in(&app, "luna").await;
     let (other_cookie, _) = sign_in(&app, "luna").await;
@@ -334,6 +339,7 @@ async fn official_account_security_contract_changes_passwords_and_manages_sessio
         .oneshot(
             Request::post("/api/auth/revoke-other-sessions")
                 .header(header::COOKIE, &current_cookie)
+                .header(header::ORIGIN, "http://localhost")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -351,12 +357,18 @@ async fn official_account_security_contract_changes_passwords_and_manages_sessio
         .await
         .unwrap();
     assert!(response_json(response).await.is_null());
+}
 
+#[tokio::test]
+async fn official_account_security_contract_changes_passwords() {
+    let app = application().await;
+    let (current_cookie, _) = sign_in(&app, "luna").await;
     let response = app
         .clone()
         .oneshot(
             Request::post("/api/auth/change-password")
                 .header(header::COOKIE, current_cookie)
+                .header(header::ORIGIN, "http://localhost")
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     json!({

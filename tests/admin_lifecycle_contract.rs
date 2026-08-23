@@ -10,10 +10,9 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 async fn application() -> Router {
-    let service = Arc::new(AuthService::new(
-        Arc::new(MemoryStore::default()),
-        AuthConfig::new([43_u8; 32]).unwrap(),
-    ));
+    let mut config = AuthConfig::new([43_u8; 32]).unwrap();
+    config.trust_origin("http://localhost").unwrap();
+    let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
     service
         .provision_password_user(NewPasswordUser {
             username: "luna".into(),
@@ -28,7 +27,18 @@ async fn application() -> Router {
 }
 
 async fn request_json(app: &Router, request: Request<Body>) -> (StatusCode, Value) {
-    let response = app.clone().oneshot(request).await.unwrap();
+    let (mut parts, body) = request.into_parts();
+    if parts.method == axum::http::Method::POST && parts.headers.contains_key(header::COOKIE) {
+        parts.headers.insert(
+            header::ORIGIN,
+            "http://localhost".parse().expect("valid test origin"),
+        );
+    }
+    let response = app
+        .clone()
+        .oneshot(Request::from_parts(parts, body))
+        .await
+        .unwrap();
     let status = response.status();
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let value = serde_json::from_slice(&body).unwrap_or(Value::Null);

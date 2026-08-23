@@ -76,4 +76,14 @@ not routed by the crate's Axum compatibility surface.
 WebAuthn relying-party configuration is explicit and must use HTTPS except for
 the browser's `localhost` development exception.
 
+Cookie-authenticated browser mutations require a trusted `Origin` or `Referer`
+and reject cross-site navigation login attempts. Same-origin requests are
+matched against the request host. Add an explicit cross-origin frontend with
+`AuthConfig::trust_origin`. It follows Better Auth's pattern rules: exact
+HTTP(S) origins, host or full-origin `*`/`?` globs such as
+`https://*.example.com` and `http://localhost:*`, and path-pinned custom schemes
+are supported. The exact Better Auth redirect fields (`callbackURL`,
+`redirectTo`, `errorCallbackURL`, and `newUserCallbackURL`) must contain an
+accepted relative path or use a trusted origin.
+
 This project is not affiliated with Better Auth.

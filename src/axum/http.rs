@@ -189,6 +189,13 @@ pub(super) fn auth_error(error: AuthError) -> Response {
             "INVALID_API_KEY",
             "The API key is invalid, expired, or revoked",
         ),
+        AuthError::InvalidOrigin
+        | AuthError::MissingOrigin
+        | AuthError::InvalidCallbackUrl
+        | AuthError::InvalidRedirectUrl
+        | AuthError::InvalidErrorCallbackUrl
+        | AuthError::InvalidNewUserCallbackUrl
+        | AuthError::CrossSiteNavigationLogin => request_security_error_details(&error),
         AuthError::InvalidConfiguration(_)
         | AuthError::Storage(_)
         | AuthError::Worker
@@ -202,6 +209,46 @@ pub(super) fn auth_error(error: AuthError) -> Response {
 }
 
 type ErrorDetails = (StatusCode, &'static str, &'static str);
+
+fn request_security_error_details(error: &AuthError) -> ErrorDetails {
+    match error {
+        AuthError::InvalidOrigin => (
+            StatusCode::FORBIDDEN,
+            "INVALID_ORIGIN",
+            "The request origin is not trusted",
+        ),
+        AuthError::MissingOrigin => (
+            StatusCode::FORBIDDEN,
+            "MISSING_OR_NULL_ORIGIN",
+            "The request origin is missing or null",
+        ),
+        AuthError::InvalidCallbackUrl => (
+            StatusCode::FORBIDDEN,
+            "INVALID_CALLBACK_URL",
+            "The callback URL is not trusted",
+        ),
+        AuthError::InvalidRedirectUrl => (
+            StatusCode::FORBIDDEN,
+            "INVALID_REDIRECT_URL",
+            "The redirect URL is not trusted",
+        ),
+        AuthError::InvalidErrorCallbackUrl => (
+            StatusCode::FORBIDDEN,
+            "INVALID_ERROR_CALLBACK_URL",
+            "The error callback URL is not trusted",
+        ),
+        AuthError::InvalidNewUserCallbackUrl => (
+            StatusCode::FORBIDDEN,
+            "INVALID_NEW_USER_CALLBACK_URL",
+            "The new-user callback URL is not trusted",
+        ),
+        _ => (
+            StatusCode::FORBIDDEN,
+            "CROSS_SITE_NAVIGATION_LOGIN_BLOCKED",
+            "Cross-site navigation login is blocked",
+        ),
+    }
+}
 
 fn access_error_details(error: &AuthError) -> ErrorDetails {
     match error {

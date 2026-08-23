@@ -8,7 +8,10 @@ mod session;
 mod user;
 
 use crate::PasswordBreachChecker;
-use crate::{Assurance, AuthError, AuthSession, AuthStore, AuthUser, Principal, SessionWithUser};
+use crate::{
+    Assurance, AuthError, AuthSession, AuthStore, AuthUser, Principal, SessionWithUser,
+    TrustedOrigin,
+};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Duration, Utc};
 use hmac::{Hmac, Mac};
@@ -38,6 +41,9 @@ pub struct AuthConfig {
     pub lockout_window: Duration,
     pub passkeys: Option<PasskeyConfig>,
     pub password_breach_checker: Option<Arc<dyn PasswordBreachChecker>>,
+    /// Additional browser origins allowed to call authentication endpoints or
+    /// receive absolute callback redirects.
+    pub trusted_origins: Vec<TrustedOrigin>,
     pub required_mfa_roles: Vec<String>,
     /// Maximum age of strong authentication for security-sensitive operations.
     pub step_up_ttl: Duration,
@@ -70,9 +76,15 @@ impl AuthConfig {
             lockout_window: Duration::minutes(5),
             passkeys: None,
             password_breach_checker: None,
+            trusted_origins: Vec::new(),
             required_mfa_roles: Vec::new(),
             step_up_ttl: Duration::days(1),
         })
+    }
+
+    pub fn trust_origin(&mut self, origin: &str) -> Result<(), AuthError> {
+        self.trusted_origins.push(TrustedOrigin::parse(origin)?);
+        Ok(())
     }
 }
 
@@ -116,6 +128,14 @@ impl AuthService {
 
     pub fn cookie_secure(&self) -> bool {
         self.config.cookie_secure
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn trusts_origin(&self, origin: &str) -> bool {
+        self.config
+            .trusted_origins
+            .iter()
+            .any(|trusted| trusted.matches(origin))
     }
 
     pub fn development_session(&self) -> Option<SessionWithUser> {

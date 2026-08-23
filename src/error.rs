@@ -43,6 +43,20 @@ pub enum AuthError {
     InvalidGuestGrant,
     #[error("the API key is invalid, expired, or revoked")]
     InvalidApiKey,
+    #[error("the request origin is not trusted")]
+    InvalidOrigin,
+    #[error("the request origin is missing or null")]
+    MissingOrigin,
+    #[error("the callback URL is not trusted")]
+    InvalidCallbackUrl,
+    #[error("the redirect URL is not trusted")]
+    InvalidRedirectUrl,
+    #[error("the error callback URL is not trusted")]
+    InvalidErrorCallbackUrl,
+    #[error("the new-user callback URL is not trusted")]
+    InvalidNewUserCallbackUrl,
+    #[error("cross-site navigation login is blocked")]
+    CrossSiteNavigationLogin,
     #[error("the authentication request is invalid: {0}")]
     InvalidRequest(String),
     #[error("passkey support is not configured")]

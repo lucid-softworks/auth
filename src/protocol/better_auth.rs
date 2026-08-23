@@ -12,6 +12,7 @@ pub struct UsernameSignInRequest {
     pub username: String,
     pub password: String,
     pub remember_me: Option<bool>,
+    #[serde(rename = "callbackURL")]
     pub callback_url: Option<String>,
 }
 

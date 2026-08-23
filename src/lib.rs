@@ -4,6 +4,7 @@ mod breached_password;
 mod error;
 mod memory;
 mod model;
+mod origin;
 mod service;
 mod store;
 
@@ -21,6 +22,7 @@ pub use model::{
     IssuedGuestGrant, NewApiKey, NewGuestGrant, NewPasswordUser, Principal, SessionWithUser,
     StoredPasskey, VerifiedApiKey,
 };
+pub use origin::TrustedOrigin;
 pub use service::{
     AuthConfig, AuthService, HashedPasswordUser, PasskeyConfig, PasskeyRegistrationResult,
     PasswordChangeResult, RecoveryCodeStatus, SignInResult,

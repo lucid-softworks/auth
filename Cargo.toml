@@ -34,6 +34,7 @@ sqlx = { version = "0.8", optional = true, features = ["runtime-tokio-rustls", "
 thiserror = "2"
 tokio = { version = "1", features = ["rt", "sync"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+url = "2"
 webauthn-rs = "0.5.5"
 
 [dev-dependencies]
@@ -57,3 +58,7 @@ required-features = ["axum"]
 [[test]]
 name = "postgres_contract"
 required-features = ["postgres"]
+
+[[test]]
+name = "request_security_contract"
+required-features = ["axum"]

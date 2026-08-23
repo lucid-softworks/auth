@@ -12,6 +12,7 @@ use tower::ServiceExt;
 async fn application() -> Router {
     let mut config = AuthConfig::new([19_u8; 32]).unwrap();
     config.allow_anonymous = true;
+    config.trust_origin("http://localhost").unwrap();
     let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
     for (username, name, role) in [("luna", "Luna", "owner"), ("casey", "Casey", "viewer")] {
         service
@@ -90,6 +91,7 @@ async fn official_admin_contract_supports_roles_and_impersonation() {
         .oneshot(
             Request::post("/api/auth/admin/set-role")
                 .header(header::COOKIE, &owner_cookie)
+                .header(header::ORIGIN, "http://localhost")
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     json!({ "userId": casey_id, "role": "member" }).to_string(),
@@ -104,6 +106,7 @@ async fn official_admin_contract_supports_roles_and_impersonation() {
         .oneshot(
             Request::post("/api/auth/admin/impersonate-user")
                 .header(header::COOKIE, &owner_cookie)
+                .header(header::ORIGIN, "http://localhost")
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(json!({ "userId": casey_id }).to_string()))
                 .unwrap(),
@@ -131,6 +134,7 @@ async fn official_admin_contract_supports_roles_and_impersonation() {
         .oneshot(
             Request::post("/api/auth/admin/stop-impersonating")
                 .header(header::COOKIE, impersonated_cookie)
+                .header(header::ORIGIN, "http://localhost")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -143,7 +147,7 @@ async fn official_admin_contract_supports_roles_and_impersonation() {
 async fn guest_grant_contract_issues_and_redeems_a_scoped_session() {
     let app = application().await;
     let (owner_cookie, _) = sign_in(&app, "luna").await;
-    let response = app.clone().oneshot(Request::post("/api/auth/guest-grants").header(header::COOKIE, owner_cookie).header(header::CONTENT_TYPE, "application/json").body(Body::from(json!({ "label": "Dog sitter", "permissions": ["devices:read"], "resourceScopes": ["room:kitchen"], "expiresAt": (chrono::Utc::now() + chrono::Duration::hours(1)), "maxUses": 1 }).to_string())).unwrap()).await.unwrap();
+    let response = app.clone().oneshot(Request::post("/api/auth/guest-grants").header(header::COOKIE, owner_cookie).header(header::ORIGIN, "http://localhost").header(header::CONTENT_TYPE, "application/json").body(Body::from(json!({ "label": "Dog sitter", "permissions": ["devices:read"], "resourceScopes": ["room:kitchen"], "expiresAt": (chrono::Utc::now() + chrono::Duration::hours(1)), "maxUses": 1 }).to_string())).unwrap()).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let issued = response_json(response).await;
     assert_eq!(issued["grant"]["permissions"][0], "devices:read");

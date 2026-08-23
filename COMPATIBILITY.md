@@ -145,7 +145,7 @@ a fail-closed security policy.
 | MS SQL and generic relational adapters | Planned | [#64](https://github.com/lucid-softworks/auth/issues/64). |
 | Secondary storage and stateless sessions | Planned | [#58](https://github.com/lucid-softworks/auth/issues/58). |
 | Programmatic schema/migration diagnostics | Planned | [#68](https://github.com/lucid-softworks/auth/issues/68). |
-| Trusted origins, CSRF, redirect validation | Planned | Release-blocking security work: [#5](https://github.com/lucid-softworks/auth/issues/5). |
+| Trusted origins, CSRF, redirect validation | Supported | Better Auth exact, wildcard, custom-scheme, and relative-path matching; same-origin requests; Fetch Metadata checks; and validation of all four redirect fields; [#5](https://github.com/lucid-softworks/auth/issues/5). |
 | Base URL/path, CORS, and configurable cookies | Planned | [#6](https://github.com/lucid-softworks/auth/issues/6). |
 | Trusted-proxy client IP resolution | Planned | Release-blocking security work: [#7](https://github.com/lucid-softworks/auth/issues/7). |
 | Framework and production installation guides | Planned | [#65](https://github.com/lucid-softworks/auth/issues/65). |
