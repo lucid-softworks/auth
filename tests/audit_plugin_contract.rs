@@ -6,8 +6,9 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use lucid_auth::{
-    AuditEvent, AuditPlugin, AuditStore, AuthConfig, AuthError, AuthService, MemoryAuditStore,
-    MemoryStore, NewPasswordUser, OperatorSecurityConfig, OperatorSecurityPlugin, UsernamePlugin,
+    AdminRole, AuditEvent, AuditPlugin, AuditStore, AuthConfig, AuthError, AuthService,
+    MemoryAuditStore, MemoryStore, NewPasswordUser, OperatorSecurityConfig, OperatorSecurityPlugin,
+    UsernamePlugin,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -26,6 +27,10 @@ async fn fixture(
     let mut config = AuthConfig::new([61_u8; 32]).unwrap();
     config.trust_origin("http://localhost").unwrap();
     config.add_plugin(UsernamePlugin::default()).unwrap();
+    config.admin.set_role("owner", AdminRole::administrator());
+    config.admin.admin_roles.push("owner".into());
+    config.admin.set_role("member", AdminRole::new());
+    config.admin.set_role("viewer", AdminRole::new());
     let auth_store = Arc::new(MemoryStore::default());
     config
         .add_plugin(OperatorSecurityPlugin::new(

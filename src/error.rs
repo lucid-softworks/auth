@@ -2,6 +2,8 @@
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
     #[error(transparent)]
+    Admin(#[from] crate::AdminError),
+    #[error(transparent)]
     ApiKey(#[from] crate::ApiKeyError),
     #[error(transparent)]
     Username(#[from] crate::UsernameError),
@@ -51,8 +53,8 @@ pub enum AuthError {
     Unauthorized,
     #[error("the session is not fresh")]
     SessionNotFresh,
-    #[error("the account is disabled")]
-    AccountDisabled,
+    #[error("{0}")]
+    AccountDisabled(String),
     #[error("the requested authentication resource was not found")]
     NotFound,
     #[error("a user with that username or email already exists")]

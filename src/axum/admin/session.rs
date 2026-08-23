@@ -2,7 +2,8 @@ use super::{UserRequest, parse_uuid, success_response};
 use crate::{
     AuthError, AuthService,
     axum::http::{
-        PeerAddress, auth_error, client_ip, current_session, user_agent, with_session_cookie,
+        PeerAddress, auth_error, client_ip, current_session, serialize_cookie, signed_cookie_token,
+        user_agent, with_cookie, with_session_cookie,
     },
     protocol::better_auth::BetterAuthSession,
 };
@@ -99,6 +100,9 @@ async fn impersonate_user(
     headers: HeaderMap,
     Json(input): Json<UserRequest>,
 ) -> Response {
+    let Some(actor_token) = crate::axum::http::session_token(&service, &headers) else {
+        return auth_error(AuthError::InvalidSession);
+    };
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(AuthError::InvalidSession);
     };
@@ -122,7 +126,9 @@ async fn impersonate_user(
                 .await
             {
                 Ok(response) => {
-                    with_session_cookie(&service, &result.token, Some(true), Json(response))
+                    let response =
+                        with_session_cookie(&service, &result.token, Some(true), Json(response));
+                    with_admin_session_cookie(&service, &actor_token, response)
                 }
                 Err(error) => auth_error(error),
             }
@@ -133,31 +139,50 @@ async fn impersonate_user(
 
 async fn stop_impersonating(
     Extension(service): Extension<Arc<AuthService>>,
-    peer: PeerAddress,
     headers: HeaderMap,
 ) -> Response {
     let Some(session) = current_session(&service, &headers).await else {
         return auth_error(AuthError::InvalidSession);
     };
-    match service
-        .stop_impersonating(
-            &session,
-            client_ip(&service, &headers, peer),
-            user_agent(&headers),
-        )
-        .await
-    {
+    let cookie = service.plugin_cookie("admin_session");
+    let Some(actor_token) = signed_cookie_token(&service, &headers, &cookie.name) else {
+        return auth_error(AuthError::InvalidSession);
+    };
+    match service.stop_impersonating(&session, &actor_token).await {
         Ok(result) => {
             match service
                 .better_auth_session_response(&result.session, result.token.clone())
                 .await
             {
                 Ok(response) => {
-                    with_session_cookie(&service, &result.token, Some(true), Json(response))
+                    let response =
+                        with_session_cookie(&service, &result.token, Some(true), Json(response));
+                    clear_admin_session_cookie(&service, response)
                 }
                 Err(error) => auth_error(error),
             }
         }
         Err(error) => auth_error(error),
     }
+}
+
+fn with_admin_session_cookie(
+    service: &AuthService,
+    token: &str,
+    body: impl IntoResponse,
+) -> Response {
+    let cookie = service.plugin_cookie("admin_session");
+    with_cookie(
+        body,
+        serialize_cookie(
+            &cookie,
+            &service.signed_cookie_value(token),
+            Some(service.session_ttl().num_seconds()),
+        ),
+    )
+}
+
+fn clear_admin_session_cookie(service: &AuthService, body: impl IntoResponse) -> Response {
+    let cookie = service.plugin_cookie("admin_session");
+    with_cookie(body, serialize_cookie(&cookie, "", Some(0)))
 }

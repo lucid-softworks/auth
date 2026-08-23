@@ -5,7 +5,8 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use lucid_auth::{
-    AuthConfig, AuthService, GuestCapabilityPlugin, MemoryStore, NewPasswordUser, UsernamePlugin,
+    AdminRole, AuthConfig, AuthService, GuestCapabilityPlugin, MemoryStore, NewPasswordUser,
+    UsernamePlugin,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -16,6 +17,10 @@ async fn application() -> Router {
     config.allow_anonymous = true;
     config.trust_origin("http://localhost").unwrap();
     config.add_plugin(UsernamePlugin::default()).unwrap();
+    config.admin.set_role("owner", AdminRole::administrator());
+    config.admin.admin_roles.push("owner".into());
+    config.admin.set_role("viewer", AdminRole::new());
+    config.admin.set_role("member", AdminRole::new());
     let store = Arc::new(MemoryStore::default());
     config
         .add_plugin(GuestCapabilityPlugin::new(store.clone()))
@@ -147,14 +152,19 @@ async fn official_admin_contract_supports_roles_and_impersonation() {
     assert_eq!(response.status(), StatusCode::OK);
     let impersonated_cookie = response
         .headers()
-        .get(header::SET_COOKIE)
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .split(';')
-        .next()
-        .unwrap()
-        .to_owned();
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .map(|value| {
+            value
+                .to_str()
+                .unwrap()
+                .split(';')
+                .next()
+                .unwrap()
+                .to_owned()
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
     let impersonated = response_json(response).await;
     assert_eq!(impersonated["user"]["username"], "casey");
     assert_eq!(

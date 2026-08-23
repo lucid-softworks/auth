@@ -1,5 +1,6 @@
 //! Native authentication with a Better Auth-compatible HTTP surface.
 
+mod admin;
 mod api_key;
 mod audit;
 mod breached_password;
@@ -29,6 +30,10 @@ pub mod axum;
 pub mod postgres;
 pub mod protocol;
 
+pub use admin::{
+    AdminConfig, AdminCreateUser, AdminError, AdminListCondition, AdminListOperator,
+    AdminListUsersQuery, AdminPermissionSet, AdminRole, AdminSortDirection, AdminUserUpdate,
+};
 pub use api_key::{
     ApiKeyConfiguration, ApiKeyError, ApiKeyExpirationConfig, ApiKeyGenerator, ApiKeyPlugin,
     ApiKeyRateLimitConfig, ApiKeyReference, ApiKeyStartingCharactersConfig,

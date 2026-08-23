@@ -144,6 +144,8 @@ pub struct BetterAuthUser {
     pub image: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[serde(flatten)]
+    pub additional_fields: serde_json::Map<String, serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -319,6 +321,7 @@ impl From<&AuthUser> for BetterAuthUser {
             image: user.image.clone(),
             created_at: user.created_at,
             updated_at: user.updated_at,
+            additional_fields: user.additional_fields.clone(),
             username: user.username.clone(),
             display_username: user.display_username.clone(),
             is_anonymous: user.is_anonymous,

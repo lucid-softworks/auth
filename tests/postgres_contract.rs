@@ -1,5 +1,5 @@
 use lucid_auth::{
-    AuditPlugin, AuthConfig, AuthError, AuthService, AuthUser, EmailSignUpInput,
+    AdminRole, AuditPlugin, AuthConfig, AuthError, AuthService, AuthUser, EmailSignUpInput,
     GuestCapabilityPlugin, NewPasswordUser, OperatorSecurityConfig, OperatorSecurityPlugin,
     PasskeyConfig, PasskeyPlugin, PluginMigration, PluginMigrationContribution, StepUpPolicyConfig,
     StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin, UsernameError, UsernamePlugin,
@@ -9,6 +9,8 @@ use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use uuid::Uuid;
 
+#[path = "postgres_contract/admin.rs"]
+mod admin;
 #[path = "postgres_contract/api_key.rs"]
 mod api_key;
 #[path = "postgres_contract/audit.rs"]
@@ -70,6 +72,8 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     let mut config = AuthConfig::new([42_u8; 32])?;
     config.email_and_password.enabled = true;
     config.user.delete_user.enabled = true;
+    config.admin.set_role("owner", AdminRole::administrator());
+    config.admin.admin_roles.push("owner".into());
     register_contract_plugins(&mut config, &store)?;
     let api_keys = api_key::register(&mut config)?;
     let service = Arc::new(AuthService::new(store.clone(), config));
@@ -84,6 +88,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
         .await?;
     migrate_legacy_extensions(&service, &store, &pool, user.id).await?;
     let signed_in = authenticate_owner(&service, &user).await?;
+    admin::assert_query_and_update(&service, &signed_in.session).await?;
     let step_up_session = step_up::authenticate_fixture(&service, &store).await?;
     step_up::assert_atomic(&service, &store, &pool, &step_up_session).await?;
 

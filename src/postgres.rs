@@ -60,13 +60,13 @@ impl AuthStore for PostgresStore {
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
         let stored = sqlx::query_as::<_, UserRow>(
             "INSERT INTO lucid_auth_users \
-             (id, username, display_username, name, email, email_verified, image, role, \
+             (id, username, display_username, name, email, email_verified, image, additional_fields, role, \
               is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) \
              ON CONFLICT (username) DO UPDATE SET \
                display_username = EXCLUDED.display_username, name = EXCLUDED.name, \
                email = EXCLUDED.email, role = EXCLUDED.role, updated_at = EXCLUDED.updated_at \
-             RETURNING id, username, display_username, name, email, email_verified, image, role, \
+             RETURNING id, username, display_username, name, email, email_verified, image, additional_fields, role, \
                is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at",
         )
         .bind(user.id)
@@ -76,6 +76,7 @@ impl AuthStore for PostgresStore {
         .bind(&user.email)
         .bind(user.email_verified)
         .bind(&user.image)
+        .bind(serde_json::Value::Object(user.additional_fields.clone()))
         .bind(&user.role)
         .bind(user.is_anonymous)
         .bind(user.banned)
@@ -101,7 +102,7 @@ impl AuthStore for PostgresStore {
         .await
         .map_err(storage_error)?;
         let stored = sqlx::query_as::<_, UserRow>(
-            "SELECT id, username, display_username, name, email, email_verified, image, role, \
+            "SELECT id, username, display_username, name, email, email_verified, image, additional_fields, role, \
              is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at \
              FROM lucid_auth_users WHERE id = $1",
         )
@@ -117,15 +118,16 @@ impl AuthStore for PostgresStore {
         user.email = user.email.to_lowercase();
         sqlx::query_as::<_, UserRow>(
             "INSERT INTO lucid_auth_users \
-             (id, username, display_username, name, email, email_verified, image, role, \
+             (id, username, display_username, name, email, email_verified, image, additional_fields, role, \
               is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at) \
-             VALUES ($1, NULL, NULL, $2, $3, false, NULL, $4, true, false, NULL, NULL, $5, $5) \
-             RETURNING id, username, display_username, name, email, email_verified, image, role, \
+             VALUES ($1, NULL, NULL, $2, $3, false, NULL, $4, $5, true, false, NULL, NULL, $6, $6) \
+             RETURNING id, username, display_username, name, email, email_verified, image, additional_fields, role, \
                is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at",
         )
         .bind(user.id)
         .bind(&user.name)
         .bind(&user.email)
+        .bind(serde_json::Value::Object(user.additional_fields))
         .bind(&user.role)
         .bind(user.created_at)
         .fetch_one(&self.pool)

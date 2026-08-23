@@ -59,7 +59,12 @@ impl AuthService {
         if self.store.find_user_by_email(&email).await?.is_some() {
             let _ = hash_password(input.password).await?;
             return if generic_duplicates {
-                Ok(synthetic_signup(input.name, email, input.image))
+                Ok(synthetic_signup(
+                    input.name,
+                    email,
+                    input.image,
+                    &self.config.admin.default_role,
+                ))
             } else {
                 Err(AuthError::UserAlreadyExistsEmail)
             };
@@ -75,7 +80,8 @@ impl AuthService {
             email,
             email_verified: false,
             image: input.image,
-            role: "member".into(),
+            additional_fields: serde_json::Map::new(),
+            role: self.config.admin.default_role.clone(),
             is_anonymous: false,
             banned: false,
             ban_reason: None,
@@ -87,7 +93,12 @@ impl AuthService {
         let user = match self.store.create_password_user(user, password_hash).await {
             Ok(user) => user,
             Err(AuthError::UserAlreadyExists) if generic_duplicates => {
-                return Ok(synthetic_signup(synthetic.0, synthetic.1, synthetic.2));
+                return Ok(synthetic_signup(
+                    synthetic.0,
+                    synthetic.1,
+                    synthetic.2,
+                    &self.config.admin.default_role,
+                ));
             }
             Err(AuthError::UserAlreadyExists) => return Err(AuthError::UserAlreadyExistsEmail),
             Err(error) => return Err(error),
@@ -131,9 +142,6 @@ impl AuthService {
             self.record_failure(&email, ip_address.as_deref()).await?;
             return Err(AuthError::InvalidEmailOrPassword);
         };
-        if user.banned && user.ban_expires.is_none_or(|expires| expires > Utc::now()) {
-            return Err(AuthError::AccountDisabled);
-        }
         if self.config.email_and_password.require_email_verification && !user.email_verified {
             self.maybe_send_signin_verification(&user, callback_url)
                 .await?;
@@ -211,7 +219,12 @@ fn valid_email(email: &str) -> bool {
         })
 }
 
-fn synthetic_signup(name: String, email: String, image: Option<String>) -> EmailSignUpResult {
+fn synthetic_signup(
+    name: String,
+    email: String,
+    image: Option<String>,
+    default_role: &str,
+) -> EmailSignUpResult {
     let now = Utc::now();
     EmailSignUpResult {
         token: None,
@@ -223,7 +236,8 @@ fn synthetic_signup(name: String, email: String, image: Option<String>) -> Email
             email,
             email_verified: false,
             image,
-            role: "member".into(),
+            additional_fields: serde_json::Map::new(),
+            role: default_role.into(),
             is_anonymous: false,
             banned: false,
             ban_reason: None,

@@ -21,6 +21,7 @@ pub(super) async fn assert_promotion_is_atomic(
                 email: "postgres-magic@example.com".into(),
                 email_verified: false,
                 image: None,
+                additional_fields: serde_json::Map::new(),
                 role: "member".into(),
                 is_anonymous: false,
                 banned: false,

@@ -1,24 +1,101 @@
-use super::{AuthService, SignInResult, user::validate_managed_role};
+use super::{AuthService, SignInResult, user::validate_admin_roles};
 use crate::{
-    AuditEvent, AuditMetadata, AuditOutcome, AuditPlugin, AuthError, AuthSession, AuthUser,
+    AdminListUsersQuery, AdminPermissionSet, AdminUserUpdate, AuthError, AuthSession, AuthUser,
     SessionWithUser,
 };
 use chrono::{DateTime, Utc};
-use serde_json::{Value, json};
+use serde_json::json;
 use uuid::Uuid;
 
 impl AuthService {
     pub async fn list_users(
         &self,
         actor: &SessionWithUser,
-        limit: usize,
-        offset: usize,
+        query: AdminListUsersQuery,
     ) -> Result<(Vec<AuthUser>, i64), AuthError> {
-        self.require_recent_owner(actor).await?;
-        let limit = limit.clamp(1, 100);
-        let users = self.store.list_users(limit, offset).await?;
-        let total = self.store.count_users().await?;
+        self.require_admin_permission(actor, "user", &["list"])
+            .await?;
+        let users = self.store.list_users(&query).await?;
+        let total = self.store.count_users(&query.conditions).await?;
         Ok((users, total))
+    }
+
+    pub async fn admin_get_user(
+        &self,
+        actor: &SessionWithUser,
+        user_id: Uuid,
+    ) -> Result<AuthUser, AuthError> {
+        self.require_admin_permission(actor, "user", &["get"])
+            .await?;
+        self.store
+            .find_user_by_id(user_id)
+            .await?
+            .ok_or_else(|| crate::AdminError::UserNotFound.into())
+    }
+
+    pub async fn admin_has_permission(
+        &self,
+        actor: &SessionWithUser,
+        _user_id: Option<Uuid>,
+        _role: Option<&str>,
+        permissions: &AdminPermissionSet,
+    ) -> Result<bool, AuthError> {
+        Ok(self
+            .config
+            .admin
+            .authorizes(actor.user.id, &actor.user.role, permissions))
+    }
+
+    pub async fn admin_update_user(
+        &self,
+        actor: &SessionWithUser,
+        user_id: Uuid,
+        update: AdminUserUpdate,
+    ) -> Result<AuthUser, AuthError> {
+        self.require_admin_permission(actor, "user", &["update"])
+            .await?;
+        if update.role.is_some() {
+            self.require_admin_permission(actor, "user", &["set-role"])
+                .await?;
+        }
+        if update.email.is_some() || update.email_verified.is_some() {
+            self.require_admin_permission(actor, "user", &["set-email"])
+                .await?;
+        }
+        if update.banned.is_some() || update.ban_reason.is_some() || update.ban_expires.is_some() {
+            self.require_admin_permission(actor, "user", &["ban"])
+                .await?;
+        }
+        if update.banned == Some(true) && actor.user.id == user_id {
+            return Err(crate::AdminError::CannotBanSelf.into());
+        }
+        if let Some(role) = &update.role {
+            validate_admin_roles(&self.config.admin, role)?;
+        }
+        if let Some(email) = &update.email
+            && !super::user::valid_email(email)
+        {
+            return Err(AuthError::InvalidEmail);
+        }
+        if let Some(email) = &update.email
+            && self
+                .store
+                .find_user_by_email(email)
+                .await?
+                .is_some_and(|user| user.id != user_id)
+        {
+            return Err(crate::AdminError::UserAlreadyExistsEmail.into());
+        }
+        let banned = update.banned == Some(true);
+        let user = self
+            .store
+            .admin_update_user(user_id, update)
+            .await
+            .map_err(admin_user_error)?;
+        if banned {
+            self.store.delete_user_sessions(user_id).await?;
+        }
+        Ok(user)
     }
 
     pub async fn set_user_role(
@@ -27,18 +104,23 @@ impl AuthService {
         user_id: Uuid,
         role: &str,
     ) -> Result<AuthUser, AuthError> {
-        self.require_recent_owner(actor).await?;
-        validate_managed_role(role)?;
+        self.require_admin_permission(actor, "user", &["set-role"])
+            .await?;
+        validate_admin_roles(&self.config.admin, role)?;
         let target = self
             .store
             .find_user_by_id(user_id)
             .await?
-            .ok_or(AuthError::NotFound)?;
+            .ok_or(crate::AdminError::UserNotFound)?;
         if target.is_anonymous {
             return Err(AuthError::Forbidden);
         }
         self.protect_final_owner(&target, role != "owner").await?;
-        let updated = self.store.update_user_role(user_id, role).await?;
+        let updated = self
+            .store
+            .update_user_role(user_id, role)
+            .await
+            .map_err(admin_user_error)?;
         if role == "owner" && target.role != "owner" {
             self.store.delete_user_sessions(user_id).await?;
         }
@@ -60,20 +142,31 @@ impl AuthService {
         reason: Option<String>,
         expires_at: Option<DateTime<Utc>>,
     ) -> Result<AuthUser, AuthError> {
-        self.require_recent_owner(actor).await?;
+        self.require_admin_permission(actor, "user", &["ban"])
+            .await?;
         if actor.user.id == user_id {
-            return Err(AuthError::Forbidden);
+            return Err(crate::AdminError::CannotBanSelf.into());
         }
         let target = self
             .store
             .find_user_by_id(user_id)
             .await?
-            .ok_or(AuthError::NotFound)?;
+            .ok_or(crate::AdminError::UserNotFound)?;
         self.protect_final_owner(&target, true).await?;
+        let reason = reason
+            .or_else(|| self.config.admin.default_ban_reason.clone())
+            .or_else(|| Some("No reason".into()));
+        let expires_at = expires_at.or_else(|| {
+            self.config
+                .admin
+                .default_ban_expires_in_seconds
+                .map(|seconds| Utc::now() + chrono::Duration::seconds(seconds))
+        });
         let updated = self
             .store
             .update_user_ban(user_id, true, reason.clone(), expires_at)
-            .await?;
+            .await
+            .map_err(admin_user_error)?;
         self.store.delete_user_sessions(user_id).await?;
         self.audit(
             actor.user.id,
@@ -91,11 +184,13 @@ impl AuthService {
         actor: &SessionWithUser,
         user_id: Uuid,
     ) -> Result<AuthUser, AuthError> {
-        self.require_recent_owner(actor).await?;
+        self.require_admin_permission(actor, "user", &["ban"])
+            .await?;
         let updated = self
             .store
             .update_user_ban(user_id, false, None, None)
-            .await?;
+            .await
+            .map_err(admin_user_error)?;
         self.audit(
             actor.user.id,
             Some(user_id),
@@ -112,10 +207,8 @@ impl AuthService {
         actor: &SessionWithUser,
         user_id: Uuid,
     ) -> Result<Vec<AuthSession>, AuthError> {
-        require_owner(actor)?;
-        if self.store.find_user_by_id(user_id).await?.is_none() {
-            return Err(AuthError::NotFound);
-        }
+        self.require_admin_permission(actor, "session", &["list"])
+            .await?;
         self.store.list_sessions(user_id).await
     }
 
@@ -124,10 +217,8 @@ impl AuthService {
         actor: &SessionWithUser,
         session_id: Uuid,
     ) -> Result<(), AuthError> {
-        self.require_recent_owner(actor).await?;
-        if actor.session.id == session_id {
-            return Err(AuthError::Forbidden);
-        }
+        self.require_admin_permission(actor, "session", &["revoke"])
+            .await?;
         self.store.delete_session_by_id(session_id).await?;
         self.audit(
             actor.user.id,
@@ -145,13 +236,8 @@ impl AuthService {
         actor: &SessionWithUser,
         user_id: Uuid,
     ) -> Result<(), AuthError> {
-        self.require_recent_owner(actor).await?;
-        if actor.user.id == user_id {
-            return Err(AuthError::Forbidden);
-        }
-        if self.store.find_user_by_id(user_id).await?.is_none() {
-            return Err(AuthError::NotFound);
-        }
+        self.require_admin_permission(actor, "session", &["revoke"])
+            .await?;
         self.store.delete_user_sessions(user_id).await?;
         self.audit(
             actor.user.id,
@@ -171,19 +257,25 @@ impl AuthService {
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
-        self.require_recent_owner(actor).await?;
-        if actor.user.id == user_id {
-            return Err(AuthError::Forbidden);
-        }
+        self.require_admin_permission(actor, "user", &["impersonate"])
+            .await?;
         let target = self
             .store
             .find_user_by_id(user_id)
             .await?
-            .ok_or(AuthError::NotFound)?;
-        if target.is_anonymous || target.role == "owner" || account_is_banned(&target) {
-            return Err(AuthError::Forbidden);
+            .ok_or(crate::AdminError::UserNotFound)?;
+        if !self.config.admin.allow_impersonating_admins
+            && self.config.admin.is_admin_target(target.id, &target.role)
+            && !self.config.admin.authorizes(
+                actor.user.id,
+                &actor.user.role,
+                &crate::admin::permission("user", &["impersonate-admins"]),
+            )
+        {
+            return Err(crate::AdminError::CannotImpersonateAdmin.into());
         }
-        let expires_at = Utc::now() + chrono::Duration::hours(1);
+        let expires_at = Utc::now()
+            + chrono::Duration::seconds(self.config.admin.impersonation_session_duration_seconds);
         let result = self
             .create_session_until(
                 target,
@@ -208,28 +300,22 @@ impl AuthService {
     pub async fn stop_impersonating(
         &self,
         session: &SessionWithUser,
-        ip_address: Option<String>,
-        user_agent: Option<String>,
+        actor_session_token: &str,
     ) -> Result<SignInResult, AuthError> {
         let actor_id = session.session.actor_user_id.ok_or(AuthError::Forbidden)?;
-        let actor = self
-            .store
-            .find_user_by_id(actor_id)
+        let actor_session = self
+            .session(actor_session_token)
             .await?
-            .ok_or(AuthError::NotFound)?;
-        if actor.role != "owner" || account_is_banned(&actor) {
+            .filter(|actor| actor.user.id == actor_id)
+            .ok_or(AuthError::InvalidSession)?;
+        if account_is_banned(&actor_session.user) {
             return Err(AuthError::Forbidden);
         }
         self.store.delete_session_by_id(session.session.id).await?;
-        let result = self
-            .create_session(
-                actor,
-                session.session.authentication_method,
-                None,
-                ip_address,
-                user_agent,
-            )
-            .await?;
+        let result = SignInResult {
+            token: actor_session_token.to_owned(),
+            session: actor_session,
+        };
         self.audit(
             actor_id,
             Some(session.user.id),
@@ -239,19 +325,6 @@ impl AuthService {
         )
         .await;
         Ok(result)
-    }
-
-    pub async fn list_audit_events(
-        &self,
-        actor: &SessionWithUser,
-        limit: usize,
-    ) -> Result<Vec<AuditEvent>, AuthError> {
-        require_owner(actor)?;
-        let plugin = self
-            .plugins
-            .find::<AuditPlugin>()
-            .ok_or(AuthError::NotFound)?;
-        plugin.store.list_audit_events(limit.clamp(1, 200)).await
     }
 
     pub(super) async fn protect_final_owner(
@@ -268,65 +341,19 @@ impl AuthService {
         Ok(())
     }
 
-    pub(super) async fn audit(
-        &self,
-        actor_user_id: Uuid,
-        subject_user_id: Option<Uuid>,
-        action: &str,
-        target: Option<String>,
-        metadata: Value,
-    ) {
-        self.record_audit_event(
-            Some(actor_user_id),
-            subject_user_id,
-            action,
-            target,
-            metadata,
-        )
-        .await;
-    }
-
-    pub(super) async fn audit_actorless(
-        &self,
-        subject_user_id: Option<Uuid>,
-        action: &str,
-        target: Option<String>,
-        metadata: Value,
-    ) {
-        self.record_audit_event(None, subject_user_id, action, target, metadata)
-            .await;
-    }
-
-    async fn record_audit_event(
-        &self,
-        actor_user_id: Option<Uuid>,
-        subject_user_id: Option<Uuid>,
-        action: &str,
-        target: Option<String>,
-        metadata: Value,
-    ) {
-        let Some(plugin) = self.plugins.find::<AuditPlugin>() else {
-            return;
-        };
-        let Ok(metadata) = AuditMetadata::new(metadata) else {
-            return;
-        };
-        let _ = plugin
-            .store
-            .record_audit_event(
-                AuditEvent {
-                    id: Uuid::new_v4(),
-                    actor_user_id,
-                    subject_user_id,
-                    action: action.to_owned(),
-                    target,
-                    outcome: AuditOutcome::Success,
-                    metadata,
-                    created_at: Utc::now(),
-                },
-                plugin.max_events,
-            )
-            .await;
+    pub(super) async fn admin_session_user(&self, user: AuthUser) -> Result<AuthUser, AuthError> {
+        if !user.banned {
+            return Ok(user);
+        }
+        if user
+            .ban_expires
+            .is_some_and(|expires| expires <= Utc::now())
+        {
+            return self.store.update_user_ban(user.id, false, None, None).await;
+        }
+        Err(AuthError::AccountDisabled(
+            self.config.admin.banned_user_message.clone(),
+        ))
     }
 }
 
@@ -343,6 +370,14 @@ pub(super) fn require_owner(session: &SessionWithUser) -> Result<(), AuthError> 
 
 fn account_is_banned(user: &AuthUser) -> bool {
     user.banned && user.ban_expires.is_none_or(|expires| expires > Utc::now())
+}
+
+pub(super) fn admin_user_error(error: AuthError) -> AuthError {
+    match error {
+        AuthError::NotFound => crate::AdminError::UserNotFound.into(),
+        AuthError::UserAlreadyExistsEmail => crate::AdminError::UserAlreadyExistsEmail.into(),
+        error => error,
+    }
 }
 
 #[cfg(test)]

@@ -49,6 +49,7 @@ pub(super) struct UserRow {
     email: String,
     email_verified: bool,
     image: Option<String>,
+    additional_fields: serde_json::Value,
     role: String,
     is_anonymous: bool,
     banned: bool,
@@ -68,6 +69,11 @@ impl From<UserRow> for AuthUser {
             email: row.email,
             email_verified: row.email_verified,
             image: row.image,
+            additional_fields: row
+                .additional_fields
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
             role: row.role,
             is_anonymous: row.is_anonymous,
             banned: row.banned,

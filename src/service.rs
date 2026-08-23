@@ -1,6 +1,7 @@
 mod access;
 mod api_key;
 mod api_key_policy;
+mod audit;
 mod email_password;
 mod email_verification;
 mod guest;
@@ -230,6 +231,7 @@ impl AuthService {
                 email: "local@users.localhost".into(),
                 email_verified: false,
                 image: None,
+                additional_fields: serde_json::Map::new(),
                 role: "owner".into(),
                 is_anonymous: false,
                 banned: false,
@@ -261,6 +263,7 @@ impl AuthService {
                 email: format!("temp-{id}@users.localhost"),
                 email_verified: false,
                 image: None,
+                additional_fields: serde_json::Map::new(),
                 role: "guest".into(),
                 is_anonymous: true,
                 banned: false,
@@ -378,15 +381,33 @@ impl AuthService {
         URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
     }
 
-    async fn require_recent_owner(&self, session: &SessionWithUser) -> Result<(), AuthError> {
+    pub(crate) async fn require_admin_permission(
+        &self,
+        session: &SessionWithUser,
+        resource: &str,
+        actions: &[&str],
+    ) -> Result<(), AuthError> {
+        crate::admin::require_permission(&self.config.admin, session, resource, actions)?;
+        self.plugins
+            .authorize_sensitive(&crate::SensitiveOperation {
+                session,
+                operation: "admin",
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn require_recent_owner(
+        &self,
+        session: &SessionWithUser,
+    ) -> Result<(), AuthError> {
         access::require_owner(session)?;
         self.plugins
             .authorize_sensitive(&crate::SensitiveOperation {
                 session,
                 operation: "owner-administration",
             })
-            .await?;
-        Ok(())
+            .await
     }
 }
 

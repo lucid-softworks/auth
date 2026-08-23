@@ -1,7 +1,7 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{
-    AuthConfig, AuthError, AuthService, AuthStore, AuthenticationMethod, MemoryStepUpStore,
-    MemoryStore, NewPasswordUser, PasskeyConfig, PasskeyPlugin, StepUpAssurance,
+    AdminRole, AuthConfig, AuthError, AuthService, AuthStore, AuthenticationMethod,
+    MemoryStepUpStore, MemoryStore, NewPasswordUser, PasskeyConfig, PasskeyPlugin, StepUpAssurance,
     StepUpPolicyConfig, StepUpPolicyPlugin, StepUpSession, StepUpStore, StoredPasskey,
     TwoFactorConfig, TwoFactorPlugin,
 };
@@ -21,6 +21,10 @@ async fn fixture(freshness: Duration) -> Fixture {
     let auth_store = Arc::new(MemoryStore::default());
     let step_up_store = Arc::new(MemoryStepUpStore::default());
     let mut config = AuthConfig::new([72_u8; 32]).unwrap();
+    config.admin.set_role("owner", AdminRole::administrator());
+    config.admin.admin_roles.push("owner".into());
+    config.admin.set_role("member", AdminRole::new());
+    config.admin.set_role("viewer", AdminRole::new());
     config
         .add_plugin(StepUpPolicyPlugin::new(
             auth_store.clone(),

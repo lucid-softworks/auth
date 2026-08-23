@@ -6,10 +6,11 @@ use axum::{
     routing::{get, post},
 };
 use lucid_auth::{
-    ApiKeyConfiguration, ApiKeyPlugin, AuthConfig, AuthService, MagicLinkConfig, MagicLinkEmail,
-    MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore, NewPasswordUser, OtpConfig, PasskeyConfig,
-    PasskeyPlugin, PasswordResetEmail, PluginDescriptor, TotpConfig, TwoFactorConfig, TwoFactorOtp,
-    TwoFactorOtpSender, TwoFactorPlugin, UsernamePlugin, VerificationEmail,
+    AdminRole, ApiKeyConfiguration, ApiKeyPlugin, AuthConfig, AuthService, MagicLinkConfig,
+    MagicLinkEmail, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore, NewPasswordUser, OtpConfig,
+    PasskeyConfig, PasskeyPlugin, PasswordResetEmail, PluginDescriptor, TotpConfig,
+    TwoFactorConfig, TwoFactorOtp, TwoFactorOtpSender, TwoFactorPlugin, UsernamePlugin,
+    VerificationEmail,
     protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
 };
 use serde_json::json;
@@ -178,7 +179,7 @@ async fn fixture(origin: &str) -> Fixture {
             name: "Luna".into(),
             email: Some("luna@example.com".into()),
             password: "correct horse battery staple".into(),
-            role: "owner".into(),
+            role: "admin".into(),
         })
         .await
         .expect("provision fixture owner");
@@ -195,6 +196,8 @@ async fn fixture(origin: &str) -> Fixture {
 
 fn conformance_config(origin: &str, messages: &ConformanceMessages) -> AuthConfig {
     let mut config = AuthConfig::new([82_u8; 32]).expect("fixture secret");
+    config.admin.set_role("member", AdminRole::new());
+    config.admin.set_role("viewer", AdminRole::new());
     config.allow_anonymous = true;
     config.email_and_password.enabled = true;
     config.user.delete_user.enabled = true;

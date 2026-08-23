@@ -246,9 +246,13 @@ pub trait SecurityStore: Send + Sync {
 /// Administrative, authorization and audit persistence kept separate from login storage.
 #[async_trait]
 pub trait AccessStore: Send + Sync {
-    async fn list_users(&self, limit: usize, offset: usize) -> Result<Vec<AuthUser>, AuthError>;
+    async fn list_users(
+        &self,
+        query: &crate::AdminListUsersQuery,
+    ) -> Result<Vec<AuthUser>, AuthError>;
 
-    async fn count_users(&self) -> Result<i64, AuthError>;
+    async fn count_users(&self, conditions: &[crate::AdminListCondition])
+    -> Result<i64, AuthError>;
 
     async fn count_users_by_role(&self, role: &str) -> Result<i64, AuthError>;
 
@@ -260,6 +264,12 @@ pub trait AccessStore: Send + Sync {
         banned: bool,
         reason: Option<String>,
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<AuthUser, AuthError>;
+
+    async fn admin_update_user(
+        &self,
+        user_id: Uuid,
+        update: crate::AdminUserUpdate,
     ) -> Result<AuthUser, AuthError>;
 
     async fn delete_user(&self, user_id: Uuid) -> Result<(), AuthError>;

@@ -414,40 +414,183 @@ async function conformance(origin) {
   });
 
   await runCase("admin client", async () => {
+    const administrator = success(await client.getSession(), "admin getSession");
     const created = success(
       await client.admin.createUser({
         email: "casey@example.com",
         password: "temporary password",
         name: "Casey",
         role: "member",
-        data: { username: "casey" },
+        data: { username: "casey", department: "support" },
       }),
       "admin.createUser",
     );
     assert.equal(created.user.username, "casey");
+    assert.equal(created.user.department, "support");
     assert.equal(created.user.mustChangePassword, undefined);
     transport.assertRequest("/api/auth/admin/create-user", "POST", {
       email: "casey@example.com",
       password: "temporary password",
       name: "Casey",
       role: "member",
-      data: { username: "casey" },
+      data: { username: "casey", department: "support" },
     });
 
+    const passwordless = success(
+      await client.admin.createUser({
+        email: "taylor@example.com",
+        name: "Taylor",
+        data: { username: "taylor" },
+      }),
+      "admin.createUser passwordless",
+    );
+    assert.equal(passwordless.user.role, "user");
+    const dataRole = success(
+      await client.admin.createUser({
+        email: "river@example.com",
+        name: "River",
+        data: { username: "river", role: ["member", "viewer"] },
+      }),
+      "admin.createUser data role",
+    );
+    assert.equal(dataRole.user.role, "member,viewer");
+
+    const fetched = success(
+      await client.admin.getUser({ query: { id: created.user.id } }),
+      "admin.getUser",
+    );
+    assert.equal(fetched.id, created.user.id);
+
+    const updated = success(
+      await client.admin.updateUser({
+        userId: created.user.id,
+        data: {
+          name: "Casey Updated",
+          emailVerified: true,
+          department: "operations",
+        },
+      }),
+      "admin.updateUser",
+    );
+    assert.equal(updated.name, "Casey Updated");
+    assert.equal(updated.emailVerified, true);
+    assert.equal(updated.department, "operations");
+
+    const permission = success(
+      await client.admin.hasPermission({ permissions: { user: ["list", "get"] } }),
+      "admin.hasPermission",
+    );
+    assert.equal(permission.success, true);
+
     const listed = success(
-      await client.admin.listUsers({ query: { limit: 20, offset: 0 } }),
+      await client.admin.listUsers({
+        query: {
+          searchValue: "casey@",
+          searchField: "email",
+          searchOperator: "starts_with",
+          limit: 20,
+          offset: 0,
+          sortBy: "name",
+          sortDirection: "desc",
+        },
+      }),
       "admin.listUsers",
     );
-    assert.equal(listed.total, 4);
+    assert.equal(listed.total, 1);
     assert.ok(listed.users.some((user) => user.id === created.user.id));
     const listRequest = transport.assertRequest("/api/auth/admin/list-users", "GET");
     assert.match(listRequest.search, /limit=20/);
+    const customFiltered = success(
+      await client.admin.listUsers({
+        query: {
+          filterField: "department",
+          filterValue: ["operations"],
+          filterOperator: "in",
+          sortBy: "department",
+          sortDirection: "asc",
+        },
+      }),
+      "admin.listUsers custom filter",
+    );
+    assert.deepEqual(
+      customFiltered.users.map((user) => user.id),
+      [created.user.id],
+    );
 
     const role = success(
-      await client.admin.setRole({ userId: created.user.id, role: "viewer" }),
+      await client.admin.setRole({
+        userId: created.user.id,
+        role: ["member", "viewer"],
+      }),
       "admin.setRole",
     );
-    assert.equal(role.user.role, "viewer");
+    assert.equal(role.user.role, "member,viewer");
+
+    success(
+      await client.admin.setUserPassword({
+        userId: created.user.id,
+        newPassword: "replacement password",
+      }),
+      "admin.setUserPassword",
+    );
+    const banned = success(
+      await client.admin.banUser({
+        userId: created.user.id,
+        banReason: "conformance",
+        banExpiresIn: 60,
+      }),
+      "admin.banUser",
+    );
+    assert.equal(banned.user.banned, true);
+    const unbanned = success(
+      await client.admin.unbanUser({ userId: created.user.id }),
+      "admin.unbanUser",
+    );
+    assert.equal(unbanned.user.banned, false);
+
+    const impersonated = success(
+      await client.admin.impersonateUser({ userId: created.user.id }),
+      "admin.impersonateUser",
+    );
+    assert.equal(impersonated.user.id, created.user.id);
+    assert.equal(impersonated.session.impersonatedBy, administrator.user.id);
+    const restored = success(
+      await client.admin.stopImpersonating(),
+      "admin.stopImpersonating",
+    );
+    assert.equal(restored.user.id, administrator.user.id);
+    const restoredSession = success(
+      await client.getSession(),
+      "admin restored original session",
+    );
+    assert.equal(restoredSession.session.id, administrator.session.id);
+
+    await transport.useFixtureSession("password");
+    const current = success(await client.getSession(), "admin restored fixture session");
+    const sessions = success(
+      await client.admin.listUserSessions({ userId: administrator.user.id }),
+      "admin.listUserSessions",
+    );
+    const revocable = sessions.sessions.find(
+      (session) => session.id !== current.session.id,
+    );
+    assert.ok(revocable);
+    success(
+      await client.admin.revokeUserSession({ sessionToken: revocable.token }),
+      "admin.revokeUserSession",
+    );
+    success(
+      await client.admin.revokeUserSessions({ userId: created.user.id }),
+      "admin.revokeUserSessions",
+    );
+    success(
+      await client.admin.removeUser({ userId: passwordless.user.id }),
+      "admin.removeUser",
+    );
+    success(
+      await client.admin.removeUser({ userId: dataRole.user.id }),
+      "admin.removeUser data role",
+    );
   });
 
   await runCase("passkey client", async () => {

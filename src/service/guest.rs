@@ -80,6 +80,7 @@ impl AuthService {
                 email: format!("guest-{id}@users.localhost"),
                 email_verified: false,
                 image: None,
+                additional_fields: serde_json::Map::new(),
                 role: "guest".into(),
                 is_anonymous: true,
                 banned: false,

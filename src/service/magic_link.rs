@@ -149,7 +149,11 @@ impl AuthService {
         }
         match self
             .store
-            .create_user_without_account(new_magic_link_user(email, name))
+            .create_user_without_account(new_magic_link_user(
+                email,
+                name,
+                &self.config.admin.default_role,
+            ))
             .await
         {
             Ok(user) => Ok((user, true)),
@@ -230,7 +234,7 @@ impl AuthService {
     }
 }
 
-fn new_magic_link_user(email: &str, name: Option<&str>) -> AuthUser {
+fn new_magic_link_user(email: &str, name: Option<&str>, default_role: &str) -> AuthUser {
     let now = Utc::now();
     AuthUser {
         id: Uuid::new_v4(),
@@ -240,7 +244,8 @@ fn new_magic_link_user(email: &str, name: Option<&str>) -> AuthUser {
         email: email.to_owned(),
         email_verified: true,
         image: None,
-        role: "member".into(),
+        additional_fields: serde_json::Map::new(),
+        role: default_role.into(),
         is_anonymous: false,
         banned: false,
         ban_reason: None,

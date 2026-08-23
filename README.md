@@ -23,8 +23,8 @@ supported surface covers:
 - password changes plus current-user session listing and revocation
 - password, fresh-session, and email-confirmed current-user deletion
 - passkey rename and removal
-- the documented admin-client subset for user lifecycle, session revocation and
-  bounded impersonation
+- all 15 official admin-client methods, including configurable permissions,
+  filtering, additional fields, session revocation, bans, and impersonation
 - optional HIBP Pwned Passwords screening with Better Auth-compatible errors
 - durable account and client-address sign-in throttling through the configured store
 - optional operator-security policy for managed password replacement and local recovery
@@ -310,6 +310,17 @@ Plugin migrations are keyed by `(plugin_id, migration_id)`, share the core
 advisory migration lock, and are transactional and idempotent. See the
 [native plugin example](examples/native_plugin.rs) for a route, middleware,
 migration, cookie/rate-limit declarations, and official-client metadata.
+
+The Better Auth Admin surface uses `AdminConfig` and defaults to the official
+`admin` and `user` roles. `AdminRole::allow` defines custom resource/action
+statements, `admin_user_ids` grants access independently of role, and
+`default_role`, ban defaults/message, and impersonation duration mirror the
+documented plugin options. Administrator impersonation remains disabled unless
+`allow_impersonating_admins` is enabled or a custom role grants
+`user:impersonate-admins`. Role arrays are stored as Better Auth's comma-joined
+role value. The official client can create passwordless users, preserve
+additional fields, query and update users, check permissions, manage bans and
+sessions, and enter or stop bounded impersonation sessions.
 
 Managed temporary passwords and local sole-owner recovery are optional lucid
 operator policy, not Better Auth Admin behavior. Default and Admin-only user

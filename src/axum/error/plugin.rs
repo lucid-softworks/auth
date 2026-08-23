@@ -41,6 +41,10 @@ pub(super) fn response(error: &AuthError) -> Option<Response> {
             let (status, code, message) = details;
             Some((status, Json(ErrorResponse { code, message })).into_response())
         }
+        AuthError::Admin(error) => {
+            let (status, code, message) = super::admin::details(*error);
+            Some((status, Json(ErrorResponse { code, message })).into_response())
+        }
         _ => None,
     }
 }

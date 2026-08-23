@@ -28,16 +28,6 @@ impl PluginRegistry {
         Ok(())
     }
 
-    pub(crate) async fn reset_user_security_state(
-        &self,
-        user_id: uuid::Uuid,
-    ) -> Result<(), AuthError> {
-        for plugin in &self.plugins {
-            plugin.reset_user_security_state(user_id).await?;
-        }
-        Ok(())
-    }
-
     pub(crate) async fn reset_user_security_state_except(
         &self,
         user_id: uuid::Uuid,

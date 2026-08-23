@@ -1,7 +1,7 @@
 use axum::{body::Body, http::Request};
 use chrono::Utc;
 use lucid_auth::{
-    AuthConfig, AuthError, AuthService, AuthStore, MemoryStepUpStore, MemoryStore,
+    AdminRole, AuthConfig, AuthError, AuthService, AuthStore, MemoryStepUpStore, MemoryStore,
     MemoryTwoFactorStore, NewPasswordUser, OperatorSecurityConfig, OperatorSecurityError,
     OperatorSecurityPlugin, StepUpPolicyConfig, StepUpPolicyPlugin, StepUpStore, StoredPasskey,
     TwoFactorConfig, TwoFactorPlugin, TwoFactorRecord, TwoFactorStore,
@@ -19,6 +19,9 @@ struct Fixture {
 fn service(configure: impl FnOnce(&mut AuthConfig, &Arc<MemoryStore>)) -> Fixture {
     let auth_store = Arc::new(MemoryStore::default());
     let mut config = AuthConfig::new([73_u8; 32]).unwrap();
+    config.admin.set_role("owner", AdminRole::administrator());
+    config.admin.admin_roles.push("owner".into());
+    config.admin.set_role("member", AdminRole::new());
     config
         .add_plugin(OperatorSecurityPlugin::new(
             auth_store.clone(),
@@ -298,7 +301,15 @@ async fn assert_recovered_access_is_restricted(recovery: &RecoveryFixture) {
         ))
     ));
     assert!(matches!(
-        service.list_users(&recovered.session, 10, 0).await,
+        service
+            .list_users(
+                &recovered.session,
+                lucid_auth::AdminListUsersQuery {
+                    limit: 10,
+                    ..Default::default()
+                },
+            )
+            .await,
         Err(AuthError::OperatorSecurity(
             OperatorSecurityError::TemporaryPasswordRequired
         ))

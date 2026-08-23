@@ -56,7 +56,7 @@ pub(super) async fn consume_email_verification(
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| AuthError::Storage("email verification payload is invalid".into()))?;
     let user = sqlx::query_as::<_, UserRow>(
-        "SELECT id, username, display_username, name, email, email_verified, image, role, \
+        "SELECT id, username, display_username, name, email, email_verified, image, additional_fields, role, \
          is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at \
          FROM lucid_auth_users WHERE LOWER(email) = LOWER($1) FOR UPDATE",
     )
@@ -75,7 +75,7 @@ pub(super) async fn consume_email_verification(
     }
     let user = sqlx::query_as::<_, UserRow>(
         "UPDATE lucid_auth_users SET email_verified = TRUE, updated_at = $2 WHERE id = $1 \
-         RETURNING id, username, display_username, name, email, email_verified, image, role, \
+         RETURNING id, username, display_username, name, email, email_verified, image, additional_fields, role, \
            is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at",
     )
     .bind(user.id)
@@ -137,7 +137,7 @@ pub(super) async fn consume_password_reset(
     .map_err(storage_error)?;
     let user = sqlx::query_as::<_, UserRow>(
         "UPDATE lucid_auth_users SET updated_at = $2 WHERE id = $1 \
-         RETURNING id, username, display_username, name, email, email_verified, image, role, \
+         RETURNING id, username, display_username, name, email, email_verified, image, additional_fields, role, \
            is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at",
     )
     .bind(user.id)

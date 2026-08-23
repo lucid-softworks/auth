@@ -4,12 +4,24 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use serde::Serialize;
 
+mod admin;
 mod plugin;
 
 pub(crate) fn auth_error(error: AuthError) -> Response {
     if let Some(response) = plugin::response(&error) {
         return response;
+    }
+    if let AuthError::AccountDisabled(message) = &error {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(DynamicErrorResponse {
+                code: "BANNED_USER",
+                message,
+            }),
+        )
+            .into_response();
     }
     let (status, code, message) = match &error {
         error if is_credential_error(error) => credential_error_details(error),
@@ -22,11 +34,6 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
             StatusCode::FORBIDDEN,
             "ANONYMOUS_ACCESS_DISABLED",
             "Anonymous guest access is disabled",
-        ),
-        AuthError::AccountDisabled => (
-            StatusCode::FORBIDDEN,
-            "USER_BANNED",
-            "The account is disabled",
         ),
         AuthError::Forbidden
         | AuthError::SessionNotFresh
@@ -75,6 +82,12 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
         ),
     };
     (status, Json(ErrorResponse { code, message })).into_response()
+}
+
+#[derive(Serialize)]
+struct DynamicErrorResponse<'a> {
+    code: &'static str,
+    message: &'a str,
 }
 
 fn is_passkey_error(error: &AuthError) -> bool {

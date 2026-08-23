@@ -1,22 +1,24 @@
 use super::http::{auth_error, current_session};
 use crate::{
-    AuthError, AuthService, NewPasswordUser,
+    AuthError, AuthService,
     protocol::better_auth::{BetterAuthUser, SuccessResponse},
 };
 use axum::{
     Extension, Json, Router,
-    extract::Query,
+    extract::{Query, RawQuery},
     http::HeaderMap,
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 use chrono::{Duration, Utc};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde::Serialize;
 use std::sync::Arc;
 use uuid::Uuid;
 
+mod input;
 mod session;
+
+use input::*;
 
 pub(super) fn router<S>() -> Router<S>
 where
@@ -24,7 +26,10 @@ where
 {
     Router::new()
         .route("/admin/list-users", get(list_users))
+        .route("/admin/get-user", get(get_user))
         .route("/admin/create-user", post(create_user))
+        .route("/admin/update-user", post(update_user))
+        .route("/admin/has-permission", post(has_permission))
         .route("/admin/set-user-password", post(set_user_password))
         .route("/admin/remove-user", post(remove_user))
         .route("/admin/set-role", post(set_role))
@@ -33,69 +38,10 @@ where
         .merge(session::router())
 }
 
-#[derive(Debug, Default, Deserialize)]
-struct ListUsersQuery {
-    limit: Option<usize>,
-    offset: Option<usize>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum RoleInput {
-    One(String),
-    Many(Vec<String>),
-}
-
-impl RoleInput {
-    fn one(self) -> Result<String, AuthError> {
-        match self {
-            Self::One(role) => Ok(role),
-            Self::Many(mut roles) if roles.len() == 1 => roles
-                .pop()
-                .ok_or_else(|| AuthError::InvalidRequest("role is required".into())),
-            Self::Many(_) => Err(AuthError::InvalidRequest(
-                "this server assigns one role per user".into(),
-            )),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SetRoleRequest {
-    user_id: String,
-    role: RoleInput,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct UserRequest {
-    user_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CreateUserRequest {
-    email: String,
-    password: Option<String>,
-    name: String,
-    role: Option<RoleInput>,
-    data: Option<serde_json::Map<String, Value>>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SetUserPasswordRequest {
-    user_id: String,
-    new_password: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BanUserRequest {
-    user_id: String,
-    ban_reason: Option<String>,
-    ban_expires_in: Option<i64>,
+#[derive(Serialize)]
+struct PermissionResponse {
+    error: Option<&'static str>,
+    success: bool,
 }
 
 #[derive(Serialize)]
@@ -107,21 +53,31 @@ struct UserResponse {
 struct UsersResponse {
     users: Vec<BetterAuthUser>,
     total: i64,
-    limit: usize,
-    offset: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    limit: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    offset: Option<usize>,
 }
 
 async fn list_users(
     Extension(service): Extension<Arc<AuthService>>,
     headers: HeaderMap,
+    RawQuery(raw_query): RawQuery,
     Query(query): Query<ListUsersQuery>,
 ) -> Response {
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(AuthError::InvalidSession);
     };
-    let limit = query.limit.unwrap_or(100).clamp(1, 100);
-    let offset = query.offset.unwrap_or(0);
-    match service.list_users(&actor, limit, offset).await {
+    let response_limit = query.limit.filter(|limit| *limit != 0);
+    let response_offset = query.offset.filter(|offset| *offset != 0);
+    let limit = response_limit.unwrap_or(100);
+    let offset = response_offset.unwrap_or(0);
+    let filter_values = repeated_filter_values(raw_query.as_deref());
+    let query = match admin_list_query(query, limit, offset, filter_values) {
+        Ok(query) => query,
+        Err(error) => return auth_error(error),
+    };
+    match service.list_users(&actor, query).await {
         Ok((users, total)) => {
             let mut output = Vec::with_capacity(users.len());
             for user in &users {
@@ -133,59 +89,107 @@ async fn list_users(
             Json(UsersResponse {
                 users: output,
                 total,
-                limit,
-                offset,
+                limit: response_limit,
+                offset: response_offset,
             })
             .into_response()
         }
+        Err(AuthError::Storage(_)) => Json(UsersResponse {
+            users: Vec::new(),
+            total: 0,
+            limit: None,
+            offset: None,
+        })
+        .into_response(),
         Err(error) => auth_error(error),
     }
 }
 
-async fn create_user(
+async fn get_user(
     Extension(service): Extension<Arc<AuthService>>,
     headers: HeaderMap,
-    Json(mut input): Json<CreateUserRequest>,
+    Query(input): Query<std::collections::HashMap<String, String>>,
 ) -> Response {
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(AuthError::InvalidSession);
     };
     let result = async {
-        let role = input
-            .role
-            .map(RoleInput::one)
-            .transpose()?
-            .unwrap_or_else(|| "viewer".into());
-        let username = input
-            .data
-            .as_mut()
-            .and_then(|data| data.remove("username"))
-            .and_then(|value| value.as_str().map(str::to_owned))
-            .or_else(|| {
-                input
-                    .email
-                    .split_once('@')
-                    .map(|(local, _)| local.to_owned())
-            })
-            .ok_or_else(|| AuthError::InvalidRequest("username is required".into()))?;
-        let password = input
-            .password
-            .ok_or_else(|| AuthError::InvalidRequest("password is required".into()))?;
-        service
-            .create_user(
-                &actor,
-                NewPasswordUser {
-                    username,
-                    name: input.name,
-                    email: Some(input.email),
-                    password,
-                    role,
-                },
-            )
-            .await
+        let id = input
+            .get("id")
+            .ok_or_else(|| AuthError::InvalidRequest("id is required".into()))?;
+        service.admin_get_user(&actor, parse_uuid(id)?).await
+    }
+    .await;
+    raw_user_response(&service, result).await
+}
+
+async fn create_user(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Json(input): Json<CreateUserRequest>,
+) -> Response {
+    let Some(actor) = current_session(&service, &headers).await else {
+        return auth_error(AuthError::InvalidSession);
+    };
+    let result = async {
+        let input = input.into_admin_input()?;
+        service.create_admin_user(&actor, input).await
     }
     .await;
     user_response(&service, result).await
+}
+
+async fn update_user(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Json(input): Json<UpdateUserRequest>,
+) -> Response {
+    let Some(actor) = current_session(&service, &headers).await else {
+        return auth_error(AuthError::InvalidSession);
+    };
+    let result = async {
+        let user_id = parse_uuid(&input.user_id)?;
+        let update = parse_user_update(input.data)?;
+        service.admin_update_user(&actor, user_id, update).await
+    }
+    .await;
+    raw_user_response(&service, result).await
+}
+
+async fn has_permission(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Json(input): Json<HasPermissionRequest>,
+) -> Response {
+    let Some(actor) = current_session(&service, &headers).await else {
+        return auth_error(AuthError::Unauthorized);
+    };
+    if input.permissions.is_none() {
+        let _ = input.permission;
+        return auth_error(AuthError::InvalidRequest(
+            "invalid permission check. no permission(s) were passed".into(),
+        ));
+    }
+    let user_id = match input.user_id.as_deref().map(parse_uuid).transpose() {
+        Ok(user_id) => user_id,
+        Err(error) => return auth_error(error),
+    };
+    match service
+        .admin_has_permission(
+            &actor,
+            user_id,
+            input.role.as_deref(),
+            input.permissions.as_ref().expect("checked above"),
+        )
+        .await
+    {
+        Ok(success) => Json(PermissionResponse {
+            error: None,
+            success,
+        })
+        .into_response(),
+        Err(error) => auth_error(error),
+    }
 }
 
 async fn set_user_password(
@@ -237,7 +241,7 @@ async fn set_role(
     };
     let result = async {
         let user_id = parse_uuid(&input.user_id)?;
-        let role = input.role.one()?;
+        let role = input.role.stored();
         service.set_user_role(&actor, user_id, &role).await
     }
     .await;
@@ -300,6 +304,19 @@ async fn user_response(
     match result {
         Ok(user) => match service.better_auth_user(&user).await {
             Ok(user) => Json(UserResponse { user }).into_response(),
+            Err(error) => auth_error(error),
+        },
+        Err(error) => auth_error(error),
+    }
+}
+
+async fn raw_user_response(
+    service: &AuthService,
+    result: Result<crate::AuthUser, AuthError>,
+) -> Response {
+    match result {
+        Ok(user) => match service.better_auth_user(&user).await {
+            Ok(user) => Json(user).into_response(),
             Err(error) => auth_error(error),
         },
         Err(error) => auth_error(error),

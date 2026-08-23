@@ -50,6 +50,7 @@ pub struct AuthUser {
     pub email: String,
     pub email_verified: bool,
     pub image: Option<String>,
+    pub additional_fields: serde_json::Map<String, serde_json::Value>,
     pub role: String,
     pub is_anonymous: bool,
     pub banned: bool,

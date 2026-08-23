@@ -1,9 +1,13 @@
 use super::*;
-use crate::{AuditPlugin, AuthConfig, MemoryAuditStore, MemoryStore, NewPasswordUser};
+use crate::{AdminRole, AuditPlugin, AuthConfig, MemoryAuditStore, MemoryStore, NewPasswordUser};
 use std::sync::Arc;
 
 async fn owner_and_member() -> (AuthService, SignInResult, AuthUser) {
     let mut config = AuthConfig::new([8_u8; 32]).unwrap();
+    config.admin.set_role("owner", AdminRole::administrator());
+    config.admin.admin_roles.push("owner".into());
+    config.admin.set_role("member", AdminRole::new());
+    config.admin.set_role("viewer", AdminRole::new());
     config
         .add_plugin(AuditPlugin::new(Arc::new(MemoryAuditStore::default())))
         .unwrap();
@@ -51,7 +55,10 @@ async fn protects_the_final_owner_and_rejects_member_administration() {
         .set_user_role(&member_session.session, member.id, "viewer")
         .await
         .unwrap_err();
-    assert!(matches!(error, AuthError::Forbidden));
+    assert!(matches!(
+        error,
+        AuthError::Admin(crate::AdminError::CannotSetRole)
+    ));
 }
 
 #[tokio::test]
@@ -68,16 +75,25 @@ async fn impersonation_is_bounded_and_returns_to_the_owner() {
     );
     assert!(impersonated.session.session.expires_at <= Utc::now() + chrono::Duration::hours(1));
     let restored = service
-        .stop_impersonating(&impersonated.session, None, None)
+        .stop_impersonating(&impersonated.session, &owner.token)
         .await
         .unwrap();
     assert_eq!(restored.session.user.id, owner.session.user.id);
     assert!(restored.session.session.actor_user_id.is_none());
     let forbidden = service
-        .list_users(&impersonated.session, 10, 0)
+        .list_users(
+            &impersonated.session,
+            crate::AdminListUsersQuery {
+                limit: 10,
+                ..Default::default()
+            },
+        )
         .await
         .unwrap_err();
-    assert!(matches!(forbidden, AuthError::Forbidden));
+    assert!(matches!(
+        forbidden,
+        AuthError::Admin(crate::AdminError::CannotListUsers)
+    ));
 }
 
 #[tokio::test]
@@ -98,4 +114,26 @@ async fn owner_promotion_revokes_sessions_created_under_the_old_role() {
             .unwrap()
             .is_none()
     );
+}
+
+#[tokio::test]
+async fn an_expired_ban_is_cleared_when_a_session_is_created() {
+    let (service, _owner, member) = owner_and_member().await;
+    service
+        .store
+        .update_user_ban(
+            member.id,
+            true,
+            Some("expired".into()),
+            Some(Utc::now() - chrono::Duration::seconds(1)),
+        )
+        .await
+        .unwrap();
+    let signed_in = service
+        .sign_in_username("member", "password".into(), None, None)
+        .await
+        .unwrap();
+    assert!(!signed_in.session.user.banned);
+    assert!(signed_in.session.user.ban_reason.is_none());
+    assert!(signed_in.session.user.ban_expires.is_none());
 }

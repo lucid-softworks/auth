@@ -308,7 +308,7 @@ async fn verification_required_mode_hides_duplicates_and_rejects_signin() {
     assert_eq!(status, StatusCode::OK);
     assert!(synthetic["token"].is_null());
     assert_ne!(synthetic["user"]["id"], real_id);
-    assert_eq!(store.count_users().await.unwrap(), 1);
+    assert_eq!(store.count_users(&[]).await.unwrap(), 1);
 
     let (status, _, error) = post(
         &verification,
@@ -343,5 +343,5 @@ async fn concurrent_case_variant_signup_creates_one_account() {
     assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
     let error = first.err().or_else(|| second.err()).unwrap();
     assert!(matches!(error, AuthError::UserAlreadyExistsEmail));
-    assert_eq!(store.count_users().await.unwrap(), 1);
+    assert_eq!(store.count_users(&[]).await.unwrap(), 1);
 }

@@ -2,7 +2,6 @@ use super::{AuthService, SignInResult, account_limit_key, password::verify_passw
 use crate::{
     AuthError, SessionWithUser, UserProfileUpdate, UsernameConfig, UsernameError, UsernamePlugin,
 };
-use chrono::Utc;
 
 impl AuthService {
     #[cfg(feature = "axum")]
@@ -126,9 +125,6 @@ impl AuthService {
                 .await?;
             return Err(UsernameError::InvalidUsernameOrPassword.into());
         };
-        if user.banned && user.ban_expires.is_none_or(|expires| expires > Utc::now()) {
-            return Err(AuthError::AccountDisabled);
-        }
         if self.config.email_and_password.require_email_verification && !user.email_verified {
             self.maybe_send_signin_verification(&user, callback_url)
                 .await?;

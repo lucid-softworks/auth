@@ -36,6 +36,7 @@ impl AuthService {
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
+        let user = self.admin_session_user(user).await?;
         self.plugins
             .before(&BeforeAuthEvent::SessionCreate {
                 user: user.clone(),

@@ -57,6 +57,7 @@ impl AuthService {
                     email,
                     email_verified: false,
                     image: None,
+                    additional_fields: serde_json::Map::new(),
                     role: input.role,
                     is_anonymous: false,
                     banned: false,
@@ -98,9 +99,6 @@ impl AuthService {
                 .await?;
             return Err(AuthError::InvalidCredentials);
         };
-        if user.banned && user.ban_expires.is_none_or(|expires| expires > Utc::now()) {
-            return Err(AuthError::AccountDisabled);
-        }
         self.store
             .clear_auth_failures(&super::account_limit_key(&username))
             .await?;
