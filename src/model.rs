@@ -52,7 +52,6 @@ pub struct AuthUser {
     pub image: Option<String>,
     pub role: String,
     pub is_anonymous: bool,
-    pub must_change_password: bool,
     pub banned: bool,
     pub ban_reason: Option<String>,
     pub ban_expires: Option<DateTime<Utc>>,
@@ -203,7 +202,6 @@ pub struct Principal {
     pub session_id: Uuid,
     pub role: String,
     pub authentication_method: AuthenticationMethod,
-    pub must_change_password: bool,
     /// When the session's credential was verified.
     pub authenticated_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
@@ -217,7 +215,6 @@ impl SessionWithUser {
             session_id: self.session.id,
             role: self.user.role.clone(),
             authentication_method: self.session.authentication_method,
-            must_change_password: self.user.must_change_password,
             authenticated_at: self.session.created_at,
             expires_at: self.session.expires_at,
         }

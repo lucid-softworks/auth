@@ -7,7 +7,7 @@ use axum::{
 use http_body_util::BodyExt;
 use lucid_auth::{
     AuditEvent, AuditPlugin, AuditStore, AuthConfig, AuthError, AuthService, MemoryAuditStore,
-    MemoryStore, NewPasswordUser, UsernamePlugin,
+    MemoryStore, NewPasswordUser, OperatorSecurityConfig, OperatorSecurityPlugin, UsernamePlugin,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -26,12 +26,19 @@ async fn fixture(
     let mut config = AuthConfig::new([61_u8; 32]).unwrap();
     config.trust_origin("http://localhost").unwrap();
     config.add_plugin(UsernamePlugin::default()).unwrap();
+    let auth_store = Arc::new(MemoryStore::default());
+    config
+        .add_plugin(OperatorSecurityPlugin::new(
+            auth_store.clone(),
+            OperatorSecurityConfig::default(),
+        ))
+        .unwrap();
     if let Some(audit) = audit {
         config
             .add_plugin(AuditPlugin::new(audit).with_max_events(retain))
             .unwrap();
     }
-    let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
+    let service = Arc::new(AuthService::new(auth_store, config));
     let mut member = None;
     for (username, role) in [("owner", "owner"), ("member", "member")] {
         let user = service
@@ -170,6 +177,8 @@ async fn records_impersonated_and_actorless_identity() {
         .await
         .unwrap();
     service
+        .operator_security()
+        .unwrap()
         .local_recover_sole_owner("owner", "replacement-password".into())
         .await
         .unwrap();
@@ -184,7 +193,7 @@ async fn records_impersonated_and_actorless_identity() {
 
     let recovery = events
         .iter()
-        .find(|event| event.action == "owner.recovered_locally")
+        .find(|event| event.action == "operator_security.owner_recovered")
         .unwrap();
     assert_eq!(recovery.actor_user_id, None);
     assert_eq!(recovery.subject_user_id, Some(owner.session.user.id));

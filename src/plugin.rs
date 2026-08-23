@@ -168,6 +168,20 @@ pub struct SensitiveOperation<'a> {
     pub operation: &'static str,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasswordCredentialSource {
+    Provisioned,
+    AdministratorCreated,
+    AdministratorReset,
+    SelfServiceChange,
+    PasswordReset,
+}
+
+pub struct PasswordCredentialChanged {
+    pub user_id: Uuid,
+    pub source: PasswordCredentialSource,
+}
+
 /// Native, in-process extension boundary for Better Auth-compatible plugins.
 #[doc(hidden)]
 pub trait PluginAny: Any {
@@ -205,6 +219,21 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
 
     /// Clears plugin-owned authentication factors after a host security reset.
     async fn reset_user_security_state(&self, _user_id: Uuid) -> Result<(), AuthError> {
+        Ok(())
+    }
+
+    async fn password_credential_changed(
+        &self,
+        _event: &PasswordCredentialChanged,
+    ) -> Result<(), AuthError> {
+        Ok(())
+    }
+
+    /// Applies optional host policy before exposing a principal to application code.
+    async fn authorize_application_access(
+        &self,
+        _session: &SessionWithUser,
+    ) -> Result<(), AuthError> {
         Ok(())
     }
 

@@ -116,6 +116,10 @@ name = "magic_link_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "operator_security_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "username_contract"
 required-features = ["axum"]
 

@@ -50,7 +50,7 @@ pub(super) async fn upsert_password(
         return Err(AuthError::UserAlreadyExists);
     }
     let stored = if let Some(id) = existing_id {
-        update_existing(&mut state, id, user, &password_hash)?
+        update_existing(&mut state, id, user)?
     } else {
         state.usernames.insert(username, user.id);
         state.emails.insert(user.email.clone(), user.id);
@@ -65,12 +65,7 @@ fn update_existing(
     state: &mut super::MemoryState,
     id: Uuid,
     user: AuthUser,
-    password_hash: &str,
 ) -> Result<AuthUser, AuthError> {
-    let configured_hash_is_active = state
-        .passwords
-        .get(&id)
-        .is_some_and(|stored| stored == password_hash);
     let previous_email = state
         .users
         .get(&id)
@@ -84,9 +79,6 @@ fn update_existing(
     existing.name = user.name;
     existing.email = user.email;
     existing.role = user.role;
-    if user.must_change_password && configured_hash_is_active {
-        existing.must_change_password = true;
-    }
     existing.updated_at = user.updated_at;
     let stored = existing.clone();
     state.emails.remove(&previous_email);
@@ -233,7 +225,6 @@ pub(super) async fn update_password_hash(
         .ok_or(AuthError::CredentialAccountNotFound)?;
     *stored = password_hash;
     if let Some(user) = state.users.get_mut(&user_id) {
-        user.must_change_password = false;
         user.updated_at = Utc::now();
     }
     Ok(())
@@ -250,7 +241,6 @@ pub(super) async fn set_password_hash(
     }
     state.passwords.insert(user_id, password_hash);
     if let Some(user) = state.users.get_mut(&user_id) {
-        user.must_change_password = true;
         user.updated_at = Utc::now();
     }
     Ok(())

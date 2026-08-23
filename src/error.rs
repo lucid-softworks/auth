@@ -9,6 +9,8 @@ pub enum AuthError {
     TwoFactor(#[from] crate::TwoFactorError),
     #[error(transparent)]
     StepUp(#[from] crate::StepUpError),
+    #[error(transparent)]
+    OperatorSecurity(#[from] crate::OperatorSecurityError),
     #[error("invalid username or password")]
     InvalidCredentials,
     #[error("invalid email or password")]
@@ -87,8 +89,6 @@ pub enum AuthError {
     StepUpRequired,
     #[error("the final owner account cannot be removed or disabled")]
     LastOwner,
-    #[error("local recovery requires the named account to be the sole owner")]
-    SoleOwnerRecoveryUnavailable,
     #[error("the guest grant is invalid, expired, exhausted, or revoked")]
     InvalidGuestGrant,
     #[error("the request origin is not trusted")]

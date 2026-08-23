@@ -1,5 +1,8 @@
 use super::{AuthService, HashedPasswordUser, SignInResult};
-use crate::{AuthError, AuthUser, AuthenticationMethod, NewPasswordUser, SessionWithUser};
+use crate::{
+    AuthError, AuthUser, AuthenticationMethod, NewPasswordUser, PasswordCredentialChanged,
+    PasswordCredentialSource, SessionWithUser,
+};
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use chrono::Utc;
 use rand_core::OsRng;
@@ -27,7 +30,6 @@ impl AuthService {
             email: input.email,
             password_hash,
             role: input.role,
-            must_change_password: false,
         })
         .await
     }
@@ -44,7 +46,8 @@ impl AuthService {
         let email = input
             .email
             .unwrap_or_else(|| format!("{username}@users.localhost"));
-        self.store
+        let user = self
+            .store
             .upsert_password_user(
                 AuthUser {
                     id: Uuid::new_v4(),
@@ -56,7 +59,6 @@ impl AuthService {
                     image: None,
                     role: input.role,
                     is_anonymous: false,
-                    must_change_password: input.must_change_password,
                     banned: false,
                     ban_reason: None,
                     ban_expires: None,
@@ -65,7 +67,14 @@ impl AuthService {
                 },
                 input.password_hash,
             )
-            .await
+            .await?;
+        self.plugins
+            .password_credential_changed(&PasswordCredentialChanged {
+                user_id: user.id,
+                source: PasswordCredentialSource::Provisioned,
+            })
+            .await?;
+        Ok(user)
     }
 
     pub async fn sign_in_username(
@@ -135,8 +144,13 @@ impl AuthService {
         self.store
             .update_password_hash(session.user.id, password_hash)
             .await?;
+        self.plugins
+            .password_credential_changed(&PasswordCredentialChanged {
+                user_id: session.user.id,
+                source: PasswordCredentialSource::SelfServiceChange,
+            })
+            .await?;
         let mut updated_user = session.user.clone();
-        updated_user.must_change_password = false;
         updated_user.updated_at = Utc::now();
 
         let replacement_session = if revoke_other_sessions {

@@ -149,7 +149,6 @@ pub struct BetterAuthUser {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_username: Option<String>,
     pub is_anonymous: bool,
-    pub must_change_password: bool,
     pub role: String,
     pub banned: bool,
     pub ban_reason: Option<String>,
@@ -323,7 +322,6 @@ impl From<&AuthUser> for BetterAuthUser {
             username: user.username.clone(),
             display_username: user.display_username.clone(),
             is_anonymous: user.is_anonymous,
-            must_change_password: user.must_change_password,
             role: user.role.clone(),
             banned: user.banned,
             ban_reason: user.ban_reason.clone(),

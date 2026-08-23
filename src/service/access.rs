@@ -1,8 +1,4 @@
-use super::{
-    AuthService, SignInResult,
-    password::{hash_password, normalize_username},
-    user::validate_managed_role,
-};
+use super::{AuthService, SignInResult, user::validate_managed_role};
 use crate::{
     AuditEvent, AuditMetadata, AuditOutcome, AuditPlugin, AuthError, AuthSession, AuthUser,
     SessionWithUser,
@@ -12,55 +8,13 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 impl AuthService {
-    /// Resets the sole owner's password and MFA state for a local operator.
-    ///
-    /// Hosts must expose this only through an out-of-band local command, never a
-    /// remotely reachable endpoint.
-    pub async fn local_recover_sole_owner(
-        &self,
-        username: &str,
-        password: String,
-    ) -> Result<(), AuthError> {
-        let username = normalize_username(username)?;
-        self.validate_new_password(&password).await?;
-        let target = self
-            .store
-            .find_user_by_username(&username)
-            .await?
-            .filter(|user| !user.is_anonymous && user.role == "owner")
-            .ok_or(AuthError::SoleOwnerRecoveryUnavailable)?;
-        let recovered = self
-            .store
-            .recover_sole_owner(target.id, hash_password(password).await?)
-            .await?;
-        if !recovered {
-            return Err(AuthError::SoleOwnerRecoveryUnavailable);
-        }
-        self.plugins.reset_user_security_state(target.id).await?;
-        self.store
-            .clear_auth_failures(&super::account_limit_key(&username))
-            .await?;
-        self.audit_actorless(
-            Some(target.id),
-            "owner.recovered_locally",
-            Some(target.id.to_string()),
-            json!({
-                "sessionsRevoked": true,
-                "mfaReset": true,
-                "replacementRequired": true,
-            }),
-        )
-        .await;
-        Ok(())
-    }
-
     pub async fn list_users(
         &self,
         actor: &SessionWithUser,
         limit: usize,
         offset: usize,
     ) -> Result<(Vec<AuthUser>, i64), AuthError> {
-        require_owner(actor)?;
+        self.require_recent_owner(actor).await?;
         let limit = limit.clamp(1, 100);
         let users = self.store.list_users(limit, offset).await?;
         let total = self.store.count_users().await?;
@@ -379,7 +333,6 @@ impl AuthService {
 pub(super) fn require_owner(session: &SessionWithUser) -> Result<(), AuthError> {
     if session.user.role != "owner"
         || session.user.is_anonymous
-        || session.user.must_change_password
         || session.session.actor_user_id.is_some()
         || account_is_banned(&session.user)
     {

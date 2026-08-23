@@ -23,7 +23,6 @@ pub(super) async fn assert_promotion_is_atomic(
                 image: None,
                 role: "member".into(),
                 is_anonymous: false,
-                must_change_password: false,
                 banned: false,
                 ban_reason: None,
                 ban_expires: None,

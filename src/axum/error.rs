@@ -35,7 +35,6 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
         | AuthError::UserAlreadyExists
         | AuthError::UserAlreadyExistsEmail
         | AuthError::LastOwner
-        | AuthError::SoleOwnerRecoveryUnavailable
         | AuthError::InvalidGuestGrant
         | AuthError::InvalidRequest(_) => access_error_details(&error),
         AuthError::CredentialAccountNotFound
@@ -280,11 +279,6 @@ fn access_error_details(error: &AuthError) -> ErrorDetails {
             StatusCode::CONFLICT,
             "LAST_OWNER",
             "The final owner account cannot be removed or disabled",
-        ),
-        AuthError::SoleOwnerRecoveryUnavailable => (
-            StatusCode::FORBIDDEN,
-            "SOLE_OWNER_RECOVERY_UNAVAILABLE",
-            "Local recovery requires the named account to be the sole owner",
         ),
         AuthError::InvalidGuestGrant => (
             StatusCode::UNAUTHORIZED,

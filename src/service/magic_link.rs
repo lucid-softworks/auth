@@ -242,7 +242,6 @@ fn new_magic_link_user(email: &str, name: Option<&str>) -> AuthUser {
         image: None,
         role: "member".into(),
         is_anonymous: false,
-        must_change_password: false,
         banned: false,
         ban_reason: None,
         ban_expires: None,

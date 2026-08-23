@@ -1,5 +1,8 @@
 use super::{AuthService, hash_token, password::hash_password, random_token};
-use crate::{AuthError, PasswordResetEmail, PasswordResetOutcome, VerificationValue};
+use crate::{
+    AuthError, PasswordCredentialChanged, PasswordCredentialSource, PasswordResetEmail,
+    PasswordResetOutcome, VerificationValue,
+};
 use chrono::Utc;
 use serde_json::json;
 
@@ -72,6 +75,12 @@ impl AuthService {
             .await?
         {
             PasswordResetOutcome::Reset(user) => {
+                self.plugins
+                    .password_credential_changed(&PasswordCredentialChanged {
+                        user_id: user.id,
+                        source: PasswordCredentialSource::PasswordReset,
+                    })
+                    .await?;
                 if let Some(callback) = &self.config.email_and_password.on_password_reset {
                     callback.on_password_reset(*user).await?;
                 }

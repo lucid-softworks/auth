@@ -6,6 +6,7 @@ mod email_verification;
 mod guest;
 #[cfg(feature = "axum")]
 pub(crate) mod magic_link;
+mod operator_security;
 mod passkey;
 mod password;
 mod password_reset;
@@ -65,7 +66,6 @@ pub struct HashedPasswordUser {
     pub email: Option<String>,
     pub password_hash: String,
     pub role: String,
-    pub must_change_password: bool,
 }
 
 #[derive(Clone)]
@@ -104,6 +104,13 @@ impl AuthService {
         self.plugins
             .find::<crate::StepUpPolicyPlugin>()
             .map(|_| crate::StepUpPolicyService::new(self))
+    }
+
+    /// Returns the native API owned by the optional operator-security plugin.
+    pub fn operator_security(&self) -> Option<crate::OperatorSecurityService<'_>> {
+        self.plugins
+            .find::<crate::OperatorSecurityPlugin>()
+            .map(|_| crate::OperatorSecurityService::new(self))
     }
 
     #[cfg(feature = "axum")]
@@ -225,7 +232,6 @@ impl AuthService {
                 image: None,
                 role: "owner".into(),
                 is_anonymous: false,
-                must_change_password: false,
                 banned: false,
                 ban_reason: None,
                 ban_expires: None,
@@ -257,7 +263,6 @@ impl AuthService {
                 image: None,
                 role: "guest".into(),
                 is_anonymous: true,
-                must_change_password: false,
                 banned: false,
                 ban_reason: None,
                 ban_expires: None,
@@ -299,6 +304,7 @@ impl AuthService {
         let Some(session) = self.session(token).await? else {
             return Ok(None);
         };
+        self.plugins.authorize_application_access(&session).await?;
         Ok(Some(session.principal()))
     }
 

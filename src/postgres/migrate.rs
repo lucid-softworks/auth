@@ -23,11 +23,6 @@ const MIGRATIONS: [(i64, &str, &str); 8] = [
         include_str!("../../migrations/0005_security_hardening.sql"),
     ),
     (
-        7,
-        "temporary password lifecycle",
-        include_str!("../../migrations/0007_password_lifecycle.sql"),
-    ),
-    (
         9,
         "durable one-time verification values",
         include_str!("../../migrations/0009_verification_values.sql"),
@@ -41,6 +36,11 @@ const MIGRATIONS: [(i64, &str, &str); 8] = [
         11,
         "extract custom step-up assurance",
         include_str!("../../migrations/0011_extract_step_up_policy.sql"),
+    ),
+    (
+        12,
+        "extract custom operator security policy",
+        include_str!("../../migrations/0012_extract_operator_security.sql"),
     ),
 ];
 

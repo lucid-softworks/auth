@@ -97,12 +97,20 @@ async fn official_admin_client_contract_manages_an_account_lifecycle() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(created["user"]["username"], "casey");
     assert_eq!(created["user"]["role"], "member");
-    assert_eq!(created["user"]["mustChangePassword"], true);
+    assert!(created["user"].get("mustChangePassword").is_none());
     let user_id = created["user"]["id"].as_str().unwrap();
-    assert_eq!(
-        sign_in(&app, "casey", "initial-password").await.0,
-        StatusCode::OK
-    );
+    let (status, member_cookie) = sign_in(&app, "casey", "initial-password").await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, session) = request_json(
+        &app,
+        Request::get("/api/auth/get-session")
+            .header(header::COOKIE, member_cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(session["user"].get("mustChangePassword").is_none());
 
     let (status, reset) = request_json(
         &app,

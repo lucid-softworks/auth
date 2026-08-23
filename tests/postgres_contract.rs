@@ -1,13 +1,10 @@
-use chrono::{Duration, Utc};
 use lucid_auth::{
-    AuditPlugin, AuthConfig, AuthError, AuthService, AuthStore, AuthUser, EmailSignUpInput,
-    EmailVerificationOutcome, GuestCapabilityPlugin, NewPasswordUser, PasskeyConfig, PasskeyPlugin,
-    PasswordResetOutcome, PluginMigration, PluginMigrationContribution, StepUpPolicyConfig,
+    AuditPlugin, AuthConfig, AuthError, AuthService, AuthUser, EmailSignUpInput,
+    GuestCapabilityPlugin, NewPasswordUser, OperatorSecurityConfig, OperatorSecurityPlugin,
+    PasskeyConfig, PasskeyPlugin, PluginMigration, PluginMigrationContribution, StepUpPolicyConfig,
     StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin, UsernameError, UsernamePlugin,
-    VerificationStore, VerificationValue, postgres::PostgresStore,
+    postgres::PostgresStore,
 };
-use serde_json::json;
-use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -20,6 +17,8 @@ mod audit;
 mod guest_capability;
 #[path = "postgres_contract/magic_link.rs"]
 mod magic_link;
+#[path = "postgres_contract/operator_security.rs"]
+mod operator_security;
 #[path = "postgres_contract/passkey.rs"]
 mod passkey;
 #[path = "postgres_contract/step_up.rs"]
@@ -28,6 +27,8 @@ mod step_up;
 mod two_factor;
 #[path = "postgres_contract/user_deletion.rs"]
 mod user_deletion;
+#[path = "postgres_contract/verification.rs"]
+mod verification;
 
 use passkey::{
     assert_legacy_passkey_migrated, insert_legacy_passkey, passkey_counters_are_atomic,
@@ -81,24 +82,14 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
             role: "owner".into(),
         })
         .await?;
-    let legacy = insert_legacy_passkey(&pool, user.id).await?;
-    let legacy_guest = guest_capability::insert_legacy_shape(&pool, user.id).await?;
-    let legacy_audit = audit::insert_legacy_shape(&pool, user.id).await?;
-    let legacy_step_up = step_up::insert_legacy_shape(&pool, user.id).await?;
-    store.migrate_plugins(&service.plugin_migrations()).await?;
-    store.migrate_plugins(&service.plugin_migrations()).await?;
-    assert_eq!(passkey_public_key_column_count(&pool).await?, 1);
-    assert_legacy_passkey_migrated(&store, &legacy).await?;
-    guest_capability::assert_legacy_migrated(&pool, legacy_guest).await?;
-    audit::assert_legacy_migrated(&store, &pool, legacy_audit).await?;
-    step_up::assert_legacy_migrated(&store, &pool, legacy_step_up).await?;
+    migrate_legacy_extensions(&service, &store, &pool, user.id).await?;
     let signed_in = authenticate_owner(&service, &user).await?;
     let step_up_session = step_up::authenticate_fixture(&service, &store).await?;
     step_up::assert_atomic(&service, &store, &pool, &step_up_session).await?;
 
-    verification_values_are_atomic(&store, user.id).await?;
-    email_verification_is_atomic(&store, &user).await?;
-    password_reset_is_atomic(&store, &pool, user.id).await?;
+    verification::values_are_atomic(&store, user.id).await?;
+    verification::email_is_atomic(&store, &user).await?;
+    verification::password_reset_is_atomic(&store, &pool, user.id).await?;
     magic_link::assert_promotion_is_atomic(&store, &pool).await?;
     email_signup_is_case_insensitive(&service, &pool).await?;
     username_signup_is_atomic(&service, &pool).await?;
@@ -108,6 +99,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     two_factor::assert_atomic(&store, &pool, user.id).await?;
     api_key::assert_limits_are_atomic(&service, &api_keys, &signed_in.session).await?;
     audit::assert_retention_is_atomic(&store, &pool, user.id).await?;
+    operator_security::assert_atomic(&service, &store, &signed_in, user.id).await?;
 
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
@@ -137,6 +129,41 @@ fn register_contract_plugins(
             ..StepUpPolicyConfig::default()
         },
     ))?;
+    config.add_plugin(OperatorSecurityPlugin::new(
+        store.clone(),
+        OperatorSecurityConfig::default(),
+    ))?;
+    Ok(())
+}
+
+async fn migrate_legacy_extensions(
+    service: &AuthService,
+    store: &PostgresStore,
+    pool: &sqlx::PgPool,
+    user_id: Uuid,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let passkey = insert_legacy_passkey(pool, user_id).await?;
+    let guest = guest_capability::insert_legacy_shape(pool, user_id).await?;
+    let audit = audit::insert_legacy_shape(pool, user_id).await?;
+    let step_up = step_up::insert_legacy_shape(pool, user_id).await?;
+    let operator = service
+        .provision_password_user(NewPasswordUser {
+            username: "legacy_operator".into(),
+            name: "Legacy Operator State".into(),
+            email: None,
+            password: "legacy operator password".into(),
+            role: "member".into(),
+        })
+        .await?;
+    operator_security::insert_legacy_shape(pool, operator.id).await?;
+    store.migrate_plugins(&service.plugin_migrations()).await?;
+    store.migrate_plugins(&service.plugin_migrations()).await?;
+    assert_eq!(passkey_public_key_column_count(pool).await?, 1);
+    assert_legacy_passkey_migrated(store, &passkey).await?;
+    guest_capability::assert_legacy_migrated(pool, guest).await?;
+    audit::assert_legacy_migrated(store, pool, audit).await?;
+    step_up::assert_legacy_migrated(store, pool, step_up).await?;
+    operator_security::assert_legacy_migrated(service, pool, operator.id).await?;
     Ok(())
 }
 
@@ -148,6 +175,7 @@ async fn assert_extension_tables_absent(
     audit::assert_table_absent(pool).await?;
     two_factor::assert_table_absent(pool).await?;
     step_up::assert_tables_absent(pool).await?;
+    operator_security::assert_table_absent(pool).await?;
     assert!(
         !sqlx::query_scalar::<_, bool>("SELECT to_regclass('lucid_auth_guest_grants') IS NOT NULL")
             .fetch_one(pool)
@@ -172,90 +200,6 @@ async fn authenticate_owner(
     assert_eq!(signed_in.session.principal().subject_id, user.id);
     assert!(service.session(&signed_in.token).await?.is_some());
     Ok(signed_in)
-}
-
-async fn password_reset_is_atomic(
-    store: &PostgresStore,
-    pool: &sqlx::PgPool,
-    user_id: Uuid,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let now = Utc::now();
-    let token_hash = hex::encode(Sha256::digest(b"postgres-password-reset"));
-    store
-        .create_verification(VerificationValue {
-            purpose: "password-reset".into(),
-            identifier: token_hash.clone(),
-            payload: json!({ "user_id": user_id }),
-            expires_at: now + Duration::minutes(1),
-            created_at: now,
-        })
-        .await?;
-    let (left, right) = tokio::join!(
-        store.consume_password_reset(&token_hash, "first-hash".into(), now, true),
-        store.consume_password_reset(&token_hash, "second-hash".into(), now, true)
-    );
-    let outcomes = [left?, right?];
-    assert_eq!(
-        outcomes
-            .iter()
-            .filter(|outcome| matches!(outcome, PasswordResetOutcome::Reset(_)))
-            .count(),
-        1
-    );
-    assert_eq!(
-        outcomes
-            .iter()
-            .filter(|outcome| matches!(outcome, PasswordResetOutcome::InvalidToken))
-            .count(),
-        1
-    );
-    assert_eq!(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_sessions WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_one(pool)
-        .await?,
-        0
-    );
-    Ok(())
-}
-
-async fn email_verification_is_atomic(
-    store: &PostgresStore,
-    user: &lucid_auth::AuthUser,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let now = Utc::now();
-    let token_hash = hex::encode(Sha256::digest(b"postgres-email-verification"));
-    store
-        .create_verification(VerificationValue {
-            purpose: "email-verification".into(),
-            identifier: token_hash.clone(),
-            payload: json!({ "email": user.email }),
-            expires_at: now + Duration::minutes(1),
-            created_at: now,
-        })
-        .await?;
-    let (left, right) = tokio::join!(
-        store.consume_email_verification(&token_hash, now),
-        store.consume_email_verification(&token_hash, now)
-    );
-    let outcomes = [left?, right?];
-    assert_eq!(
-        outcomes
-            .iter()
-            .filter(|outcome| matches!(outcome, EmailVerificationOutcome::Verified(_)))
-            .count(),
-        1
-    );
-    assert_eq!(
-        outcomes
-            .iter()
-            .filter(|outcome| matches!(outcome, EmailVerificationOutcome::InvalidToken))
-            .count(),
-        1
-    );
-    Ok(())
 }
 
 async fn plugin_migrations_are_idempotent(
@@ -355,47 +299,6 @@ async fn username_signup_is_atomic(
         .fetch_one(pool)
         .await?,
         1
-    );
-    Ok(())
-}
-
-async fn verification_values_are_atomic(
-    store: &PostgresStore,
-    user_id: Uuid,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let now = Utc::now();
-    store
-        .create_verification(VerificationValue {
-            purpose: "contract".into(),
-            identifier: "single-use".into(),
-            payload: json!({ "subject": user_id }),
-            expires_at: now + Duration::minutes(1),
-            created_at: now,
-        })
-        .await?;
-    let (left, right) = tokio::join!(
-        store.consume_verification("contract", "single-use", now),
-        store.consume_verification("contract", "single-use", now)
-    );
-    assert_eq!(
-        usize::from(left?.is_some()) + usize::from(right?.is_some()),
-        1
-    );
-
-    store
-        .create_verification(VerificationValue {
-            purpose: "contract".into(),
-            identifier: "expired".into(),
-            payload: json!({}),
-            expires_at: now - Duration::seconds(1),
-            created_at: now - Duration::minutes(1),
-        })
-        .await?;
-    assert!(
-        store
-            .consume_verification("contract", "expired", now)
-            .await?
-            .is_none()
     );
     Ok(())
 }

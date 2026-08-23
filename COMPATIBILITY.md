@@ -193,7 +193,10 @@ claims:
   freshness enforcement, typed native session projection, recovery codes,
   plugin-owned memory/PostgreSQL state, and migration of legacy assurance data
   ([#72](https://github.com/lucid-softworks/auth/issues/72));
-- mandatory temporary-password and sole-owner recovery policy ([#73](https://github.com/lucid-softworks/auth/issues/73));
+- optional `OperatorSecurityPlugin` for administrator-issued temporary
+  credentials, bootstrap policy, application/sensitive-operation enforcement,
+  atomic local sole-owner recovery, factor cleanup hooks, and plugin-owned
+  memory/PostgreSQL state ([#73](https://github.com/lucid-softworks/auth/issues/73));
 - optional `AuditPlugin` with a versioned action vocabulary, typed outcomes,
   structurally validated metadata, fail-open lifecycle recording, bounded
   memory/PostgreSQL retention, identity anonymization, and a plugin-owned

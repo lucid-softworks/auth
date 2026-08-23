@@ -12,6 +12,7 @@ mod api_key;
 mod audit;
 mod guest_capability;
 mod migrate;
+mod operator_security;
 mod passkey;
 mod plugin;
 mod rows;
@@ -56,19 +57,17 @@ impl AuthStore for PostgresStore {
         password_hash: String,
     ) -> Result<AuthUser, AuthError> {
         user.email = user.email.to_lowercase();
-        let must_change_password = user.must_change_password;
-        let configured_password_hash = password_hash.clone();
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
         let stored = sqlx::query_as::<_, UserRow>(
             "INSERT INTO lucid_auth_users \
              (id, username, display_username, name, email, email_verified, image, role, \
-              is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) \
+              is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) \
              ON CONFLICT (username) DO UPDATE SET \
                display_username = EXCLUDED.display_username, name = EXCLUDED.name, \
                email = EXCLUDED.email, role = EXCLUDED.role, updated_at = EXCLUDED.updated_at \
              RETURNING id, username, display_username, name, email, email_verified, image, role, \
-               is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at",
+               is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at",
         )
         .bind(user.id)
         .bind(&user.username)
@@ -79,7 +78,6 @@ impl AuthStore for PostgresStore {
         .bind(&user.image)
         .bind(&user.role)
         .bind(user.is_anonymous)
-        .bind(user.must_change_password)
         .bind(user.banned)
         .bind(&user.ban_reason)
         .bind(user.ban_expires)
@@ -102,21 +100,9 @@ impl AuthStore for PostgresStore {
         .execute(&mut *transaction)
         .await
         .map_err(storage_error)?;
-        if must_change_password {
-            sqlx::query(
-                "UPDATE lucid_auth_users SET must_change_password = TRUE, updated_at = NOW() \
-                 WHERE id = $1 AND EXISTS (SELECT 1 FROM lucid_auth_accounts \
-                 WHERE user_id = $1 AND provider_id = 'credential' AND password_hash = $2)",
-            )
-            .bind(stored.id)
-            .bind(configured_password_hash)
-            .execute(&mut *transaction)
-            .await
-            .map_err(storage_error)?;
-        }
         let stored = sqlx::query_as::<_, UserRow>(
             "SELECT id, username, display_username, name, email, email_verified, image, role, \
-             is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at \
+             is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at \
              FROM lucid_auth_users WHERE id = $1",
         )
         .bind(stored.id)
@@ -132,10 +118,10 @@ impl AuthStore for PostgresStore {
         sqlx::query_as::<_, UserRow>(
             "INSERT INTO lucid_auth_users \
              (id, username, display_username, name, email, email_verified, image, role, \
-              is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at) \
-             VALUES ($1, NULL, NULL, $2, $3, false, NULL, $4, true, false, false, NULL, NULL, $5, $5) \
+              is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at) \
+             VALUES ($1, NULL, NULL, $2, $3, false, NULL, $4, true, false, NULL, NULL, $5, $5) \
              RETURNING id, username, display_username, name, email, email_verified, image, role, \
-               is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at",
+               is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at",
         )
         .bind(user.id)
         .bind(&user.name)
@@ -230,14 +216,11 @@ impl AuthStore for PostgresStore {
         if result.rows_affected() == 0 {
             return Err(AuthError::CredentialAccountNotFound);
         }
-        sqlx::query(
-            "UPDATE lucid_auth_users SET must_change_password = FALSE, updated_at = NOW() \
-             WHERE id = $1",
-        )
-        .bind(user_id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage_error)?;
+        sqlx::query("UPDATE lucid_auth_users SET updated_at = NOW() WHERE id = $1")
+            .bind(user_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage_error)?;
         transaction.commit().await.map_err(storage_error)
     }
 

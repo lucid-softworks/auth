@@ -11,7 +11,7 @@ pub(super) async fn load_by_id(
 ) -> Result<Option<AuthUser>, AuthError> {
     sqlx::query_as::<_, UserRow>(
         "SELECT id, username, display_username, name, email, email_verified, image, role, \
-         is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at \
+         is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at \
          FROM lucid_auth_users WHERE id = $1",
     )
     .bind(user_id)
@@ -42,7 +42,7 @@ async fn load_by_column(
 ) -> Result<Option<AuthUser>, AuthError> {
     let query = format!(
         "SELECT id, username, display_username, name, email, email_verified, image, role, \
-         is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at \
+         is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at \
          FROM lucid_auth_users WHERE {predicate}"
     );
     sqlx::query_as::<_, UserRow>(&query)
@@ -59,7 +59,7 @@ pub(super) async fn load_by_id_transaction(
 ) -> Result<Option<AuthUser>, AuthError> {
     sqlx::query_as::<_, UserRow>(
         "SELECT id, username, display_username, name, email, email_verified, image, role, \
-         is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at \
+         is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at \
          FROM lucid_auth_users WHERE id = $1 FOR UPDATE",
     )
     .bind(user_id)
@@ -79,10 +79,10 @@ pub(super) async fn create_password_user(
     let stored = sqlx::query_as::<_, UserRow>(
         "INSERT INTO lucid_auth_users \
          (id, username, display_username, name, email, email_verified, image, role, \
-          is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) \
+          is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) \
          RETURNING id, username, display_username, name, email, email_verified, image, role, \
-           is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at",
+           is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at",
     )
     .bind(user.id)
     .bind(&user.username)
@@ -93,7 +93,6 @@ pub(super) async fn create_password_user(
     .bind(&user.image)
     .bind(&user.role)
     .bind(user.is_anonymous)
-    .bind(user.must_change_password)
     .bind(user.banned)
     .bind(&user.ban_reason)
     .bind(user.ban_expires)
@@ -127,10 +126,10 @@ pub(super) async fn create_without_account(
     sqlx::query_as::<_, UserRow>(
         "INSERT INTO lucid_auth_users \
          (id, username, display_username, name, email, email_verified, image, role, \
-          is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) \
+          is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) \
          RETURNING id, username, display_username, name, email, email_verified, image, role, \
-           is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at",
+           is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at",
     )
     .bind(user.id)
     .bind(&user.username)
@@ -141,7 +140,6 @@ pub(super) async fn create_without_account(
     .bind(&user.image)
     .bind(&user.role)
     .bind(user.is_anonymous)
-    .bind(user.must_change_password)
     .bind(user.banned)
     .bind(&user.ban_reason)
     .bind(user.ban_expires)
@@ -166,7 +164,7 @@ pub(super) async fn update_profile(
          display_username = COALESCE($6, display_username), \
          updated_at = NOW() WHERE id = $1 \
          RETURNING id, username, display_username, name, email, email_verified, image, role, \
-           is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at",
+           is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at",
     )
     .bind(user_id)
     .bind(update.name)
@@ -217,7 +215,7 @@ pub(super) async fn promote_email_owner(
     let user = sqlx::query_as::<_, UserRow>(
         "UPDATE lucid_auth_users SET email_verified = TRUE, updated_at = $2 WHERE id = $1 \
          RETURNING id, username, display_username, name, email, email_verified, image, role, \
-           is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at",
+           is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at",
     )
     .bind(user_id)
     .bind(now)
@@ -249,14 +247,11 @@ pub(super) async fn set_password_hash(
     .execute(&mut *transaction)
     .await
     .map_err(storage_error)?;
-    let result = sqlx::query(
-        "UPDATE lucid_auth_users SET must_change_password = TRUE, updated_at = NOW() \
-         WHERE id = $1",
-    )
-    .bind(user_id)
-    .execute(&mut *transaction)
-    .await
-    .map_err(storage_error)?;
+    let result = sqlx::query("UPDATE lucid_auth_users SET updated_at = NOW() WHERE id = $1")
+        .bind(user_id)
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage_error)?;
     if result.rows_affected() == 0 {
         return Err(AuthError::NotFound);
     }

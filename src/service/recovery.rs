@@ -192,7 +192,6 @@ fn require_step_up_account(
     session: &SessionWithUser,
 ) -> Result<(), AuthError> {
     if session.user.is_anonymous
-        || session.user.must_change_password
         || session.session.actor_user_id.is_some()
         || !plugin.requires(&session.user.role)
     {

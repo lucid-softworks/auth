@@ -28,7 +28,7 @@ const MIGRATIONS: &[PluginMigration] = &[PluginMigration {
 }];
 
 /// Version of the stable action-name vocabulary emitted by [`AuditPlugin`].
-pub const AUDIT_ACTION_VOCABULARY_VERSION: u16 = 1;
+pub const AUDIT_ACTION_VOCABULARY_VERSION: u16 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

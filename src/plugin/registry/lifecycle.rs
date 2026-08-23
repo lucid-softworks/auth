@@ -1,5 +1,8 @@
 use super::PluginRegistry;
-use crate::{AfterAuthEvent, AuthError, BeforeAuthEvent, SensitiveOperation, SessionWithUser};
+use crate::{
+    AfterAuthEvent, AuthError, BeforeAuthEvent, PasswordCredentialChanged, SensitiveOperation,
+    SessionWithUser,
+};
 
 impl PluginRegistry {
     pub(crate) async fn before(&self, event: &BeforeAuthEvent) -> Result<(), AuthError> {
@@ -31,6 +34,39 @@ impl PluginRegistry {
     ) -> Result<(), AuthError> {
         for plugin in &self.plugins {
             plugin.reset_user_security_state(user_id).await?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn reset_user_security_state_except(
+        &self,
+        user_id: uuid::Uuid,
+        excluded_plugin_id: &str,
+    ) -> Result<(), AuthError> {
+        for plugin in &self.plugins {
+            if plugin.descriptor().id != excluded_plugin_id {
+                plugin.reset_user_security_state(user_id).await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn password_credential_changed(
+        &self,
+        event: &PasswordCredentialChanged,
+    ) -> Result<(), AuthError> {
+        for plugin in &self.plugins {
+            plugin.password_credential_changed(event).await?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn authorize_application_access(
+        &self,
+        session: &SessionWithUser,
+    ) -> Result<(), AuthError> {
+        for plugin in &self.plugins {
+            plugin.authorize_application_access(session).await?;
         }
         Ok(())
     }

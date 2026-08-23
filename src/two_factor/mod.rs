@@ -329,6 +329,10 @@ impl AuthPlugin for TwoFactorPlugin {
         MIGRATIONS
     }
 
+    async fn reset_user_security_state(&self, user_id: Uuid) -> Result<(), AuthError> {
+        self.store.delete_two_factor(user_id).await
+    }
+
     async fn after(&self, event: &crate::AfterAuthEvent) {
         if let crate::AfterAuthEvent::UserDeleted { user } = event {
             let _ = self.store.delete_two_factor(user.id).await;

@@ -25,6 +25,22 @@ pub(super) fn response(error: &AuthError) -> Option<Response> {
             let (status, code, message) = details;
             Some((status, Json(ErrorResponse { code, message })).into_response())
         }
+        AuthError::OperatorSecurity(error) => {
+            let details = match error {
+                crate::OperatorSecurityError::TemporaryPasswordRequired => (
+                    StatusCode::FORBIDDEN,
+                    "TEMPORARY_PASSWORD_REPLACEMENT_REQUIRED",
+                    "The temporary password must be replaced",
+                ),
+                crate::OperatorSecurityError::SoleOwnerRecoveryUnavailable => (
+                    StatusCode::FORBIDDEN,
+                    "SOLE_OWNER_RECOVERY_UNAVAILABLE",
+                    "Local recovery requires the named account to be the sole owner",
+                ),
+            };
+            let (status, code, message) = details;
+            Some((status, Json(ErrorResponse { code, message })).into_response())
+        }
         _ => None,
     }
 }

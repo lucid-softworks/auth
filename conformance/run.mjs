@@ -425,6 +425,7 @@ async function conformance(origin) {
       "admin.createUser",
     );
     assert.equal(created.user.username, "casey");
+    assert.equal(created.user.mustChangePassword, undefined);
     transport.assertRequest("/api/auth/admin/create-user", "POST", {
       email: "casey@example.com",
       password: "temporary password",

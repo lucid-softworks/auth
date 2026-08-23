@@ -82,7 +82,6 @@ impl AuthService {
                 image: None,
                 role: "guest".into(),
                 is_anonymous: true,
-                must_change_password: false,
                 banned: false,
                 ban_reason: None,
                 ban_expires: None,

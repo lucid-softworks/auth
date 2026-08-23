@@ -4,13 +4,17 @@ use crate::{
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
 mod access;
 mod api_key;
 mod guest_capability;
+mod operator_security;
 mod security;
 mod user;
 mod verification;
@@ -27,6 +31,7 @@ struct MemoryState {
     guest_sessions: HashMap<Uuid, Uuid>,
     api_keys: HashMap<Uuid, ApiKey>,
     rate_limits: HashMap<String, RateLimitWindow>,
+    temporary_passwords: HashSet<Uuid>,
     verifications: HashMap<(String, String), VerificationValue>,
 }
 
@@ -158,7 +163,6 @@ impl AuthStore for MemoryStore {
             .users
             .get_mut(&user_id)
             .ok_or_else(|| AuthError::Storage("email index is inconsistent".into()))?;
-        user.must_change_password = false;
         user.updated_at = now;
         Ok(PasswordResetOutcome::Reset(Box::new(user.clone())))
     }

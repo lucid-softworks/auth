@@ -12,6 +12,7 @@ mod guest_capability;
 mod magic_link;
 mod memory;
 mod model;
+mod operator_security;
 mod origin;
 mod passkey;
 mod plugin;
@@ -58,6 +59,10 @@ pub use model::{
     ApiKey, AuthSession, AuthUser, AuthenticationMethod, IssuedApiKey, NewApiKey, NewPasswordUser,
     Principal, SessionWithUser, StoredPasskey, VerificationValue, VerifiedApiKey,
 };
+pub use operator_security::{
+    OperatorSecurityConfig, OperatorSecurityError, OperatorSecurityPlugin, OperatorSecurityService,
+    OperatorSecurityStatus, OperatorSecurityStore,
+};
 pub use origin::TrustedOrigin;
 pub use passkey::{
     PasskeyAuthenticationCallback, PasskeyAuthenticationConfig, PasskeyAuthenticationVerified,
@@ -67,9 +72,10 @@ pub use passkey::{
     PasskeyRegistrationVerified,
 };
 pub use plugin::{
-    AfterAuthEvent, AuthPlugin, BeforeAuthEvent, PluginClientMetadata, PluginCookie,
-    PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginMiddleware, PluginMigration,
-    PluginMigrationContribution, PluginRateLimit, SensitiveOperation,
+    AfterAuthEvent, AuthPlugin, BeforeAuthEvent, PasswordCredentialChanged,
+    PasswordCredentialSource, PluginClientMetadata, PluginCookie, PluginDescriptor, PluginEndpoint,
+    PluginHttpMethod, PluginMiddleware, PluginMigration, PluginMigrationContribution,
+    PluginRateLimit, SensitiveOperation,
 };
 #[cfg(feature = "axum")]
 pub use plugin::{AxumPluginRoute, PluginSession};

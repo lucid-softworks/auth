@@ -2,7 +2,10 @@ use super::{
     AuthService,
     password::{hash_password, normalize_username},
 };
-use crate::{AuthError, AuthUser, NewPasswordUser, SessionWithUser, UsernameError};
+use crate::{
+    AuthError, AuthUser, NewPasswordUser, PasswordCredentialChanged, PasswordCredentialSource,
+    SessionWithUser, UsernameError,
+};
 use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
@@ -51,7 +54,6 @@ impl AuthService {
                     image: None,
                     role: input.role,
                     is_anonymous: false,
-                    must_change_password: true,
                     banned: false,
                     ban_reason: None,
                     ban_expires: None,
@@ -65,6 +67,12 @@ impl AuthService {
                 AuthError::Username(UsernameError::AlreadyTaken) => AuthError::UserAlreadyExists,
                 error => error,
             })?;
+        self.plugins
+            .password_credential_changed(&PasswordCredentialChanged {
+                user_id: user.id,
+                source: PasswordCredentialSource::AdministratorCreated,
+            })
+            .await?;
         self.audit(
             actor.user.id,
             Some(user.id),
@@ -98,6 +106,12 @@ impl AuthService {
         self.store.delete_user_sessions(user_id).await?;
         self.store.delete_user_passkeys(user_id).await?;
         self.plugins.reset_user_security_state(user_id).await?;
+        self.plugins
+            .password_credential_changed(&PasswordCredentialChanged {
+                user_id,
+                source: PasswordCredentialSource::AdministratorReset,
+            })
+            .await?;
         self.audit(
             actor.user.id,
             Some(user_id),

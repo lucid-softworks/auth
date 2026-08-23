@@ -57,7 +57,7 @@ pub(super) async fn consume_email_verification(
         .ok_or_else(|| AuthError::Storage("email verification payload is invalid".into()))?;
     let user = sqlx::query_as::<_, UserRow>(
         "SELECT id, username, display_username, name, email, email_verified, image, role, \
-         is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at \
+         is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at \
          FROM lucid_auth_users WHERE LOWER(email) = LOWER($1) FOR UPDATE",
     )
     .bind(email)
@@ -76,7 +76,7 @@ pub(super) async fn consume_email_verification(
     let user = sqlx::query_as::<_, UserRow>(
         "UPDATE lucid_auth_users SET email_verified = TRUE, updated_at = $2 WHERE id = $1 \
          RETURNING id, username, display_username, name, email, email_verified, image, role, \
-           is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at",
+           is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at",
     )
     .bind(user.id)
     .bind(now)
@@ -136,9 +136,9 @@ pub(super) async fn consume_password_reset(
     .await
     .map_err(storage_error)?;
     let user = sqlx::query_as::<_, UserRow>(
-        "UPDATE lucid_auth_users SET must_change_password = FALSE, updated_at = $2 WHERE id = $1 \
+        "UPDATE lucid_auth_users SET updated_at = $2 WHERE id = $1 \
          RETURNING id, username, display_username, name, email, email_verified, image, role, \
-           is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at",
+           is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at",
     )
     .bind(user.id)
     .bind(now)

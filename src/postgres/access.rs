@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 const USER_COLUMNS: &str = "id, username, display_username, name, email, email_verified, image, \
-    role, is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at";
+    role, is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at";
 
 #[async_trait]
 impl AccessStore for PostgresStore {
@@ -135,56 +135,5 @@ impl AccessStore for PostgresStore {
             .await
             .map(|_| ())
             .map_err(storage_error)
-    }
-
-    async fn recover_sole_owner(
-        &self,
-        user_id: Uuid,
-        password_hash: String,
-    ) -> Result<bool, AuthError> {
-        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
-        let owners = sqlx::query_scalar::<_, Uuid>(
-            "SELECT id FROM lucid_auth_users WHERE role = 'owner' AND is_anonymous = FALSE FOR UPDATE",
-        )
-        .fetch_all(&mut *transaction)
-        .await
-        .map_err(storage_error)?;
-        if owners.as_slice() != [user_id] {
-            return Ok(false);
-        }
-        let account = sqlx::query(
-            "UPDATE lucid_auth_accounts SET password_hash = $2, updated_at = NOW() \
-             WHERE user_id = $1 AND provider_id = 'credential'",
-        )
-        .bind(user_id)
-        .bind(password_hash)
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage_error)?;
-        if account.rows_affected() != 1 {
-            return Err(AuthError::CredentialAccountNotFound);
-        }
-        sqlx::query(
-            "UPDATE lucid_auth_users SET must_change_password = TRUE, banned = FALSE, \
-             ban_reason = NULL, ban_expires = NULL, updated_at = NOW() WHERE id = $1",
-        )
-        .bind(user_id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage_error)?;
-        for table in ["lucid_auth_sessions", "lucid_auth_passkeys"] {
-            sqlx::query(&format!("DELETE FROM {table} WHERE user_id = $1"))
-                .bind(user_id)
-                .execute(&mut *transaction)
-                .await
-                .map_err(storage_error)?;
-        }
-        sqlx::query("DELETE FROM lucid_auth_api_keys WHERE reference_id = $1")
-            .bind(user_id.to_string())
-            .execute(&mut *transaction)
-            .await
-            .map_err(storage_error)?;
-        transaction.commit().await.map_err(storage_error)?;
-        Ok(true)
     }
 }

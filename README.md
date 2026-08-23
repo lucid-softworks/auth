@@ -27,7 +27,7 @@ supported surface covers:
   bounded impersonation
 - optional HIBP Pwned Passwords screening with Better Auth-compatible errors
 - durable account and client-address sign-in throttling through the configured store
-- enforced password replacement for administrator-created and reset credentials
+- optional operator-security policy for managed password replacement and local recovery
 - the complete user-owned `@better-auth/api-key` client surface as an optional
   native plugin, including pagination, metadata, permissions, quotas, rate limits,
   configuration profiles, and API-key-backed sessions
@@ -104,7 +104,7 @@ password-, cookie-, token-, OTP-, secret-, challenge-, API-key-, and
 credential-bearing field names, including authorization and bearer fields; the
 same validation runs during deserialization.
 
-Audit action vocabulary version `1` contains `owner.recovered_locally`,
+Audit action vocabulary version `2` contains `operator_security.owner_recovered`,
 `user.created`, `user.role.changed`, `user.banned`, `user.unbanned`,
 `user.removed`, `password.changed`, `password.reset_by_owner`,
 `session.revoked`, `session.user_revoked`, `session.others_revoked`,
@@ -311,19 +311,36 @@ advisory migration lock, and are transactional and idempotent. See the
 [native plugin example](examples/native_plugin.rs) for a route, middleware,
 migration, cookie/rate-limit declarations, and official-client metadata.
 
-Accounts created by an owner and passwords reset by an owner are marked
-`must_change_password`. The Better Auth-compatible user response exposes that
-state as `mustChangePassword`; hosts must allow the official change-password
-route while denying application and administrative access until the account
-chooses a replacement. Configured bootstrap users may opt into the same state,
-which is reapplied only while the configured password hash remains active.
+Managed temporary passwords and local sole-owner recovery are optional lucid
+operator policy, not Better Auth Admin behavior. Default and Admin-only user
+responses contain no `mustChangePassword` field, and creating or resetting a
+user password does not silently restrict that account.
 
-`AuthService::local_recover_sole_owner` is an explicitly out-of-band operator
-primitive for a host CLI. It atomically refuses multi-owner installations,
-replaces the sole owner's password, clears bans, sessions, passkeys, and enabled
-plugin security state, marks the password temporary, and appends an actorless audit event. It is
-not routed by the crate's Axum compatibility surface. The event is recorded only
-when `AuditPlugin` is enabled.
+Register `OperatorSecurityPlugin` to opt into administrator-issued temporary
+credentials and native recovery:
+
+```rust
+let store = Arc::new(MemoryStore::default());
+config.add_plugin(OperatorSecurityPlugin::new(
+    store.clone(),
+    OperatorSecurityConfig::default(),
+))?;
+let auth = AuthService::new(store, config);
+```
+
+The plugin exposes temporary-credential status separately from Better Auth user
+JSON. `AuthService::principal` and sensitive plugin hooks reject access until
+the official change-password flow clears the plugin state. Provisioned bootstrap
+passwords can opt into the same policy through `OperatorSecurityConfig`.
+
+`AuthService::operator_security().local_recover_sole_owner` is an explicitly
+out-of-band native primitive for a host CLI. It atomically refuses multi-owner
+installations, replaces the sole owner's password, clears bans, sessions,
+passkeys, API keys, and enabled factor-plugin state, marks the replacement
+temporary, and records an actorless audit event when `AuditPlugin` is enabled.
+The operator plugin contributes no HTTP endpoint. Its PostgreSQL migration owns
+the temporary-password table and consumes the legacy core column without keeping
+a compatibility alias.
 
 WebAuthn relying-party and origin configuration lives on `PasskeyConfig`.
 Registration and authentication challenges are stored through the configured
