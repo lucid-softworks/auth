@@ -1,5 +1,6 @@
 use super::http::{
-    auth_error, clear_session_cookie, client_ip, current_session, user_agent, with_session_cookie,
+    PeerAddress, auth_error, clear_session_cookie, client_ip, current_session, user_agent,
+    with_session_cookie,
 };
 use crate::{AuthError, AuthService};
 use axum::{
@@ -63,6 +64,7 @@ async fn generate_backup_codes(
 
 async fn verify_backup_code(
     Extension(service): Extension<Arc<AuthService>>,
+    peer: PeerAddress,
     headers: HeaderMap,
     Json(input): Json<VerifyBackupCodeRequest>,
 ) -> Response {
@@ -73,7 +75,7 @@ async fn verify_backup_code(
         .verify_recovery_code(
             &session,
             &input.code,
-            client_ip(&headers),
+            client_ip(&service, &headers, peer),
             user_agent(&headers),
         )
         .await
@@ -95,6 +97,7 @@ async fn verify_backup_code(
 
 async fn change_password(
     Extension(service): Extension<Arc<AuthService>>,
+    peer: PeerAddress,
     headers: HeaderMap,
     Json(input): Json<ChangePasswordRequest>,
 ) -> Response {
@@ -107,7 +110,7 @@ async fn change_password(
             input.current_password,
             input.new_password,
             input.revoke_other_sessions.unwrap_or(false),
-            None,
+            client_ip(&service, &headers, peer),
             user_agent(&headers),
         )
         .await

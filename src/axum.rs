@@ -26,8 +26,8 @@ mod security;
 
 pub use self::http::session_token;
 use self::http::{
-    auth_error, challenge_token, clear_session_cookie, client_ip, current_session, user_agent,
-    with_challenge_cookie, with_session_cookie,
+    PeerAddress, auth_error, challenge_token, clear_session_cookie, client_ip, current_session,
+    user_agent, with_challenge_cookie, with_session_cookie,
 };
 
 pub fn router<S>(service: Arc<AuthService>) -> Router<S>
@@ -88,6 +88,7 @@ struct VerifyAuthenticationRequest {
 
 async fn sign_in_username(
     Extension(service): Extension<Arc<AuthService>>,
+    peer: PeerAddress,
     headers: HeaderMap,
     Json(input): Json<UsernameSignInRequest>,
 ) -> Response {
@@ -96,7 +97,7 @@ async fn sign_in_username(
         .sign_in_username(
             &input.username,
             input.password,
-            client_ip(&headers),
+            client_ip(&service, &headers, peer),
             user_agent(&headers),
         )
         .await
@@ -128,10 +129,11 @@ async fn sign_in_username(
 
 async fn sign_in_anonymous(
     Extension(service): Extension<Arc<AuthService>>,
+    peer: PeerAddress,
     headers: HeaderMap,
 ) -> Response {
     match service
-        .sign_in_anonymous(client_ip(&headers), user_agent(&headers))
+        .sign_in_anonymous(client_ip(&service, &headers, peer), user_agent(&headers))
         .await
     {
         Ok(result) => {
@@ -251,6 +253,7 @@ async fn generate_passkey_authentication_options(
 
 async fn verify_passkey_authentication(
     Extension(service): Extension<Arc<AuthService>>,
+    peer: PeerAddress,
     headers: HeaderMap,
     Json(input): Json<VerifyAuthenticationRequest>,
 ) -> Response {
@@ -261,7 +264,7 @@ async fn verify_passkey_authentication(
         .finish_passkey_authentication(
             &challenge,
             input.response,
-            client_ip(&headers),
+            client_ip(&service, &headers, peer),
             user_agent(&headers),
         )
         .await

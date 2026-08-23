@@ -86,4 +86,13 @@ are supported. The exact Better Auth redirect fields (`callbackURL`,
 `redirectTo`, `errorCallbackURL`, and `newUserCallbackURL`) must contain an
 accepted relative path or use a trusted origin.
 
+Client IPs come from Axum's transport `ConnectInfo`, never from an unverified
+forwarding header. Serve the router with
+`into_make_service_with_connect_info::<std::net::SocketAddr>()`. Deployments
+behind a reverse proxy must add its exact address or CIDR with
+`config.ip_address.trust_proxy(...)`; forwarding headers are then walked from
+the trusted edge to the first untrusted hop. `ip_address_headers`,
+`ipv6_subnet`, and `disable_ip_tracking` correspond to Better Auth's advanced
+IP-address options.
+
 This project is not affiliated with Better Auth.

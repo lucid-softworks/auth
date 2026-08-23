@@ -3,10 +3,14 @@ use crate::{
     protocol::better_auth::{ErrorResponse, PASSKEY_CHALLENGE_COOKIE_NAME, SESSION_COOKIE_NAME},
 };
 use axum::{
-    Json,
+    Extension, Json,
+    extract::ConnectInfo,
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
+use std::net::SocketAddr;
+
+pub(super) type PeerAddress = Option<Extension<ConnectInfo<SocketAddr>>>;
 
 pub(super) async fn current_session(
     service: &AuthService,
@@ -78,21 +82,20 @@ pub(super) fn user_agent(headers: &HeaderMap) -> Option<String> {
         .map(|value| value.chars().take(512).collect())
 }
 
-pub(super) fn client_ip(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next_back())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
+pub(super) fn client_ip(
+    service: &AuthService,
+    headers: &HeaderMap,
+    peer: PeerAddress,
+) -> Option<String> {
+    service.resolve_client_ip(
+        peer.map(|Extension(ConnectInfo(address))| address.ip()),
+        |name| {
             headers
-                .get("x-real-ip")
+                .get(name)
                 .and_then(|value| value.to_str().ok())
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        })
-        .map(|value| value.chars().take(64).collect())
+                .map(str::to_owned)
+        },
+    )
 }
 
 fn session_cookie(value: &str, max_age_seconds: i64, secure: bool, persistent: bool) -> String {
@@ -386,15 +389,5 @@ mod tests {
             cookie,
             "better-auth.session_token=token.signature; HttpOnly; SameSite=Lax; Path=/; Max-Age=300"
         );
-    }
-
-    #[test]
-    fn client_ip_uses_the_proxy_appended_address() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-forwarded-for",
-            HeaderValue::from_static("198.51.100.2, 100.64.0.7"),
-        );
-        assert_eq!(client_ip(&headers).as_deref(), Some("100.64.0.7"));
     }
 }

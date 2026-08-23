@@ -1,4 +1,6 @@
-use super::http::{auth_error, current_session, user_agent, with_session_cookie};
+use super::http::{
+    PeerAddress, auth_error, client_ip, current_session, user_agent, with_session_cookie,
+};
 use crate::{AuditEvent, AuthError, AuthService, GuestGrant, NewGuestGrant};
 use axum::{
     Extension, Json, Router,
@@ -129,11 +131,16 @@ async fn revoke_guest_grant(
 
 async fn redeem_guest_grant(
     Extension(service): Extension<Arc<AuthService>>,
+    peer: PeerAddress,
     headers: HeaderMap,
     Json(input): Json<RedeemGuestGrantRequest>,
 ) -> Response {
     match service
-        .redeem_guest_grant(&input.token, None, user_agent(&headers))
+        .redeem_guest_grant(
+            &input.token,
+            client_ip(&service, &headers, peer),
+            user_agent(&headers),
+        )
         .await
     {
         Ok(result) => {

@@ -10,7 +10,7 @@ mod user;
 use crate::PasswordBreachChecker;
 use crate::{
     Assurance, AuthError, AuthSession, AuthStore, AuthUser, Principal, SessionWithUser,
-    TrustedOrigin,
+    TrustedOrigin, client_ip::IpAddressConfig,
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Duration, Utc};
@@ -18,6 +18,8 @@ use hmac::{Hmac, Mac};
 use passkey::PasskeyCeremony;
 use session::{hash_token, random_token};
 use sha2::Sha256;
+#[cfg(feature = "axum")]
+use std::net::IpAddr;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -41,6 +43,8 @@ pub struct AuthConfig {
     pub lockout_window: Duration,
     pub passkeys: Option<PasskeyConfig>,
     pub password_breach_checker: Option<Arc<dyn PasswordBreachChecker>>,
+    /// Better Auth-compatible client-IP tracking and trusted proxy settings.
+    pub ip_address: IpAddressConfig,
     /// Additional browser origins allowed to call authentication endpoints or
     /// receive absolute callback redirects.
     pub trusted_origins: Vec<TrustedOrigin>,
@@ -76,6 +80,7 @@ impl AuthConfig {
             lockout_window: Duration::minutes(5),
             passkeys: None,
             password_breach_checker: None,
+            ip_address: IpAddressConfig::default(),
             trusted_origins: Vec::new(),
             required_mfa_roles: Vec::new(),
             step_up_ttl: Duration::days(1),
@@ -136,6 +141,14 @@ impl AuthService {
             .trusted_origins
             .iter()
             .any(|trusted| trusted.matches(origin))
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn resolve_client_ip<F>(&self, peer: Option<IpAddr>, header: F) -> Option<String>
+    where
+        F: FnMut(&str) -> Option<String>,
+    {
+        self.config.ip_address.resolve_client_ip(peer?, header)
     }
 
     pub fn development_session(&self) -> Option<SessionWithUser> {
