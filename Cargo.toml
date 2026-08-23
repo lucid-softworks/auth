@@ -41,3 +41,15 @@ axum = "0.8"
 http-body-util = "0.1"
 serde_json = "1"
 tower = { version = "0.5", features = ["util"] }
+
+[[test]]
+name = "access_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "admin_lifecycle_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "better_auth_contract"
+required-features = ["axum"]

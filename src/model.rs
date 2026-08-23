@@ -35,6 +35,7 @@ impl Assurance {
         )
     }
 
+    #[cfg(feature = "postgres")]
     pub(crate) fn parse(value: &str) -> Self {
         match value {
             "anonymous" => Self::Anonymous,
