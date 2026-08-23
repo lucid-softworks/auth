@@ -7,7 +7,7 @@ use chrono::{Duration, Utc};
 use http_body_util::BodyExt;
 use lucid_auth::{
     Assurance, AuthConfig, AuthService, AuthSession, AuthStore, MemoryStore, NewPasswordUser,
-    PasskeyConfig, PasskeyPlugin, StoredPasskey,
+    PasskeyConfig, PasskeyPlugin, StoredPasskey, UsernamePlugin,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -19,6 +19,7 @@ async fn application() -> Router {
     let mut config = AuthConfig::new([19_u8; 32]).unwrap();
     config.allow_anonymous = true;
     config.trust_origin("http://localhost").unwrap();
+    config.add_plugin(UsernamePlugin::default()).unwrap();
     config
         .add_plugin(PasskeyPlugin::new(PasskeyConfig {
             rp_id: Some("localhost".into()),
@@ -54,6 +55,7 @@ async fn application() -> Router {
 async fn recovery_application() -> (Router, Arc<AuthService>, Arc<MemoryStore>) {
     let mut config = AuthConfig::new([29_u8; 32]).unwrap();
     config.trust_origin("http://localhost").unwrap();
+    config.add_plugin(UsernamePlugin::default()).unwrap();
     config
         .add_plugin(PasskeyPlugin::new(PasskeyConfig {
             rp_id: Some("localhost".into()),

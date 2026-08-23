@@ -12,6 +12,8 @@ pub struct EmailSignUpInput {
     pub image: Option<String>,
     pub callback_url: Option<String>,
     pub remember_me: Option<bool>,
+    pub username: Option<String>,
+    pub display_username: Option<String>,
 }
 
 /// A created or deliberately synthetic signup result.
@@ -50,6 +52,9 @@ impl AuthService {
         }
         let email = normalize_email(&input.email)?;
         self.validate_new_password(&input.password).await?;
+        let (username, display_username) = self
+            .prepare_username_signup(input.username, input.display_username)
+            .await?;
         let generic_duplicates = config.require_email_verification || !config.auto_sign_in;
         if self.store.find_user_by_email(&email).await?.is_some() {
             let _ = hash_password(input.password).await?;
@@ -64,8 +69,8 @@ impl AuthService {
         let now = Utc::now();
         let user = AuthUser {
             id: Uuid::new_v4(),
-            username: None,
-            display_username: None,
+            username,
+            display_username,
             name: input.name,
             email,
             email_verified: false,
@@ -142,7 +147,7 @@ impl AuthService {
             .await
     }
 
-    async fn create_email_password_session(
+    pub(super) async fn create_email_password_session(
         &self,
         user: AuthUser,
         remember_me: Option<bool>,

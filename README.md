@@ -14,7 +14,7 @@ supported surface covers:
 - core email/password signup, signin, and current-password verification
 - durable email verification with a native async delivery callback
 - enumeration-resistant password-reset email and single-use reset redemption
-- username/password sign-in
+- the complete Better Auth username lifecycle as an optional native plugin
 - sign-out
 - anonymous guest sign-in
 - the complete `@better-auth/passkey` client surface as an optional native plugin
@@ -40,8 +40,20 @@ authorization. Applications provide their own permission vocabulary while
 using the authenticated principal's role, actor, subject, guest grant and
 assurance metadata.
 
-Passkey is an optional native plugin. Register it explicitly; without the plugin,
-its seven routes do not exist:
+Username is an optional native plugin. Register it explicitly to add username
+fields to email signup and current-user updates and to mount the official
+username sign-in and availability routes:
+
+```rust
+config.add_plugin(UsernamePlugin::default())?;
+```
+
+This route boundary is separate from `AuthService::provision_password_user`, so
+closed-registration applications can still provision and authenticate native
+username accounts without exposing Better Auth's public username plugin.
+
+Passkey is also optional. Register it explicitly; without the plugin, its seven
+routes do not exist:
 
 ```rust
 let passkeys = PasskeyConfig {
@@ -222,10 +234,10 @@ npm ci --prefix conformance --ignore-scripts
 npm test --prefix conformance
 ```
 
-It currently exercises session, username, anonymous, admin, all official passkey
-client methods (including complete registration and authentication signatures
-through an in-process virtual authenticator), and two-factor backup-code client
-behavior. The fixture and Node dependencies are excluded from the published
-crate.
+It currently exercises session, the full username lifecycle, anonymous, admin,
+all official passkey and user-owned API-key client methods, magic links, and
+two-factor backup-code behavior. Passkey registration and authentication use
+complete signatures through an in-process virtual authenticator. The fixture
+and Node dependencies are excluded from the published crate.
 
 This project is not affiliated with Better Auth.

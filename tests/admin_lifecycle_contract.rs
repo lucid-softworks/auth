@@ -4,7 +4,7 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use http_body_util::BodyExt;
-use lucid_auth::{AuthConfig, AuthService, MemoryStore, NewPasswordUser};
+use lucid_auth::{AuthConfig, AuthService, MemoryStore, NewPasswordUser, UsernamePlugin};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -12,6 +12,7 @@ use tower::ServiceExt;
 async fn application() -> Router {
     let mut config = AuthConfig::new([43_u8; 32]).unwrap();
     config.trust_origin("http://localhost").unwrap();
+    config.add_plugin(UsernamePlugin::default()).unwrap();
     let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
     service
         .provision_password_user(NewPasswordUser {

@@ -15,6 +15,7 @@ mod passkey;
 mod plugin;
 mod service;
 mod store;
+mod username;
 
 #[cfg(feature = "axum")]
 pub mod axum;
@@ -68,5 +69,10 @@ pub use service::{
 };
 pub use store::{
     AccessStore, ApiKeyStore, ApiKeyUseOutcome, AuthStore, EmailVerificationOutcome,
-    PasskeyDeleteOutcome, PasswordResetOutcome, SecurityStore, VerificationStore,
+    PasskeyDeleteOutcome, PasswordResetOutcome, SecurityStore, UserProfileUpdate,
+    VerificationStore,
+};
+pub use username::{
+    UsernameConfig, UsernameError, UsernameNormalizer, UsernamePlugin, UsernameValidationOrder,
+    UsernameValidationTiming, UsernameValidator,
 };

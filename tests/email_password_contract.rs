@@ -333,6 +333,8 @@ async fn concurrent_case_variant_signup_creates_one_account() {
         image: None,
         callback_url: None,
         remember_me: None,
+        username: None,
+        display_username: None,
     };
     let (first, second) = tokio::join!(
         service.sign_up_email(signup("Casey@Example.com"), None, None),

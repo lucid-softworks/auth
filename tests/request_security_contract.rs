@@ -4,13 +4,14 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use http_body_util::BodyExt;
-use lucid_auth::{AuthConfig, AuthService, MemoryStore, NewPasswordUser};
+use lucid_auth::{AuthConfig, AuthService, MemoryStore, NewPasswordUser, UsernamePlugin};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
 
 async fn application(trusted_origins: &[&str]) -> Router {
     let mut config = AuthConfig::new([89_u8; 32]).unwrap();
+    config.add_plugin(UsernamePlugin::default()).unwrap();
     for origin in trusted_origins {
         config.trust_origin(origin).unwrap();
     }

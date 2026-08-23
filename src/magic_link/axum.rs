@@ -3,7 +3,7 @@ use crate::{
     AuthService, AxumPluginRoute,
     axum::body::BetterAuthBody,
     axum::http::{PeerAddress, auth_error, client_ip, user_agent, with_session_cookie},
-    protocol::better_auth::{BetterAuthSession, BetterAuthUser, StatusResponse},
+    protocol::better_auth::{BetterAuthSession, StatusResponse},
     service::magic_link::{MagicLinkRequest, MagicLinkVerificationError},
 };
 use axum::{
@@ -127,7 +127,7 @@ async fn verify_magic_link(
                 Some(_) => redirect(&callback_url),
                 None => Json(json!({
                     "token": verified.result.token,
-                    "user": BetterAuthUser::from(&verified.result.session.user),
+                    "user": service.better_auth_user(&verified.result.session.user),
                     "session": BetterAuthSession::from_session(
                         &verified.result.session.session,
                         &token,

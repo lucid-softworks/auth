@@ -175,9 +175,7 @@ async fn verify_registration(
                             &replacement.token,
                         ),
                     ),
-                    user: Some(crate::protocol::better_auth::BetterAuthUser::from(
-                        &replacement.session.user,
-                    )),
+                    user: Some(service.better_auth_user(&replacement.session.user)),
                 });
                 with_session_cookie(&service, &replacement.token, Some(true), body)
             } else {

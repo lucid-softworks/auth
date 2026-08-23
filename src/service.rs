@@ -13,6 +13,7 @@ mod recovery;
 mod session;
 mod session_create;
 mod user;
+mod username;
 
 #[cfg(feature = "axum")]
 use crate::TrustedOrigin;

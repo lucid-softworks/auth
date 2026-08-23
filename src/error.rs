@@ -3,6 +3,8 @@
 pub enum AuthError {
     #[error(transparent)]
     ApiKey(#[from] crate::ApiKeyError),
+    #[error(transparent)]
+    Username(#[from] crate::UsernameError),
     #[error("invalid username or password")]
     InvalidCredentials,
     #[error("invalid email or password")]

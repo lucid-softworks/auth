@@ -146,10 +146,12 @@ async function conformance(origin) {
     const nativePlugin = metadata.find((plugin) => plugin.id === "conformance");
     const magicLink = metadata.find((plugin) => plugin.id === "magic-link");
     const apiKey = metadata.find((plugin) => plugin.id === "api-key");
+    const username = metadata.find((plugin) => plugin.id === "username");
     assert.equal(nativePlugin.client.betterAuthVersion, betterAuthPackage.version);
     assert.equal(nativePlugin.endpoints[0].clientMethod, "nativePlugin.ping");
     assert.equal(magicLink.client.factory, "magicLinkClient");
     assert.equal(apiKey.client.factory, "apiKeyClient");
+    assert.equal(username.client.factory, "usernameClient");
   });
 
   await runCase("native plugin client metadata and route", async () => {
@@ -318,6 +320,62 @@ async function conformance(origin) {
       username: "available_user",
     });
 
+    const signedUp = success(
+      await client.signUp.email({
+        name: "Username User",
+        email: "username-user@example.com",
+        password: "correct horse battery staple",
+        username: "Mixed_User",
+        displayUsername: "Mixed User",
+      }),
+      "signUp.email with username",
+    );
+    assert.equal(signedUp.user.username, "mixed_user");
+    assert.equal(signedUp.user.displayUsername, "Mixed User");
+    transport.assertRequest("/api/auth/sign-up/email", "POST", {
+      name: "Username User",
+      email: "username-user@example.com",
+      password: "correct horse battery staple",
+      username: "Mixed_User",
+      displayUsername: "Mixed User",
+    });
+
+    const updated = success(
+      await client.updateUser({
+        name: "Renamed Profile",
+        image: null,
+        username: "Renamed_User",
+        displayUsername: "Renamed User",
+      }),
+      "updateUser username",
+    );
+    assert.equal(updated.status, true);
+    transport.assertRequest("/api/auth/update-user", "POST", {
+      name: "Renamed Profile",
+      image: null,
+      username: "Renamed_User",
+      displayUsername: "Renamed User",
+    });
+    const updatedSession = success(
+      await client.getSession(),
+      "getSession after username update",
+    );
+    assert.equal(updatedSession.user.username, "renamed_user");
+    assert.equal(updatedSession.user.displayUsername, "Renamed User");
+    assert.equal(updatedSession.user.name, "Renamed Profile");
+    assert.equal(updatedSession.user.image, null);
+    success(await client.signOut(), "signOut after username update");
+
+    const normalizedSignIn = success(
+      await client.signIn.username({
+        username: "RENAMED_USER",
+        password: "correct horse battery staple",
+      }),
+      "signIn.username normalized",
+    );
+    assert.equal(normalizedSignIn.user.username, "renamed_user");
+    success(await client.signOut(), "signOut after normalized username signin");
+
     const signedIn = success(
       await client.signIn.username({
         username: "luna",
@@ -373,7 +431,7 @@ async function conformance(origin) {
       await client.admin.listUsers({ query: { limit: 20, offset: 0 } }),
       "admin.listUsers",
     );
-    assert.equal(listed.total, 3);
+    assert.equal(listed.total, 4);
     assert.ok(listed.users.some((user) => user.id === created.user.id));
     const listRequest = transport.assertRequest("/api/auth/admin/list-users", "GET");
     assert.match(listRequest.search, /limit=20/);

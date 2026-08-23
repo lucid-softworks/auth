@@ -62,6 +62,12 @@ impl PluginRegistry {
         &self.descriptors
     }
 
+    pub(crate) fn find<P: AuthPlugin + 'static>(&self) -> Option<&P> {
+        self.plugins
+            .iter()
+            .find_map(|plugin| plugin.as_any().downcast_ref())
+    }
+
     pub(crate) fn migrations(&self) -> Vec<PluginMigrationContribution> {
         self.plugins
             .iter()
@@ -377,10 +383,9 @@ const CORE_ENDPOINTS: &[(PluginHttpMethod, &str)] = &[
     (PluginHttpMethod::Post, "/reset-password"),
     (PluginHttpMethod::Post, "/send-verification-email"),
     (PluginHttpMethod::Get, "/verify-email"),
-    (PluginHttpMethod::Post, "/sign-in/username"),
     (PluginHttpMethod::Post, "/sign-out"),
     (PluginHttpMethod::Post, "/sign-in/anonymous"),
-    (PluginHttpMethod::Post, "/is-username-available"),
+    (PluginHttpMethod::Post, "/update-user"),
     (PluginHttpMethod::Post, "/change-password"),
     (PluginHttpMethod::Get, "/list-sessions"),
     (PluginHttpMethod::Post, "/revoke-session"),

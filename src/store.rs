@@ -29,6 +29,15 @@ pub enum PasswordResetOutcome {
     Reset(Box<AuthUser>),
 }
 
+/// Fields atomically changed by Better Auth's current-user update route.
+#[derive(Debug, Clone, Default)]
+pub struct UserProfileUpdate {
+    pub name: Option<String>,
+    pub image: Option<Option<String>>,
+    pub username: Option<String>,
+    pub display_username: Option<String>,
+}
+
 /// Persistence boundary required by [`crate::AuthService`].
 #[async_trait]
 pub trait AuthStore:
@@ -53,6 +62,12 @@ pub trait AuthStore:
     async fn find_user_by_username(&self, username: &str) -> Result<Option<AuthUser>, AuthError>;
 
     async fn find_user_by_email(&self, email: &str) -> Result<Option<AuthUser>, AuthError>;
+
+    async fn update_user_profile(
+        &self,
+        user_id: Uuid,
+        update: UserProfileUpdate,
+    ) -> Result<Option<AuthUser>, AuthError>;
 
     /// Atomically consumes a purpose-bound token and marks its user verified.
     async fn consume_email_verification(

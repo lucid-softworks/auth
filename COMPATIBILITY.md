@@ -52,7 +52,7 @@ scoped to the unimplemented account lifecycle described above.
 | --- | --- | --- |
 | `getSession`, `useSession` (`GET /get-session`) | Supported | Stateful cookie session; cache/stateless modes are tracked in [#58](https://github.com/lucid-softworks/auth/issues/58). |
 | `signOut` (`POST /sign-out`) | Supported | Clears the default session cookie. Configurable cookie attributes are tracked in [#6](https://github.com/lucid-softworks/auth/issues/6). |
-| `signUp.email` (`POST /sign-up/email`) | Supported | JSON/form bodies, exact 1.7.1 `callbackURL`, image, auto-sign-in, password bounds, disabled-signup behavior, normalized uniqueness, generic duplicate mode, and configured send-on-signup delivery; [#9](https://github.com/lucid-softworks/auth/issues/9), [#10](https://github.com/lucid-softworks/auth/issues/10). |
+| `signUp.email` (`POST /sign-up/email`) | Supported | JSON/form bodies, exact 1.7.1 `callbackURL`, image, auto-sign-in, password bounds, disabled-signup behavior, normalized uniqueness, generic duplicate mode, configured send-on-signup delivery, and username-plugin additional fields; [#9](https://github.com/lucid-softworks/auth/issues/9), [#10](https://github.com/lucid-softworks/auth/issues/10), [#16](https://github.com/lucid-softworks/auth/issues/16). |
 | `signIn.email` (`POST /sign-in/email`) | Supported | JSON/form bodies, case-normalized lookup, generic credential errors, verification-required rejection, `rememberMe`, callback response/location, and configured passkey-MFA policy; [#9](https://github.com/lucid-softworks/auth/issues/9). |
 | `verifyPassword` (`POST /verify-password`) | Supported | Session-bound credential verification with the 1.7.1 status/error body; [#9](https://github.com/lucid-softworks/auth/issues/9). |
 | `sendVerificationEmail` (`POST /send-verification-email`) | Supported | Native async sender, authenticated mismatch/already-verified errors, enumeration-resistant anonymous responses, exact `callbackURL`, and one-hour default expiry; [#10](https://github.com/lucid-softworks/auth/issues/10). |
@@ -60,7 +60,7 @@ scoped to the unimplemented account lifecycle described above.
 | `requestPasswordReset` (`POST /request-password-reset`) | Supported | Native async `sendResetPassword`, exact `redirectTo`, enumeration-resistant response/timing work, one-hour default expiry, and hashed persisted token identifiers; [#11](https://github.com/lucid-softworks/auth/issues/11). |
 | `resetPassword` (`GET /reset-password/:token`, `POST /reset-password`) | Supported | Exact `callbackURL`, compatible callback/error redirects, body and query tokens, password policy, atomic single-use replacement, optional session revocation, and native `onPasswordReset`; [#11](https://github.com/lucid-softworks/auth/issues/11). |
 | `changePassword` (`POST /change-password`) | Supported | Current-password flow and optional other-session revocation are implemented. |
-| `updateUser` (`POST /update-user`) | Planned | [#12](https://github.com/lucid-softworks/auth/issues/12). |
+| `updateUser` (`POST /update-user`) | Partial | Core name/image and username-plugin fields are supported. Broader additional-field hooks remain in [#12](https://github.com/lucid-softworks/auth/issues/12) and [#60](https://github.com/lucid-softworks/auth/issues/60). |
 | `updateSession` (`POST /update-session`) | Planned | [#12](https://github.com/lucid-softworks/auth/issues/12). |
 | `changeEmail` (`POST /change-email`) | Planned | Immediate and verified modes: [#12](https://github.com/lucid-softworks/auth/issues/12). |
 | `deleteUser` and deletion callback | Planned | [#13](https://github.com/lucid-softworks/auth/issues/13). |
@@ -79,7 +79,7 @@ scoped to the unimplemented account lifecycle described above.
 
 | Plugin | Status | Tracking and limitations |
 | --- | --- | --- |
-| Username | Partial | Login and availability work; signup, update, normalization, and full validation are [#16](https://github.com/lucid-softworks/auth/issues/16). |
+| Username | Supported | Optional `UsernamePlugin`; official signup, normalized sign-in, availability, and update lifecycle; configurable length, async validation, normalization order, display usernames, immutable usernames, exact errors, and atomic duplicate prevention; [#16](https://github.com/lucid-softworks/auth/issues/16). |
 | Anonymous | Partial | Sign-in works; deletion and conversion/linking are [#17](https://github.com/lucid-softworks/auth/issues/17). |
 | Passkey | Supported | Optional `PasskeyPlugin`; all seven official methods, exact schema/casing, origin arrays or request-origin fallback, fresh and passkey-first registration, context/resolver/callback options, authenticator selection, extensions, `createSession`, durable single-use challenges, atomic counters, and lossless legacy credential migration; [#19](https://github.com/lucid-softworks/auth/issues/19). |
 | Two-Factor Authentication | Partial | Backup-code generation and redemption work through a custom passkey-MFA session model. TOTP, OTP, trusted devices, enable/disable, and official challenge semantics are [#20](https://github.com/lucid-softworks/auth/issues/20). |

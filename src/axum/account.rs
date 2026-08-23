@@ -2,7 +2,7 @@ use super::http::{
     PeerAddress, auth_error, clear_session_cookie, client_ip, current_session, user_agent,
     with_session_cookie,
 };
-use crate::{AuthError, AuthService};
+use crate::{AuthError, AuthService, UserProfileUpdate};
 use axum::{
     Extension, Json, Router,
     http::HeaderMap,
@@ -13,8 +13,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::protocol::better_auth::{
-    BetterAuthSession, BetterAuthUser, ChangePasswordRequest, ChangePasswordResponse,
-    GenerateBackupCodesRequest, GenerateBackupCodesResponse, RevokeSessionRequest, StatusResponse,
+    BetterAuthSession, ChangePasswordRequest, ChangePasswordResponse, GenerateBackupCodesRequest,
+    GenerateBackupCodesResponse, RevokeSessionRequest, StatusResponse, UpdateUserRequest,
     VerifyBackupCodeRequest, VerifyBackupCodeResponse,
 };
 
@@ -23,6 +23,7 @@ where
     S: Clone + Send + Sync + 'static,
 {
     Router::new()
+        .route("/update-user", post(update_user))
         .route("/change-password", post(change_password))
         .route("/list-sessions", get(list_sessions))
         .route("/revoke-session", post(revoke_session))
@@ -33,6 +34,40 @@ where
             post(generate_backup_codes),
         )
         .route("/two-factor/verify-backup-code", post(verify_backup_code))
+}
+
+async fn update_user(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    Json(input): Json<UpdateUserRequest>,
+) -> Response {
+    let Some(session) = current_session(&service, &headers).await else {
+        return auth_error(AuthError::InvalidSession);
+    };
+    if input.email.is_some() {
+        return auth_error(AuthError::InvalidRequest("Email cannot be updated".into()));
+    }
+    match service
+        .update_current_user(
+            &session,
+            UserProfileUpdate {
+                name: input.name,
+                image: input.image,
+                username: input.username,
+                display_username: input.display_username,
+            },
+        )
+        .await
+    {
+        Ok(()) => {
+            let response = Json(StatusResponse { status: true });
+            match super::session_token(&service, &headers) {
+                Some(token) => with_session_cookie(&service, &token, Some(true), response),
+                None => response.into_response(),
+            }
+        }
+        Err(error) => auth_error(error),
+    }
 }
 
 async fn generate_backup_codes(
@@ -77,7 +112,7 @@ async fn verify_backup_code(
         Ok(result) => {
             let body = Json(VerifyBackupCodeResponse {
                 token: result.token.clone(),
-                user: BetterAuthUser::from(&result.session.user),
+                user: service.better_auth_user(&result.session.user),
             });
             if input.disable_session == Some(true) {
                 body.into_response()
@@ -110,7 +145,7 @@ async fn change_password(
         .await
     {
         Ok(changed) => {
-            let user = BetterAuthUser::from(&changed.user);
+            let user = service.better_auth_user(&changed.user);
             if let Some(replacement) = changed.replacement_session {
                 let token = replacement.token;
                 with_session_cookie(

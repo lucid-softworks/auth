@@ -1,5 +1,5 @@
 use super::MemoryStore;
-use crate::{AuthError, AuthUser};
+use crate::{AuthError, AuthUser, UserProfileUpdate, UsernameError};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
@@ -14,8 +14,10 @@ pub(super) async fn create_password(
         .username
         .as_ref()
         .is_some_and(|username| state.usernames.contains_key(username))
-        || state.emails.contains_key(&user.email)
     {
+        return Err(UsernameError::AlreadyTaken.into());
+    }
+    if state.emails.contains_key(&user.email) {
         return Err(AuthError::UserAlreadyExists);
     }
     if let Some(username) = &user.username {
@@ -134,6 +136,50 @@ pub(super) async fn find_by_email(
         .get(&email.to_lowercase())
         .and_then(|id| state.users.get(id))
         .cloned())
+}
+
+pub(super) async fn update_profile(
+    store: &MemoryStore,
+    user_id: Uuid,
+    update: UserProfileUpdate,
+) -> Result<Option<AuthUser>, AuthError> {
+    let mut state = store.state.write().await;
+    let Some(current) = state.users.get(&user_id) else {
+        return Ok(None);
+    };
+    if let Some(username) = &update.username
+        && state
+            .usernames
+            .get(username)
+            .is_some_and(|owner| *owner != user_id)
+    {
+        return Err(UsernameError::AlreadyTaken.into());
+    }
+    let previous_username = current.username.clone();
+    let user = state.users.get_mut(&user_id).expect("user checked above");
+    if let Some(name) = update.name {
+        user.name = name;
+    }
+    if let Some(image) = update.image {
+        user.image = image;
+    }
+    if let Some(username) = update.username {
+        user.username = Some(username);
+    }
+    if let Some(display_username) = update.display_username {
+        user.display_username = Some(display_username);
+    }
+    user.updated_at = Utc::now();
+    let updated = user.clone();
+    if previous_username != updated.username {
+        if let Some(previous) = previous_username {
+            state.usernames.remove(&previous);
+        }
+        if let Some(username) = &updated.username {
+            state.usernames.insert(username.clone(), user_id);
+        }
+    }
+    Ok(Some(updated))
 }
 
 pub(super) async fn find_by_id(

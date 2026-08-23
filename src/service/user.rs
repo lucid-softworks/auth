@@ -2,7 +2,7 @@ use super::{
     AuthService,
     password::{hash_password, normalize_username},
 };
-use crate::{AuthError, AuthUser, NewPasswordUser, SessionWithUser};
+use crate::{AuthError, AuthUser, NewPasswordUser, SessionWithUser, UsernameError};
 use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
@@ -60,7 +60,11 @@ impl AuthService {
                 },
                 hash_password(input.password).await?,
             )
-            .await?;
+            .await
+            .map_err(|error| match error {
+                AuthError::Username(UsernameError::AlreadyTaken) => AuthError::UserAlreadyExists,
+                error => error,
+            })?;
         self.audit(
             actor.user.id,
             Some(user.id),

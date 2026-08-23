@@ -6,10 +6,10 @@ use super::{
 use crate::{
     AuthError, AuthService, EmailSignUpInput,
     protocol::better_auth::{
-        BetterAuthUser, EmailSignInRequest, EmailSignUpRequest, EmailSignUpResponse,
-        PasswordResetCallbackQuery, PasswordResetRequestResponse, RequestPasswordResetRequest,
-        ResetPasswordQuery, ResetPasswordRequest, SendVerificationEmailRequest, StatusResponse,
-        VerifyEmailQuery, VerifyEmailResponse, VerifyPasswordRequest,
+        EmailSignInRequest, EmailSignUpRequest, EmailSignUpResponse, PasswordResetCallbackQuery,
+        PasswordResetRequestResponse, RequestPasswordResetRequest, ResetPasswordQuery,
+        ResetPasswordRequest, SendVerificationEmailRequest, StatusResponse, VerifyEmailQuery,
+        VerifyEmailResponse, VerifyPasswordRequest,
     },
 };
 use axum::{
@@ -207,6 +207,8 @@ async fn sign_up_email(
                 image: input.image,
                 callback_url: input.callback_url,
                 remember_me: input.remember_me,
+                username: input.username,
+                display_username: input.display_username,
             },
             client_ip(&service, &headers, peer),
             user_agent(&headers),
@@ -217,7 +219,7 @@ async fn sign_up_email(
             let token = result.token.clone();
             let response = Json(EmailSignUpResponse {
                 token: result.token,
-                user: BetterAuthUser::from(&result.user),
+                user: service.better_auth_user(&result.user),
             });
             match token {
                 Some(token) => with_session_cookie(&service, &token, input.remember_me, response),
@@ -252,7 +254,7 @@ async fn sign_in_email(
                 &service,
                 &token,
                 input.remember_me,
-                Json(sign_in_response(result, callback_url.clone())),
+                Json(sign_in_response(&service, result, callback_url.clone())),
             );
             if let Some(callback_url) = callback_url
                 && let Ok(location) = HeaderValue::from_str(&callback_url)

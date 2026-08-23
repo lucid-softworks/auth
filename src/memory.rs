@@ -78,6 +78,14 @@ impl AuthStore for MemoryStore {
         user::find_by_email(self, email).await
     }
 
+    async fn update_user_profile(
+        &self,
+        user_id: Uuid,
+        update: crate::UserProfileUpdate,
+    ) -> Result<Option<AuthUser>, AuthError> {
+        user::update_profile(self, user_id, update).await
+    }
+
     async fn consume_email_verification(
         &self,
         token_hash: &str,

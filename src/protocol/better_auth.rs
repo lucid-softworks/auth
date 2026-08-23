@@ -26,6 +26,8 @@ pub struct EmailSignUpRequest {
     #[serde(rename = "callbackURL")]
     pub callback_url: Option<String>,
     pub remember_me: Option<bool>,
+    pub username: Option<String>,
+    pub display_username: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -92,6 +94,25 @@ pub struct UsernameAvailabilityResponse {
     pub available: bool,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateUserRequest {
+    pub name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    pub image: Option<Option<String>>,
+    pub email: Option<serde_json::Value>,
+    pub username: Option<String>,
+    pub display_username: Option<String>,
+}
+
+fn deserialize_optional_field<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BetterAuthUser {
@@ -102,7 +123,9 @@ pub struct BetterAuthUser {
     pub image: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub display_username: Option<String>,
     pub is_anonymous: bool,
     pub must_change_password: bool,

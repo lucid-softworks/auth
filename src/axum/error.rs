@@ -45,6 +45,9 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
         AuthError::RecoveryCodesNotEnabled | AuthError::InvalidRecoveryCode => {
             recovery_error_details(&error)
         }
+        AuthError::Username(_) => {
+            return crate::username::error::http_error(error, StatusCode::BAD_REQUEST);
+        }
         AuthError::InvalidSession => (
             StatusCode::UNAUTHORIZED,
             "INVALID_SESSION",

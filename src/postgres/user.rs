@@ -1,5 +1,5 @@
 use super::{UserRow, storage_error};
-use crate::{AuthError, AuthUser};
+use crate::{AuthError, AuthUser, UserProfileUpdate, UsernameError};
 use chrono::Utc;
 use sqlx::PgPool;
 use sqlx::{Postgres, Transaction};
@@ -153,6 +153,42 @@ pub(super) async fn create_without_account(
     .map_err(user_insert_error)
 }
 
+pub(super) async fn update_profile(
+    pool: &PgPool,
+    user_id: Uuid,
+    update: UserProfileUpdate,
+) -> Result<Option<AuthUser>, AuthError> {
+    sqlx::query_as::<_, UserRow>(
+        "UPDATE lucid_auth_users SET \
+         name = COALESCE($2, name), \
+         image = CASE WHEN $3 THEN $4 ELSE image END, \
+         username = COALESCE($5, username), \
+         display_username = COALESCE($6, display_username), \
+         updated_at = NOW() WHERE id = $1 \
+         RETURNING id, username, display_username, name, email, email_verified, image, role, \
+           is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at",
+    )
+    .bind(user_id)
+    .bind(update.name)
+    .bind(update.image.is_some())
+    .bind(update.image.flatten())
+    .bind(update.username)
+    .bind(update.display_username)
+    .fetch_optional(pool)
+    .await
+    .map(|row| row.map(AuthUser::from))
+    .map_err(|error| {
+        if error
+            .as_database_error()
+            .is_some_and(|database| database.is_unique_violation())
+        {
+            UsernameError::AlreadyTaken.into()
+        } else {
+            storage_error(error)
+        }
+    })
+}
+
 pub(super) async fn promote_email_owner(
     pool: &PgPool,
     user_id: Uuid,
@@ -232,7 +268,15 @@ fn user_insert_error(error: sqlx::Error) -> AuthError {
         .as_database_error()
         .is_some_and(|database| database.is_unique_violation())
     {
-        AuthError::UserAlreadyExists
+        if error
+            .as_database_error()
+            .and_then(|database| database.constraint())
+            .is_some_and(|constraint| constraint.contains("username"))
+        {
+            UsernameError::AlreadyTaken.into()
+        } else {
+            AuthError::UserAlreadyExists
+        }
     } else {
         storage_error(error)
     }

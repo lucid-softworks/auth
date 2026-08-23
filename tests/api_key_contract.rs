@@ -6,7 +6,7 @@ use axum::{
 use http_body_util::BodyExt;
 use lucid_auth::{
     ApiKeyConfiguration, ApiKeyError, ApiKeyPlugin, AuthConfig, AuthError, AuthService,
-    MemoryStore, NewApiKey, NewPasswordUser,
+    MemoryStore, NewApiKey, NewPasswordUser, UsernamePlugin,
 };
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
@@ -15,6 +15,7 @@ use tower::ServiceExt;
 async fn application() -> Router {
     let mut config = AuthConfig::new([121_u8; 32]).unwrap();
     config.set_base_url("http://localhost").unwrap();
+    config.add_plugin(UsernamePlugin::default()).unwrap();
     config
         .add_plugin(ApiKeyPlugin::new(ApiKeyConfiguration {
             enable_metadata: true,

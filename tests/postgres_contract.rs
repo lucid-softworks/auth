@@ -2,8 +2,8 @@ use chrono::{Duration, Utc};
 use lucid_auth::{
     Assurance, AuthConfig, AuthError, AuthService, AuthSession, AuthStore, AuthUser,
     EmailSignUpInput, EmailVerificationOutcome, NewPasswordUser, PasskeyConfig, PasskeyPlugin,
-    PasswordResetOutcome, PluginMigration, PluginMigrationContribution, VerificationStore,
-    VerificationValue, postgres::PostgresStore,
+    PasswordResetOutcome, PluginMigration, PluginMigrationContribution, UsernameError,
+    UsernamePlugin, VerificationStore, VerificationValue, postgres::PostgresStore,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -56,6 +56,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
 
     let mut config = AuthConfig::new([42_u8; 32])?;
     config.email_and_password.enabled = true;
+    config.add_plugin(UsernamePlugin::default())?;
     config.add_plugin(PasskeyPlugin::new(PasskeyConfig::default()))?;
     let api_keys = api_key::register(&mut config)?;
     let service = Arc::new(AuthService::new(store.clone(), config));
@@ -91,6 +92,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     password_reset_is_atomic(&store, &pool, user.id).await?;
     magic_link_promotion_is_atomic(&store, &pool).await?;
     email_signup_is_case_insensitive(&service, &pool).await?;
+    username_signup_is_atomic(&service, &pool).await?;
     passkey_counters_are_atomic(&store, user.id).await?;
     api_key::assert_limits_are_atomic(&service, &api_keys, &signed_in.session).await?;
 
@@ -297,6 +299,8 @@ async fn email_signup_is_case_insensitive(
         image: None,
         callback_url: None,
         remember_me: None,
+        username: None,
+        display_username: None,
     };
     let (left, right) = tokio::join!(
         service.sign_up_email(signup("Case.Variant@Example.com"), None, None),
@@ -308,6 +312,49 @@ async fn email_signup_is_case_insensitive(
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM lucid_auth_users WHERE LOWER(email) = 'case.variant@example.com'",
+        )
+        .fetch_one(pool)
+        .await?,
+        1
+    );
+    Ok(())
+}
+
+async fn username_signup_is_atomic(
+    service: &AuthService,
+    pool: &sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let signup = |email: &str, username: &str| EmailSignUpInput {
+        name: "PostgreSQL username user".into(),
+        email: email.into(),
+        password: "correct horse battery staple".into(),
+        image: None,
+        callback_url: None,
+        remember_me: None,
+        username: Some(username.into()),
+        display_username: None,
+    };
+    let (left, right) = tokio::join!(
+        service.sign_up_email(
+            signup("postgres-username-left@example.com", "Postgres_User"),
+            None,
+            None,
+        ),
+        service.sign_up_email(
+            signup("postgres-username-right@example.com", "postgres_user"),
+            None,
+            None,
+        )
+    );
+    assert_eq!(usize::from(left.is_ok()) + usize::from(right.is_ok()), 1);
+    let error = left.err().or_else(|| right.err()).unwrap();
+    assert!(matches!(
+        error,
+        AuthError::Username(UsernameError::AlreadyTaken)
+    ));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM lucid_auth_users WHERE username = 'postgres_user'",
         )
         .fetch_one(pool)
         .await?,

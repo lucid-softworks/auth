@@ -8,7 +8,7 @@ use axum::{
 use lucid_auth::{
     ApiKeyConfiguration, ApiKeyPlugin, AuthConfig, AuthService, MagicLinkConfig, MagicLinkEmail,
     MagicLinkPlugin, MemoryStore, NewPasswordUser, PasskeyConfig, PasskeyPlugin,
-    PasswordResetEmail, PluginDescriptor, VerificationEmail,
+    PasswordResetEmail, PluginDescriptor, UsernamePlugin, VerificationEmail,
     protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
 };
 use serde_json::json;
@@ -144,6 +144,9 @@ async fn fixture(origin: &str) -> Fixture {
     config
         .set_base_url(origin)
         .expect("localhost fixture origin");
+    config
+        .add_plugin(UsernamePlugin::default())
+        .expect("unique username plugin");
     config
         .add_plugin(PasskeyPlugin::new(PasskeyConfig {
             rp_id: Some("localhost".into()),

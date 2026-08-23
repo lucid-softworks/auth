@@ -1,8 +1,7 @@
 use crate::{
     AuthService,
     protocol::better_auth::{
-        AnonymousSignInResponse, BetterAuthUser, SessionResponse, SignInResponse, SuccessResponse,
-        UsernameAvailabilityRequest, UsernameAvailabilityResponse, UsernameSignInRequest,
+        AnonymousSignInResponse, SessionResponse, SignInResponse, SuccessResponse,
     },
 };
 use axum::{
@@ -35,10 +34,8 @@ where
 {
     let mut routes = Router::new()
         .route("/get-session", get(get_session))
-        .route("/sign-in/username", post(sign_in_username))
         .route("/sign-out", post(sign_out))
         .route("/sign-in/anonymous", post(sign_in_anonymous))
-        .route("/is-username-available", post(is_username_available))
         .merge(email_password::router())
         .merge(account::router())
         .merge(admin::router())
@@ -64,6 +61,7 @@ where
 }
 
 pub(super) fn sign_in_response(
+    service: &AuthService,
     result: crate::SignInResult,
     callback_url: Option<String>,
 ) -> SignInResponse {
@@ -71,7 +69,7 @@ pub(super) fn sign_in_response(
         redirect: callback_url.is_some(),
         token: result.token,
         url: callback_url,
-        user: BetterAuthUser::from(&result.session.user),
+        user: service.better_auth_user(&result.session.user),
         two_factor_redirect: result.session.session.assurance
             == crate::Assurance::PasswordPendingPasskey,
         two_factor_methods: if result.mfa_setup_required {
@@ -82,35 +80,6 @@ pub(super) fn sign_in_response(
             Vec::new()
         },
         mfa_setup_required: result.mfa_setup_required,
-    }
-}
-
-async fn sign_in_username(
-    Extension(service): Extension<Arc<AuthService>>,
-    peer: PeerAddress,
-    headers: HeaderMap,
-    Json(input): Json<UsernameSignInRequest>,
-) -> Response {
-    let callback_url = input.callback_url.clone();
-    match service
-        .sign_in_username(
-            &input.username,
-            input.password,
-            client_ip(&service, &headers, peer),
-            user_agent(&headers),
-        )
-        .await
-    {
-        Ok(result) => {
-            let token = result.token.clone();
-            with_session_cookie(
-                &service,
-                &token,
-                input.remember_me,
-                Json(sign_in_response(result, callback_url)),
-            )
-        }
-        Err(error) => auth_error(error),
     }
 }
 
@@ -126,7 +95,7 @@ async fn sign_in_anonymous(
         Ok(result) => {
             let response = AnonymousSignInResponse {
                 token: result.token.clone(),
-                user: BetterAuthUser::from(&result.session.user),
+                user: service.better_auth_user(&result.session.user),
             };
             with_session_cookie(&service, &result.token, Some(true), Json(response))
         }
@@ -143,7 +112,14 @@ async fn get_session(
             Ok(Some(session)) => {
                 let step_up_required = service.step_up_required(&session.principal());
                 Json(Some(
-                    SessionResponse::new(&session, token).with_step_up_required(step_up_required),
+                    SessionResponse {
+                        session: crate::protocol::better_auth::BetterAuthSession::from_session(
+                            &session.session,
+                            token,
+                        ),
+                        user: service.better_auth_user(&session.user),
+                    }
+                    .with_step_up_required(step_up_required),
                 ))
                 .into_response()
             }
@@ -182,15 +158,4 @@ async fn sign_out(Extension(service): Extension<Arc<AuthService>>, headers: Head
         return auth_error(error);
     }
     clear_session_cookie(&service, Json(SuccessResponse { success: true }))
-}
-
-async fn is_username_available(
-    Extension(service): Extension<Arc<AuthService>>,
-    Json(input): Json<UsernameAvailabilityRequest>,
-) -> Response {
-    let result = service.username_available(&input.username).await;
-    match result {
-        Ok(available) => Json(UsernameAvailabilityResponse { available }).into_response(),
-        Err(error) => auth_error(error),
-    }
 }

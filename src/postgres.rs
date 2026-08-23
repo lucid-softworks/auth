@@ -156,6 +156,14 @@ impl AuthStore for PostgresStore {
         user::load_by_email(&self.pool, email).await
     }
 
+    async fn update_user_profile(
+        &self,
+        user_id: Uuid,
+        update: crate::UserProfileUpdate,
+    ) -> Result<Option<AuthUser>, AuthError> {
+        user::update_profile(&self.pool, user_id, update).await
+    }
+
     async fn consume_email_verification(
         &self,
         token_hash: &str,

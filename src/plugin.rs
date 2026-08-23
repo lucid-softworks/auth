@@ -6,6 +6,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use serde::Serialize;
+use std::any::Any;
 #[cfg(feature = "axum")]
 use std::sync::Arc;
 use uuid::Uuid;
@@ -159,8 +160,19 @@ pub enum AfterAuthEvent {
 }
 
 /// Native, in-process extension boundary for Better Auth-compatible plugins.
+#[doc(hidden)]
+pub trait PluginAny: Any {
+    fn as_any(&self) -> &dyn Any;
+}
+
+impl<T: Any> PluginAny for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
 #[async_trait]
-pub trait AuthPlugin: Send + Sync {
+pub trait AuthPlugin: PluginAny + Send + Sync {
     fn descriptor(&self) -> PluginDescriptor;
 
     fn validate(&self, _config: &AuthConfig) -> Result<(), AuthError> {
