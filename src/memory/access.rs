@@ -74,6 +74,14 @@ impl AccessStore for MemoryStore {
         state
             .api_keys
             .retain(|_, api_key| api_key.reference_id != user_id.to_string());
+        let user_id_text = user_id.to_string();
+        state.verifications.retain(|_, verification| {
+            verification
+                .payload
+                .get("userId")
+                .and_then(|value| value.as_str())
+                != Some(user_id_text.as_str())
+        });
         state.sessions.retain(|_, session| {
             session.user_id != user_id
                 && session.actor_user_id != Some(user_id)

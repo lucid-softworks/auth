@@ -15,6 +15,8 @@ use uuid::Uuid;
 mod api_key;
 #[path = "postgres_contract/passkey.rs"]
 mod passkey;
+#[path = "postgres_contract/user_deletion.rs"]
+mod user_deletion;
 
 use passkey::{
     assert_legacy_passkey_migrated, insert_legacy_passkey, passkey_counters_are_atomic,
@@ -56,6 +58,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
 
     let mut config = AuthConfig::new([42_u8; 32])?;
     config.email_and_password.enabled = true;
+    config.user.delete_user.enabled = true;
     config.add_plugin(UsernamePlugin::default())?;
     config.add_plugin(PasskeyPlugin::new(PasskeyConfig::default()))?;
     let api_keys = api_key::register(&mut config)?;
@@ -74,18 +77,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     store.migrate_plugins(&service.plugin_migrations()).await?;
     assert_eq!(passkey_public_key_column_count(&pool).await?, 1);
     assert_legacy_passkey_migrated(&store, &legacy).await?;
-    let signed_in = service
-        .sign_in_username(
-            "owner",
-            "correct horse battery staple".into(),
-            Some("127.0.0.1".into()),
-            Some("lucid-auth integration test".into()),
-        )
-        .await?;
-
-    assert_eq!(signed_in.session.user, user);
-    assert_eq!(signed_in.session.principal().subject_id, user.id);
-    assert!(service.session(&signed_in.token).await?.is_some());
+    let signed_in = authenticate_owner(&service, &user).await?;
 
     verification_values_are_atomic(&store, user.id).await?;
     email_verification_is_atomic(&store, &user).await?;
@@ -93,6 +85,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     magic_link_promotion_is_atomic(&store, &pool).await?;
     email_signup_is_case_insensitive(&service, &pool).await?;
     username_signup_is_atomic(&service, &pool).await?;
+    user_deletion::assert_transactional(&service, &pool).await?;
     passkey_counters_are_atomic(&store, user.id).await?;
     api_key::assert_limits_are_atomic(&service, &api_keys, &signed_in.session).await?;
 
@@ -102,6 +95,24 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
         .await?;
     admin.close().await;
     Ok(())
+}
+
+async fn authenticate_owner(
+    service: &AuthService,
+    user: &AuthUser,
+) -> Result<lucid_auth::SignInResult, AuthError> {
+    let signed_in = service
+        .sign_in_username(
+            "owner",
+            "correct horse battery staple".into(),
+            Some("127.0.0.1".into()),
+            Some("lucid-auth integration test".into()),
+        )
+        .await?;
+    assert_eq!(&signed_in.session.user, user);
+    assert_eq!(signed_in.session.principal().subject_id, user.id);
+    assert!(service.session(&signed_in.token).await?.is_some());
+    Ok(signed_in)
 }
 
 async fn magic_link_promotion_is_atomic(

@@ -63,7 +63,7 @@ scoped to the unimplemented account lifecycle described above.
 | `updateUser` (`POST /update-user`) | Partial | Core name/image and username-plugin fields are supported. Broader additional-field hooks remain in [#12](https://github.com/lucid-softworks/auth/issues/12) and [#60](https://github.com/lucid-softworks/auth/issues/60). |
 | `updateSession` (`POST /update-session`) | Planned | [#12](https://github.com/lucid-softworks/auth/issues/12). |
 | `changeEmail` (`POST /change-email`) | Planned | Immediate and verified modes: [#12](https://github.com/lucid-softworks/auth/issues/12). |
-| `deleteUser` and deletion callback | Planned | [#13](https://github.com/lucid-softworks/auth/issues/13). |
+| `deleteUser` and deletion callback | Supported | Disabled by default; password, fresh-session, and purpose-bound verification-token modes; exact `callbackURL`, callback redirects, cookie clearing, native before/after callbacks, plugin hooks, and transactional adapter cleanup; [#13](https://github.com/lucid-softworks/auth/issues/13). |
 | `listSessions` (`GET /list-sessions`) | Partial | Listing works, but freshness and returned token semantics differ; [#58](https://github.com/lucid-softworks/auth/issues/58). |
 | `revokeSession` (`POST /revoke-session`) | Partial | Works with the opaque session identifier returned by this server. Full session parity is [#58](https://github.com/lucid-softworks/auth/issues/58). |
 | `revokeOtherSessions` | Supported | Stateful sessions only. |

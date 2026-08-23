@@ -667,6 +667,31 @@ async function conformance(origin) {
     transport.assertRequest("/api/auth/sign-in/anonymous", "POST", {});
     success(await client.signOut(), "signOut");
   });
+
+  await runCase("current-user deletion client", async () => {
+    success(
+      await client.signUp.email({
+        name: "Delete User",
+        email: "delete-user@example.com",
+        password: "correct horse battery staple",
+      }),
+      "signUp.email for deleteUser",
+    );
+    const deleted = success(
+      await client.deleteUser({
+        password: "correct horse battery staple",
+        callbackURL: "/goodbye",
+      }),
+      "deleteUser",
+    );
+    assert.deepEqual(deleted, { success: true, message: "User deleted" });
+    transport.assertRequest("/api/auth/delete-user", "POST", {
+      password: "correct horse battery staple",
+      callbackURL: "/goodbye",
+    });
+    const session = await client.getSession();
+    assert.equal(session.data, null);
+  });
 }
 
 async function startServer() {

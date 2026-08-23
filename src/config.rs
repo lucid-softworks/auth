@@ -1,6 +1,7 @@
 use crate::{
     AuthError, AuthPlugin, CookieConfig, EmailVerificationConfig, PasswordBreachChecker,
-    PasswordResetCallback, PasswordResetEmailSender, TrustedOrigin, client_ip::IpAddressConfig,
+    PasswordResetCallback, PasswordResetEmailSender, TrustedOrigin, UserConfig,
+    client_ip::IpAddressConfig,
 };
 use chrono::Duration;
 use std::sync::Arc;
@@ -27,6 +28,7 @@ pub struct AuthConfig {
     /// by default, matching Better Auth.
     pub email_and_password: EmailPasswordConfig,
     pub email_verification: EmailVerificationConfig,
+    pub user: UserConfig,
     /// Better Auth-compatible client-IP tracking and trusted proxy settings.
     pub ip_address: IpAddressConfig,
     /// Additional browser origins allowed to call authentication endpoints or
@@ -95,6 +97,7 @@ impl AuthConfig {
             password_breach_checker: None,
             email_and_password: EmailPasswordConfig::default(),
             email_verification: EmailVerificationConfig::default(),
+            user: UserConfig::default(),
             ip_address: IpAddressConfig::default(),
             trusted_origins: Vec::new(),
             required_mfa_roles: Vec::new(),
@@ -209,6 +212,22 @@ impl AuthConfig {
         if self.email_verification.sender.is_some() && self.base_url.is_none() {
             return Err(AuthError::InvalidConfiguration(
                 "a base URL is required when an email verification sender is configured".into(),
+            ));
+        }
+        if self.user.delete_user.delete_token_expires_in <= Duration::zero() {
+            return Err(AuthError::InvalidConfiguration(
+                "delete-user token expiry must be positive".into(),
+            ));
+        }
+        if self
+            .user
+            .delete_user
+            .send_delete_account_verification
+            .is_some()
+            && self.base_url.is_none()
+        {
+            return Err(AuthError::InvalidConfiguration(
+                "a base URL is required when a delete-account sender is configured".into(),
             ));
         }
         Ok(())

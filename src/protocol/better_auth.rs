@@ -105,6 +105,27 @@ pub struct UpdateUserRequest {
     pub display_username: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct DeleteUserRequest {
+    #[serde(rename = "callbackURL")]
+    pub callback_url: Option<String>,
+    pub password: Option<String>,
+    pub token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteUserCallbackQuery {
+    pub token: String,
+    #[serde(rename = "callbackURL")]
+    pub callback_url: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DeleteUserResponse {
+    pub success: bool,
+    pub message: &'static str,
+}
+
 fn deserialize_optional_field<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
 where
     D: serde::Deserializer<'de>,

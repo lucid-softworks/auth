@@ -150,6 +150,9 @@ pub enum BeforeAuthEvent {
         actor_user_id: Option<Uuid>,
         guest_grant_id: Option<Uuid>,
     },
+    UserDelete {
+        user: AuthUser,
+    },
 }
 
 /// Observational lifecycle events emitted after a successful write.
@@ -157,6 +160,7 @@ pub enum BeforeAuthEvent {
 #[non_exhaustive]
 pub enum AfterAuthEvent {
     SessionCreated { session: SessionWithUser },
+    UserDeleted { user: AuthUser },
 }
 
 /// Native, in-process extension boundary for Better Auth-compatible plugins.

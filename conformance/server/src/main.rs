@@ -131,6 +131,7 @@ async fn fixture(origin: &str) -> Fixture {
     let mut config = AuthConfig::new([82_u8; 32]).expect("fixture secret");
     config.allow_anonymous = true;
     config.email_and_password.enabled = true;
+    config.user.delete_user.enabled = true;
     config.email_verification.sender = Some(Arc::new(ConformanceEmailSender {
         verification: verification_emails.clone(),
         password_reset: password_reset_emails.clone(),

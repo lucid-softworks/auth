@@ -126,7 +126,7 @@ impl AuthService {
             return Err(AuthError::Forbidden);
         }
         self.protect_final_owner(&target, true).await?;
-        self.store.delete_user(user_id).await?;
+        self.delete_user_with_hooks(target.clone()).await?;
         self.audit(
             actor.user.id,
             None,

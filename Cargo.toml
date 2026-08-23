@@ -111,3 +111,7 @@ required-features = ["axum"]
 [[test]]
 name = "username_contract"
 required-features = ["axum"]
+
+[[test]]
+name = "user_deletion_contract"
+required-features = ["axum"]

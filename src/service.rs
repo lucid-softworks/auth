@@ -13,6 +13,7 @@ mod recovery;
 mod session;
 mod session_create;
 mod user;
+mod user_deletion;
 mod username;
 
 #[cfg(feature = "axum")]
@@ -41,6 +42,7 @@ pub use passkey::{
 };
 pub use password::PasswordChangeResult;
 pub use recovery::RecoveryCodeStatus;
+pub use user_deletion::DeleteUserResult;
 
 type HmacSha256 = Hmac<Sha256>;
 

@@ -143,15 +143,33 @@ impl AccessStore for PostgresStore {
     }
 
     async fn delete_user(&self, user_id: Uuid) -> Result<(), AuthError> {
+        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
+        let api_key_table_exists =
+            sqlx::query_scalar::<_, bool>("SELECT to_regclass('lucid_auth_api_keys') IS NOT NULL")
+                .fetch_one(&mut *transaction)
+                .await
+                .map_err(storage_error)?;
+        if api_key_table_exists {
+            sqlx::query("DELETE FROM lucid_auth_api_keys WHERE reference_id = $1")
+                .bind(user_id.to_string())
+                .execute(&mut *transaction)
+                .await
+                .map_err(storage_error)?;
+        }
+        sqlx::query("DELETE FROM lucid_auth_verifications WHERE payload->>'userId' = $1")
+            .bind(user_id.to_string())
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage_error)?;
         let result = sqlx::query("DELETE FROM lucid_auth_users WHERE id = $1")
             .bind(user_id)
-            .execute(&self.pool)
+            .execute(&mut *transaction)
             .await
             .map_err(storage_error)?;
         if result.rows_affected() == 0 {
             return Err(AuthError::NotFound);
         }
-        Ok(())
+        transaction.commit().await.map_err(storage_error)
     }
 
     async fn list_sessions(&self, user_id: Uuid) -> Result<Vec<AuthSession>, AuthError> {

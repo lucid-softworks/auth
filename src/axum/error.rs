@@ -48,6 +48,7 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
         AuthError::Username(_) => {
             return crate::username::error::http_error(error, StatusCode::BAD_REQUEST);
         }
+        error if is_delete_user_error(error) => delete_user_error_details(error),
         AuthError::InvalidSession => (
             StatusCode::UNAUTHORIZED,
             "INVALID_SESSION",
@@ -97,6 +98,33 @@ fn is_passkey_error(error: &AuthError) -> bool {
 }
 
 type ErrorDetails = (StatusCode, &'static str, &'static str);
+
+fn is_delete_user_error(error: &AuthError) -> bool {
+    matches!(
+        error,
+        AuthError::SessionExpired
+            | AuthError::InvalidDeleteUserToken
+            | AuthError::DeleteUserInfoNotFound
+    )
+}
+
+fn delete_user_error_details(error: &AuthError) -> ErrorDetails {
+    match error {
+        AuthError::SessionExpired => (
+            StatusCode::BAD_REQUEST,
+            "SESSION_EXPIRED",
+            "Session expired. Re-authenticate to perform this action.",
+        ),
+        AuthError::InvalidDeleteUserToken => {
+            (StatusCode::NOT_FOUND, "INVALID_TOKEN", "Invalid token")
+        }
+        _ => (
+            StatusCode::NOT_FOUND,
+            "FAILED_TO_GET_USER_INFO",
+            "Failed to get user info",
+        ),
+    }
+}
 
 fn is_credential_error(error: &AuthError) -> bool {
     matches!(

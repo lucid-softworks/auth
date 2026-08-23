@@ -15,6 +15,7 @@ mod passkey;
 mod plugin;
 mod service;
 mod store;
+mod user_deletion;
 mod username;
 
 #[cfg(feature = "axum")]
@@ -62,8 +63,8 @@ pub use plugin::{
 #[cfg(feature = "axum")]
 pub use plugin::{AxumPluginRoute, PluginSession};
 pub use service::{
-    ApiKeySortDirection, ApiKeyUpdate, AuthService, EmailSignUpInput, EmailSignUpResult,
-    EmailVerificationResult, HashedPasswordUser, PasskeyRegistrationRequest,
+    ApiKeySortDirection, ApiKeyUpdate, AuthService, DeleteUserResult, EmailSignUpInput,
+    EmailSignUpResult, EmailVerificationResult, HashedPasswordUser, PasskeyRegistrationRequest,
     PasskeyRegistrationResult, PasskeyRegistrationVerification, PasswordChangeResult,
     RecoveryCodeStatus, SignInResult,
 };
@@ -71,6 +72,10 @@ pub use store::{
     AccessStore, ApiKeyStore, ApiKeyUseOutcome, AuthStore, EmailVerificationOutcome,
     PasskeyDeleteOutcome, PasswordResetOutcome, SecurityStore, UserProfileUpdate,
     VerificationStore,
+};
+pub use user_deletion::{
+    DeleteAccountVerification, DeleteAccountVerificationSender, DeleteUserConfig, UserConfig,
+    UserDeletionCallback,
 };
 pub use username::{
     UsernameConfig, UsernameError, UsernameNormalizer, UsernamePlugin, UsernameValidationOrder,

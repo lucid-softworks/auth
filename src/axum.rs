@@ -22,6 +22,7 @@ mod error;
 mod guest;
 pub(crate) mod http;
 mod security;
+mod user_deletion;
 
 pub use self::http::session_token;
 use self::http::{
@@ -38,6 +39,7 @@ where
         .route("/sign-in/anonymous", post(sign_in_anonymous))
         .merge(email_password::router())
         .merge(account::router())
+        .merge(user_deletion::router())
         .merge(admin::router())
         .merge(guest::router());
     for plugin in service.plugins().plugins() {

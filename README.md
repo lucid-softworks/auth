@@ -21,6 +21,7 @@ supported surface covers:
 - passkey MFA enforcement by role and the backup-code methods exposed by Better
   Auth's official `twoFactorClient`
 - password changes plus current-user session listing and revocation
+- password, fresh-session, and email-confirmed current-user deletion
 - passkey rename and removal
 - the documented admin-client subset for user lifecycle, session revocation and
   bounded impersonation
@@ -108,6 +109,15 @@ Reset requests accept Better Auth's exact `redirectTo` field, while the emailed
 callback endpoint accepts exact `callbackURL`; incorrectly cased aliases are not
 supported. Only a SHA-256 token identifier is stored, and password replacement,
 single-use token consumption, and optional session revocation are atomic.
+
+Current-user deletion is disabled by default. Enable it with
+`config.user.delete_user.enabled = true`. Better Auth's password and fresh-session
+flows then work immediately; configure a native
+`DeleteAccountVerificationSender` to require a purpose-bound, single-use email
+token instead. `before_delete` and `after_delete` callbacks compose with plugin
+user-deletion hooks, and successful deletion clears the session cookie and all
+adapter-owned account data. Deletion links and requests accept only the exact
+`callbackURL` spelling.
 
 Magic Link is an optional native plugin. Implement `MagicLinkSender`, construct
 `MagicLinkConfig`, and register `MagicLinkPlugin` with `AuthConfig::add_plugin`.

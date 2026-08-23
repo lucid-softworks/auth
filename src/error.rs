@@ -57,6 +57,12 @@ pub enum AuthError {
     CredentialAccountNotFound,
     #[error("the current password is incorrect")]
     InvalidPassword,
+    #[error("the current session has expired for this operation")]
+    SessionExpired,
+    #[error("the account-deletion token is invalid")]
+    InvalidDeleteUserToken,
+    #[error("failed to get user info")]
+    DeleteUserInfoNotFound,
     #[error("the new password is too short")]
     PasswordTooShort,
     #[error("the new password is too long")]
