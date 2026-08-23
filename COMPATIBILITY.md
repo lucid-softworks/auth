@@ -186,7 +186,9 @@ framework concerns; deployment guidance is tracked in
 The following are supported lucid-auth features, not Better Auth compatibility
 claims:
 
-- owner-issued, time-bounded guest capability grants ([#71](https://github.com/lucid-softworks/auth/issues/71));
+- optional `GuestCapabilityPlugin` with owner-issued, time-bounded grants,
+  atomic use limits and revocation, plugin-owned routes and PostgreSQL migration
+  ([#71](https://github.com/lucid-softworks/auth/issues/71));
 - role-driven passkey assurance and step-up policy ([#72](https://github.com/lucid-softworks/auth/issues/72));
 - mandatory temporary-password and sole-owner recovery policy ([#73](https://github.com/lucid-softworks/auth/issues/73));
 - product security audit events ([#74](https://github.com/lucid-softworks/auth/issues/74));

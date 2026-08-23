@@ -7,6 +7,7 @@ mod config;
 mod cookie;
 mod email;
 mod error;
+mod guest_capability;
 mod magic_link;
 mod memory;
 mod model;
@@ -37,15 +38,18 @@ pub use email::{
     VerificationEmail, VerificationEmailSender,
 };
 pub use error::AuthError;
+pub use guest_capability::{
+    GuestCapabilityPlugin, GuestCapabilityPrincipal, GuestCapabilityStore, GuestGrant,
+    GuestGrantSignInResult, IssuedGuestGrant, NewGuestGrant,
+};
 pub use magic_link::{
     MagicLinkConfig, MagicLinkEmail, MagicLinkPlugin, MagicLinkRequestContext, MagicLinkSender,
     MagicLinkTokenGenerator, MagicLinkTokenHasher, MagicLinkTokenStorage,
 };
 pub use memory::MemoryStore;
 pub use model::{
-    ApiKey, Assurance, AuditEvent, AuthSession, AuthUser, GuestGrant, IssuedApiKey,
-    IssuedGuestGrant, NewApiKey, NewGuestGrant, NewPasswordUser, Principal, SessionWithUser,
-    StoredPasskey, VerificationValue, VerifiedApiKey,
+    ApiKey, Assurance, AuditEvent, AuthSession, AuthUser, IssuedApiKey, NewApiKey, NewPasswordUser,
+    Principal, SessionWithUser, StoredPasskey, VerificationValue, VerifiedApiKey,
 };
 pub use origin::TrustedOrigin;
 pub use passkey::{

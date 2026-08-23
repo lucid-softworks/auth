@@ -121,14 +121,7 @@ impl AuthService {
             user = promoted;
         }
         let result = self
-            .create_session(
-                user,
-                Assurance::EmailVerified,
-                None,
-                None,
-                ip_address,
-                user_agent,
-            )
+            .create_session(user, Assurance::EmailVerified, None, ip_address, user_agent)
             .await?;
         Ok(MagicLinkVerified {
             result,

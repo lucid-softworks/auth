@@ -1,6 +1,5 @@
 use crate::{
-    ApiKey, AuditEvent, AuthError, AuthSession, AuthUser, GuestGrant, StoredPasskey,
-    VerificationValue,
+    ApiKey, AuditEvent, AuthError, AuthSession, AuthUser, StoredPasskey, VerificationValue,
 };
 use async_trait::async_trait;
 use uuid::Uuid;
@@ -288,24 +287,6 @@ pub trait AccessStore: Send + Sync {
     async fn delete_session_by_id(&self, session_id: Uuid) -> Result<(), AuthError>;
 
     async fn delete_user_sessions(&self, user_id: Uuid) -> Result<(), AuthError>;
-
-    async fn create_guest_grant(&self, grant: GuestGrant) -> Result<GuestGrant, AuthError>;
-
-    async fn consume_guest_grant(
-        &self,
-        token_hash: &str,
-        now: chrono::DateTime<chrono::Utc>,
-    ) -> Result<Option<GuestGrant>, AuthError>;
-
-    async fn find_guest_grant(&self, grant_id: Uuid) -> Result<Option<GuestGrant>, AuthError>;
-
-    async fn list_guest_grants(&self) -> Result<Vec<GuestGrant>, AuthError>;
-
-    async fn revoke_guest_grant(
-        &self,
-        grant_id: Uuid,
-        revoked_at: chrono::DateTime<chrono::Utc>,
-    ) -> Result<(), AuthError>;
 
     async fn append_audit_event(&self, event: AuditEvent) -> Result<(), AuthError>;
 

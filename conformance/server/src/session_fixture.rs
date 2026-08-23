@@ -30,7 +30,6 @@ pub(crate) async fn create(
             user_id: fixture.owner_id,
             token_hash: hex::encode(Sha256::digest(token.as_bytes())),
             actor_user_id: None,
-            guest_grant_id: None,
             assurance,
             expires_at: now + Duration::hours(1),
             created_at: now,

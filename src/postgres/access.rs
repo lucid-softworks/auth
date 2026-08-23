@@ -1,48 +1,9 @@
 use super::{PostgresStore, SessionRow, UserRow, storage_error};
-use crate::{AccessStore, AuditEvent, AuthError, AuthSession, AuthUser, GuestGrant};
+use crate::{AccessStore, AuditEvent, AuthError, AuthSession, AuthUser};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::FromRow;
 use uuid::Uuid;
-
-#[derive(FromRow)]
-struct GuestGrantRow {
-    id: Uuid,
-    label: String,
-    token_hash: Option<String>,
-    permissions: serde_json::Value,
-    resource_scopes: serde_json::Value,
-    valid_from: DateTime<Utc>,
-    expires_at: DateTime<Utc>,
-    max_uses: Option<i32>,
-    uses: i32,
-    created_by: Uuid,
-    revoked_at: Option<DateTime<Utc>>,
-    created_at: DateTime<Utc>,
-}
-
-impl TryFrom<GuestGrantRow> for GuestGrant {
-    type Error = AuthError;
-
-    fn try_from(row: GuestGrantRow) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.id,
-            label: row.label,
-            token_hash: row.token_hash,
-            permissions: serde_json::from_value(row.permissions)
-                .map_err(|error| AuthError::Storage(error.to_string()))?,
-            resource_scopes: serde_json::from_value(row.resource_scopes)
-                .map_err(|error| AuthError::Storage(error.to_string()))?,
-            valid_from: row.valid_from,
-            expires_at: row.expires_at,
-            max_uses: row.max_uses,
-            uses: row.uses,
-            created_by: row.created_by,
-            revoked_at: row.revoked_at,
-            created_at: row.created_at,
-        })
-    }
-}
 
 #[derive(FromRow)]
 struct AuditEventRow {
@@ -71,8 +32,6 @@ impl From<AuditEventRow> for AuditEvent {
 
 const USER_COLUMNS: &str = "id, username, display_username, name, email, email_verified, image, \
     role, is_anonymous, must_change_password, banned, ban_reason, ban_expires, created_at, updated_at";
-const GRANT_COLUMNS: &str = "id, label, token_hash, permissions, resource_scopes, valid_from, \
-    expires_at, max_uses, uses, created_by, revoked_at, created_at";
 
 #[async_trait]
 impl AccessStore for PostgresStore {
@@ -174,7 +133,7 @@ impl AccessStore for PostgresStore {
 
     async fn list_sessions(&self, user_id: Uuid) -> Result<Vec<AuthSession>, AuthError> {
         sqlx::query_as::<_, SessionRow>(
-            "SELECT id, user_id, token_hash, actor_user_id, guest_grant_id, assurance, \
+            "SELECT id, user_id, token_hash, actor_user_id, assurance, \
              expires_at, created_at, updated_at, ip_address, user_agent \
              FROM lucid_auth_sessions WHERE user_id = $1 AND expires_at > NOW() \
              ORDER BY created_at DESC",
@@ -202,99 +161,6 @@ impl AccessStore for PostgresStore {
             .await
             .map(|_| ())
             .map_err(storage_error)
-    }
-
-    async fn create_guest_grant(&self, grant: GuestGrant) -> Result<GuestGrant, AuthError> {
-        let query = format!(
-            "INSERT INTO lucid_auth_guest_grants \
-             (id, label, token_hash, permissions, resource_scopes, valid_from, expires_at, \
-              max_uses, uses, created_by, revoked_at, created_at) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING {GRANT_COLUMNS}"
-        );
-        let permissions = serde_json::to_value(&grant.permissions)
-            .map_err(|error| AuthError::Storage(error.to_string()))?;
-        let scopes = serde_json::to_value(&grant.resource_scopes)
-            .map_err(|error| AuthError::Storage(error.to_string()))?;
-        let row = sqlx::query_as::<_, GuestGrantRow>(&query)
-            .bind(grant.id)
-            .bind(grant.label)
-            .bind(grant.token_hash)
-            .bind(permissions)
-            .bind(scopes)
-            .bind(grant.valid_from)
-            .bind(grant.expires_at)
-            .bind(grant.max_uses)
-            .bind(grant.uses)
-            .bind(grant.created_by)
-            .bind(grant.revoked_at)
-            .bind(grant.created_at)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(storage_error)?;
-        row.try_into()
-    }
-
-    async fn consume_guest_grant(
-        &self,
-        token_hash: &str,
-        now: DateTime<Utc>,
-    ) -> Result<Option<GuestGrant>, AuthError> {
-        let query = format!(
-            "UPDATE lucid_auth_guest_grants SET uses = uses + 1 \
-             WHERE token_hash = $1 AND revoked_at IS NULL AND valid_from <= $2 \
-               AND expires_at > $2 AND (max_uses IS NULL OR uses < max_uses) \
-             RETURNING {GRANT_COLUMNS}"
-        );
-        sqlx::query_as::<_, GuestGrantRow>(&query)
-            .bind(token_hash)
-            .bind(now)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(storage_error)?
-            .map(TryInto::try_into)
-            .transpose()
-    }
-
-    async fn find_guest_grant(&self, grant_id: Uuid) -> Result<Option<GuestGrant>, AuthError> {
-        let query = format!("SELECT {GRANT_COLUMNS} FROM lucid_auth_guest_grants WHERE id = $1");
-        sqlx::query_as::<_, GuestGrantRow>(&query)
-            .bind(grant_id)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(storage_error)?
-            .map(TryInto::try_into)
-            .transpose()
-    }
-
-    async fn list_guest_grants(&self) -> Result<Vec<GuestGrant>, AuthError> {
-        let query =
-            format!("SELECT {GRANT_COLUMNS} FROM lucid_auth_guest_grants ORDER BY created_at DESC");
-        sqlx::query_as::<_, GuestGrantRow>(&query)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(storage_error)?
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect()
-    }
-
-    async fn revoke_guest_grant(
-        &self,
-        grant_id: Uuid,
-        revoked_at: DateTime<Utc>,
-    ) -> Result<(), AuthError> {
-        let result = sqlx::query(
-            "UPDATE lucid_auth_guest_grants SET revoked_at = $2, token_hash = NULL WHERE id = $1",
-        )
-        .bind(grant_id)
-        .bind(revoked_at)
-        .execute(&self.pool)
-        .await
-        .map_err(storage_error)?;
-        if result.rows_affected() == 0 {
-            return Err(AuthError::NotFound);
-        }
-        Ok(())
     }
 
     async fn append_audit_event(&self, event: AuditEvent) -> Result<(), AuthError> {

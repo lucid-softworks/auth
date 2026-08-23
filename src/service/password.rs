@@ -103,7 +103,7 @@ impl AuthService {
             Assurance::Password
         };
         let mut result = self
-            .create_session(user, assurance, None, None, ip_address, user_agent)
+            .create_session(user, assurance, None, ip_address, user_agent)
             .await?;
         result.mfa_setup_required = mfa_setup_required;
         Ok(result)
@@ -149,7 +149,6 @@ impl AuthService {
                 self.create_session(
                     updated_user.clone(),
                     session.session.assurance,
-                    None,
                     None,
                     ip_address,
                     user_agent,

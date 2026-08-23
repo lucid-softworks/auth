@@ -116,42 +116,6 @@ pub struct VerificationValue {
     pub created_at: DateTime<Utc>,
 }
 
-/// A time-bounded capability grant that can be exchanged for a guest session.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GuestGrant {
-    pub id: Uuid,
-    pub label: String,
-    #[serde(skip_serializing)]
-    pub token_hash: Option<String>,
-    pub permissions: Vec<String>,
-    pub resource_scopes: Vec<String>,
-    pub valid_from: DateTime<Utc>,
-    pub expires_at: DateTime<Utc>,
-    pub max_uses: Option<i32>,
-    pub uses: i32,
-    pub created_by: Uuid,
-    pub revoked_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-}
-
-/// Input for issuing an owner-controlled guest capability.
-#[derive(Debug, Clone)]
-pub struct NewGuestGrant {
-    pub label: String,
-    pub permissions: Vec<String>,
-    pub resource_scopes: Vec<String>,
-    pub valid_from: DateTime<Utc>,
-    pub expires_at: DateTime<Utc>,
-    pub max_uses: Option<i32>,
-}
-
-/// A guest grant plus its one-time-visible bearer token.
-#[derive(Debug, Clone)]
-pub struct IssuedGuestGrant {
-    pub grant: GuestGrant,
-    pub token: String,
-}
-
 /// A Better Auth-compatible API-key record without its one-time secret.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -240,7 +204,6 @@ pub struct AuthSession {
     pub user_id: Uuid,
     pub token_hash: String,
     pub actor_user_id: Option<Uuid>,
-    pub guest_grant_id: Option<Uuid>,
     pub assurance: Assurance,
     pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
@@ -263,9 +226,6 @@ pub struct Principal {
     pub session_id: Uuid,
     pub role: String,
     pub assurance: Assurance,
-    pub guest_grant_id: Option<Uuid>,
-    pub permissions: Vec<String>,
-    pub resource_scopes: Vec<String>,
     pub must_change_password: bool,
     /// When the credentials establishing the current assurance were verified.
     pub authenticated_at: DateTime<Utc>,
@@ -280,9 +240,6 @@ impl SessionWithUser {
             session_id: self.session.id,
             role: self.user.role.clone(),
             assurance: self.session.assurance,
-            guest_grant_id: self.session.guest_grant_id,
-            permissions: Vec::new(),
-            resource_scopes: Vec::new(),
             must_change_password: self.user.must_change_password,
             authenticated_at: self.session.created_at,
             expires_at: self.session.expires_at,

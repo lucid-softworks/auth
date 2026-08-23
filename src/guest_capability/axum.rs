@@ -1,31 +1,30 @@
-use super::http::{
-    PeerAddress, auth_error, client_ip, current_session, user_agent, with_session_cookie,
+use crate::{
+    AuthError, AuthService, AxumPluginRoute, GuestGrant, NewGuestGrant,
+    axum::http::{
+        PeerAddress, auth_error, client_ip, current_session, user_agent, with_session_cookie,
+    },
 };
-use crate::{AuditEvent, AuthError, AuthService, GuestGrant, NewGuestGrant};
 use axum::{
-    Extension, Json, Router,
-    extract::Query,
+    Extension, Json,
     http::HeaderMap,
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::sync::Arc;
 use uuid::Uuid;
 
-pub(super) fn router<S>() -> Router<S>
-where
-    S: Clone + Send + Sync + 'static,
-{
-    Router::new()
-        .route(
+pub(super) fn routes(_service: Arc<AuthService>) -> Vec<AxumPluginRoute> {
+    vec![
+        AxumPluginRoute::new(
             "/guest-grants",
             get(list_guest_grants).post(issue_guest_grant),
-        )
-        .route("/guest-grants/revoke", post(revoke_guest_grant))
-        .route("/sign-in/guest-grant", post(redeem_guest_grant))
-        .route("/access/audit", get(list_audit_events))
+        ),
+        AxumPluginRoute::new("/guest-grants/revoke", post(revoke_guest_grant)),
+        AxumPluginRoute::new("/sign-in/guest-grant", post(redeem_guest_grant)),
+    ]
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,11 +50,6 @@ struct RevokeGuestGrantRequest {
     grant_id: String,
 }
 
-#[derive(Debug, Default, Deserialize)]
-struct AuditQuery {
-    limit: Option<usize>,
-}
-
 #[derive(Serialize)]
 struct IssuedGuestGrantResponse {
     grant: GuestGrant,
@@ -65,11 +59,6 @@ struct IssuedGuestGrantResponse {
 #[derive(Serialize)]
 struct GuestGrantsResponse {
     grants: Vec<GuestGrant>,
-}
-
-#[derive(Serialize)]
-struct AuditEventsResponse {
-    events: Vec<AuditEvent>,
 }
 
 async fn issue_guest_grant(
@@ -144,29 +133,20 @@ async fn redeem_guest_grant(
         .await
     {
         Ok(result) => {
-            let response = crate::protocol::better_auth::SessionResponse::new(
-                &result.session,
-                result.token.clone(),
-            );
+            let mut response =
+                serde_json::to_value(crate::protocol::better_auth::SessionResponse::new(
+                    &result.session,
+                    result.token.clone(),
+                ))
+                .unwrap_or(Value::Null);
+            if let Some(session) = response.get_mut("session").and_then(Value::as_object_mut) {
+                session.insert(
+                    "guestGrantId".into(),
+                    Value::String(result.grant_id.to_string()),
+                );
+            }
             with_session_cookie(&service, &result.token, Some(true), Json(response))
         }
-        Err(error) => auth_error(error),
-    }
-}
-
-async fn list_audit_events(
-    Extension(service): Extension<Arc<AuthService>>,
-    headers: HeaderMap,
-    Query(query): Query<AuditQuery>,
-) -> Response {
-    let Some(actor) = current_session(&service, &headers).await else {
-        return auth_error(AuthError::InvalidSession);
-    };
-    match service
-        .list_audit_events(&actor, query.limit.unwrap_or(100))
-        .await
-    {
-        Ok(events) => Json(AuditEventsResponse { events }).into_response(),
         Err(error) => auth_error(error),
     }
 }

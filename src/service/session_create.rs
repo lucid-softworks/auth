@@ -11,20 +11,11 @@ impl AuthService {
         user: AuthUser,
         assurance: Assurance,
         actor_user_id: Option<Uuid>,
-        guest_grant_id: Option<Uuid>,
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
-        self.create_session_until(
-            user,
-            assurance,
-            actor_user_id,
-            guest_grant_id,
-            None,
-            ip_address,
-            user_agent,
-        )
-        .await
+        self.create_session_until(user, assurance, actor_user_id, None, ip_address, user_agent)
+            .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -33,7 +24,6 @@ impl AuthService {
         user: AuthUser,
         assurance: Assurance,
         actor_user_id: Option<Uuid>,
-        guest_grant_id: Option<Uuid>,
         expires_at: Option<DateTime<Utc>>,
         ip_address: Option<String>,
         user_agent: Option<String>,
@@ -43,7 +33,6 @@ impl AuthService {
                 user: user.clone(),
                 assurance,
                 actor_user_id,
-                guest_grant_id,
             })
             .await?;
         let token = random_token();
@@ -53,7 +42,6 @@ impl AuthService {
             user_id: user.id,
             token_hash: hash_token(&token),
             actor_user_id,
-            guest_grant_id,
             assurance,
             expires_at: expires_at
                 .unwrap_or(now + self.config.session_ttl)

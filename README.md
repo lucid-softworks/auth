@@ -25,7 +25,6 @@ supported surface covers:
 - passkey rename and removal
 - the documented admin-client subset for user lifecycle, session revocation and
   bounded impersonation
-- owner-issued, time-bounded guest capability grants and security audit events
 - optional HIBP Pwned Passwords screening with Better Auth-compatible errors
 - durable account and client-address sign-in throttling through the configured store
 - enforced password replacement for administrator-created and reset credentials
@@ -38,8 +37,7 @@ supported surface covers:
 
 The library keeps authentication protocol details separate from host-product
 authorization. Applications provide their own permission vocabulary while
-using the authenticated principal's role, actor, subject, guest grant and
-assurance metadata.
+using the authenticated principal's role, actor, subject, and assurance metadata.
 
 Username is an optional native plugin. Register it explicitly to add username
 fields to email signup and current-user updates and to mount the official
@@ -52,6 +50,35 @@ config.add_plugin(UsernamePlugin::default())?;
 This route boundary is separate from `AuthService::provision_password_user`, so
 closed-registration applications can still provision and authenticate native
 username accounts without exposing Better Auth's public username plugin.
+
+Guest capability grants are a lucid-auth extension, not part of Better Auth's
+Anonymous plugin. They are therefore absent by default. Register the optional
+plugin with its extension store to mount `/guest-grants`,
+`/guest-grants/revoke`, and `/sign-in/guest-grant`:
+
+```rust
+let store = Arc::new(MemoryStore::default());
+config.add_plugin(GuestCapabilityPlugin::new(store.clone()))?;
+let auth = AuthService::new(store, config);
+```
+
+The bearer token is returned only when a grant is issued. Native hosts can use
+`AuthService::guest_capability_principal` to obtain its permissions and resource
+scopes. A custom browser client can call the plugin route directly:
+
+```js
+await fetch("/api/auth/sign-in/guest-grant", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ token }),
+});
+```
+
+For PostgreSQL, apply `AuthService::plugin_migrations()` after core migrations.
+New core installations do not create guest-capability tables. On an older
+lucid-auth database, enabling the plugin preserves existing grants, migrates
+legacy session links, and removes the old core session column; leaving it
+disabled retains the legacy grant table as unused data.
 
 Passkey is also optional. Register it explicitly; without the plugin, its seven
 routes do not exist:
@@ -75,11 +102,12 @@ schema includes `publicKey`, exact `credentialID`, counters, device type, backup
 state, transports, and AAGUID. Challenges are durable and single-use, while
 signature counters use compare-and-swap persistence.
 
-The existing role-driven assurance, backup-code, sole-owner, guest-grant, and
-audit policies are project-specific extensions rather than Better Auth passkey
+The existing role-driven assurance, backup-code, sole-owner, and audit policies
+are project-specific extensions rather than Better Auth passkey
 behavior. Their extraction into optional native plugins is tracked in
-[#71](https://github.com/lucid-softworks/auth/issues/71) through
-[#75](https://github.com/lucid-softworks/auth/issues/75); the Better Auth
+[#72](https://github.com/lucid-softworks/auth/issues/72) through
+[#75](https://github.com/lucid-softworks/auth/issues/75). Guest capabilities have
+already moved to their optional lucid extension plugin; the Better Auth
 passkey endpoints do not impose those custom deletion or step-up rules.
 
 Core email/password authentication is disabled by default, matching Better

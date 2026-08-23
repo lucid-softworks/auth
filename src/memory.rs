@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 mod access;
 mod api_key;
+mod guest_capability;
 mod security;
 mod user;
 mod verification;
@@ -26,6 +27,7 @@ struct MemoryState {
     sessions: HashMap<String, AuthSession>,
     passkeys: HashMap<Uuid, StoredPasskey>,
     guest_grants: HashMap<Uuid, GuestGrant>,
+    guest_sessions: HashMap<Uuid, Uuid>,
     api_keys: HashMap<Uuid, ApiKey>,
     audit_events: Vec<AuditEvent>,
     rate_limits: HashMap<String, RateLimitWindow>,
@@ -340,16 +342,21 @@ impl AuthStore for MemoryStore {
     }
 
     async fn delete_session(&self, token_hash: &str) -> Result<(), AuthError> {
-        self.state.write().await.sessions.remove(token_hash);
+        let mut state = self.state.write().await;
+        if let Some(session) = state.sessions.remove(token_hash) {
+            state.guest_sessions.remove(&session.id);
+        }
         Ok(())
     }
 
     async fn delete_expired_sessions(&self, now: DateTime<Utc>) -> Result<(), AuthError> {
-        self.state
-            .write()
-            .await
-            .sessions
-            .retain(|_, session| session.expires_at > now);
+        let mut state = self.state.write().await;
+        state.sessions.retain(|_, session| session.expires_at > now);
+        let active_sessions: std::collections::HashSet<_> =
+            state.sessions.values().map(|session| session.id).collect();
+        state
+            .guest_sessions
+            .retain(|session_id, _| active_sessions.contains(session_id));
         Ok(())
     }
 }

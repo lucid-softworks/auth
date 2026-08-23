@@ -163,9 +163,7 @@ impl AuthService {
         };
         let expires_at = (remember_me == Some(false)).then(|| Utc::now() + Duration::days(1));
         let mut result = self
-            .create_session_until(
-                user, assurance, None, None, expires_at, ip_address, user_agent,
-            )
+            .create_session_until(user, assurance, None, expires_at, ip_address, user_agent)
             .await?;
         result.mfa_setup_required = mfa_setup_required;
         Ok(result)

@@ -98,6 +98,18 @@ impl PluginRegistry {
         }
     }
 
+    pub(crate) async fn validates_session(
+        &self,
+        session: &crate::SessionWithUser,
+    ) -> Result<bool, AuthError> {
+        for plugin in &self.plugins {
+            if !plugin.validate_session(session).await? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     #[cfg(feature = "axum")]
     pub(crate) async fn session_from_headers(
         &self,
@@ -407,9 +419,5 @@ const CORE_ENDPOINTS: &[(PluginHttpMethod, &str)] = &[
     (PluginHttpMethod::Post, "/admin/revoke-user-sessions"),
     (PluginHttpMethod::Post, "/admin/impersonate-user"),
     (PluginHttpMethod::Post, "/admin/stop-impersonating"),
-    (PluginHttpMethod::Get, "/guest-grants"),
-    (PluginHttpMethod::Post, "/guest-grants"),
-    (PluginHttpMethod::Post, "/guest-grants/revoke"),
-    (PluginHttpMethod::Post, "/sign-in/guest-grant"),
     (PluginHttpMethod::Get, "/access/audit"),
 ];

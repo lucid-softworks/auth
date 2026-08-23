@@ -1,6 +1,7 @@
-use super::{AuthService, SignInResult, hash_token, random_token};
+use super::{AuthService, hash_token, random_token};
 use crate::{
-    Assurance, AuditEvent, AuthError, AuthUser, GuestGrant, IssuedGuestGrant, NewGuestGrant,
+    Assurance, AuditEvent, AuthError, AuthUser, GuestCapabilityPlugin, GuestCapabilityPrincipal,
+    GuestGrant, GuestGrantSignInResult, IssuedGuestGrant, NewGuestGrant,
 };
 use chrono::{Duration, Utc};
 use serde_json::json;
@@ -12,6 +13,7 @@ impl AuthService {
         actor: &crate::SessionWithUser,
         mut input: NewGuestGrant,
     ) -> Result<IssuedGuestGrant, AuthError> {
+        let store = self.guest_capability()?.store.clone();
         self.require_recent_owner(actor)?;
         validate_guest_grant(&input)?;
         normalize(&mut input.permissions);
@@ -19,8 +21,7 @@ impl AuthService {
 
         let token = random_token();
         let now = Utc::now();
-        let grant = self
-            .store
+        let grant = store
             .create_guest_grant(GuestGrant {
                 id: Uuid::new_v4(),
                 label: input.label.trim().to_owned(),
@@ -58,13 +59,13 @@ impl AuthService {
         token: &str,
         ip_address: Option<String>,
         user_agent: Option<String>,
-    ) -> Result<SignInResult, AuthError> {
+    ) -> Result<GuestGrantSignInResult, AuthError> {
+        let store = self.guest_capability()?.store.clone();
         if token.len() < 32 || token.len() > 256 {
             return Err(AuthError::InvalidGuestGrant);
         }
         let now = Utc::now();
-        let grant = self
-            .store
+        let grant = store
             .consume_guest_grant(&hash_token(token), now)
             .await?
             .ok_or(AuthError::InvalidGuestGrant)?;
@@ -94,12 +95,18 @@ impl AuthService {
                 user,
                 Assurance::Anonymous,
                 None,
-                Some(grant.id),
                 Some(grant.expires_at),
                 ip_address,
                 user_agent,
             )
             .await?;
+        if !store
+            .attach_guest_session(grant.id, result.session.session.id, Utc::now())
+            .await?
+        {
+            self.store.delete_user(result.session.user.id).await?;
+            return Err(AuthError::InvalidGuestGrant);
+        }
         self.store
             .append_audit_event(AuditEvent {
                 id: Uuid::new_v4(),
@@ -111,15 +118,38 @@ impl AuthService {
                 created_at: now,
             })
             .await?;
-        Ok(result)
+        Ok(GuestGrantSignInResult::new(result, grant.id))
+    }
+
+    pub async fn guest_capability_principal(
+        &self,
+        token: &str,
+    ) -> Result<Option<GuestCapabilityPrincipal>, AuthError> {
+        let store = self.guest_capability()?.store.clone();
+        let Some(session) = self.session(token).await? else {
+            return Ok(None);
+        };
+        let Some(grant) = store
+            .find_guest_grant_for_session(session.session.id)
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(GuestCapabilityPrincipal {
+            principal: session.principal(),
+            guest_grant_id: grant.id,
+            permissions: grant.permissions,
+            resource_scopes: grant.resource_scopes,
+        }))
     }
 
     pub async fn list_guest_grants(
         &self,
         actor: &crate::SessionWithUser,
     ) -> Result<Vec<GuestGrant>, AuthError> {
+        let store = self.guest_capability()?.store.clone();
         super::access::require_owner(actor)?;
-        self.store.list_guest_grants().await
+        store.list_guest_grants().await
     }
 
     pub async fn revoke_guest_grant(
@@ -127,8 +157,9 @@ impl AuthService {
         actor: &crate::SessionWithUser,
         grant_id: Uuid,
     ) -> Result<(), AuthError> {
+        let store = self.guest_capability()?.store.clone();
         self.require_recent_owner(actor)?;
-        self.store.revoke_guest_grant(grant_id, Utc::now()).await?;
+        store.revoke_guest_grant(grant_id, Utc::now()).await?;
         self.audit(
             actor.user.id,
             None,
@@ -137,6 +168,12 @@ impl AuthService {
             json!({}),
         )
         .await
+    }
+
+    fn guest_capability(&self) -> Result<&GuestCapabilityPlugin, AuthError> {
+        self.plugins
+            .find::<GuestCapabilityPlugin>()
+            .ok_or(AuthError::NotFound)
     }
 }
 
@@ -203,15 +240,16 @@ fn invalid_grant<T>(message: &str) -> Result<T, AuthError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AuthConfig, MemoryStore, NewPasswordUser};
+    use crate::{AuthConfig, GuestCapabilityPlugin, MemoryStore, NewPasswordUser};
     use std::sync::Arc;
 
-    #[tokio::test]
-    async fn issued_guest_grants_carry_capabilities_and_can_be_revoked() {
-        let service = AuthService::new(
-            Arc::new(MemoryStore::default()),
-            AuthConfig::new([9_u8; 32]).unwrap(),
-        );
+    async fn fixture() -> (Arc<AuthService>, crate::SessionWithUser) {
+        let store = Arc::new(MemoryStore::default());
+        let mut config = AuthConfig::new([9_u8; 32]).unwrap();
+        config
+            .add_plugin(GuestCapabilityPlugin::new(store.clone()))
+            .unwrap();
+        let service = Arc::new(AuthService::new(store, config));
         service
             .provision_password_user(NewPasswordUser {
                 username: "owner".into(),
@@ -226,10 +264,16 @@ mod tests {
             .sign_in_username("owner", "password".into(), None, None)
             .await
             .unwrap();
+        (service, owner.session)
+    }
+
+    #[tokio::test]
+    async fn max_use_redemption_and_revocation_are_atomic() {
+        let (service, owner) = fixture().await;
         let now = Utc::now();
         let issued = service
             .issue_guest_grant(
-                &owner.session,
+                &owner,
                 NewGuestGrant {
                     label: "Dog sitter".into(),
                     permissions: vec!["devices:read".into(), "devices:read".into()],
@@ -241,24 +285,47 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(issued.grant.permissions, vec!["devices:read"]);
-
-        let guest = service
-            .redeem_guest_grant(&issued.token, None, None)
+        let (left, right) = tokio::join!(
+            service.redeem_guest_grant(&issued.token, None, None),
+            service.redeem_guest_grant(&issued.token, None, None),
+        );
+        assert_eq!(usize::from(left.is_ok()) + usize::from(right.is_ok()), 1);
+        let redeemed = left.or(right).unwrap();
+        let principal = service
+            .guest_capability_principal(&redeemed.token)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(principal.permissions, ["devices:read"]);
+        assert_eq!(principal.resource_scopes, ["room:kitchen"]);
+        service
+            .revoke_guest_grant(&owner, issued.grant.id)
             .await
             .unwrap();
-        let principal = service.principal(&guest.token).await.unwrap().unwrap();
-        assert_eq!(principal.permissions, vec!["devices:read"]);
-        assert_eq!(principal.resource_scopes, vec!["room:kitchen"]);
+        assert!(service.session(&redeemed.token).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn future_grants_cannot_be_redeemed_early() {
+        let (service, owner) = fixture().await;
+        let now = Utc::now();
+        let issued = service
+            .issue_guest_grant(
+                &owner,
+                NewGuestGrant {
+                    label: "Future guest".into(),
+                    permissions: vec!["devices:read".into()],
+                    resource_scopes: Vec::new(),
+                    valid_from: now + Duration::hours(1),
+                    expires_at: now + Duration::hours(2),
+                    max_uses: None,
+                },
+            )
+            .await
+            .unwrap();
         assert!(matches!(
             service.redeem_guest_grant(&issued.token, None, None).await,
             Err(AuthError::InvalidGuestGrant)
         ));
-
-        service
-            .revoke_guest_grant(&owner.session, issued.grant.id)
-            .await
-            .unwrap();
-        assert!(service.principal(&guest.token).await.unwrap().is_none());
     }
 }

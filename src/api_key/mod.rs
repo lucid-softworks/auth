@@ -251,7 +251,6 @@ impl AuthPlugin for ApiKeyPlugin {
                 user_id: verified.user.id,
                 token_hash: String::new(),
                 actor_user_id: None,
-                guest_grant_id: None,
                 assurance: Assurance::Password,
                 expires_at: verified
                     .api_key

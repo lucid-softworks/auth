@@ -1,5 +1,5 @@
 use super::MemoryStore;
-use crate::{AccessStore, AuditEvent, AuthError, AuthSession, AuthUser, GuestGrant};
+use crate::{AccessStore, AuditEvent, AuthError, AuthSession, AuthUser};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -82,12 +82,17 @@ impl AccessStore for MemoryStore {
                 .and_then(|value| value.as_str())
                 != Some(user_id_text.as_str())
         });
+        let removed_sessions: Vec<_> = state
+            .sessions
+            .values()
+            .filter(|session| session.user_id == user_id || session.actor_user_id == Some(user_id))
+            .map(|session| session.id)
+            .collect();
         state.sessions.retain(|_, session| {
-            session.user_id != user_id
-                && session.actor_user_id != Some(user_id)
-                && session
-                    .guest_grant_id
-                    .is_none_or(|grant_id| !removed_grants.contains(&grant_id))
+            session.user_id != user_id && session.actor_user_id != Some(user_id)
+        });
+        state.guest_sessions.retain(|session_id, grant_id| {
+            !removed_sessions.contains(session_id) && !removed_grants.contains(grant_id)
         });
         for event in &mut state.audit_events {
             if event.actor_user_id == Some(user_id) {
@@ -113,79 +118,22 @@ impl AccessStore for MemoryStore {
     }
 
     async fn delete_session_by_id(&self, session_id: Uuid) -> Result<(), AuthError> {
-        self.state
-            .write()
-            .await
-            .sessions
-            .retain(|_, session| session.id != session_id);
+        let mut state = self.state.write().await;
+        state.sessions.retain(|_, session| session.id != session_id);
+        state.guest_sessions.remove(&session_id);
         Ok(())
     }
 
     async fn delete_user_sessions(&self, user_id: Uuid) -> Result<(), AuthError> {
-        self.state
-            .write()
-            .await
+        let mut state = self.state.write().await;
+        state
             .sessions
             .retain(|_, session| session.user_id != user_id);
-        Ok(())
-    }
-
-    async fn create_guest_grant(&self, grant: GuestGrant) -> Result<GuestGrant, AuthError> {
-        self.state
-            .write()
-            .await
-            .guest_grants
-            .insert(grant.id, grant.clone());
-        Ok(grant)
-    }
-
-    async fn consume_guest_grant(
-        &self,
-        token_hash: &str,
-        now: DateTime<Utc>,
-    ) -> Result<Option<GuestGrant>, AuthError> {
-        let mut state = self.state.write().await;
-        let grant = state.guest_grants.values_mut().find(|grant| {
-            grant.token_hash.as_deref() == Some(token_hash)
-                && grant.revoked_at.is_none()
-                && grant.valid_from <= now
-                && grant.expires_at > now
-                && grant.max_uses.is_none_or(|max| grant.uses < max)
-        });
-        Ok(grant.map(|grant| {
-            grant.uses += 1;
-            grant.clone()
-        }))
-    }
-
-    async fn find_guest_grant(&self, grant_id: Uuid) -> Result<Option<GuestGrant>, AuthError> {
-        Ok(self.state.read().await.guest_grants.get(&grant_id).cloned())
-    }
-
-    async fn list_guest_grants(&self) -> Result<Vec<GuestGrant>, AuthError> {
-        let mut grants: Vec<_> = self
-            .state
-            .read()
-            .await
-            .guest_grants
-            .values()
-            .cloned()
-            .collect();
-        grants.sort_by_key(|grant| std::cmp::Reverse(grant.created_at));
-        Ok(grants)
-    }
-
-    async fn revoke_guest_grant(
-        &self,
-        grant_id: Uuid,
-        revoked_at: DateTime<Utc>,
-    ) -> Result<(), AuthError> {
-        let mut state = self.state.write().await;
-        let grant = state
-            .guest_grants
-            .get_mut(&grant_id)
-            .ok_or(AuthError::NotFound)?;
-        grant.revoked_at = Some(revoked_at);
+        let active_sessions: std::collections::HashSet<_> =
+            state.sessions.values().map(|session| session.id).collect();
+        state
+            .guest_sessions
+            .retain(|session_id, _| active_sessions.contains(session_id));
         Ok(())
     }
 

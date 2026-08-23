@@ -100,7 +100,6 @@ impl AuthService {
                 actor.user.clone(),
                 Assurance::Recovery,
                 None,
-                None,
                 ip_address,
                 user_agent,
             )
@@ -199,7 +198,7 @@ mod tests {
             .await
             .unwrap();
         let strong = service
-            .create_session(user, Assurance::PasswordAndPasskey, None, None, None, None)
+            .create_session(user, Assurance::PasswordAndPasskey, None, None, None)
             .await
             .unwrap();
         let codes = service

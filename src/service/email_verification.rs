@@ -123,7 +123,7 @@ impl AuthService {
                     Assurance::EmailVerified
                 };
                 Some(
-                    self.create_session(user.clone(), assurance, None, None, None, None)
+                    self.create_session(user.clone(), assurance, None, None, None)
                         .await?
                         .token,
                 )

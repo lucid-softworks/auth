@@ -175,7 +175,7 @@ impl AuthService {
             .find_user_by_id(stored.user_id)
             .await?
             .ok_or(AuthError::InvalidCredentials)?;
-        self.create_session(user, Assurance::Passkey, None, None, ip_address, user_agent)
+        self.create_session(user, Assurance::Passkey, None, ip_address, user_agent)
             .await
     }
 

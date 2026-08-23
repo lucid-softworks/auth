@@ -187,7 +187,6 @@ impl AuthService {
                 user_id: id,
                 token_hash: String::new(),
                 actor_user_id: None,
-                guest_grant_id: None,
                 assurance: Assurance::Password,
                 expires_at: now + Duration::days(1),
                 created_at: now,
@@ -245,15 +244,8 @@ impl AuthService {
                 updated_at: now,
             })
             .await?;
-        self.create_session(
-            user,
-            Assurance::Anonymous,
-            None,
-            None,
-            ip_address,
-            user_agent,
-        )
-        .await
+        self.create_session(user, Assurance::Anonymous, None, ip_address, user_agent)
+            .await
     }
 
     pub async fn session(&self, token: &str) -> Result<Option<SessionWithUser>, AuthError> {
@@ -275,27 +267,19 @@ impl AuthService {
             self.store.delete_session(&token_hash).await?;
             return Ok(None);
         }
-        Ok(Some(SessionWithUser { session, user }))
+        let session = SessionWithUser { session, user };
+        if !self.plugins.validates_session(&session).await? {
+            self.store.delete_session_by_id(session.session.id).await?;
+            return Ok(None);
+        }
+        Ok(Some(session))
     }
 
     pub async fn principal(&self, token: &str) -> Result<Option<Principal>, AuthError> {
         let Some(session) = self.session(token).await? else {
             return Ok(None);
         };
-        let mut principal = session.principal();
-        if let Some(grant_id) = session.session.guest_grant_id {
-            let Some(grant) = self.store.find_guest_grant(grant_id).await? else {
-                return Ok(None);
-            };
-            let now = Utc::now();
-            if grant.revoked_at.is_some() || grant.valid_from > now || grant.expires_at <= now {
-                self.store.delete_session_by_id(session.session.id).await?;
-                return Ok(None);
-            }
-            principal.permissions = grant.permissions;
-            principal.resource_scopes = grant.resource_scopes;
-        }
-        Ok(Some(principal))
+        Ok(Some(session.principal()))
     }
 
     pub async fn sign_out(&self, token: &str) -> Result<(), AuthError> {

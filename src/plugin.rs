@@ -148,7 +148,6 @@ pub enum BeforeAuthEvent {
         user: AuthUser,
         assurance: Assurance,
         actor_user_id: Option<Uuid>,
-        guest_grant_id: Option<Uuid>,
     },
     UserDelete {
         user: AuthUser,
@@ -192,6 +191,11 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
     }
 
     async fn after(&self, _event: &AfterAuthEvent) {}
+
+    /// Rejects a persisted session when plugin-owned state has expired or been revoked.
+    async fn validate_session(&self, _session: &SessionWithUser) -> Result<bool, AuthError> {
+        Ok(true)
+    }
 
     #[cfg(feature = "axum")]
     fn routes(&self, _service: Arc<AuthService>) -> Vec<AxumPluginRoute> {

@@ -230,7 +230,6 @@ impl AuthService {
                 target,
                 actor.session.assurance,
                 Some(actor.user.id),
-                None,
                 Some(expires_at),
                 ip_address,
                 user_agent,
@@ -269,7 +268,7 @@ impl AuthService {
             session.session.assurance
         };
         let result = self
-            .create_session(actor, assurance, None, None, ip_address, user_agent)
+            .create_session(actor, assurance, None, ip_address, user_agent)
             .await?;
         self.audit(
             actor_id,

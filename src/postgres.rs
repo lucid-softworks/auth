@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 mod access;
 mod api_key;
+mod guest_capability;
 mod migrate;
 mod passkey;
 mod plugin;

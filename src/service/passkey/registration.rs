@@ -226,7 +226,6 @@ impl AuthService {
             user,
             Assurance::Passkey,
             None,
-            None,
             actor.and_then(|actor| actor.session.ip_address.clone()),
             actor.and_then(|actor| actor.session.user_agent.clone()),
         )
