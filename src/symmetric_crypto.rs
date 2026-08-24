@@ -31,9 +31,43 @@ pub(crate) fn decrypt(secret: &[u8], envelope: &str) -> Result<Vec<u8>, ()> {
         .map_err(|_| ())
 }
 
+pub(crate) fn encrypt_versioned(
+    current: &[u8],
+    versioned: &[crate::VersionedSecret],
+    plaintext: &[u8],
+) -> Result<String, ()> {
+    let Some(secret) = versioned.first() else {
+        return encrypt(current, plaintext);
+    };
+    let ciphertext = encrypt(&secret.value, plaintext)?;
+    Ok(format!("$ba${}${ciphertext}", secret.version))
+}
+
+pub(crate) fn decrypt_versioned(
+    current: &[u8],
+    versioned: &[crate::VersionedSecret],
+    legacy: Option<&[u8]>,
+    data: &str,
+) -> Result<Vec<u8>, ()> {
+    if versioned.is_empty() {
+        return decrypt(current, data);
+    }
+    if let Some(envelope) = data.strip_prefix("$ba$") {
+        let (version, ciphertext) = envelope.split_once('$').ok_or(())?;
+        let version = version.parse::<u32>().map_err(|_| ())?;
+        let secret = versioned
+            .iter()
+            .find(|secret| secret.version == version)
+            .ok_or(())?;
+        return decrypt(&secret.value, ciphertext);
+    }
+    decrypt(legacy.ok_or(())?, data)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::VersionedSecret;
 
     #[test]
     fn better_auth_envelope_is_randomized_nonce_prefixed_hex() {
@@ -52,6 +86,49 @@ mod tests {
         assert_eq!(
             decrypt(b"compatible-secret", fixture).unwrap(),
             b"oauth-state"
+        );
+    }
+
+    #[test]
+    fn versioned_envelopes_select_exact_keys_and_require_legacy_fallback() {
+        let current = VersionedSecret {
+            version: 7,
+            value: b"current-compatible-secret-32-bytes".to_vec(),
+        };
+        let retired = VersionedSecret {
+            version: 3,
+            value: b"retired-compatible-secret-32-bytes".to_vec(),
+        };
+        let secrets = [current.clone(), retired.clone()];
+        let encrypted = encrypt_versioned(&current.value, &secrets, b"private-jwk").unwrap();
+        assert!(encrypted.starts_with("$ba$7$"));
+        assert_eq!(
+            decrypt_versioned(&current.value, &secrets, None, &encrypted).unwrap(),
+            b"private-jwk"
+        );
+
+        let retired_ciphertext = encrypt(&retired.value, b"retired-jwk").unwrap();
+        let retired_envelope = format!("$ba$3${retired_ciphertext}");
+        assert_eq!(
+            decrypt_versioned(&current.value, &secrets, None, &retired_envelope).unwrap(),
+            b"retired-jwk"
+        );
+        assert!(
+            decrypt_versioned(
+                &current.value,
+                std::slice::from_ref(&current),
+                None,
+                &retired_envelope
+            )
+            .is_err()
+        );
+
+        let legacy = b"legacy-compatible-secret-32-bytes";
+        let bare = encrypt(legacy, b"legacy-jwk").unwrap();
+        assert!(decrypt_versioned(&current.value, &secrets, None, &bare).is_err());
+        assert_eq!(
+            decrypt_versioned(&current.value, &secrets, Some(legacy), &bare).unwrap(),
+            b"legacy-jwk"
         );
     }
 }

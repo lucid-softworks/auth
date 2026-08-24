@@ -11,6 +11,7 @@ mod access;
 mod api_key;
 mod audit;
 mod guest_capability;
+mod jwt;
 mod migrate;
 mod oauth;
 mod operator_security;
@@ -54,6 +55,10 @@ impl PostgresStore {
 
 #[async_trait]
 impl AuthStore for PostgresStore {
+    fn jwk_store(&self) -> Option<&dyn crate::JwkStore> {
+        Some(self)
+    }
+
     async fn create_password_user(
         &self,
         user: AuthUser,

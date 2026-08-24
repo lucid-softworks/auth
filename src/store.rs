@@ -63,6 +63,10 @@ pub enum OAuthTokenUpdateOutcome {
 pub trait AuthStore:
     AccessStore + ApiKeyStore + OAuthAccountStore + SecurityStore + VerificationStore + Send + Sync
 {
+    fn jwk_store(&self) -> Option<&dyn crate::JwkStore> {
+        None
+    }
+
     async fn create_password_user(
         &self,
         user: AuthUser,

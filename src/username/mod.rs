@@ -15,12 +15,12 @@ use crate::{AuthPlugin, PluginClientMetadata, PluginDescriptor, PluginEndpoint, 
 const ENDPOINTS: &[PluginEndpoint] = &[
     PluginEndpoint {
         method: PluginHttpMethod::Post,
-        path: "/sign-in/username",
+        path: std::borrow::Cow::Borrowed("/sign-in/username"),
         client_method: "signIn.username",
     },
     PluginEndpoint {
         method: PluginHttpMethod::Post,
-        path: "/is-username-available",
+        path: std::borrow::Cow::Borrowed("/is-username-available"),
         client_method: "isUsernameAvailable",
     },
 ];
@@ -49,7 +49,7 @@ impl AuthPlugin for UsernamePlugin {
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
             dependencies: &[],
             conflicts: &[],
-            endpoints: ENDPOINTS,
+            endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],

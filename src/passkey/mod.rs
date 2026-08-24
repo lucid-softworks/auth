@@ -23,37 +23,37 @@ mod axum;
 const ENDPOINTS: &[PluginEndpoint] = &[
     PluginEndpoint {
         method: PluginHttpMethod::Get,
-        path: "/passkey/generate-register-options",
+        path: std::borrow::Cow::Borrowed("/passkey/generate-register-options"),
         client_method: "passkey.addPasskey",
     },
     PluginEndpoint {
         method: PluginHttpMethod::Post,
-        path: "/passkey/verify-registration",
+        path: std::borrow::Cow::Borrowed("/passkey/verify-registration"),
         client_method: "passkey.addPasskey",
     },
     PluginEndpoint {
         method: PluginHttpMethod::Get,
-        path: "/passkey/generate-authenticate-options",
+        path: std::borrow::Cow::Borrowed("/passkey/generate-authenticate-options"),
         client_method: "signIn.passkey",
     },
     PluginEndpoint {
         method: PluginHttpMethod::Post,
-        path: "/passkey/verify-authentication",
+        path: std::borrow::Cow::Borrowed("/passkey/verify-authentication"),
         client_method: "signIn.passkey",
     },
     PluginEndpoint {
         method: PluginHttpMethod::Get,
-        path: "/passkey/list-user-passkeys",
+        path: std::borrow::Cow::Borrowed("/passkey/list-user-passkeys"),
         client_method: "passkey.listUserPasskeys",
     },
     PluginEndpoint {
         method: PluginHttpMethod::Post,
-        path: "/passkey/delete-passkey",
+        path: std::borrow::Cow::Borrowed("/passkey/delete-passkey"),
         client_method: "passkey.deletePasskey",
     },
     PluginEndpoint {
         method: PluginHttpMethod::Post,
-        path: "/passkey/update-passkey",
+        path: std::borrow::Cow::Borrowed("/passkey/update-passkey"),
         client_method: "passkey.updatePasskey",
     },
 ];
@@ -237,7 +237,7 @@ impl AuthPlugin for PasskeyPlugin {
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
             dependencies: &[],
             conflicts: &[],
-            endpoints: ENDPOINTS,
+            endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: COOKIES,
             rate_limits: &[],
             middleware: &[],

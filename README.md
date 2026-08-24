@@ -37,6 +37,7 @@ The currently supported surface covers:
 - the official Google `oneTapClient` callback surface as an optional native plugin
 - the complete official `multiSessionClient` surface as an optional native plugin
 - the complete official `lastLoginMethodClient` surface as an optional native plugin
+- the official `jwtClient` token/JWKS surface as an optional native plugin
 - the complete Better Auth username lifecycle as an optional native plugin
 - sign-out
 - the complete official anonymous client lifecycle as an optional native plugin
@@ -314,6 +315,48 @@ JWT-plugin tokens are service tokens for external resource servers to verify
 against JWKS. Bearer does not accept those JWTs; it transports Better Auth
 session credentials. OAuth Popup uses this plugin only for a cross-origin
 embedded client that cannot rely on its partitioned browser cookie.
+
+JWT is an independent optional plugin. Its default is Better Auth 1.7.1 EdDSA
+with an Ed25519 key, a 15-minute token lifetime, `GET /jwks`, and authenticated
+`GET /token`:
+
+```rust
+use lucid_auth::{JwkAlgorithm, JwtConfig, JwtPlugin};
+
+let mut jwt = JwtConfig::default();
+jwt.jwks.key_pair_config = Some(JwkAlgorithm::EdDsa);
+config.add_plugin(JwtPlugin::new(jwt))?;
+```
+
+Register `jwtClient()` from `better-auth/client/plugins` in the official
+JavaScript client. Its `token()` method calls `/token`; `jwks()` calls the path
+configured on the client plugin, which must match `jwt.jwks.jwks_path` on the
+Rust server. Native server code uses `service.jwt()` for server-only signing,
+verification, key creation, and exact key selection. The supported algorithms
+are EdDSA/Ed25519, ES256, ES512, PS256, and RS256.
+
+The plugin lazily creates signing keys and contributes its JWKS migration.
+Private JWKs are encrypted by default with Better Auth's randomized
+XChaCha20-Poly1305 format. `AuthConfig::set_versioned_secrets` enables `$ba$`
+versioned envelopes and optional legacy bare-hex decryption during secret
+rotation. Apply `AuthService::plugin_migrations()` for PostgreSQL before serving
+traffic; memory storage needs no setup. Custom table/field names and independent
+read/create adapter callbacks are available through `JwtConfig`.
+
+Set `jwt.session_cookie_cache = true` together with
+`config.session.cookie_cache.strategy = CookieCacheStrategy::Jwt` to replace
+the ordinary HS256 cache token with Better Auth's asymmetric, JWKS-verifiable
+session-cache profile. Remote `jwt.sign` cannot be combined with this mode.
+`jwks.remote_url` makes the local JWKS route return 404 and requires an explicit
+primary algorithm for discovery metadata. JWT responses are `no-store`, and
+only public JWK fields are returned over HTTP.
+
+Lucid deliberately does not reproduce five pinned 1.7.1 bugs: an expired/null
+session cannot receive `set-auth-jwt`; schema remapping is instance-local;
+token responses and errors are never cacheable; private JWKs are redacted from
+ordinary diagnostics even when storage encryption is disabled; and service
+token signing fails unless issuer/audience can be resolved safely. These are
+security/correctness fixes, not legacy modes or compatibility aliases.
 
 Additional fields for Better Auth's user, session, account, and verification
 models are explicit and typed. Core and plugin schema descriptors are merged in

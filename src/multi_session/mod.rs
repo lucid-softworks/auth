@@ -11,17 +11,17 @@ use std::sync::Arc;
 const ENDPOINTS: &[PluginEndpoint] = &[
     PluginEndpoint {
         method: PluginHttpMethod::Get,
-        path: "/multi-session/list-device-sessions",
+        path: std::borrow::Cow::Borrowed("/multi-session/list-device-sessions"),
         client_method: "multiSession.listDeviceSessions",
     },
     PluginEndpoint {
         method: PluginHttpMethod::Post,
-        path: "/multi-session/set-active",
+        path: std::borrow::Cow::Borrowed("/multi-session/set-active"),
         client_method: "multiSession.setActive",
     },
     PluginEndpoint {
         method: PluginHttpMethod::Post,
-        path: "/multi-session/revoke",
+        path: std::borrow::Cow::Borrowed("/multi-session/revoke"),
         client_method: "multiSession.revoke",
     },
 ];
@@ -67,7 +67,7 @@ impl AuthPlugin for MultiSessionPlugin {
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
             dependencies: &[],
             conflicts: &[],
-            endpoints: ENDPOINTS,
+            endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],

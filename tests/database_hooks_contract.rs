@@ -111,7 +111,7 @@ impl AuthPlugin for SchemaPlugin {
             version: "1.0.0",
             dependencies: &[],
             conflicts: &[],
-            endpoints: &[],
+            endpoints: std::borrow::Cow::Borrowed(&[]),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],

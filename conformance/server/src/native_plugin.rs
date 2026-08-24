@@ -20,12 +20,12 @@ pub(crate) struct ConformancePlugin;
 const ENDPOINTS: &[PluginEndpoint] = &[
     PluginEndpoint {
         method: PluginHttpMethod::Get,
-        path: "/native-plugin/ping",
+        path: std::borrow::Cow::Borrowed("/native-plugin/ping"),
         client_method: "nativePlugin.ping",
     },
     PluginEndpoint {
         method: PluginHttpMethod::Get,
-        path: "/native-plugin/rate-limit",
+        path: std::borrow::Cow::Borrowed("/native-plugin/rate-limit"),
         client_method: "nativePlugin.rateLimit",
     },
 ];
@@ -52,7 +52,7 @@ impl AuthPlugin for ConformancePlugin {
             version: "1.0.0",
             dependencies: &[],
             conflicts: &[],
-            endpoints: ENDPOINTS,
+            endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: &[],
             rate_limits: RATE_LIMITS,
             middleware: MIDDLEWARE,

@@ -13,12 +13,12 @@ mod axum;
 const ENDPOINTS: &[PluginEndpoint] = &[
     PluginEndpoint {
         method: PluginHttpMethod::Post,
-        path: "/sign-in/anonymous",
+        path: std::borrow::Cow::Borrowed("/sign-in/anonymous"),
         client_method: "signIn.anonymous",
     },
     PluginEndpoint {
         method: PluginHttpMethod::Post,
-        path: "/delete-anonymous-user",
+        path: std::borrow::Cow::Borrowed("/delete-anonymous-user"),
         client_method: "deleteAnonymousUser",
     },
 ];
@@ -82,7 +82,7 @@ impl AuthPlugin for AnonymousPlugin {
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
             dependencies: &[],
             conflicts: &[],
-            endpoints: ENDPOINTS,
+            endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],

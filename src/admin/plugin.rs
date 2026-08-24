@@ -84,7 +84,7 @@ const fn endpoint(
 ) -> PluginEndpoint {
     PluginEndpoint {
         method,
-        path,
+        path: std::borrow::Cow::Borrowed(path),
         client_method,
     }
 }
@@ -115,7 +115,7 @@ impl AuthPlugin for AdminPlugin {
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
             dependencies: &[],
             conflicts: &[],
-            endpoints: ENDPOINTS,
+            endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: COOKIES,
             rate_limits: &[],
             middleware: &[],

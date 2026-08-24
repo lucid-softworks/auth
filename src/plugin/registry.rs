@@ -16,6 +16,8 @@ mod schema;
 
 use schema::{core_schema_fields, merge_schema_fields};
 
+type DescriptorMap = HashMap<&'static str, (usize, PluginDescriptor)>;
+
 pub(crate) struct PluginRegistry {
     plugins: Vec<Arc<dyn AuthPlugin>>,
     descriptors: Vec<PluginDescriptor>,
@@ -33,16 +35,16 @@ impl PluginRegistry {
         let mut migrations_by_plugin = Vec::with_capacity(plugins.len());
         for (index, plugin) in plugins.iter().enumerate() {
             let descriptor = plugin.descriptor();
-            validate_descriptor(descriptor)?;
+            validate_descriptor(&descriptor)?;
             plugin.validate(config)?;
-            validate_runtime_rate_limits(plugin.as_ref(), descriptor)?;
+            validate_runtime_rate_limits(plugin.as_ref(), &descriptor)?;
             let migrations = plugin.migrations().into_owned();
-            validate_migrations(&migrations, descriptor)?;
+            validate_migrations(&migrations, &descriptor)?;
             migrations_by_plugin.push(migrations);
-            if by_id.insert(descriptor.id, (index, descriptor)).is_some() {
+            let descriptor_id = descriptor.id;
+            if by_id.insert(descriptor_id, (index, descriptor)).is_some() {
                 return invalid(format!(
-                    "plugin '{}' is enabled more than once",
-                    descriptor.id
+                    "plugin '{descriptor_id}' is enabled more than once"
                 ));
             }
         }
@@ -55,21 +57,21 @@ impl PluginRegistry {
         let mut rate_limits = Vec::new();
         let mut schema_fields = core_schema_fields(config);
         for id in ordered_ids {
-            let (index, descriptor) = by_id[&id];
-            rate_limits.extend(plugins[index].rate_limits());
+            let (index, descriptor) = &by_id[&id];
+            rate_limits.extend(plugins[*index].rate_limits());
             merge_schema_fields(
                 &mut schema_fields,
-                plugins[index].schema_fields(),
+                plugins[*index].schema_fields(),
                 descriptor.id,
             )?;
-            migrations.extend(migrations_by_plugin[index].drain(..).map(|migration| {
+            migrations.extend(migrations_by_plugin[*index].drain(..).map(|migration| {
                 PluginMigrationContribution {
                     plugin_id: descriptor.id,
                     migration,
                 }
             }));
-            ordered_plugins.push(plugins[index].clone());
-            descriptors.push(descriptor);
+            ordered_plugins.push(plugins[*index].clone());
+            descriptors.push(descriptor.clone());
         }
         Ok(Self {
             plugins: ordered_plugins,
@@ -124,14 +126,14 @@ impl PluginRegistry {
     }
 }
 
-fn validate_descriptor(descriptor: PluginDescriptor) -> Result<(), AuthError> {
+fn validate_descriptor(descriptor: &PluginDescriptor) -> Result<(), AuthError> {
     if !valid_id(descriptor.id) {
         return invalid(format!("plugin id '{}' is invalid", descriptor.id));
     }
     if descriptor.display_name.trim().is_empty() || descriptor.version.trim().is_empty() {
+        let plugin_id = descriptor.id;
         return invalid(format!(
-            "plugin '{}' requires a display name and version",
-            descriptor.id
+            "plugin '{plugin_id}' requires a display name and version"
         ));
     }
     if let Some(client) = descriptor.client {
@@ -154,9 +156,7 @@ fn validate_descriptor(descriptor: PluginDescriptor) -> Result<(), AuthError> {
     Ok(())
 }
 
-fn validate_relationships(
-    by_id: &HashMap<&'static str, (usize, PluginDescriptor)>,
-) -> Result<(), AuthError> {
+fn validate_relationships(by_id: &DescriptorMap) -> Result<(), AuthError> {
     for descriptor in by_id.values().map(|(_, descriptor)| descriptor) {
         for dependency in descriptor.dependencies {
             if !by_id.contains_key(dependency) {
@@ -178,22 +178,18 @@ fn validate_relationships(
     Ok(())
 }
 
-fn validate_contributions(
-    by_id: &HashMap<&'static str, (usize, PluginDescriptor)>,
-    config: &AuthConfig,
-) -> Result<(), AuthError> {
-    let mut endpoint_methods: HashMap<(PluginHttpMethod, &'static str), &'static str> =
-        CORE_ENDPOINTS
-            .iter()
-            .map(|(method, path)| ((*method, *path), "core"))
-            .collect();
-    let mut endpoint_paths: HashMap<&'static str, &'static str> = CORE_ENDPOINTS
+fn validate_contributions(by_id: &DescriptorMap, config: &AuthConfig) -> Result<(), AuthError> {
+    let mut endpoint_methods: HashMap<(PluginHttpMethod, String), &'static str> = CORE_ENDPOINTS
         .iter()
-        .map(|(_, path)| (*path, "core"))
+        .map(|(method, path)| ((*method, (*path).to_owned()), "core"))
+        .collect();
+    let mut endpoint_paths: HashMap<String, &'static str> = CORE_ENDPOINTS
+        .iter()
+        .map(|(_, path)| ((*path).to_owned(), "core"))
         .collect();
     let mut cookies = core_cookie_owners(config);
 
-    for (_, descriptor) in by_id.values().copied() {
+    for (_, descriptor) in by_id.values() {
         validate_endpoints(descriptor, &mut endpoint_methods, &mut endpoint_paths)?;
         validate_cookies(descriptor, &mut cookies)?;
         validate_policy_metadata(descriptor)?;
@@ -216,25 +212,28 @@ fn core_cookie_owners(config: &AuthConfig) -> HashMap<String, &'static str> {
 }
 
 fn validate_endpoints(
-    descriptor: PluginDescriptor,
-    methods: &mut HashMap<(PluginHttpMethod, &'static str), &'static str>,
-    paths: &mut HashMap<&'static str, &'static str>,
+    descriptor: &PluginDescriptor,
+    methods: &mut HashMap<(PluginHttpMethod, String), &'static str>,
+    paths: &mut HashMap<String, &'static str>,
 ) -> Result<(), AuthError> {
-    for endpoint in descriptor.endpoints {
-        validate_path(endpoint.path, descriptor.id)?;
+    for endpoint in descriptor.endpoints.iter() {
+        validate_path(endpoint.path.as_ref(), descriptor.id)?;
         if endpoint.client_method.trim().is_empty() {
             return invalid(format!(
                 "plugin '{}' endpoint '{}' has no client method",
                 descriptor.id, endpoint.path
             ));
         }
-        if let Some(owner) = methods.insert((endpoint.method, endpoint.path), descriptor.id) {
+        if let Some(owner) = methods.insert(
+            (endpoint.method, endpoint.path.as_ref().to_owned()),
+            descriptor.id,
+        ) {
             return invalid(format!(
                 "plugin '{}' endpoint {:?} {} conflicts with '{owner}'",
                 descriptor.id, endpoint.method, endpoint.path
             ));
         }
-        if let Some(owner) = paths.insert(endpoint.path, descriptor.id)
+        if let Some(owner) = paths.insert(endpoint.path.as_ref().to_owned(), descriptor.id)
             && owner != descriptor.id
         {
             return invalid(format!(
@@ -247,7 +246,7 @@ fn validate_endpoints(
 }
 
 fn validate_cookies(
-    descriptor: PluginDescriptor,
+    descriptor: &PluginDescriptor,
     cookies: &mut HashMap<String, &'static str>,
 ) -> Result<(), AuthError> {
     for cookie in descriptor.cookies {
@@ -267,7 +266,7 @@ fn validate_cookies(
     Ok(())
 }
 
-fn validate_policy_metadata(descriptor: PluginDescriptor) -> Result<(), AuthError> {
+fn validate_policy_metadata(descriptor: &PluginDescriptor) -> Result<(), AuthError> {
     for rate_limit in descriptor.rate_limits {
         validate_path(rate_limit.path, descriptor.id)?;
         if !descriptor
@@ -293,7 +292,7 @@ fn validate_policy_metadata(descriptor: PluginDescriptor) -> Result<(), AuthErro
 
 fn validate_runtime_rate_limits(
     plugin: &dyn AuthPlugin,
-    descriptor: PluginDescriptor,
+    descriptor: &PluginDescriptor,
 ) -> Result<(), AuthError> {
     for rate_limit in plugin.rate_limits() {
         validate_path(rate_limit.path, descriptor.id)?;
@@ -315,7 +314,7 @@ fn validate_runtime_rate_limits(
 
 fn validate_migrations(
     plugin_migrations: &[PluginMigration],
-    descriptor: PluginDescriptor,
+    descriptor: &PluginDescriptor,
 ) -> Result<(), AuthError> {
     let mut migrations = HashMap::new();
     for migration in plugin_migrations {
@@ -335,9 +334,7 @@ fn validate_migrations(
     Ok(())
 }
 
-fn dependency_order(
-    by_id: &HashMap<&'static str, (usize, PluginDescriptor)>,
-) -> Result<Vec<&'static str>, AuthError> {
+fn dependency_order(by_id: &DescriptorMap) -> Result<Vec<&'static str>, AuthError> {
     let mut ids: Vec<_> = by_id.keys().copied().collect();
     ids.sort_by_key(|id| by_id[id].0);
     let mut states = HashMap::new();
@@ -350,7 +347,7 @@ fn dependency_order(
 
 fn visit(
     id: &'static str,
-    by_id: &HashMap<&'static str, (usize, PluginDescriptor)>,
+    by_id: &DescriptorMap,
     states: &mut HashMap<&'static str, VisitState>,
     ordered: &mut Vec<&'static str>,
 ) -> Result<(), AuthError> {

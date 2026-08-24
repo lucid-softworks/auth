@@ -27,7 +27,7 @@ pub const OAUTH_POPUP_SCRIPT_CSP_HASH: &str = "sha256-tIo2K8VBC9SnhvdZ+9GsGkQoZm
 
 const ENDPOINTS: &[PluginEndpoint] = &[PluginEndpoint {
     method: PluginHttpMethod::Get,
-    path: "/oauth-popup/start",
+    path: std::borrow::Cow::Borrowed("/oauth-popup/start"),
     client_method: "signIn.popup",
 }];
 const COOKIES: &[PluginCookie] = &[PluginCookie {
@@ -46,7 +46,7 @@ impl AuthPlugin for OAuthPopupPlugin {
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
             dependencies: &[],
             conflicts: &[],
-            endpoints: ENDPOINTS,
+            endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: COOKIES,
             rate_limits: &[],
             middleware: &[],

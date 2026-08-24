@@ -14,6 +14,7 @@ use uuid::Uuid;
 mod access;
 mod api_key;
 mod guest_capability;
+mod jwt;
 mod oauth;
 mod operator_security;
 mod phone_number;
@@ -40,6 +41,7 @@ struct MemoryState {
     rate_limits: HashMap<String, RateLimitWindow>,
     temporary_passwords: HashSet<Uuid>,
     verifications: HashMap<(String, String), VerificationValue>,
+    jwks: HashMap<String, Vec<crate::StoredJwk>>,
 }
 
 struct RateLimitWindow {
@@ -55,6 +57,10 @@ pub struct MemoryStore {
 
 #[async_trait]
 impl AuthStore for MemoryStore {
+    fn jwk_store(&self) -> Option<&dyn crate::JwkStore> {
+        Some(self)
+    }
+
     async fn create_password_user(
         &self,
         user: AuthUser,

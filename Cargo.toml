@@ -47,6 +47,7 @@ sha3 = "0.10"
 sqlx = { version = "0.8", optional = true, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono"] }
 thiserror = "2"
 tokio = { version = "1", features = ["rt", "sync", "time"] }
+tracing = "0.1"
 uuid = { version = "1", features = ["v4", "serde"] }
 url = "2"
 webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation"] }
@@ -188,6 +189,10 @@ required-features = ["axum"]
 
 [[test]]
 name = "bearer_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "jwt_contract"
 required-features = ["axum"]
 
 [[test]]

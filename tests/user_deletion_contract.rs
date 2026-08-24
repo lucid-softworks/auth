@@ -110,7 +110,7 @@ impl AuthPlugin for DeletionObserver {
             version: "1.0.0",
             dependencies: &[],
             conflicts: &[],
-            endpoints: &[],
+            endpoints: std::borrow::Cow::Borrowed(&[]),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],

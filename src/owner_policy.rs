@@ -81,7 +81,7 @@ impl AuthPlugin for OwnerPolicyPlugin {
             version: env!("CARGO_PKG_VERSION"),
             dependencies: &["admin"],
             conflicts: &[],
-            endpoints: &[],
+            endpoints: std::borrow::Cow::Borrowed(&[]),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],

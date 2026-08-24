@@ -35,11 +35,11 @@ pub enum PluginHttpMethod {
 }
 
 /// One plugin-owned wire endpoint and its official-client action name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginEndpoint {
     pub method: PluginHttpMethod,
-    pub path: &'static str,
+    pub path: Cow<'static, str>,
     pub client_method: &'static str,
 }
 
@@ -92,7 +92,7 @@ impl PluginClientMetadata {
 }
 
 /// Static identity, dependency, wire, and compatibility declaration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginDescriptor {
     pub id: &'static str,
@@ -100,7 +100,7 @@ pub struct PluginDescriptor {
     pub version: &'static str,
     pub dependencies: &'static [&'static str],
     pub conflicts: &'static [&'static str],
-    pub endpoints: &'static [PluginEndpoint],
+    pub endpoints: Cow<'static, [PluginEndpoint]>,
     pub cookies: &'static [PluginCookie],
     pub rate_limits: &'static [PluginRateLimit],
     pub middleware: &'static [PluginMiddleware],
@@ -166,7 +166,7 @@ impl PluginSchemaField {
 #[cfg(feature = "axum")]
 #[derive(Clone)]
 pub struct AxumPluginRoute {
-    path: &'static str,
+    path: String,
     route: axum::routing::MethodRouter,
 }
 
@@ -179,11 +179,14 @@ pub struct PluginSession {
 
 #[cfg(feature = "axum")]
 impl AxumPluginRoute {
-    pub fn new(path: &'static str, route: axum::routing::MethodRouter) -> Self {
-        Self { path, route }
+    pub fn new(path: impl Into<String>, route: axum::routing::MethodRouter) -> Self {
+        Self {
+            path: path.into(),
+            route,
+        }
     }
 
-    pub(crate) fn into_parts(self) -> (&'static str, axum::routing::MethodRouter) {
+    pub(crate) fn into_parts(self) -> (String, axum::routing::MethodRouter) {
         (self.path, self.route)
     }
 }

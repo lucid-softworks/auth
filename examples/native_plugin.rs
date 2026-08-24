@@ -18,7 +18,7 @@ struct GreetingPlugin;
 
 const ENDPOINTS: &[PluginEndpoint] = &[PluginEndpoint {
     method: PluginHttpMethod::Get,
-    path: "/native-example/greeting",
+    path: std::borrow::Cow::Borrowed("/native-example/greeting"),
     client_method: "greeting.message",
 }];
 const COOKIES: &[PluginCookie] = &[PluginCookie {
@@ -47,7 +47,7 @@ impl AuthPlugin for GreetingPlugin {
             version: "1.0.0",
             dependencies: &[],
             conflicts: &[],
-            endpoints: ENDPOINTS,
+            endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: COOKIES,
             rate_limits: RATE_LIMITS,
             middleware: MIDDLEWARE,

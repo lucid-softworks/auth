@@ -322,7 +322,7 @@ impl AuthPlugin for ResponseHeadersPlugin {
             version: "1.7.1",
             dependencies: &[],
             conflicts: &[],
-            endpoints: &[],
+            endpoints: std::borrow::Cow::Borrowed(&[]),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],

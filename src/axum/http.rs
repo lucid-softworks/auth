@@ -12,33 +12,13 @@ pub(crate) use account_cookie::{
     account_data_cookie, clear_account_cookie, refresh_account_cookie, with_account_cookie,
 };
 pub(crate) use session_cookie_clear::clear_session_cookie_from_request;
+pub(crate) use session_lookup::{current_session, current_session_cache_first};
 
 mod account_cookie;
 mod session_cookie_clear;
+mod session_lookup;
 
 pub(crate) type PeerAddress = Option<Extension<ConnectInfo<SocketAddr>>>;
-
-pub(crate) async fn current_session(
-    service: &AuthService,
-    headers: &HeaderMap,
-) -> Option<SessionWithUser> {
-    if let Some(token) = session_token(service, headers) {
-        if let Some(session) = service.session(&token).await.ok().flatten() {
-            return Some(session);
-        }
-        if let Some(cache) = session_data_cookie(service, headers)
-            && let Some(session) = service.decode_cookie_cached_session(&token, &cache)
-        {
-            return Some(session);
-        }
-    }
-    service
-        .plugin_session(headers)
-        .await
-        .ok()
-        .flatten()
-        .map(|session| session.session)
-}
 
 pub(crate) fn challenge_token(
     service: &AuthService,
@@ -64,12 +44,13 @@ pub(crate) fn with_challenge_cookie(
 
 pub(crate) async fn with_session_cookie(
     service: &AuthService,
+    headers: &HeaderMap,
     token: &str,
     remember_me: Option<bool>,
     body: impl IntoResponse,
 ) -> Response {
     let response = with_primary_session_cookie(service, token, remember_me, body);
-    with_session_cache_cookie(service, token, None, remember_me, response).await
+    with_session_cache_cookie(service, headers, token, None, remember_me, response).await
 }
 
 fn with_primary_session_cookie(
@@ -106,7 +87,7 @@ pub(crate) async fn with_bound_session_cookie(
     remember_me: Option<bool>,
     body: impl IntoResponse,
 ) -> Response {
-    let response = with_session_cookie(service, token, remember_me, body).await;
+    let response = with_session_cookie(service, headers, token, remember_me, body).await;
     let response = refresh_account_cookie(service, headers, user_id, response);
     crate::multi_session::axum::attach_new_session_cookie(
         service, headers, user_id, token, response,
@@ -126,6 +107,7 @@ pub(crate) async fn with_bound_session_cookie_cache(
     let response = match cache {
         Some(value) => with_chunked_session_data_cookie(
             service,
+            Some(headers),
             value,
             Some(service.cookie_cache_max_age()),
             response,
@@ -141,6 +123,7 @@ pub(crate) async fn with_bound_session_cookie_cache(
 
 pub(crate) async fn with_session_cache_cookie(
     service: &AuthService,
+    headers: &HeaderMap,
     token: &str,
     session: Option<&SessionWithUser>,
     remember_me: Option<bool>,
@@ -150,6 +133,7 @@ pub(crate) async fn with_session_cache_cookie(
     match service.encode_session_cookie_cache(token, session).await {
         Ok(Some(value)) => with_chunked_session_data_cookie(
             service,
+            Some(headers),
             &value,
             (remember_me != Some(false)).then(|| service.cookie_cache_max_age()),
             response,
@@ -189,11 +173,26 @@ fn chunked_cookie(headers: &HeaderMap, cookie: &ResolvedCookie) -> Option<String
 
 pub(crate) fn with_chunked_session_data_cookie(
     service: &AuthService,
+    existing: Option<&HeaderMap>,
     value: &str,
     max_age: Option<i64>,
     body: impl IntoResponse,
 ) -> Response {
-    with_chunked_cookie(&service.session_data_cookie(), value, max_age, None, body)
+    with_chunked_cookie(
+        &service.session_data_cookie(),
+        value,
+        max_age,
+        existing,
+        body,
+    )
+}
+
+pub(crate) fn clear_session_data_cookie(
+    service: &AuthService,
+    headers: &HeaderMap,
+    body: impl IntoResponse,
+) -> Response {
+    clear_cookie_store(&service.session_data_cookie(), Some(headers), body)
 }
 
 fn with_chunked_cookie(

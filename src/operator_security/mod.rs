@@ -91,7 +91,7 @@ impl AuthPlugin for OperatorSecurityPlugin {
             version: env!("CARGO_PKG_VERSION"),
             dependencies: &["lucid-owner-policy"],
             conflicts: &[],
-            endpoints: &[],
+            endpoints: std::borrow::Cow::Borrowed(&[]),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],

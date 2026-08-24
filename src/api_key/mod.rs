@@ -42,7 +42,7 @@ const fn endpoint(
 ) -> PluginEndpoint {
     PluginEndpoint {
         method,
-        path,
+        path: std::borrow::Cow::Borrowed(path),
         client_method,
     }
 }
@@ -194,7 +194,7 @@ impl AuthPlugin for ApiKeyPlugin {
                 &[]
             },
             conflicts: &[],
-            endpoints: ENDPOINTS,
+            endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],

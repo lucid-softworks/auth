@@ -12,9 +12,10 @@ use super::{
 };
 use lucid_auth::{
     ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, AuthError, BearerPlugin,
-    EmailOtpConfig, EmailOtpPlugin, LastLoginMethodConfig, LastLoginMethodPlugin, MagicLinkConfig,
-    MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore, MultiSessionPlugin, OneTapConfig,
-    OneTapPlugin, OtpConfig, PasskeyConfig, PasskeyPlugin, PhoneNumberConfig, PhoneNumberPlugin,
+    EmailOtpConfig, EmailOtpPlugin, JwtPlugin, LastLoginMethodConfig, LastLoginMethodPlugin,
+    MagicLinkConfig, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore, MultiSessionPlugin,
+    OneTapConfig, OneTapPlugin, OtpConfig, PasskeyConfig, PasskeyPlugin, PhoneNumberConfig,
+    PhoneNumberPlugin,
     PhoneNumberSignUpConfig, SiweConfig, SiweMessageVerifier, SiweNonceGenerator, SiwePlugin,
     SiweVerificationRequest, TotpConfig, TwoFactorConfig, TwoFactorPlugin,
 };
@@ -118,6 +119,9 @@ pub(super) fn register(
 }
 
 fn register_session_plugins(config: &mut AuthConfig, origin: &str, store: Arc<MemoryStore>) {
+    config
+        .add_plugin(JwtPlugin::default())
+        .expect("unique JWT plugin");
     config
         .add_plugin(BearerPlugin::default())
         .expect("unique bearer plugin");

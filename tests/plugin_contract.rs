@@ -28,7 +28,7 @@ use tower::ServiceExt;
 
 const ENDPOINTS: &[PluginEndpoint] = &[PluginEndpoint {
     method: PluginHttpMethod::Get,
-    path: "/native-test/ping",
+    path: std::borrow::Cow::Borrowed("/native-test/ping"),
     client_method: "nativeTest.ping",
 }];
 const MIDDLEWARE: &[PluginMiddleware] = &[PluginMiddleware {
@@ -115,7 +115,7 @@ async fn plugin_contributes_route_middleware_hooks_migration_and_client_metadata
         &["before-session", "after-session"]
     );
 
-    let metadata = service.plugin_metadata()[0];
+    let metadata = &service.plugin_metadata()[0];
     assert_eq!(metadata.id, "native-test");
     assert_eq!(metadata.client.unwrap().factory, "nativeTestClient");
     let migrations = service.plugin_migrations();
@@ -158,7 +158,7 @@ async fn passkey_routes_and_metadata_exist_only_when_the_plugin_is_enabled() {
         .add_plugin(PasskeyPlugin::new(PasskeyConfig::default()))
         .unwrap();
     let with = Arc::new(AuthService::try_new(Arc::new(MemoryStore::default()), config).unwrap());
-    let descriptor = with.plugin_metadata()[0];
+    let descriptor = &with.plugin_metadata()[0];
     assert_eq!(descriptor.id, "passkey");
     assert_eq!(descriptor.endpoints.len(), 7);
     assert_eq!(descriptor.client.unwrap().package, "@better-auth/passkey");
@@ -182,7 +182,7 @@ struct MetadataPlugin(PluginDescriptor);
 #[async_trait]
 impl AuthPlugin for MetadataPlugin {
     fn descriptor(&self) -> PluginDescriptor {
-        self.0
+        self.0.clone()
     }
 }
 
@@ -296,7 +296,7 @@ fn registry_orders_dependencies_and_rejects_missing_conflicting_or_core_routes()
     ));
     const CORE_COLLISION: &[PluginEndpoint] = &[PluginEndpoint {
         method: PluginHttpMethod::Get,
-        path: "/get-session",
+        path: std::borrow::Cow::Borrowed("/get-session"),
         client_method: "collision.getSession",
     }];
     assert!(matches!(
@@ -369,7 +369,7 @@ fn descriptor(
         version: "1.0.0",
         dependencies,
         conflicts,
-        endpoints,
+        endpoints: std::borrow::Cow::Borrowed(endpoints),
         cookies: &[],
         rate_limits: &[],
         middleware: if id == "native-test" { MIDDLEWARE } else { &[] },

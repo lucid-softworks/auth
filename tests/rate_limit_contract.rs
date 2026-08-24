@@ -282,7 +282,7 @@ struct LimitedPlugin;
 
 const PLUGIN_ENDPOINTS: &[PluginEndpoint] = &[PluginEndpoint {
     method: PluginHttpMethod::Get,
-    path: "/limited",
+    path: std::borrow::Cow::Borrowed("/limited"),
     client_method: "limited.get",
 }];
 const PLUGIN_LIMITS: &[PluginRateLimit] = &[PluginRateLimit {
@@ -300,7 +300,7 @@ impl AuthPlugin for LimitedPlugin {
             version: "1.0.0",
             dependencies: &[],
             conflicts: &[],
-            endpoints: PLUGIN_ENDPOINTS,
+            endpoints: std::borrow::Cow::Borrowed(PLUGIN_ENDPOINTS),
             cookies: &[],
             rate_limits: PLUGIN_LIMITS,
             middleware: &[],

@@ -36,7 +36,7 @@ const ENDPOINTS: &[PluginEndpoint] = &[
 const fn endpoint(path: &'static str, client_method: &'static str) -> PluginEndpoint {
     PluginEndpoint {
         method: PluginHttpMethod::Post,
-        path,
+        path: std::borrow::Cow::Borrowed(path),
         client_method,
     }
 }
@@ -222,7 +222,7 @@ impl AuthPlugin for EmailOtpPlugin {
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
             dependencies: &[],
             conflicts: &[],
-            endpoints: ENDPOINTS,
+            endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],
@@ -254,7 +254,7 @@ impl AuthPlugin for EmailOtpPlugin {
         ENDPOINTS
             .iter()
             .map(|endpoint| PluginRateLimit {
-                path: endpoint.path,
+                path: endpoint.path.as_ref(),
                 window,
                 max,
             })

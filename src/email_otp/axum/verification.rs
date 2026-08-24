@@ -129,6 +129,7 @@ async fn verified_response(
                 current.user = result.user;
                 with_session_cache_cookie(
                     service,
+                    headers,
                     &current.session.token,
                     Some(&current),
                     Some(!dont_remember(service, headers)),

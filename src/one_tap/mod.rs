@@ -10,7 +10,7 @@ mod axum;
 
 const ENDPOINTS: &[PluginEndpoint] = &[PluginEndpoint {
     method: PluginHttpMethod::Post,
-    path: "/one-tap/callback",
+    path: std::borrow::Cow::Borrowed("/one-tap/callback"),
     client_method: "oneTap",
 }];
 
@@ -91,7 +91,7 @@ impl AuthPlugin for OneTapPlugin {
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
             dependencies: &[],
             conflicts: &[],
-            endpoints: ENDPOINTS,
+            endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],

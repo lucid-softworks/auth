@@ -13,7 +13,7 @@ const DESCRIPTOR: PluginDescriptor = PluginDescriptor {
     version: "1.7.1",
     dependencies: &[],
     conflicts: &[],
-    endpoints: &[],
+    endpoints: std::borrow::Cow::Borrowed(&[]),
     cookies: &[],
     rate_limits: &[],
     middleware: &[],
@@ -214,7 +214,7 @@ impl GenericOAuthPlugin {
 #[async_trait]
 impl AuthPlugin for GenericOAuthPlugin {
     fn descriptor(&self) -> PluginDescriptor {
-        DESCRIPTOR
+        DESCRIPTOR.clone()
     }
 
     fn validate(&self, config: &AuthConfig) -> Result<(), AuthError> {

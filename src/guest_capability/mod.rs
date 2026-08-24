@@ -41,7 +41,7 @@ const fn endpoint(
 ) -> PluginEndpoint {
     PluginEndpoint {
         method,
-        path,
+        path: std::borrow::Cow::Borrowed(path),
         client_method,
     }
 }
@@ -164,7 +164,7 @@ impl AuthPlugin for GuestCapabilityPlugin {
             version: env!("CARGO_PKG_VERSION"),
             dependencies: &["lucid-owner-policy"],
             conflicts: &[],
-            endpoints: ENDPOINTS,
+            endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],

@@ -74,10 +74,10 @@ impl AuthPlugin for OrganizationPlugin {
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
             dependencies: &[],
             conflicts: &[],
-            endpoints: endpoints::for_options(
+            endpoints: std::borrow::Cow::Borrowed(endpoints::for_options(
                 self.config.teams.enabled,
                 self.config.dynamic_access_control.enabled,
-            ),
+            )),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],

@@ -10,6 +10,7 @@ import {
   anonymousClient,
   emailOTPClient,
   magicLinkClient,
+  jwtClient,
   lastLoginMethodClient,
   multiSessionClient,
   oneTapClient,
@@ -23,8 +24,10 @@ import { passkeyClient } from "@better-auth/passkey/client";
 import { apiKeyClient } from "@better-auth/api-key/client";
 import { base32 } from "@better-auth/utils/base32";
 import { createOTP } from "@better-auth/utils/otp";
+import { decodeJwt, decodeProtectedHeader, importJWK, jwtVerify } from "jose";
 import { installVirtualAuthenticator } from "./virtual-authenticator.mjs";
 import { bearerConformance } from "./bearer.mjs";
+import { jwtConformance } from "./jwt.mjs";
 import { oauthPopupConformance } from "./oauth-popup.mjs";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
@@ -76,9 +79,17 @@ class BrowserTransport {
     headers.set("origin", this.origin);
     const method = (init.method ?? "GET").toUpperCase();
     const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
-    this.requests.push({ method, pathname: url.pathname, search: url.search, body });
+    const recordedRequest = {
+      method,
+      pathname: url.pathname,
+      search: url.search,
+      body,
+      headers: new Headers(headers),
+    };
+    this.requests.push(recordedRequest);
 
     const response = await fetch(input, { ...init, headers });
+    recordedRequest.responseHeaders = new Headers(response.headers);
     for (const cookie of response.headers.getSetCookie()) {
       const [pair, ...attributes] = cookie.split(";");
       const separator = pair.indexOf("=");
@@ -365,6 +376,7 @@ async function conformance(origin) {
       (plugin) => plugin.id === "last-login-method",
     );
     const bearer = metadata.find((plugin) => plugin.id === "bearer");
+    const jwt = metadata.find((plugin) => plugin.id === "jwt");
     assert.equal(nativePlugin.client.betterAuthVersion, betterAuthPackage.version);
     assert.equal(nativePlugin.endpoints[0].clientMethod, "nativePlugin.ping");
     assert.equal(magicLink.client.factory, "magicLinkClient");
@@ -383,6 +395,17 @@ async function conformance(origin) {
     assert.deepEqual(bearer.endpoints, []);
     assert.deepEqual(bearer.cookies, []);
     assert.deepEqual(bearer.rateLimits, []);
+    assert.ok(jwt, "JWT plugin metadata is missing");
+    assert.equal(jwt.client.factory, "jwtClient");
+    assert.deepEqual(
+      jwt.endpoints.map((endpoint) => [endpoint.path, endpoint.clientMethod]),
+      [
+        ["/jwks", "jwks"],
+        ["/token", "token"],
+      ],
+    );
+    assert.deepEqual(jwt.cookies, []);
+    assert.deepEqual(jwt.rateLimits, []);
     assert.deepEqual(
       multiSession.endpoints.map((endpoint) => [endpoint.path, endpoint.clientMethod]),
       [
@@ -2432,6 +2455,93 @@ async function nativeBearerConformance(origin) {
   console.log("ok - Bearer official client against native server");
 }
 
+async function nativeJwtConformance(origin) {
+  const transport = new BrowserTransport(origin);
+  const unauthorized = await transport.fetch(`${origin}/api/auth/token`);
+  assert.equal(unauthorized.status, 401);
+  assert.deepEqual(await unauthorized.json(), {
+    code: "UNAUTHORIZED",
+    message: "Unauthorized",
+  });
+  assert.equal(unauthorized.headers.get("cache-control"), "no-store");
+  assert.equal(unauthorized.headers.get("pragma"), "no-cache");
+
+  const client = createAuthClient({
+    baseURL: origin,
+    fetchOptions: { customFetchImpl: transport.fetch.bind(transport) },
+    plugins: [jwtClient()],
+  });
+  const signedUp = success(
+    await client.signUp.email({
+      name: "Native JWT User",
+      email: "native-jwt@example.com",
+      password: "correct horse battery staple",
+    }),
+    "native JWT signUp.email",
+  );
+  const issued = success(await client.token(), "native jwtClient.token");
+  const tokenRequest = transport.requests.at(-1);
+  assert.equal(tokenRequest.pathname, "/api/auth/token");
+  assert.equal(tokenRequest.method, "GET");
+  assert.equal(tokenRequest.responseHeaders.get("cache-control"), "no-store");
+  assert.equal(tokenRequest.responseHeaders.get("pragma"), "no-cache");
+
+  const header = decodeProtectedHeader(issued.token);
+  const payload = decodeJwt(issued.token);
+  assert.deepEqual(Object.keys(header), ["alg", "kid"]);
+  assert.equal(header.alg, "EdDSA");
+  assert.equal(typeof header.kid, "string");
+  assert.ok(header.kid.length > 0);
+  assert.equal(payload.sub, signedUp.user.id);
+  assert.equal(payload.id, signedUp.user.id);
+  assert.equal(payload.email, signedUp.user.email);
+  assert.equal(payload.iss, origin);
+  assert.equal(payload.aud, origin);
+  assert.equal(payload.exp, payload.iat + 900);
+
+  const keySet = success(await client.jwks(), "native jwtClient.jwks");
+  const jwksRequest = transport.requests.at(-1);
+  assert.equal(jwksRequest.pathname, "/api/auth/jwks");
+  assert.equal(jwksRequest.method, "GET");
+  assert.equal(keySet.keys.length, 1);
+  const publicKey = keySet.keys[0];
+  assert.equal(publicKey.kid, header.kid);
+  assert.equal(publicKey.alg, "EdDSA");
+  assert.equal(publicKey.crv, "Ed25519");
+  assert.equal(publicKey.kty, "OKP");
+  assert.equal("privateKey" in publicKey, false);
+  assert.equal("d" in publicKey, false);
+  const imported = await importJWK(publicKey, "EdDSA");
+  const verified = await jwtVerify(issued.token, imported, {
+    issuer: origin,
+    audience: origin,
+  });
+  assert.equal(verified.payload.sub, signedUp.user.id);
+
+  success(await client.getSession(), "native JWT getSession");
+  const sessionRequest = transport.requests.at(-1);
+  assert.equal(sessionRequest.pathname, "/api/auth/get-session");
+  const sessionToken = sessionRequest.responseHeaders.get("set-auth-jwt");
+  assert.ok(sessionToken);
+  assert.equal(decodeProtectedHeader(sessionToken).kid, header.kid);
+  assert.equal(decodeJwt(sessionToken).sub, signedUp.user.id);
+  assert.equal(
+    sessionRequest.responseHeaders.get("access-control-expose-headers"),
+    "set-auth-jwt",
+  );
+
+  for (const path of ["/sign-jwt", "/verify-jwt"]) {
+    const response = await transport.fetch(`${origin}/api/auth${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(response.status, 404);
+    assert.equal(await response.text(), "");
+  }
+  console.log("ok - JWT official client and JOSE against native server");
+}
+
 async function cookieCacheConformance(origin, strategy) {
   const transport = new BrowserTransport(origin);
   const client = createAuthClient({
@@ -2556,6 +2666,7 @@ function stopServer(child) {
 await siweClientConformance();
 await lastLoginMethodClientConformance();
 await bearerConformance();
+await jwtConformance();
 await oauthPopupConformance();
 
 for (const strategy of ["compact", "jwt", "jwe"]) {
@@ -2564,6 +2675,7 @@ for (const strategy of ["compact", "jwt", "jwe"]) {
     if (strategy === "compact") {
       await conformance(origin);
       await nativeBearerConformance(origin);
+      await nativeJwtConformance(origin);
     }
     await cookieCacheConformance(origin, strategy);
   } finally {

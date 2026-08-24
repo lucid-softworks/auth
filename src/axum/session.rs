@@ -47,22 +47,31 @@ pub(super) async fn get_session(
     }
     let token = session_token(&service, &headers);
     let non_persistent = dont_remember(&service, &headers);
-    if let Some(response) = cached_session_response(
+    let (cached, invalid_cache) = match cached_session_response(
         &service,
         &headers,
         token.as_deref(),
         query.disable_cookie_cache == Some(true),
         non_persistent,
-    ) {
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => return cache_headers(auth_error(error)),
+    };
+    if let Some(response) = cached {
         return response;
     }
-    let response = match token {
+    let mut response = match token {
         Some(token) => {
             stateful_session_response(&service, &headers, &token, &query, method, non_persistent)
                 .await
         }
         None => fallback_session_response(&service, &headers).await,
     };
+    if invalid_cache && !sets_session_data_cookie(&service, &response) {
+        response = super::http::clear_session_data_cookie(&service, &headers, response);
+    }
     cache_headers(response)
 }
 
@@ -95,7 +104,8 @@ async fn stateful_session_response(
     }
     let needs_refresh = service.session_needs_refresh(&session, Utc::now());
     if service.defer_session_refresh() && method == Method::GET {
-        let response = deferred_response(service, token, &session, response, needs_refresh).await;
+        let response =
+            deferred_response(service, headers, token, &session, response, needs_refresh).await;
         return refresh_account_cookie(service, headers, session.user.id, response);
     }
     if needs_refresh {
@@ -103,6 +113,7 @@ async fn stateful_session_response(
     }
     let response = with_session_cache_cookie(
         service,
+        headers,
         token,
         Some(&session),
         Some(true),
@@ -114,6 +125,7 @@ async fn stateful_session_response(
 
 async fn deferred_response(
     service: &AuthService,
+    headers: &HeaderMap,
     token: &str,
     session: &SessionWithUser,
     response: SessionResponse,
@@ -124,7 +136,15 @@ async fn deferred_response(
         user: response.user,
         needs_refresh,
     };
-    with_session_cache_cookie(service, token, Some(session), Some(true), Json(response)).await
+    with_session_cache_cookie(
+        service,
+        headers,
+        token,
+        Some(session),
+        Some(true),
+        Json(response),
+    )
+    .await
 }
 
 async fn refreshed_response(
@@ -191,28 +211,41 @@ async fn fallback_session_response(service: &AuthService, headers: &HeaderMap) -
     }
 }
 
-fn cached_session_response(
+async fn cached_session_response(
     service: &AuthService,
     headers: &HeaderMap,
     token: Option<&str>,
     disabled: bool,
     non_persistent: bool,
-) -> Option<Response> {
-    if disabled {
-        return None;
+) -> Result<(Option<Response>, bool), AuthError> {
+    let Some(token) = token else {
+        return Ok((None, false));
+    };
+    let Some(cache) = session_data_cookie(service, headers) else {
+        return Ok((None, false));
+    };
+    let Some((value, expires_at)) = service.decode_session_cookie_cache(token, &cache).await else {
+        return Ok((None, true));
+    };
+    if disabled || !service.cookie_cache_enabled() {
+        return Ok((None, false));
     }
-    let token = token?;
-    let cache = session_data_cookie(service, headers)?;
-    let (value, expires_at) = service.decode_session_cookie_cache(token, &cache)?;
     let user_id = value["user"]["id"]
         .as_str()
         .and_then(|value| uuid::Uuid::parse_str(value).ok());
     let mut response = Json(value).into_response();
-    if service.should_refresh_cookie_cache(expires_at)
-        && let Some(refreshed) = service.refresh_session_cookie_cache(&cache)
-    {
-        let cache_age = (!non_persistent).then(|| service.cookie_cache_max_age());
-        response = with_chunked_session_data_cookie(service, &refreshed, cache_age, response);
+    if service.should_refresh_cookie_cache(expires_at) {
+        let Some(refreshed) = service.refresh_session_cookie_cache(&cache).await? else {
+            return Ok((None, true));
+        };
+        let cache_age = Some(service.cookie_cache_max_age());
+        response = with_chunked_session_data_cookie(
+            service,
+            Some(headers),
+            &refreshed,
+            cache_age,
+            response,
+        );
         let token_age = (!non_persistent).then(|| service.session_ttl().num_seconds());
         response = with_cookie(
             response,
@@ -226,7 +259,17 @@ fn cached_session_response(
     if let Some(user_id) = user_id {
         response = refresh_account_cookie(service, headers, user_id, response);
     }
-    Some(cache_headers(response))
+    Ok((Some(cache_headers(response)), false))
+}
+
+fn sets_session_data_cookie(service: &AuthService, response: &Response) -> bool {
+    let name = service.session_data_cookie().name;
+    response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .any(|value| value.starts_with(&name) && value.as_bytes().get(name.len()) == Some(&b'='))
 }
 
 fn cache_headers(mut response: Response) -> Response {

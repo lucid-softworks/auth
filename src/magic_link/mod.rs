@@ -15,12 +15,12 @@ mod axum;
 const ENDPOINTS: &[PluginEndpoint] = &[
     PluginEndpoint {
         method: PluginHttpMethod::Post,
-        path: "/sign-in/magic-link",
+        path: std::borrow::Cow::Borrowed("/sign-in/magic-link"),
         client_method: "signIn.magicLink",
     },
     PluginEndpoint {
         method: PluginHttpMethod::Get,
-        path: "/magic-link/verify",
+        path: std::borrow::Cow::Borrowed("/magic-link/verify"),
         client_method: "magicLink.verify",
     },
 ];
@@ -131,7 +131,7 @@ impl AuthPlugin for MagicLinkPlugin {
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
             dependencies: &[],
             conflicts: &[],
-            endpoints: ENDPOINTS,
+            endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: &[],
             rate_limits: RATE_LIMITS,
             middleware: &[],
@@ -166,7 +166,7 @@ impl AuthPlugin for MagicLinkPlugin {
         ENDPOINTS
             .iter()
             .map(|endpoint| PluginRateLimit {
-                path: endpoint.path,
+                path: endpoint.path.as_ref(),
                 window,
                 max,
             })

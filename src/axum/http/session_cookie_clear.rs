@@ -1,4 +1,4 @@
-use super::{clear_account_cookie, serialize_cookie, with_cookie};
+use super::{clear_account_cookie, clear_session_data_cookie, serialize_cookie, with_cookie};
 use crate::AuthService;
 use axum::{
     http::HeaderMap,
@@ -14,10 +14,7 @@ pub(crate) fn clear_session_cookie_from_request(
         body,
         serialize_cookie(&service.session_cookie(), "", Some(0)),
     );
-    let response = with_cookie(
-        response,
-        serialize_cookie(&service.session_data_cookie(), "", Some(0)),
-    );
+    let response = clear_session_data_cookie(service, headers, response);
     let response = with_cookie(
         response,
         serialize_cookie(&service.dont_remember_cookie(), "", Some(0)),

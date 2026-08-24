@@ -61,54 +61,61 @@ impl AuthService {
             session,
             user,
             updated_at: Utc::now().timestamp_millis(),
-            version: self.config.session.cookie_cache.version.clone(),
+            version: self.cookie_cache_version().into(),
         };
-        session_cache::encode(
-            payload,
-            self.config.session.cookie_cache.strategy,
-            &self.config.secret,
-            self.cookie_cache_max_age(),
-        )
-        .map(Some)
+        if let Some(config) = self.jwt_cookie_cache_config() {
+            crate::jwt::encode_cookie_cache(self, config, payload, self.cookie_cache_max_age())
+                .await
+                .map(Some)
+        } else {
+            session_cache::encode(
+                payload,
+                self.config.session.cookie_cache.strategy,
+                &self.config.secret,
+                self.cookie_cache_max_age(),
+            )
+            .map(Some)
+        }
     }
 
-    pub(crate) fn decode_session_cookie_cache(
+    pub(crate) async fn decode_session_cookie_cache(
         &self,
         token: &str,
         value: &str,
     ) -> Option<(Value, i64)> {
-        if !self.cookie_cache_enabled() {
-            return None;
-        }
-        let (payload, expires_at) = session_cache::decode(
-            value,
-            self.config.session.cookie_cache.strategy,
-            &self.config.secret,
-        )?;
-        if payload.version != self.config.session.cookie_cache.version
-            || expires_at <= Utc::now().timestamp_millis()
+        let (payload, expires_at) = if let Some(config) = self.jwt_cookie_cache_config() {
+            crate::jwt::decode_cookie_cache(self, config, value).await?
+        } else {
+            session_cache::decode(
+                value,
+                self.config.session.cookie_cache.strategy,
+                &self.config.secret,
+            )?
+        };
+        if payload.version != self.cookie_cache_version()
+            || expires_at < Utc::now().timestamp_millis()
             || payload.session.get("token")?.as_str()? != token
             || chrono::DateTime::parse_from_rfc3339(payload.session.get("expiresAt")?.as_str()?)
                 .ok()?
-                <= Utc::now()
+                < Utc::now()
         {
             return None;
         }
-        Some((
-            serde_json::json!({
-                "session": payload.session,
-                "user": payload.user,
-            }),
-            expires_at,
-        ))
+        let value = serde_json::json!({
+            "session": payload.session,
+            "user": payload.user,
+        });
+        serde_json::from_value::<crate::protocol::better_auth::SessionResponse>(value.clone())
+            .ok()?;
+        Some((value, expires_at))
     }
 
-    pub(crate) fn decode_cookie_cached_session(
+    pub(crate) async fn decode_cookie_cached_session(
         &self,
         token: &str,
         value: &str,
     ) -> Option<SessionWithUser> {
-        let (response, _) = self.decode_session_cookie_cache(token, value)?;
+        let (response, _) = self.decode_session_cookie_cache(token, value).await?;
         let response: crate::protocol::better_auth::SessionResponse =
             serde_json::from_value(response).ok()?;
         let session = response.session;
@@ -164,20 +171,50 @@ impl AuthService {
         expires_at - Utc::now().timestamp_millis() < update_age
     }
 
-    pub(crate) fn refresh_session_cookie_cache(&self, value: &str) -> Option<String> {
-        let (mut payload, _) = session_cache::decode(
-            value,
-            self.config.session.cookie_cache.strategy,
-            &self.config.secret,
-        )?;
+    pub(crate) async fn refresh_session_cookie_cache(
+        &self,
+        value: &str,
+    ) -> Result<Option<String>, AuthError> {
+        let decoded = if let Some(config) = self.jwt_cookie_cache_config() {
+            crate::jwt::decode_cookie_cache(self, config, value).await
+        } else {
+            session_cache::decode(
+                value,
+                self.config.session.cookie_cache.strategy,
+                &self.config.secret,
+            )
+        };
+        let Some((mut payload, _)) = decoded else {
+            return Ok(None);
+        };
         payload.updated_at = Utc::now().timestamp_millis();
-        session_cache::encode(
-            payload,
-            self.config.session.cookie_cache.strategy,
-            &self.config.secret,
-            self.cookie_cache_max_age(),
-        )
-        .ok()
+        if let Some(config) = self.jwt_cookie_cache_config() {
+            crate::jwt::encode_cookie_cache(self, config, payload, self.cookie_cache_max_age())
+                .await
+                .map(Some)
+        } else {
+            session_cache::encode(
+                payload,
+                self.config.session.cookie_cache.strategy,
+                &self.config.secret,
+                self.cookie_cache_max_age(),
+            )
+            .map(Some)
+        }
+    }
+
+    fn jwt_cookie_cache_config(&self) -> Option<&crate::JwtConfig> {
+        self.jwt_plugin()
+            .map(crate::JwtPlugin::config)
+            .filter(|config| config.session_cookie_cache)
+    }
+
+    fn cookie_cache_version(&self) -> &str {
+        if self.config.session.cookie_cache.version.is_empty() {
+            "1"
+        } else {
+            &self.config.session.cookie_cache.version
+        }
     }
 }
 

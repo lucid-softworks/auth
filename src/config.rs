@@ -9,8 +9,10 @@ use std::sync::Arc;
 use url::Url;
 
 mod account;
+mod secret;
 mod verification;
 pub use account::{AccountConfig, AccountLinkingConfig, OAuthStateStrategy};
+pub use secret::VersionedSecret;
 pub use verification::{
     VerificationConfig, VerificationIdentifierConfig, VerificationIdentifierHasher,
     VerificationIdentifierStorage,
@@ -20,6 +22,8 @@ pub use verification::{
 #[derive(Clone)]
 pub struct AuthConfig {
     pub secret: Vec<u8>,
+    versioned_secrets: Vec<VersionedSecret>,
+    legacy_secret: Option<Vec<u8>>,
     pub session_ttl: Duration,
     /// Better Auth session freshness window. Zero disables freshness checks.
     pub session_fresh_age: Duration,
@@ -102,6 +106,8 @@ impl AuthConfig {
         }
         Ok(Self {
             secret,
+            versioned_secrets: Vec::new(),
+            legacy_secret: None,
             session_ttl: Duration::days(7),
             session_fresh_age: Duration::days(1),
             use_secure_cookies: None,

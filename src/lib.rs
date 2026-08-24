@@ -16,6 +16,7 @@ mod email_otp;
 mod error;
 mod generic_oauth;
 mod guest_capability;
+mod jwt;
 mod last_login_method;
 mod magic_link;
 mod memory;
@@ -80,7 +81,7 @@ pub use client_ip::IpAddressConfig;
 pub use config::{
     AccountConfig, AccountLinkingConfig, AuthConfig, EmailPasswordConfig, OAuthStateStrategy,
     VerificationConfig, VerificationIdentifierConfig, VerificationIdentifierHasher,
-    VerificationIdentifierStorage,
+    VerificationIdentifierStorage, VersionedSecret,
 };
 pub use cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
 pub use database_hooks::{
@@ -112,6 +113,13 @@ pub use generic_oauth::{
 pub use guest_capability::{
     GuestCapabilityPlugin, GuestCapabilityPrincipal, GuestCapabilityStore, GuestGrant,
     GuestGrantSignInResult, IssuedGuestGrant, NewGuestGrant,
+};
+pub use jwt::{
+    ExportedKeyPair, JwkAlgorithm, JwkStore, JwtAdapterConfig, JwtAdapterContext, JwtAudience,
+    JwtClaimsConfig, JwtConfig, JwtError, JwtExpiration, JwtJwkCreator, JwtJwksConfig,
+    JwtJwksReader, JwtOverrideOptions, JwtPayloadDefinition, JwtPlugin, JwtProtectedHeader,
+    JwtRemoteSigner, JwtSchema, JwtService, JwtSession, JwtSigningOverrides, JwtSubjectResolver,
+    NewJwk, ResolvedSigningKey, StoredJwk, generate_exported_key_pair, to_exp_jwt,
 };
 pub use last_login_method::{
     BeforeStoreLastLoginMethod, LastLoginMethodConfig, LastLoginMethodContext,

@@ -48,7 +48,7 @@ where
         for route in plugin.routes(service.clone()) {
             let (path, route) = route.into_parts();
             let route = plugin.middleware(route, service.clone());
-            routes = routes.route_service(path, route);
+            routes = routes.route_service(&path, route);
         }
     }
     let routes = routes

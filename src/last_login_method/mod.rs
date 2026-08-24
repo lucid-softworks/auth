@@ -137,7 +137,7 @@ impl AuthPlugin for LastLoginMethodPlugin {
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
             dependencies: &[],
             conflicts: &[],
-            endpoints: &[],
+            endpoints: std::borrow::Cow::Borrowed(&[]),
             cookies: COOKIES,
             rate_limits: &[],
             middleware: &[],

@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 const ENDPOINTS: &[PluginEndpoint] = &[PluginEndpoint {
     method: PluginHttpMethod::Get,
-    path: "/access/audit",
+    path: std::borrow::Cow::Borrowed("/access/audit"),
     client_method: "lucidAudit.list",
 }];
 
@@ -140,7 +140,7 @@ impl AuthPlugin for AuditPlugin {
             version: env!("CARGO_PKG_VERSION"),
             dependencies: &["lucid-owner-policy"],
             conflicts: &[],
-            endpoints: ENDPOINTS,
+            endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],
