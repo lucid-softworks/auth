@@ -1,12 +1,13 @@
 use lucid_auth::{
     AccessStore, AccountDeleteOutcome, AdditionalField, AdditionalFieldType, AdminPlugin,
-    AnonymousPlugin, AuditPlugin, AuthConfig, AuthError, AuthService, AuthStore, AuthUser,
-    EmailSignUpInput, GuestCapabilityPlugin, NewPasswordUser, OAuthAccount, OAuthAccountStore,
-    OAuthTokenUpdateOutcome, OperatorSecurityConfig, OperatorSecurityPlugin,
-    OrganizationDynamicAccessControlConfig, OrganizationPlugin, OrganizationPluginConfig,
-    OrganizationTeamsConfig, OwnerPolicyPlugin, PasskeyConfig, PasskeyPlugin, PluginMigration,
-    PluginMigrationContribution, StepUpPolicyConfig, StepUpPolicyPlugin, TwoFactorConfig,
-    TwoFactorPlugin, UsernameError, UsernamePlugin, postgres::PostgresStore,
+    AnonymousPlugin, AuditPlugin, AuthConfig, AuthError, AuthService, AuthSession, AuthStore,
+    AuthUser, AuthenticationMethod, EmailSignUpInput, GuestCapabilityPlugin, NewPasswordUser,
+    OAuthAccount, OAuthAccountStore, OAuthTokenUpdateOutcome, OperatorSecurityConfig,
+    OperatorSecurityPlugin, OrganizationDynamicAccessControlConfig, OrganizationPlugin,
+    OrganizationPluginConfig, OrganizationTeamsConfig, OwnerPolicyPlugin, PasskeyConfig,
+    PasskeyPlugin, PluginMigration, PluginMigrationContribution, StepUpPolicyConfig,
+    StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin, UsernameError, UsernamePlugin,
+    postgres::PostgresStore,
 };
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
@@ -91,6 +92,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     plugin_migrations_are_idempotent(&store, &pool).await?;
     assert_extension_tables_absent(&pool).await?;
     oauth::assert_issuer_qualified_accounts(&store, &pool).await?;
+    oauth::assert_one_tap_account_and_session_persistence(&store).await?;
 
     let (service, api_keys, phone_numbers) = contract_service(&store)?;
     let user = service

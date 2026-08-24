@@ -20,6 +20,13 @@ pub(super) fn authorization_url(
         request.clone()
     };
     let mut url = provider.config.create_authorization_url(&request)?;
+    if provider.kind == BuiltinProviderKind::Google
+        && !request.additional_params.contains_key("hd")
+        && let Some(domain) = provider.config.hosted_domain.as_deref()
+        && !domain.is_empty()
+    {
+        url.query_pairs_mut().append_pair("hd", domain);
+    }
     if provider.kind == BuiltinProviderKind::Wechat {
         url.query_pairs_mut().append_pair("lang", "cn");
         url.set_fragment(Some("wechat_redirect"));
@@ -100,10 +107,22 @@ pub(super) async fn user_info(
     if let Some(profile) = fetch_profile_override(provider, tokens).await? {
         return super::map_profile(&provider.config, profile);
     }
-    provider
+    let user_info = provider
         .config
         .get_user_info(tokens, expected_nonce, provider_user)
-        .await
+        .await?;
+    if provider.kind == BuiltinProviderKind::Google
+        && !super::google_id_token::hosted_domain_is_allowed(
+            provider.config.hosted_domain.as_deref(),
+            user_info
+                .profile
+                .get("hd")
+                .and_then(serde_json::Value::as_str),
+        )
+    {
+        return Err(AuthError::OAuthInvalidToken);
+    }
+    Ok(user_info)
 }
 
 async fn apple_user_info(

@@ -250,7 +250,7 @@ async fn oauth_success_response(
     clear_state_cookie(service, response)
 }
 
-async fn with_provider_account_cookie(
+pub(crate) async fn with_provider_account_cookie(
     service: &AuthService,
     headers: &HeaderMap,
     user_id: uuid::Uuid,

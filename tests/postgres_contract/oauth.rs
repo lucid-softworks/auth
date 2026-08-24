@@ -81,6 +81,75 @@ pub(super) async fn assert_issuer_qualified_accounts(
     Ok(())
 }
 
+pub(super) async fn assert_one_tap_account_and_session_persistence(
+    store: &PostgresStore,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let now = Utc::now();
+    let user = AuthUser {
+        id: Uuid::new_v4(),
+        username: None,
+        display_username: None,
+        name: "PostgreSQL One Tap User".into(),
+        email: "postgres-one-tap@example.com".into(),
+        email_verified: true,
+        image: None,
+        additional_fields: serde_json::Map::new(),
+        role: "user".into(),
+        is_anonymous: false,
+        banned: false,
+        ban_reason: None,
+        ban_expires: None,
+        created_at: now,
+        updated_at: now,
+    };
+    let mut account = fixture_account(
+        user.id,
+        "https://accounts.google.com",
+        "postgres-one-tap-subject",
+        "google",
+    );
+    account.access_token = None;
+    account.refresh_token = None;
+    account.id_token = Some("encrypted-google-id-token".into());
+    account.scope = Some("openid,profile,email".into());
+    store.create_oauth_user(user.clone(), account).await?;
+
+    let session = AuthSession {
+        id: Uuid::new_v4(),
+        user_id: user.id,
+        token: "postgres-one-tap-session".into(),
+        actor_user_id: None,
+        authentication_method: AuthenticationMethod::OAuth,
+        expires_at: now + chrono::Duration::days(7),
+        created_at: now,
+        updated_at: now,
+        ip_address: Some("192.0.2.55".into()),
+        user_agent: Some("one-tap-postgres-contract".into()),
+        additional_fields: serde_json::Map::new(),
+    };
+    store.create_session(session).await?;
+    let persisted = store
+        .find_session("postgres-one-tap-session")
+        .await?
+        .expect("One Tap session persists");
+    assert_eq!(
+        persisted.0.authentication_method,
+        AuthenticationMethod::OAuth
+    );
+    assert_eq!(persisted.1.id, user.id);
+    let owner = store
+        .find_oauth_account_owner("https://accounts.google.com", "postgres-one-tap-subject")
+        .await?
+        .expect("One Tap Google account persists");
+    assert_eq!(owner.account.provider_id, "google");
+    assert_eq!(owner.account.scope.as_deref(), Some("openid,profile,email"));
+    assert_eq!(
+        owner.account.id_token.as_deref(),
+        Some("encrypted-google-id-token")
+    );
+    Ok(())
+}
+
 async fn assert_token_rotation_is_atomic(
     store: &PostgresStore,
     user_id: Uuid,

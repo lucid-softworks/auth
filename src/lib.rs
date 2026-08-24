@@ -18,6 +18,7 @@ mod magic_link;
 mod memory;
 mod model;
 mod oauth;
+mod one_tap;
 mod operator_security;
 mod organization;
 mod origin;
@@ -105,6 +106,7 @@ pub use oauth::{
     AuthorizationRequest, BuiltinProvider, BuiltinProviderKind, OAuthProviderConfig, OAuthTokens,
     OAuthUserInfo, OidcConfig, ProfileMap, SocialProvider, TokenEndpointAuth,
 };
+pub use one_tap::{OneTapConfig, OneTapError, OneTapPlugin};
 pub use operator_security::{
     OperatorSecurityConfig, OperatorSecurityError, OperatorSecurityPlugin, OperatorSecurityService,
     OperatorSecurityStatus, OperatorSecurityStore,

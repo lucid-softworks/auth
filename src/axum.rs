@@ -28,6 +28,7 @@ mod user_deletion;
 
 use self::http::auth_error;
 pub use self::http::session_token;
+pub(crate) use self::oauth::with_provider_account_cookie;
 
 pub fn router<S>(service: Arc<AuthService>) -> Router<S>
 where

@@ -14,7 +14,7 @@ use lucid_auth::{
     ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, EmailOtpConfig, EmailOtpPlugin,
     MagicLinkConfig, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore, OtpConfig, PasskeyConfig,
     PasskeyPlugin, PhoneNumberConfig, PhoneNumberPlugin, PhoneNumberSignUpConfig, TotpConfig,
-    TwoFactorConfig, TwoFactorPlugin,
+    TwoFactorConfig, TwoFactorPlugin, OneTapConfig, OneTapPlugin,
 };
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -70,6 +70,10 @@ pub(super) fn register(
         .add_plugin(EmailOtpPlugin::new(email_otp))
         .expect("unique email-OTP plugin");
     register_phone_number(config, phone_number_messages, store);
+    let one_tap = OneTapConfig::default().with_client_id("conformance-google-client");
+    config
+        .add_plugin(OneTapPlugin::new(one_tap))
+        .expect("unique one-tap plugin");
     config
         .add_plugin(TwoFactorPlugin::new(
             Arc::new(MemoryTwoFactorStore::default()),

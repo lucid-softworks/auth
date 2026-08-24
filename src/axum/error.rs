@@ -29,6 +29,9 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
         )
             .into_response();
     }
+    if let AuthError::InvalidRequest(message) = &error {
+        return dynamic_error(StatusCode::BAD_REQUEST, "BAD_REQUEST", message);
+    }
     let (status, code, message) = match &error {
         error if credential::is_error(error) => credential::details(error),
         AuthError::RateLimited => (
@@ -44,8 +47,7 @@ pub(crate) fn auth_error(error: AuthError) -> Response {
         | AuthError::UserAlreadyExists
         | AuthError::UserAlreadyExistsEmail
         | AuthError::LastOwner
-        | AuthError::InvalidGuestGrant
-        | AuthError::InvalidRequest(_) => access_error_details(&error),
+        | AuthError::InvalidGuestGrant => access_error_details(&error),
         AuthError::CredentialAccountNotFound
         | AuthError::InvalidPassword
         | AuthError::PasswordTooShort

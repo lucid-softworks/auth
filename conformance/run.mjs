@@ -10,6 +10,7 @@ import {
   anonymousClient,
   emailOTPClient,
   magicLinkClient,
+  oneTapClient,
   phoneNumberClient,
   twoFactorClient,
   usernameClient,
@@ -182,6 +183,7 @@ async function conformance(origin) {
       apiKeyClient(),
       magicLinkClient(),
       phoneNumberClient(),
+      oneTapClient({ clientId: "conformance-google-client" }),
       organizationClient({
         teams: { enabled: true },
         dynamicAccessControl: { enabled: true },
@@ -207,6 +209,7 @@ async function conformance(origin) {
     const anonymous = metadata.find((plugin) => plugin.id === "anonymous");
     const username = metadata.find((plugin) => plugin.id === "username");
     const phoneNumber = metadata.find((plugin) => plugin.id === "phone-number");
+    const oneTap = metadata.find((plugin) => plugin.id === "one-tap");
     assert.equal(nativePlugin.client.betterAuthVersion, betterAuthPackage.version);
     assert.equal(nativePlugin.endpoints[0].clientMethod, "nativePlugin.ping");
     assert.equal(magicLink.client.factory, "magicLinkClient");
@@ -215,6 +218,11 @@ async function conformance(origin) {
     assert.equal(anonymous.client.factory, "anonymousClient");
     assert.equal(username.client.factory, "usernameClient");
     assert.equal(phoneNumber.client.factory, "phoneNumberClient");
+    assert.equal(oneTap.client.factory, "oneTapClient");
+    assert.deepEqual(
+      oneTap.endpoints.map((endpoint) => [endpoint.path, endpoint.clientMethod]),
+      [["/one-tap/callback", "oneTap"]],
+    );
     assert.deepEqual(
       phoneNumber.endpoints.map((endpoint) => [endpoint.path, endpoint.clientMethod]),
       [
@@ -228,6 +236,47 @@ async function conformance(origin) {
         ["/phone-number/reset-password", "phoneNumber.resetPassword"],
       ],
     );
+  });
+
+  await runCase("one-tap official client callback contract", async () => {
+    let callback;
+    const previousWindow = globalThis.window;
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        document: {},
+        googleScriptInitialized: true,
+        location: { href: origin },
+        google: {
+          accounts: {
+            id: {
+              initialize(options) {
+                callback = options.callback;
+                assert.equal(options.client_id, "conformance-google-client");
+                assert.equal(options.use_fedcm_for_prompt, true);
+                assert.equal(options.nonce, "forwarded-to-google-only");
+              },
+              prompt() {
+                void callback({ credential: "not-a-google-jwt" });
+              },
+            },
+          },
+        },
+      },
+    });
+    try {
+      await client.oneTap({
+        callbackURL: "/after-one-tap",
+        nonce: "forwarded-to-google-only",
+      });
+    } finally {
+      if (previousWindow === undefined) delete globalThis.window;
+      else globalThis.window = previousWindow;
+    }
+    transport.assertRequest("/api/auth/one-tap/callback", "POST", {
+      idToken: "not-a-google-jwt",
+      callbackURL: "/after-one-tap",
+    });
   });
 
   await runCase("get-session rejects POST without deferred refresh", async () => {

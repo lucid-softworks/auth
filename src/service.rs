@@ -17,8 +17,10 @@ mod guest;
 #[cfg(feature = "axum")]
 pub(crate) mod magic_link;
 mod oauth;
+mod oauth_identity;
 mod oauth_sign_in;
 mod oauth_state;
+mod one_tap;
 mod operator_security;
 mod organization;
 mod passkey;
@@ -137,6 +139,15 @@ impl AuthService {
 
     pub(crate) fn admin_config(&self) -> Result<&crate::AdminConfig, AuthError> {
         self.admin_plugin().map(crate::AdminPlugin::config)
+    }
+
+    pub(crate) fn one_tap_config(&self) -> Result<&crate::OneTapConfig, AuthError> {
+        self.plugins
+            .find::<crate::OneTapPlugin>()
+            .map(crate::OneTapPlugin::config)
+            .ok_or_else(|| {
+                AuthError::InvalidConfiguration("the one-tap plugin is not enabled".into())
+            })
     }
 
     pub(crate) fn social_provider(&self, id: &str) -> Option<&Arc<dyn crate::SocialProvider>> {

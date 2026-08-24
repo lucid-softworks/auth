@@ -285,6 +285,12 @@ impl SocialProvider for BuiltinProvider {
     fn require_email_verification(&self) -> bool {
         self.config.require_email_verification()
     }
+    fn id_token_audiences(&self) -> &[String] {
+        self.config.id_token_audiences()
+    }
+    fn hosted_domain(&self) -> Option<&str> {
+        self.config.hosted_domain()
+    }
     fn supports_id_token_sign_in(&self) -> bool {
         self.kind == BuiltinProviderKind::Line || self.config.supports_id_token_sign_in()
     }

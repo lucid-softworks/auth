@@ -54,6 +54,7 @@ pub(super) fn provider_config(
         disable_implicit_sign_up: false,
         disable_sign_up: false,
         require_email_verification: false,
+        hosted_domain: None,
     }
 }
 
@@ -175,7 +176,11 @@ fn oidc(kind: Kind, client_id: &str, issuer: Option<&str>) -> Option<OidcConfig>
     };
     Some(OidcConfig {
         jwks_url: jwks.into(),
-        issuers: issuer.map_or(issuers, |value| vec![value.into()]),
+        issuers: if kind == Kind::Google {
+            issuers
+        } else {
+            issuer.map_or(issuers, |value| vec![value.into()])
+        },
         audiences: vec![client_id.into()],
         algorithms: vec![jsonwebtoken::Algorithm::RS256],
         requires_nonce: false,

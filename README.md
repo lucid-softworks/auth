@@ -34,6 +34,7 @@ The currently supported surface covers:
 - enumeration-resistant password-reset email and single-use reset redemption
 - the complete official `emailOTPClient` surface as an optional native plugin
 - the complete official `phoneNumberClient` surface as an optional native plugin
+- the official Google `oneTapClient` callback surface as an optional native plugin
 - the complete Better Auth username lifecycle as an optional native plugin
 - sign-out
 - the complete official anonymous client lifecycle as an optional native plugin
@@ -513,6 +514,60 @@ API. `updateUser` may clear
 `phoneNumber` with `null`, which also clears verification, but cannot set or
 replace it directly. PostgreSQL deployments must apply the service's plugin
 migrations so the unique phone-number index is present.
+
+Google One Tap is an optional native plugin. Give `OneTapConfig` a Google web
+client ID, or omit it to reuse the client ID from a registered Google social
+provider:
+
+```rust
+let mut google = BuiltinProvider::new(
+    BuiltinProviderKind::Google,
+    std::env::var("GOOGLE_CLIENT_ID")?,
+    std::env::var("GOOGLE_CLIENT_SECRET")?,
+);
+google.config_mut().hosted_domain = Some("example.com".into());
+config.add_social_provider(google)?;
+
+// When omitted, the registered Google provider's client ID is used.
+let one_tap = OneTapConfig::default();
+config.add_plugin(OneTapPlugin::new(one_tap))?;
+```
+
+Register Better Auth 1.7.1's client plugin with the same Google web client ID:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { oneTapClient } from "better-auth/client/plugins";
+
+export const authClient = createAuthClient({
+  baseURL: "https://auth.example.com",
+  plugins: [oneTapClient({ clientId: googleClientId })],
+});
+
+await authClient.oneTap({ callbackURL: "/dashboard" });
+```
+
+The plugin ID is `one-tap`, the client factory/action are
+`oneTapClient`/`oneTap`, and the only server route is
+`POST /one-tap/callback` under the configured auth base path.
+The official client loads Google Identity Services, renders or prompts in the
+browser, and enables FedCM by default; One Tap is therefore browser-only and an
+SSR invocation intentionally does nothing. `promptOptions.fedCM: false` selects
+the non-FedCM prompt behavior supported by the official client. Prompt mode
+retries with a one-second base delay for up to five attempts by default, while
+button mode renders Google's button instead. The official client also prevents
+silent Google access after sign-out. An action-level `nonce` is forwarded to
+Google Identity Services only; Better Auth 1.7.1 does not send it to or validate
+it at the callback route.
+
+`callbackURL` is validated by the server's trusted-origin policy, but the
+callback response is `{ token, user }` and the server never redirects. After a
+successful callback, the official browser client performs the navigation.
+`hosted_domain` enforces Google's `hd` claim for both Google OAuth and One Tap;
+use `"*"` to require any non-empty hosted-domain claim. One Tap otherwise uses
+the normal Google account linking, signup, session, anonymous-upgrade, and
+email-verification policies. The plugin adds no schema, migration, cookie, or
+plugin-specific rate-limit declaration.
 
 Organization is an optional native plugin. Its store is independent from the
 core authentication store and can use either memory or PostgreSQL:

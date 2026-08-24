@@ -6,8 +6,10 @@ mod builtin_fixtures;
 mod builtin_http;
 mod builtins;
 pub(crate) mod crypto;
+pub(crate) mod google_id_token;
 mod provider;
 mod provider_data;
+mod provider_http;
 
 pub use builtins::{BuiltinProvider, BuiltinProviderKind};
 pub use provider::{
