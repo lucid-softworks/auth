@@ -514,14 +514,24 @@ PostgreSQL hosts apply core migrations and then the service's validated plugin
 contributions:
 
 ```rust
-store.migrate().await?;
-store.migrate_plugins(&service.plugin_migrations()).await?;
+let report = store.migrate_all(&service.plugin_migrations()).await?;
+assert!(report.compatible);
 ```
 
 Plugin migrations are keyed by `(plugin_id, migration_id)`, share the core
 advisory migration lock, and are transactional and idempotent. See the
 [native plugin example](examples/native_plugin.rs) for a route, middleware,
 migration, cookie/rate-limit declarations, and official-client metadata.
+
+`PostgresStore::migration_plan` discovers the deterministic ordered core/plugin
+migrations and derives their final tables, columns/types, and explicit indexes
+directly from the checked-in SQL. `diagnose_schema` is a read-only in-process
+catalog check for pending or unknown migrations, changed descriptions or
+SHA-256 fingerprints, and missing/mistyped physical objects. Reports contain
+only migration/object identifiers and never receive or serialize a database
+URL. Existing installations gain fingerprints through migration `0018`; a
+nonempty checksum mismatch is rejected instead of silently accepting edited
+migration history.
 
 The Better Auth Admin surface is absent unless `AdminPlugin` is registered:
 

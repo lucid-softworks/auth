@@ -18,6 +18,7 @@ mod organization;
 mod passkey;
 mod plugin;
 mod rows;
+mod schema;
 mod security;
 mod session;
 mod step_up;
@@ -26,6 +27,12 @@ mod user;
 mod verification;
 
 use rows::{SessionRow, UserRow};
+
+pub use migrate::{CoreMigration, core_migrations};
+pub use schema::{
+    PostgresMigrationDescriptor, PostgresMigrationPlan, PostgresSchemaIssue, PostgresSchemaObject,
+    PostgresSchemaReport,
+};
 
 /// PostgreSQL/SQLx persistence adapter.
 #[derive(Clone)]

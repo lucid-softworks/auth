@@ -26,8 +26,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = Arc::new(PostgresStore::new(pool));
     let service = Arc::new(AuthService::try_new(store.clone(), config)?);
 
-    store.migrate().await?;
-    store.migrate_plugins(&service.plugin_migrations()).await?;
+    let schema = store.migrate_all(&service.plugin_migrations()).await?;
+    if !schema.compatible {
+        return Err(format!("PostgreSQL schema is incompatible: {:?}", schema.issues).into());
+    }
 
     let app: Router = lucid_auth::axum::router(service);
     let listener = tokio::net::TcpListener::bind(address).await?;

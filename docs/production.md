@@ -96,9 +96,9 @@ overwrites, not ones it appends from arbitrary clients.
 
 - Use PostgreSQL for durable or multi-instance deployments. `MemoryStore` is
   process-local and loses users, sessions, challenges, and rate limits on exit.
-- Apply `store.migrate()` and then
-  `store.migrate_plugins(&service.plugin_migrations())` before traffic reaches a
-  new version.
+- Apply `store.migrate_all(&service.plugin_migrations())` and require its schema
+  report to be compatible before traffic reaches a new version. Use the
+  read-only `diagnose_schema` API for readiness checks and drift inspection.
 - Back up and test restore procedures before upgrades. Core and plugin
   migrations are idempotent, transactional, and serialized with an advisory
   lock, but they are not a substitute for database backups.

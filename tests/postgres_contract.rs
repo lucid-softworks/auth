@@ -36,6 +36,8 @@ mod organization;
 mod passkey;
 #[path = "postgres_contract/rate_limit.rs"]
 mod rate_limit;
+#[path = "postgres_contract/schema.rs"]
+mod schema;
 #[path = "postgres_contract/step_up.rs"]
 mod step_up;
 #[path = "postgres_contract/two_factor.rs"]
@@ -78,6 +80,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
 
     let store = Arc::new(PostgresStore::new(pool.clone()));
     store.migrate().await?;
+    migration_checksum_upgrade_is_safe(&store, &pool).await?;
     store.migrate().await?;
     plugin_migrations_are_idempotent(&store, &pool).await?;
     assert_extension_tables_absent(&pool).await?;
@@ -116,12 +119,35 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     api_key::assert_limits_are_atomic(&service, &api_keys, &signed_in.session).await?;
     audit::assert_retention_is_atomic(&store, &pool, user.id).await?;
     operator_security::assert_atomic(&service, &store, &signed_in, user.id).await?;
+    schema::assert_clean_and_detects_drift(&store, &pool, &service.plugin_migrations()).await?;
 
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
         .execute(&admin)
         .await?;
     admin.close().await;
+    Ok(())
+}
+
+async fn migration_checksum_upgrade_is_safe(
+    store: &PostgresStore,
+    pool: &sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    sqlx::query("DELETE FROM lucid_auth_migrations WHERE version = 18")
+        .execute(pool)
+        .await?;
+    sqlx::query("ALTER TABLE lucid_auth_migrations DROP COLUMN checksum")
+        .execute(pool)
+        .await?;
+    store.migrate().await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM lucid_auth_migrations WHERE checksum IS NULL",
+        )
+        .fetch_one(pool)
+        .await?,
+        0
+    );
     Ok(())
 }
 

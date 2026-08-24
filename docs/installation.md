@@ -110,16 +110,19 @@ cargo run --example http_postgres --features axum,postgres
 
 The [PostgreSQL HTTP example](../examples/http_postgres.rs) creates the pool,
 constructs the validated service, applies core migrations, applies enabled
-plugin migrations, and then binds the router. Run the same two migration calls
-once during every deployment before new application instances serve traffic:
+plugin migrations, and then binds the router. Apply and validate the complete
+plan during every deployment before new application instances serve traffic:
 
 ```rust
-store.migrate().await?;
-store.migrate_plugins(&service.plugin_migrations()).await?;
+let report = store.migrate_all(&service.plugin_migrations()).await?;
+assert!(report.compatible);
 ```
 
 Both operations use the same PostgreSQL advisory lock and are transactional and
-idempotent. Do not run Better Auth's TypeScript CLI against this schema.
+idempotent. `migration_plan` provides read-only discovery and `diagnose_schema`
+checks the deployed catalog without executing a subprocess or including the
+database URL in its serializable report. Do not run Better Auth's TypeScript CLI
+against this schema.
 
 ## Install the official client
 
