@@ -15,6 +15,7 @@ mod email_otp;
 mod email_password;
 mod email_verification;
 mod guest;
+mod last_login_method;
 #[cfg(feature = "axum")]
 pub(crate) mod magic_link;
 #[cfg(feature = "axum")]

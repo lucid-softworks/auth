@@ -10,6 +10,15 @@ use std::sync::Arc;
 use std::{any::Any, borrow::Cow};
 use uuid::Uuid;
 
+#[cfg(feature = "axum")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginRequestContext {
+    pub method: String,
+    pub path: String,
+    pub query: Option<String>,
+    pub headers: std::collections::BTreeMap<String, String>,
+}
+
 mod registry;
 
 pub(crate) use registry::PluginRegistry;
@@ -293,6 +302,16 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
         None
     }
 
+    /// Runs service-aware work after a database record has been created.
+    async fn after_database_create(
+        &self,
+        _service: &crate::AuthService,
+        _record: &crate::DatabaseRecord,
+        _context: &crate::DatabaseHookContext,
+    ) -> Result<(), AuthError> {
+        Ok(())
+    }
+
     async fn before(&self, _event: &BeforeAuthEvent) -> Result<(), AuthError> {
         Ok(())
     }
@@ -370,5 +389,15 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
         _service: Arc<AuthService>,
     ) -> axum::routing::MethodRouter {
         route
+    }
+
+    #[cfg(feature = "axum")]
+    async fn after_response(
+        &self,
+        _service: &AuthService,
+        _request: &PluginRequestContext,
+        response: axum::response::Response,
+    ) -> axum::response::Response {
+        response
     }
 }

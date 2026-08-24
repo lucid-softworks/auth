@@ -1,4 +1,5 @@
 use super::{AuthService, HmacSha256};
+use crate::cookie::encode_cookie_component;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use hmac::Mac as _;
 
@@ -20,24 +21,6 @@ impl AuthService {
         mac.verify_slice(&decoded).ok()?;
         Some(token.to_owned())
     }
-}
-
-fn encode_cookie_component(value: &str) -> String {
-    let mut encoded = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric()
-            || matches!(
-                byte,
-                b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')'
-            )
-        {
-            encoded.push(char::from(byte));
-        } else {
-            use std::fmt::Write as _;
-            let _ = write!(encoded, "%{byte:02X}");
-        }
-    }
-    encoded
 }
 
 fn decode_cookie_component(value: &str) -> String {

@@ -36,6 +36,7 @@ The currently supported surface covers:
 - the complete official `phoneNumberClient` surface as an optional native plugin
 - the official Google `oneTapClient` callback surface as an optional native plugin
 - the complete official `multiSessionClient` surface as an optional native plugin
+- the complete official `lastLoginMethodClient` surface as an optional native plugin
 - the complete Better Auth username lifecycle as an optional native plugin
 - sign-out
 - the complete official anonymous client lifecycle as an optional native plugin
@@ -208,6 +209,29 @@ config.add_plugin(UsernamePlugin::default())?;
 This route boundary is separate from `AuthService::provision_password_user`, so
 closed-registration applications can still provision and authenticate native
 username accounts without exposing Better Auth's public username plugin.
+
+Last Login Method is also optional. It writes Better Auth's unsigned,
+browser-readable cookie only when an authentication response sets the primary
+session cookie:
+
+```rust
+config.add_plugin(LastLoginMethodPlugin::default())?;
+```
+
+The exact default resolver recognizes email signup/signin, social and Generic
+OAuth callbacks, SIWE, passkey verification, and magic-link verification. Set
+`custom_resolve_method` to replace or extend that vocabulary, and use
+`before_store_cookie` for an async consent decision. Returning `None` from the
+custom resolver falls back to the defaults; returning an empty string suppresses
+storage. Enable `store_in_database` to add the optional, input-disabled
+`lastLoginMethod` user field and update it independently of cookie consent.
+The bundled stores persist that logical field in existing user additional-field
+storage, so this plugin has no standalone migration. The cookie is plaintext by
+design; custom method names must not contain secrets or sensitive attributes.
+`cookie_name`, floating-point `max_age`, and the user schema field name follow
+Better Auth 1.7.1, including URI encoding and its 400-day cookie limit. The
+official client reads and compares the cookie synchronously and can clear it;
+its optional `domain` setting affects clearing only.
 
 Additional fields for Better Auth's user, session, account, and verification
 models are explicit and typed. Core and plugin schema descriptors are merged in

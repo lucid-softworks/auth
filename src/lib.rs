@@ -15,6 +15,7 @@ mod email_otp;
 mod error;
 mod generic_oauth;
 mod guest_capability;
+mod last_login_method;
 mod magic_link;
 mod memory;
 mod model;
@@ -109,6 +110,11 @@ pub use guest_capability::{
     GuestCapabilityPlugin, GuestCapabilityPrincipal, GuestCapabilityStore, GuestGrant,
     GuestGrantSignInResult, IssuedGuestGrant, NewGuestGrant,
 };
+pub use last_login_method::{
+    BeforeStoreLastLoginMethod, LastLoginMethodConfig, LastLoginMethodContext,
+    LastLoginMethodPlugin, LastLoginMethodResolver, LastLoginMethodSchema,
+    LastLoginMethodUserSchema,
+};
 pub use magic_link::{
     MagicLinkConfig, MagicLinkEmail, MagicLinkPlugin, MagicLinkRequestContext, MagicLinkSender,
     MagicLinkTokenGenerator, MagicLinkTokenHasher, MagicLinkTokenStorage,
@@ -168,7 +174,7 @@ pub use plugin::{
     UserManagementDecision, UserManagementOperation,
 };
 #[cfg(feature = "axum")]
-pub use plugin::{AxumPluginRoute, PluginSession};
+pub use plugin::{AxumPluginRoute, PluginRequestContext, PluginSession};
 pub use rate_limit::{
     RateLimitConfig, RateLimitCustomRule, RateLimitOutcome, RateLimitRequest, RateLimitRule,
     RateLimitRuleResolver, RateLimitStorage, RateLimitStorageMode,

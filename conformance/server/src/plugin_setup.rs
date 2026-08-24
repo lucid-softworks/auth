@@ -13,10 +13,10 @@ use super::{
 use lucid_auth::{
     ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, AuthError, EmailOtpConfig,
     EmailOtpPlugin, MagicLinkConfig, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore,
-    MultiSessionPlugin, OneTapConfig, OneTapPlugin, OtpConfig, PasskeyConfig, PasskeyPlugin,
-    PhoneNumberConfig, PhoneNumberPlugin, PhoneNumberSignUpConfig, SiweConfig,
-    SiweMessageVerifier, SiweNonceGenerator, SiwePlugin, SiweVerificationRequest, TotpConfig,
-    TwoFactorConfig, TwoFactorPlugin,
+    LastLoginMethodConfig, LastLoginMethodPlugin, MultiSessionPlugin, OneTapConfig, OneTapPlugin,
+    OtpConfig, PasskeyConfig, PasskeyPlugin, PhoneNumberConfig, PhoneNumberPlugin,
+    PhoneNumberSignUpConfig, SiweConfig, SiweMessageVerifier, SiweNonceGenerator, SiwePlugin,
+    SiweVerificationRequest, TotpConfig, TwoFactorConfig, TwoFactorPlugin,
 };
 use std::{
     collections::BTreeMap,
@@ -125,6 +125,12 @@ fn register_session_plugins(config: &mut AuthConfig, origin: &str, store: Arc<Me
     config
         .add_plugin(MultiSessionPlugin::default())
         .expect("unique multi-session plugin");
+    config
+        .add_plugin(LastLoginMethodPlugin::new(LastLoginMethodConfig {
+            store_in_database: true,
+            ..LastLoginMethodConfig::default()
+        }))
+        .expect("unique last-login-method plugin");
     let siwe = SiweConfig::new(
         origin.trim_start_matches("http://"),
         Arc::new(ConformanceSiweNonce(AtomicU64::new(1))),

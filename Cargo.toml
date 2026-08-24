@@ -100,6 +100,10 @@ name = "multi_session_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "last_login_method_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "request_security_contract"
 required-features = ["axum"]
 

@@ -6,6 +6,24 @@ pub enum SameSite {
     None,
 }
 
+pub(crate) fn encode_cookie_component(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric()
+            || matches!(
+                byte,
+                b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')'
+            )
+        {
+            encoded.push(char::from(byte));
+        } else {
+            use std::fmt::Write as _;
+            let _ = write!(encoded, "%{byte:02X}");
+        }
+    }
+    encoded
+}
+
 impl SameSite {
     #[cfg(feature = "axum")]
     pub(crate) fn as_str(self) -> &'static str {

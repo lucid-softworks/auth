@@ -1,13 +1,13 @@
 use lucid_auth::{
     AccessStore, AccountDeleteOutcome, AdditionalField, AdditionalFieldType, AdminPlugin,
     AnonymousPlugin, AuditPlugin, AuthConfig, AuthError, AuthService, AuthSession, AuthStore,
-    AuthUser, AuthenticationMethod, EmailSignUpInput, GuestCapabilityPlugin, MultiSessionPlugin,
-    NewPasswordUser, OAuthAccount, OAuthAccountStore, OAuthTokenUpdateOutcome,
-    OperatorSecurityConfig, OperatorSecurityPlugin, OrganizationDynamicAccessControlConfig,
-    OrganizationPlugin, OrganizationPluginConfig, OrganizationTeamsConfig, OwnerPolicyPlugin,
-    PasskeyConfig, PasskeyPlugin, PluginMigration, PluginMigrationContribution, StepUpPolicyConfig,
-    StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin, UsernameError, UsernamePlugin,
-    postgres::PostgresStore,
+    AuthUser, AuthenticationMethod, EmailSignUpInput, GuestCapabilityPlugin, LastLoginMethodConfig,
+    LastLoginMethodPlugin, MultiSessionPlugin, NewPasswordUser, OAuthAccount, OAuthAccountStore,
+    OAuthTokenUpdateOutcome, OperatorSecurityConfig, OperatorSecurityPlugin,
+    OrganizationDynamicAccessControlConfig, OrganizationPlugin, OrganizationPluginConfig,
+    OrganizationTeamsConfig, OwnerPolicyPlugin, PasskeyConfig, PasskeyPlugin, PluginMigration,
+    PluginMigrationContribution, StepUpPolicyConfig, StepUpPolicyPlugin, TwoFactorConfig,
+    TwoFactorPlugin, UsernameError, UsernamePlugin, postgres::PostgresStore,
 };
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
@@ -27,6 +27,8 @@ mod audit;
 mod email_otp;
 #[path = "postgres_contract/guest_capability.rs"]
 mod guest_capability;
+#[path = "postgres_contract/last_login_method.rs"]
+mod last_login_method;
 #[path = "postgres_contract/magic_link.rs"]
 mod magic_link;
 #[path = "postgres_contract/multi_session.rs"]
@@ -104,6 +106,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     anonymous::assert_lifecycle(&service, &store).await?;
     let signed_in = authenticate_owner(&service, &user).await?;
     multi_session::assert_http_round_trip(&service).await?;
+    last_login_method::assert_http_round_trip(&service, &store, user.id).await?;
     session_refresh::assert_atomic(&service, &store).await?;
     organization::assert_persistence(&service, &store, &signed_in.session).await?;
     admin::assert_query_and_update(&service, &signed_in.session).await?;
@@ -216,6 +219,10 @@ fn register_contract_plugins(
     config.add_plugin(OwnerPolicyPlugin)?;
     config.add_plugin(UsernamePlugin::default())?;
     config.add_plugin(MultiSessionPlugin::default())?;
+    config.add_plugin(LastLoginMethodPlugin::new(LastLoginMethodConfig {
+        store_in_database: true,
+        ..LastLoginMethodConfig::default()
+    }))?;
     email_otp::register(config)?;
     siwe::register(config, store)?;
     let phone_numbers = phone_number::register(config, store)?;

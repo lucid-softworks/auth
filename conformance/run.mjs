@@ -10,6 +10,7 @@ import {
   anonymousClient,
   emailOTPClient,
   magicLinkClient,
+  lastLoginMethodClient,
   multiSessionClient,
   oneTapClient,
   phoneNumberClient,
@@ -247,6 +248,61 @@ async function siweClientConformance() {
   console.log("ok - SIWE official client contract");
 }
 
+async function lastLoginMethodClientConformance() {
+  const previousDocument = globalThis.document;
+  try {
+    delete globalThis.document;
+    const serverSide = lastLoginMethodClient().getActions();
+    assert.equal(serverSide.getLastUsedLoginMethod(), null);
+    assert.equal(serverSide.isLastUsedLoginMethod("email"), false);
+    serverSide.clearLastUsedLoginMethod();
+
+    let assigned;
+    let documentCookie =
+      "better-auth.last_used_login_method=oidc%2Fgoogle%20%2Bfoo; " +
+      "better-auth.last_used_login_method=email; malformed=%E0%A4%A";
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        get cookie() {
+          return documentCookie;
+        },
+        set cookie(value) {
+          assigned = value;
+          documentCookie = value;
+        },
+      },
+    });
+    const actions = lastLoginMethodClient().getActions();
+    assert.equal(actions.getLastUsedLoginMethod(), "email");
+    assert.equal(actions.isLastUsedLoginMethod("email"), true);
+    assert.equal(actions.isLastUsedLoginMethod("EMAIL"), false);
+    actions.clearLastUsedLoginMethod();
+    assert.equal(
+      assigned,
+      "better-auth.last_used_login_method=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;",
+    );
+
+    const custom = lastLoginMethodClient({
+      cookieName: "custom.last-login",
+      domain: ".example.com",
+    }).getActions();
+    globalThis.document.cookie = "custom.last-login=%E0%A4%A";
+    assert.equal(custom.getLastUsedLoginMethod(), "%E0%A4%A");
+    globalThis.document.cookie = 'custom.last-login="magic-link"';
+    assert.equal(custom.getLastUsedLoginMethod(), "magic-link");
+    custom.clearLastUsedLoginMethod();
+    assert.equal(
+      assigned,
+      "custom.last-login=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=.example.com;",
+    );
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+  console.log("ok - last-login-method official client contract");
+}
+
 async function conformance(origin) {
   installVirtualAuthenticator(origin);
   const transport = new BrowserTransport(origin);
@@ -262,6 +318,7 @@ async function conformance(origin) {
       passkeyClient(),
       apiKeyClient(),
       magicLinkClient(),
+      lastLoginMethodClient(),
       multiSessionClient(),
       phoneNumberClient(),
       oneTapClient({ clientId: "conformance-google-client" }),
@@ -294,6 +351,9 @@ async function conformance(origin) {
     const oneTap = metadata.find((plugin) => plugin.id === "one-tap");
     const siwe = metadata.find((plugin) => plugin.id === "siwe");
     const multiSession = metadata.find((plugin) => plugin.id === "multi-session");
+    const lastLoginMethod = metadata.find(
+      (plugin) => plugin.id === "last-login-method",
+    );
     assert.equal(nativePlugin.client.betterAuthVersion, betterAuthPackage.version);
     assert.equal(nativePlugin.endpoints[0].clientMethod, "nativePlugin.ping");
     assert.equal(magicLink.client.factory, "magicLinkClient");
@@ -305,6 +365,8 @@ async function conformance(origin) {
     assert.equal(oneTap.client.factory, "oneTapClient");
     assert.equal(siwe.client.factory, "siweClient");
     assert.equal(multiSession.client.factory, "multiSessionClient");
+    assert.equal(lastLoginMethod.client.factory, "lastLoginMethodClient");
+    assert.deepEqual(lastLoginMethod.endpoints, []);
     assert.deepEqual(
       multiSession.endpoints.map((endpoint) => [endpoint.path, endpoint.clientMethod]),
       [
@@ -337,6 +399,27 @@ async function conformance(origin) {
         ["/siwe/get-nonce", "siwe.getNonce"],
         ["/siwe/verify", "siwe.verify"],
       ],
+    );
+  });
+
+  await runCase("last-login-method official client against native server", async () => {
+    transport.clearCookies();
+    success(
+      await client.signUp.email({
+        name: "Last Login User",
+        email: "last-login@example.com",
+        password: "correct horse battery staple",
+      }),
+      "last-login signup",
+    );
+    assert.equal(
+      transport.cookies.get("better-auth.last_used_login_method"),
+      "email",
+    );
+    success(await client.signOut(), "last-login signout");
+    assert.equal(
+      transport.cookies.get("better-auth.last_used_login_method"),
+      "email",
     );
   });
 
@@ -2331,6 +2414,7 @@ function stopServer(child) {
 }
 
 await siweClientConformance();
+await lastLoginMethodClientConformance();
 
 for (const strategy of ["compact", "jwt", "jwe"]) {
   const { child, origin } = await startServer(strategy);

@@ -20,6 +20,7 @@ mod error;
 pub(crate) mod http;
 mod oauth;
 mod oauth_state;
+mod plugin_hooks;
 mod rate_limit;
 mod security;
 mod session;
@@ -64,6 +65,10 @@ where
             cors::credentialed_trusted_origins,
         ))
         .layer(middleware::from_fn(database_hooks::request_context))
+        .layer(middleware::from_fn_with_state(
+            service.clone(),
+            plugin_hooks::after_response,
+        ))
         .layer(Extension(service.clone()));
     Router::new().nest(service.base_path(), routes)
 }
