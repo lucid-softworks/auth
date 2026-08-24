@@ -38,6 +38,8 @@ mod passkey;
 mod rate_limit;
 #[path = "postgres_contract/schema.rs"]
 mod schema;
+#[path = "postgres_contract/session_refresh.rs"]
+mod session_refresh;
 #[path = "postgres_contract/step_up.rs"]
 mod step_up;
 #[path = "postgres_contract/two_factor.rs"]
@@ -99,6 +101,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     migrate_legacy_extensions(&service, &store, &pool, user.id).await?;
     anonymous::assert_lifecycle(&service, &store).await?;
     let signed_in = authenticate_owner(&service, &user).await?;
+    session_refresh::assert_atomic(&service, &store).await?;
     organization::assert_persistence(&service, &store, &signed_in.session).await?;
     admin::assert_query_and_update(&service, &signed_in.session).await?;
     account_update::assert_persistence(&service, &store, &signed_in.session, &pool).await?;

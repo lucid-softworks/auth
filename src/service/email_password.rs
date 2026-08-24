@@ -185,12 +185,22 @@ impl AuthService {
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
-        let expires_at = (remember_me == Some(false)).then(|| Utc::now() + Duration::days(1));
-        self.create_session_until(
+        if remember_me == Some(false) {
+            return self
+                .create_session_expiring_at(
+                    user,
+                    AuthenticationMethod::Password,
+                    None,
+                    Utc::now() + Duration::days(1),
+                    ip_address,
+                    user_agent,
+                )
+                .await;
+        }
+        self.create_session(
             user,
             AuthenticationMethod::Password,
             None,
-            expires_at,
             ip_address,
             user_agent,
         )

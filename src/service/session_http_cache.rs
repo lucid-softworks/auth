@@ -12,6 +12,11 @@ impl AuthService {
         self.resolve_cookie(crate::cookie::CookieKind::SessionData)
     }
 
+    #[cfg(feature = "axum")]
+    pub(crate) fn dont_remember_cookie(&self) -> crate::cookie::ResolvedCookie {
+        self.resolve_cookie(crate::cookie::CookieKind::DontRemember)
+    }
+
     pub(crate) fn cookie_cache_enabled(&self) -> bool {
         self.config.session.cookie_cache.enabled
     }

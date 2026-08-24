@@ -167,6 +167,17 @@ async function conformance(origin) {
     assert.equal(username.client.factory, "usernameClient");
   });
 
+  await runCase("get-session rejects POST without deferred refresh", async () => {
+    const response = await client.$fetch("/get-session", { method: "POST" });
+    assert.equal(response.data, null);
+    assert.equal(response.error?.status, 405);
+    assert.equal(response.error?.code, "METHOD_NOT_ALLOWED");
+    assert.equal(
+      response.error?.message,
+      "POST method requires deferSessionRefresh to be enabled in session config",
+    );
+  });
+
   await runCase("native plugin client metadata and route", async () => {
     const data = success(await client.nativePlugin.ping(), "nativePlugin.ping");
     assert.deepEqual(data, {
@@ -1586,7 +1597,35 @@ async function cookieCacheConformance(origin, strategy) {
   console.log(`ok - Better Auth ${strategy} cookie-cache decoder`);
 }
 
-async function startServer(strategy) {
+async function deferredSessionConformance(origin) {
+  const transport = new BrowserTransport(origin);
+  const client = createAuthClient({
+    baseURL: origin,
+    fetchOptions: { customFetchImpl: transport.fetch.bind(transport) },
+  });
+  success(
+    await client.signUp.email({
+      name: "Deferred Session User",
+      email: "deferred-session@example.com",
+      password: "correct horse battery staple",
+    }),
+    "deferredSession.signUp",
+  );
+  const pending = success(
+    await client.$fetch("/get-session", { method: "GET" }),
+    "deferredSession.get",
+  );
+  assert.equal(pending.needsRefresh, true);
+  const refreshed = success(
+    await client.$fetch("/get-session", { method: "POST" }),
+    "deferredSession.post",
+  );
+  assert.equal("needsRefresh" in refreshed, false);
+  assert.ok(new Date(refreshed.session.expiresAt) > new Date(pending.session.expiresAt));
+  console.log("ok - Better Auth deferred session GET/POST contract");
+}
+
+async function startServer(strategy, deferred = false) {
   const child = spawn(
     "cargo",
     [
@@ -1600,6 +1639,7 @@ async function startServer(strategy) {
       env: {
         ...process.env,
         LUCID_AUTH_COOKIE_CACHE_STRATEGY: strategy,
+        ...(deferred ? { LUCID_AUTH_DEFER_SESSION_REFRESH: "1" } : {}),
       },
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"],
@@ -1645,6 +1685,16 @@ for (const strategy of ["compact", "jwt", "jwe"]) {
   try {
     if (strategy === "compact") await conformance(origin);
     await cookieCacheConformance(origin, strategy);
+  } finally {
+    stopServer(child);
+  }
+}
+
+
+{
+  const { child, origin } = await startServer("compact", true);
+  try {
+    await deferredSessionConformance(origin);
   } finally {
     stopServer(child);
   }

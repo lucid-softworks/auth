@@ -172,6 +172,11 @@ async fn fixture(origin: &str) -> Fixture {
 fn conformance_config(origin: &str, messages: &ConformanceMessages) -> AuthConfig {
     let mut config = AuthConfig::new([82_u8; 32]).expect("fixture secret");
     cookie_cache::configure(&mut config);
+    if std::env::var_os("LUCID_AUTH_DEFER_SESSION_REFRESH").is_some() {
+        config.session.cookie_cache.enabled = false;
+        config.session.defer_session_refresh = true;
+        config.session.update_age = chrono::Duration::zero();
+    }
     let mut admin = AdminConfig::default();
     admin.set_role("member", AdminRole::new());
     admin.set_role("viewer", AdminRole::new());

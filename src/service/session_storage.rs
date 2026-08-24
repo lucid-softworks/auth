@@ -47,6 +47,17 @@ impl AuthService {
             }
             return Ok(());
         };
+        self.persist_secondary_session(secondary.as_ref(), token, session, user)
+            .await
+    }
+
+    async fn persist_secondary_session(
+        &self,
+        secondary: &dyn crate::SecondaryStorage,
+        token: &str,
+        session: &AuthSession,
+        user: &AuthUser,
+    ) -> Result<(), AuthError> {
         let ttl = ttl(session.expires_at);
         if ttl == 0 {
             return Ok(());
@@ -67,6 +78,51 @@ impl AuthService {
             .await?;
         self.add_active_reference(user.id, token, session.expires_at)
             .await
+    }
+
+    #[cfg(feature = "axum")]
+    pub(super) async fn refresh_stored_session(
+        &self,
+        candidate: &SessionWithUser,
+    ) -> Result<Option<AuthSession>, AuthError> {
+        let token = &candidate.session.token;
+        let Some(secondary) = &self.config.secondary_storage else {
+            return self
+                .store
+                .refresh_session(
+                    token,
+                    candidate.session.expires_at,
+                    candidate.session.updated_at,
+                )
+                .await;
+        };
+        if self.config.session.store_session_in_database {
+            let Some(updated) = self
+                .store
+                .refresh_session(
+                    token,
+                    candidate.session.expires_at,
+                    candidate.session.updated_at,
+                )
+                .await?
+            else {
+                return Ok(None);
+            };
+            self.persist_secondary_session(secondary.as_ref(), token, &updated, &candidate.user)
+                .await?;
+            return Ok(Some(updated));
+        }
+        if secondary.get(token).await?.is_none() {
+            return Ok(None);
+        }
+        self.persist_secondary_session(
+            secondary.as_ref(),
+            token,
+            &candidate.session,
+            &candidate.user,
+        )
+        .await?;
+        Ok(Some(candidate.session.clone()))
     }
 
     #[cfg(feature = "axum")]

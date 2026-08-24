@@ -146,8 +146,18 @@ impl AuthService {
                 let _ = self
                     .consume_verification_record(ATTEMPTS_PURPOSE, &identifier, Utc::now())
                     .await;
-                let result = self
-                    .create_session_until(
+                let result = if payload.remember_me == Some(false) {
+                    self.create_session_expiring_at(
+                        context.user.clone(),
+                        crate::AuthenticationMethod::TwoFactor,
+                        None,
+                        payload.session_expires_at,
+                        payload.ip_address,
+                        payload.user_agent,
+                    )
+                    .await?
+                } else {
+                    self.create_session_until(
                         context.user.clone(),
                         crate::AuthenticationMethod::TwoFactor,
                         None,
@@ -155,7 +165,8 @@ impl AuthService {
                         payload.ip_address,
                         payload.user_agent,
                     )
-                    .await?;
+                    .await?
+                };
                 (result, payload.remember_me)
             }
             None => {

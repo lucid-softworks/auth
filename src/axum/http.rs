@@ -67,7 +67,30 @@ pub(crate) async fn with_session_cookie(
         body,
         serialize_cookie(&cookie, &service.signed_cookie_value(token), max_age),
     );
-    match service.encode_session_cookie_cache(token, None).await {
+    let response = if remember_me == Some(false) {
+        with_cookie(
+            response,
+            serialize_cookie(
+                &service.dont_remember_cookie(),
+                &service.signed_cookie_value("true"),
+                None,
+            ),
+        )
+    } else {
+        response
+    };
+    with_session_cache_cookie(service, token, None, remember_me, response).await
+}
+
+pub(crate) async fn with_session_cache_cookie(
+    service: &AuthService,
+    token: &str,
+    session: Option<&SessionWithUser>,
+    remember_me: Option<bool>,
+    body: impl IntoResponse,
+) -> Response {
+    let response = body.into_response();
+    match service.encode_session_cookie_cache(token, session).await {
         Ok(Some(value)) => with_chunked_session_data_cookie(
             service,
             &value,
@@ -84,9 +107,13 @@ pub(crate) fn clear_session_cookie(service: &AuthService, body: impl IntoRespons
         body,
         serialize_cookie(&service.session_cookie(), "", Some(0)),
     );
-    with_cookie(
+    let response = with_cookie(
         response,
         serialize_cookie(&service.session_data_cookie(), "", Some(0)),
+    );
+    with_cookie(
+        response,
+        serialize_cookie(&service.dont_remember_cookie(), "", Some(0)),
     )
 }
 
@@ -148,6 +175,11 @@ pub(crate) fn with_chunked_session_data_cookie(
 pub fn session_token(service: &AuthService, headers: &HeaderMap) -> Option<String> {
     let cookie = service.session_cookie();
     signed_cookie_token(service, headers, &cookie.name)
+}
+
+pub(crate) fn dont_remember(service: &AuthService, headers: &HeaderMap) -> bool {
+    let cookie = service.dont_remember_cookie();
+    signed_cookie_token(service, headers, &cookie.name).as_deref() == Some("true")
 }
 
 pub(crate) fn signed_cookie_token(

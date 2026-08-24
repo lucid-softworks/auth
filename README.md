@@ -661,6 +661,16 @@ Better Auth's HKDF-derived A256CBC-HS512 encrypted profile. `max_age`,
 settings; changing `version` invalidates existing caches. Large cache values are
 split into Better Auth-compatible numbered cookies.
 
+Database and secondary-backed sessions slide at Better Auth's one-day
+`updateAge` by default. Set `config.session.update_age`, or set
+`disable_session_refresh` to suppress automatic writes. With
+`defer_session_refresh`, `GET /get-session` is write-free and returns the exact
+camelCase `needsRefresh` flag; Better Auth's client then uses
+`POST /get-session` to perform the refresh. POST is rejected with 405 unless
+that mode is enabled. `disableRefresh=true` suppresses one request, and
+`rememberMe: false` uses Better Auth's signed `dont_remember` cookie so the
+one-day session never slides and renewed cookies remain non-persistent.
+
 Set `config.secondary_storage` to an `Arc<dyn SecondaryStorage>` to make it the
 authoritative live-session store. `store_session_in_database` mirrors sessions
 to the primary store and `preserve_session_in_database` expires instead of
@@ -668,6 +678,9 @@ deleting that audit row on revocation. The default rate-limit storage mode also
 selects configured secondary storage. Use `SessionStorageMode::Stateless` only
 with cookie cache enabled; pure stateless sessions cannot be individually
 revoked, so use short cache lifetimes and version invalidation for incidents.
+Custom `AuthStore` implementations must make `refresh_session` an atomic
+update-only operation: a missing or concurrently deleted token returns `None`
+and must never be inserted again.
 
 Migration `0019_better_auth_session_tokens.sql` intentionally invalidates old
 hashed session rows and stores Better Auth's opaque token so `listSessions` and

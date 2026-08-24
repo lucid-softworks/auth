@@ -110,6 +110,13 @@ overwrites, not ones it appends from arbitrary clients.
   default rate limiter. Enable `store_session_in_database` only when a DB mirror
   is required; enable `preserve_session_in_database` when ended rows must remain
   as expired audit records.
+- Database and secondary sessions slide after `session.update_age` (one day by
+  default). Use `disable_session_refresh` for fully fixed expiry, or
+  `defer_session_refresh` when GET session reads must remain write-free; the
+  official client follows `needsRefresh` with POST `/get-session`.
+- `rememberMe: false` creates Better Auth's signed `dont_remember` marker and a
+  non-persistent, non-sliding one-day session. Preserve that cookie through
+  reverse proxies just like the primary session cookie.
 - Pure `SessionStorageMode::Stateless` deployments cannot centrally revoke one
   issued cache. Keep `cookie_cache.max_age` short and rotate
   `cookie_cache.version` for deterministic fleet-wide invalidation.
@@ -123,7 +130,8 @@ overwrites, not ones it appends from arbitrary clients.
   debug builds leave it disabled unless configured.
 - Email verification and password reset require native delivery callbacks.
 - CORS is disabled until explicitly enabled.
-- Session cookies are seven days by default and session freshness is one day.
+- Session cookies are seven days by default, database `update_age` and session
+  freshness are each one day by default.
 - Only register server plugins that the application uses, apply their
   migrations, and install their matching Better Auth client plugins.
 

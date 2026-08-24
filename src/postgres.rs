@@ -346,6 +346,15 @@ impl AuthStore for PostgresStore {
         session::update_fields(&self.pool, session_id, fields).await
     }
 
+    async fn refresh_session(
+        &self,
+        token: &str,
+        expires_at: DateTime<Utc>,
+        updated_at: DateTime<Utc>,
+    ) -> Result<Option<AuthSession>, AuthError> {
+        session::refresh(&self.pool, token, expires_at, updated_at).await
+    }
+
     async fn delete_session(&self, token: &str) -> Result<(), AuthError> {
         session::delete(&self.pool, token).await
     }

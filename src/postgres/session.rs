@@ -83,6 +83,27 @@ pub(super) async fn update_fields(
     .map_err(storage_error)
 }
 
+pub(super) async fn refresh(
+    pool: &PgPool,
+    token: &str,
+    expires_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+) -> Result<Option<AuthSession>, AuthError> {
+    sqlx::query_as::<_, SessionRow>(
+        "UPDATE lucid_auth_sessions SET expires_at = $2, updated_at = $3 \
+         WHERE token = $1 \
+         RETURNING id, user_id, token, actor_user_id, authentication_method, expires_at, \
+           created_at, updated_at, ip_address, user_agent, additional_fields",
+    )
+    .bind(token)
+    .bind(expires_at)
+    .bind(updated_at)
+    .fetch_optional(pool)
+    .await
+    .map(|row| row.map(AuthSession::from))
+    .map_err(storage_error)
+}
+
 pub(super) async fn delete(pool: &PgPool, token: &str) -> Result<(), AuthError> {
     sqlx::query("DELETE FROM lucid_auth_sessions WHERE token = $1")
         .bind(token)

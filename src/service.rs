@@ -28,6 +28,7 @@ mod session;
 mod session_create;
 #[cfg(feature = "axum")]
 mod session_http_cache;
+mod session_refresh;
 mod session_storage;
 mod session_update;
 mod two_factor;
@@ -306,27 +307,7 @@ impl AuthService {
     }
 
     pub async fn session(&self, token: &str) -> Result<Option<SessionWithUser>, AuthError> {
-        let Some(session) = self.find_stored_session(token).await? else {
-            return Ok(None);
-        };
-        let SessionWithUser { session, user } = session;
-        if session.expires_at <= Utc::now() {
-            self.delete_session_token_with_hooks(token).await?;
-            return Ok(None);
-        }
-        if self.plugins.find::<crate::AdminPlugin>().is_some()
-            && user.banned
-            && user.ban_expires.is_none_or(|expires| expires > Utc::now())
-        {
-            return Ok(None);
-        }
-        let session = SessionWithUser { session, user };
-        if !self.plugins.validates_session(&session).await? {
-            self.delete_session_id_with_hooks(session.session.id)
-                .await?;
-            return Ok(None);
-        }
-        Ok(Some(session))
+        self.validated_stored_session(token, true).await
     }
 
     pub async fn principal(&self, token: &str) -> Result<Option<Principal>, AuthError> {

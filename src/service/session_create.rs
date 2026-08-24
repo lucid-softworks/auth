@@ -27,12 +27,57 @@ impl AuthService {
     }
 
     #[allow(clippy::too_many_arguments)]
+    pub(super) async fn create_session_expiring_at(
+        &self,
+        user: AuthUser,
+        authentication_method: AuthenticationMethod,
+        actor_user_id: Option<Uuid>,
+        expires_at: DateTime<Utc>,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+    ) -> Result<SignInResult, AuthError> {
+        self.create_session_with_expiry(
+            user,
+            authentication_method,
+            actor_user_id,
+            Some(expires_at),
+            false,
+            ip_address,
+            user_agent,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn create_session_until(
         &self,
         user: AuthUser,
         authentication_method: AuthenticationMethod,
         actor_user_id: Option<Uuid>,
         expires_at: Option<DateTime<Utc>>,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+    ) -> Result<SignInResult, AuthError> {
+        self.create_session_with_expiry(
+            user,
+            authentication_method,
+            actor_user_id,
+            expires_at,
+            true,
+            ip_address,
+            user_agent,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn create_session_with_expiry(
+        &self,
+        user: AuthUser,
+        authentication_method: AuthenticationMethod,
+        actor_user_id: Option<Uuid>,
+        expires_at: Option<DateTime<Utc>>,
+        cap_to_session_ttl: bool,
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
@@ -52,9 +97,13 @@ impl AuthService {
             token: token.clone(),
             actor_user_id,
             authentication_method,
-            expires_at: expires_at
-                .unwrap_or(now + self.config.session_ttl)
-                .min(now + self.config.session_ttl),
+            expires_at: if cap_to_session_ttl {
+                expires_at
+                    .unwrap_or(now + self.config.session_ttl)
+                    .min(now + self.config.session_ttl)
+            } else {
+                expires_at.unwrap_or(now + self.config.session_ttl)
+            },
             created_at: now,
             updated_at: now,
             ip_address,

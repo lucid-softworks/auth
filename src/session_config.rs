@@ -59,7 +59,13 @@ pub enum SessionStorageMode {
 #[derive(Debug, Clone)]
 pub struct SessionConfig {
     pub additional_fields: AdditionalFieldSet,
+    /// How long a database-backed session may remain unchanged before its
+    /// expiry is extended. Better Auth defaults this to one day.
+    pub update_age: Duration,
     pub disable_session_refresh: bool,
+    /// Makes GET session reads write-free and permits POST `/get-session` to
+    /// perform a pending refresh.
+    pub defer_session_refresh: bool,
     pub store_session_in_database: bool,
     pub preserve_session_in_database: bool,
     pub cookie_cache: CookieCacheConfig,
@@ -70,7 +76,9 @@ impl Default for SessionConfig {
     fn default() -> Self {
         Self {
             additional_fields: AdditionalFieldSet::new(),
+            update_age: Duration::days(1),
             disable_session_refresh: false,
+            defer_session_refresh: false,
             store_session_in_database: false,
             preserve_session_in_database: false,
             cookie_cache: CookieCacheConfig::default(),
@@ -81,6 +89,9 @@ impl Default for SessionConfig {
 
 impl SessionConfig {
     pub(crate) fn validate(&self) -> Result<(), AuthError> {
+        if self.update_age < Duration::zero() {
+            return invalid("session update age must not be negative");
+        }
         if self.cookie_cache.max_age <= Duration::zero() {
             return invalid("session cookie-cache max age must be positive");
         }
@@ -103,4 +114,23 @@ impl SessionConfig {
 
 fn invalid<T>(message: &str) -> Result<T, AuthError> {
     Err(AuthError::InvalidConfiguration(message.into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_negative_database_update_age() {
+        let config = SessionConfig {
+            update_age: Duration::milliseconds(-1),
+            ..SessionConfig::default()
+        };
+
+        assert!(matches!(
+            config.validate(),
+            Err(AuthError::InvalidConfiguration(message))
+                if message == "session update age must not be negative"
+        ));
+    }
 }

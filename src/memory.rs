@@ -17,6 +17,7 @@ mod guest_capability;
 mod oauth;
 mod operator_security;
 mod security;
+mod session;
 mod user;
 mod verification;
 
@@ -329,38 +330,18 @@ impl AuthStore for MemoryStore {
     }
 
     async fn create_session(&self, session: AuthSession) -> Result<(), AuthError> {
-        self.state
-            .write()
-            .await
-            .sessions
-            .insert(session.token.clone(), session);
-        Ok(())
+        session::create(self, session).await
     }
 
     async fn find_session(
         &self,
         token: &str,
     ) -> Result<Option<(AuthSession, AuthUser)>, AuthError> {
-        let state = self.state.read().await;
-        let Some(session) = state.sessions.get(token).cloned() else {
-            return Ok(None);
-        };
-        Ok(state
-            .users
-            .get(&session.user_id)
-            .cloned()
-            .map(|user| (session, user)))
+        session::find(self, token).await
     }
 
     async fn find_session_by_id(&self, session_id: Uuid) -> Result<Option<AuthSession>, AuthError> {
-        Ok(self
-            .state
-            .read()
-            .await
-            .sessions
-            .values()
-            .find(|session| session.id == session_id)
-            .cloned())
+        session::find_by_id(self, session_id).await
     }
 
     async fn update_session_fields(
@@ -368,25 +349,20 @@ impl AuthStore for MemoryStore {
         session_id: Uuid,
         fields: serde_json::Map<String, serde_json::Value>,
     ) -> Result<Option<AuthSession>, AuthError> {
-        let mut state = self.state.write().await;
-        let Some(session) = state
-            .sessions
-            .values_mut()
-            .find(|session| session.id == session_id)
-        else {
-            return Ok(None);
-        };
-        session.additional_fields.extend(fields);
-        session.updated_at = Utc::now();
-        Ok(Some(session.clone()))
+        session::update_fields(self, session_id, fields).await
+    }
+
+    async fn refresh_session(
+        &self,
+        token: &str,
+        expires_at: DateTime<Utc>,
+        updated_at: DateTime<Utc>,
+    ) -> Result<Option<AuthSession>, AuthError> {
+        session::refresh(self, token, expires_at, updated_at).await
     }
 
     async fn delete_session(&self, token: &str) -> Result<(), AuthError> {
-        let mut state = self.state.write().await;
-        if let Some(session) = state.sessions.remove(token) {
-            state.guest_sessions.remove(&session.id);
-        }
-        Ok(())
+        session::delete(self, token).await
     }
 
     async fn expire_session(
@@ -394,28 +370,10 @@ impl AuthStore for MemoryStore {
         session_id: Uuid,
         expires_at: DateTime<Utc>,
     ) -> Result<(), AuthError> {
-        if let Some(session) = self
-            .state
-            .write()
-            .await
-            .sessions
-            .values_mut()
-            .find(|session| session.id == session_id)
-        {
-            session.expires_at = expires_at;
-            session.updated_at = expires_at;
-        }
-        Ok(())
+        session::expire(self, session_id, expires_at).await
     }
 
     async fn delete_expired_sessions(&self, now: DateTime<Utc>) -> Result<(), AuthError> {
-        let mut state = self.state.write().await;
-        state.sessions.retain(|_, session| session.expires_at > now);
-        let active_sessions: std::collections::HashSet<_> =
-            state.sessions.values().map(|session| session.id).collect();
-        state
-            .guest_sessions
-            .retain(|session_id, _| active_sessions.contains(session_id));
-        Ok(())
+        session::delete_expired(self, now).await
     }
 }

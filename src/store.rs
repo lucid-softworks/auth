@@ -185,6 +185,15 @@ pub trait AuthStore:
         fields: serde_json::Map<String, serde_json::Value>,
     ) -> Result<Option<AuthSession>, AuthError>;
 
+    /// Atomically extends an existing session without recreating a session
+    /// concurrently removed after it was read.
+    async fn refresh_session(
+        &self,
+        token: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+        updated_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<AuthSession>, AuthError>;
+
     async fn delete_session(&self, token: &str) -> Result<(), AuthError>;
 
     async fn expire_session(
