@@ -48,12 +48,6 @@ impl AuthService {
         config: &MagicLinkConfig,
         request: MagicLinkRequest,
     ) -> Result<(), AuthError> {
-        self.enforce_magic_link_rate_limit(
-            config,
-            "sign-in",
-            request.context.ip_address.as_deref(),
-        )
-        .await?;
         let email = request.email;
         normalize_email(&email)?;
         let token = match &config.token_generator {
@@ -97,8 +91,6 @@ impl AuthService {
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<MagicLinkVerified, MagicLinkVerificationError> {
-        self.enforce_magic_link_rate_limit(config, "verify", ip_address.as_deref())
-            .await?;
         let identifier = magic_link_identifier(&config.token_storage, token).await?;
         let Some(value) = self
             .store
@@ -160,29 +152,6 @@ impl AuthService {
             ),
             Err(error) => Err(error.into()),
         }
-    }
-
-    async fn enforce_magic_link_rate_limit(
-        &self,
-        config: &MagicLinkConfig,
-        operation: &str,
-        ip_address: Option<&str>,
-    ) -> Result<(), AuthError> {
-        let key = format!(
-            "magic-link:{operation}:{}",
-            ip_address.unwrap_or("unknown-client")
-        );
-        let now = Utc::now();
-        if self
-            .store
-            .rate_limit_exceeded(&key, now, config.rate_limit_max)
-            .await?
-        {
-            return Err(AuthError::RateLimited);
-        }
-        self.store
-            .record_auth_failure(&key, now, config.rate_limit_window)
-            .await
     }
 
     fn magic_link_url(

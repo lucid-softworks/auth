@@ -126,11 +126,18 @@ impl AuthService {
             .ok_or(AuthError::Forbidden)?;
         let limit_key = recovery_limit_key(actor.user.id);
         let now = Utc::now();
-        if self
+        let window = u64::try_from(plugin.config.recovery_rate_limit_window.num_seconds())
+            .unwrap_or(u64::MAX);
+        let outcome = self
             .store
-            .rate_limit_exceeded(&limit_key, now, self.config.max_attempts)
-            .await?
-        {
+            .consume_rate_limit(
+                &limit_key,
+                now,
+                crate::RateLimitRule::new(window, plugin.config.recovery_rate_limit_max),
+                window,
+            )
+            .await?;
+        if !outcome.allowed {
             return Err(AuthError::RateLimited);
         }
         if plugin
@@ -146,12 +153,8 @@ impl AuthService {
             .consume_step_up_recovery_code(actor.user.id, &self.recovery_code_hash(code))
             .await?;
         if !valid {
-            self.store
-                .record_auth_failure(&limit_key, now, self.config.lockout_window)
-                .await?;
             return Err(StepUpError::InvalidRecoveryCode.into());
         }
-        self.store.clear_auth_failures(&limit_key).await?;
         Ok((state, now))
     }
 

@@ -34,6 +34,8 @@ mod operator_security;
 mod organization;
 #[path = "postgres_contract/passkey.rs"]
 mod passkey;
+#[path = "postgres_contract/rate_limit.rs"]
+mod rate_limit;
 #[path = "postgres_contract/step_up.rs"]
 mod step_up;
 #[path = "postgres_contract/two_factor.rs"]
@@ -109,6 +111,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     guest_capability::assert_atomic(&store, &service, &pool, &signed_in.session).await?;
     user_deletion::assert_transactional(&service, &pool).await?;
     passkey_counters_are_atomic(&store, user.id).await?;
+    rate_limit::assert_atomic(&store, &pool).await?;
     two_factor::assert_atomic(&store, &pool, user.id).await?;
     api_key::assert_limits_are_atomic(&service, &api_keys, &signed_in.session).await?;
     audit::assert_retention_is_atomic(&store, &pool, user.id).await?;

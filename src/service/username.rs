@@ -1,4 +1,4 @@
-use super::{AuthService, SignInResult, account_limit_key, password::verify_password};
+use super::{AuthService, SignInResult, password::verify_password};
 use crate::{
     AuthError, SessionWithUser, UserProfileUpdate, UsernameConfig, UsernameError, UsernamePlugin,
 };
@@ -137,8 +137,6 @@ impl AuthService {
         }
         config.validate_sign_in_username(username).await?;
         let normalized = config.normalize(username);
-        self.enforce_rate_limit(&normalized, ip_address.as_deref())
-            .await?;
         let user = self.store.find_user_by_username(&normalized).await?;
         let password_hash = match &user {
             Some(user) => self.store.find_password_hash(user.id).await?,
@@ -146,8 +144,6 @@ impl AuthService {
         };
         let valid = verify_password(password, password_hash).await?;
         let Some(user) = user.filter(|_| valid) else {
-            self.record_failure(&normalized, ip_address.as_deref())
-                .await?;
             return Err(UsernameError::InvalidUsernameOrPassword.into());
         };
         if self.config.email_and_password.require_email_verification && !user.email_verified {
@@ -155,9 +151,6 @@ impl AuthService {
                 .await?;
             return Err(UsernameError::EmailNotVerified.into());
         }
-        self.store
-            .clear_auth_failures(&account_limit_key(&normalized))
-            .await?;
         self.create_email_password_session(user, remember_me, ip_address, user_agent)
             .await
     }

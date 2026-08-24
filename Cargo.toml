@@ -121,6 +121,10 @@ name = "password_reset_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "rate_limit_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "passkey_contract"
 required-features = ["axum"]
 

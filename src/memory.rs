@@ -38,8 +38,8 @@ struct MemoryState {
 }
 
 struct RateLimitWindow {
-    attempts: usize,
-    expires_at: DateTime<Utc>,
+    count: u32,
+    last_request: DateTime<Utc>,
 }
 
 /// In-memory adapter for tests and explicitly non-persistent development use.

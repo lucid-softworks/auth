@@ -92,8 +92,8 @@ const RATE_LIMITS: &[PluginRateLimit] = &[
 const fn rate_limit(path: &'static str) -> PluginRateLimit {
     PluginRateLimit {
         path,
-        window_seconds: 10,
-        max_requests: 3,
+        window: 10,
+        max: 3,
     }
 }
 

@@ -295,21 +295,14 @@ pub enum ApiKeyUseOutcome {
 /// Durable security state shared by every authentication service instance.
 #[async_trait]
 pub trait SecurityStore: Send + Sync {
-    async fn rate_limit_exceeded(
+    /// Atomically consumes one request from a Better Auth rolling window.
+    async fn consume_rate_limit(
         &self,
         key: &str,
         now: chrono::DateTime<chrono::Utc>,
-        max_attempts: usize,
-    ) -> Result<bool, AuthError>;
-
-    async fn record_auth_failure(
-        &self,
-        key: &str,
-        now: chrono::DateTime<chrono::Utc>,
-        window: chrono::Duration,
-    ) -> Result<(), AuthError>;
-
-    async fn clear_auth_failures(&self, key: &str) -> Result<(), AuthError>;
+        rule: crate::RateLimitRule,
+        longest_window: u64,
+    ) -> Result<crate::RateLimitOutcome, AuthError>;
 }
 
 /// Administrative, authorization and audit persistence kept separate from login storage.

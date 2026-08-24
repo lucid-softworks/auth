@@ -1,48 +1,50 @@
 use super::{MemoryStore, RateLimitWindow};
-use crate::{AuthError, SecurityStore};
+use crate::{
+    AuthError, RateLimitOutcome, RateLimitRule, SecurityStore,
+    rate_limit::{duration, retry_after},
+};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
 #[async_trait]
 impl SecurityStore for MemoryStore {
-    async fn rate_limit_exceeded(
+    async fn consume_rate_limit(
         &self,
         key: &str,
         now: DateTime<Utc>,
-        max_attempts: usize,
-    ) -> Result<bool, AuthError> {
+        rule: RateLimitRule,
+        longest_window: u64,
+    ) -> Result<RateLimitOutcome, AuthError> {
+        let window = duration(rule.window)?;
+        let prune_window = duration(longest_window)?;
         let mut state = self.state.write().await;
-        state.rate_limits.retain(|_, limit| limit.expires_at > now);
-        Ok(state
+        state
             .rate_limits
-            .get(key)
-            .is_some_and(|limit| limit.attempts >= max_attempts))
-    }
-
-    async fn record_auth_failure(
-        &self,
-        key: &str,
-        now: DateTime<Utc>,
-        window: chrono::Duration,
-    ) -> Result<(), AuthError> {
-        let mut state = self.state.write().await;
-        let limit = state
-            .rate_limits
-            .entry(key.to_owned())
-            .or_insert(RateLimitWindow {
-                attempts: 0,
-                expires_at: now + window,
-            });
-        if limit.expires_at <= now {
-            limit.attempts = 0;
-            limit.expires_at = now + window;
+            .retain(|_, limit| now - limit.last_request < prune_window);
+        let Some(limit) = state.rate_limits.get_mut(key) else {
+            state.rate_limits.insert(
+                key.to_owned(),
+                RateLimitWindow {
+                    count: 1,
+                    last_request: now,
+                },
+            );
+            return Ok(RateLimitOutcome::allowed());
+        };
+        if now - limit.last_request >= window {
+            limit.count = 1;
+            limit.last_request = now;
+            return Ok(RateLimitOutcome::allowed());
         }
-        limit.attempts += 1;
-        Ok(())
-    }
-
-    async fn clear_auth_failures(&self, key: &str) -> Result<(), AuthError> {
-        self.state.write().await.rate_limits.remove(key);
-        Ok(())
+        if limit.count >= rule.max {
+            return Ok(RateLimitOutcome::denied(retry_after(
+                limit.last_request,
+                window,
+                now,
+            )));
+        }
+        limit.count += 1;
+        limit.last_request = now;
+        Ok(RateLimitOutcome::allowed())
     }
 }

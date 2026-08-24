@@ -99,17 +99,14 @@ pub(crate) fn user_agent(headers: &HeaderMap) -> Option<String> {
 pub(crate) fn client_ip(
     service: &AuthService,
     headers: &HeaderMap,
-    peer: PeerAddress,
+    _peer: PeerAddress,
 ) -> Option<String> {
-    service.resolve_client_ip(
-        peer.map(|Extension(ConnectInfo(address))| address.ip()),
-        |name| {
-            headers
-                .get(name)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned)
-        },
-    )
+    service.resolve_client_ip(|name| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned)
+    })
 }
 
 pub(crate) fn serialize_cookie(

@@ -1,60 +1,97 @@
 use super::{PostgresStore, storage_error};
-use crate::{AuthError, SecurityStore};
+use crate::{
+    AuthError, RateLimitOutcome, RateLimitRule, SecurityStore,
+    rate_limit::{duration, retry_after},
+};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
 #[async_trait]
 impl SecurityStore for PostgresStore {
-    async fn rate_limit_exceeded(
+    async fn consume_rate_limit(
         &self,
         key: &str,
         now: DateTime<Utc>,
-        max_attempts: usize,
-    ) -> Result<bool, AuthError> {
-        sqlx::query("DELETE FROM lucid_auth_rate_limits WHERE expires_at <= $1")
-            .bind(now)
-            .execute(&self.pool)
+        rule: RateLimitRule,
+        longest_window: u64,
+    ) -> Result<RateLimitOutcome, AuthError> {
+        let window = duration(rule.window)?;
+        let now_milliseconds = now.timestamp_millis();
+        let prune_milliseconds = i64::try_from(longest_window)
+            .ok()
+            .and_then(|seconds| seconds.checked_mul(1_000))
+            .ok_or_else(|| {
+                AuthError::InvalidConfiguration("rate-limit window is too large".into())
+            })?;
+        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+            .bind(key)
+            .execute(&mut *transaction)
             .await
             .map_err(storage_error)?;
-        sqlx::query_scalar::<_, bool>(
-            "SELECT COALESCE((SELECT attempts >= $2 FROM lucid_auth_rate_limits WHERE key = $1), FALSE)",
+        sqlx::query("DELETE FROM lucid_auth_rate_limits WHERE last_request < $1")
+            .bind(now_milliseconds.saturating_sub(prune_milliseconds))
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage_error)?;
+        let current = sqlx::query_as::<_, (i64, i64)>(
+            "SELECT count, last_request FROM lucid_auth_rate_limits WHERE key = $1 FOR UPDATE",
         )
         .bind(key)
-        .bind(i32::try_from(max_attempts).unwrap_or(i32::MAX))
-        .fetch_one(&self.pool)
+        .fetch_optional(&mut *transaction)
         .await
-        .map_err(storage_error)
+        .map_err(storage_error)?;
+        let outcome = match current {
+            None => {
+                sqlx::query(
+                    "INSERT INTO lucid_auth_rate_limits (key, count, last_request) VALUES ($1, 1, $2)",
+                )
+                .bind(key)
+                .bind(now_milliseconds)
+                .execute(&mut *transaction)
+                .await
+                .map_err(storage_error)?;
+                RateLimitOutcome::allowed()
+            }
+            Some((count, last_request)) => {
+                let last =
+                    DateTime::<Utc>::from_timestamp_millis(last_request).ok_or_else(|| {
+                        AuthError::Storage("rate-limit last request is invalid".into())
+                    })?;
+                if now - last >= window {
+                    update(&mut transaction, key, 1, now_milliseconds).await?;
+                    RateLimitOutcome::allowed()
+                } else if u64::try_from(count).unwrap_or(u64::MAX) >= u64::from(rule.max) {
+                    RateLimitOutcome::denied(retry_after(last, window, now))
+                } else {
+                    update(
+                        &mut transaction,
+                        key,
+                        count.saturating_add(1),
+                        now_milliseconds,
+                    )
+                    .await?;
+                    RateLimitOutcome::allowed()
+                }
+            }
+        };
+        transaction.commit().await.map_err(storage_error)?;
+        Ok(outcome)
     }
+}
 
-    async fn record_auth_failure(
-        &self,
-        key: &str,
-        now: DateTime<Utc>,
-        window: chrono::Duration,
-    ) -> Result<(), AuthError> {
-        sqlx::query(
-            "INSERT INTO lucid_auth_rate_limits (key, attempts, expires_at) VALUES ($1, 1, $2) \
-             ON CONFLICT (key) DO UPDATE SET \
-               attempts = CASE WHEN lucid_auth_rate_limits.expires_at <= $3 THEN 1 \
-                               ELSE lucid_auth_rate_limits.attempts + 1 END, \
-               expires_at = CASE WHEN lucid_auth_rate_limits.expires_at <= $3 THEN $2 \
-                                 ELSE lucid_auth_rate_limits.expires_at END",
-        )
+async fn update(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    key: &str,
+    count: i64,
+    last_request: i64,
+) -> Result<(), AuthError> {
+    sqlx::query("UPDATE lucid_auth_rate_limits SET count = $2, last_request = $3 WHERE key = $1")
         .bind(key)
-        .bind(now + window)
-        .bind(now)
-        .execute(&self.pool)
+        .bind(count)
+        .bind(last_request)
+        .execute(&mut **transaction)
         .await
         .map(|_| ())
         .map_err(storage_error)
-    }
-
-    async fn clear_auth_failures(&self, key: &str) -> Result<(), AuthError> {
-        sqlx::query("DELETE FROM lucid_auth_rate_limits WHERE key = $1")
-            .bind(key)
-            .execute(&self.pool)
-            .await
-            .map(|_| ())
-            .map_err(storage_error)
-    }
 }

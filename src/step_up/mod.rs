@@ -112,6 +112,8 @@ pub struct StepUpPolicyConfig {
     pub required_roles: Vec<String>,
     pub freshness: Duration,
     pub recovery_code_count: usize,
+    pub recovery_rate_limit_window: Duration,
+    pub recovery_rate_limit_max: u32,
 }
 
 impl Default for StepUpPolicyConfig {
@@ -120,6 +122,8 @@ impl Default for StepUpPolicyConfig {
             required_roles: Vec::new(),
             freshness: Duration::days(1),
             recovery_code_count: 10,
+            recovery_rate_limit_window: Duration::minutes(5),
+            recovery_rate_limit_max: 5,
         }
     }
 }
@@ -228,10 +232,11 @@ impl AuthPlugin for StepUpPolicyPlugin {
                 .any(|role| role.trim().is_empty())
             || self.config.freshness <= Duration::zero()
             || self.config.recovery_code_count == 0
+            || self.config.recovery_rate_limit_window <= Duration::zero()
+            || self.config.recovery_rate_limit_max == 0
         {
             return Err(AuthError::InvalidConfiguration(
-                "step-up roles, freshness, and recovery-code count must be non-empty and positive"
-                    .into(),
+                "step-up roles, freshness, recovery-code count, and recovery limit must be non-empty and positive".into(),
             ));
         }
         Ok(())

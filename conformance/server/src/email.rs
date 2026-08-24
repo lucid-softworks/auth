@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use lucid_auth::{
-    AuthError, MagicLinkEmail, MagicLinkRequestContext, MagicLinkSender, PasswordResetEmail,
-    PasswordResetEmailSender, TwoFactorOtp, TwoFactorOtpSender, VerificationEmail,
-    VerificationEmailSender,
+    AuthConfig, AuthError, MagicLinkEmail, MagicLinkRequestContext, MagicLinkSender,
+    PasswordResetEmail, PasswordResetEmailSender, TwoFactorOtp, TwoFactorOtpSender,
+    VerificationEmail, VerificationEmailSender,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -27,6 +27,17 @@ pub(crate) struct ConformanceMessages {
     pub(crate) password_reset_emails: Arc<Mutex<Vec<PasswordResetEmail>>>,
     pub(crate) magic_links: Arc<Mutex<Vec<MagicLinkEmail>>>,
     pub(crate) two_factor_otps: Arc<Mutex<Vec<TwoFactorOtp>>>,
+}
+
+pub(crate) fn configure(config: &mut AuthConfig, messages: &ConformanceMessages) {
+    let sender = Arc::new(ConformanceEmailSender {
+        verification: messages.verification_emails.clone(),
+        password_reset: messages.password_reset_emails.clone(),
+    });
+    config.email_verification.sender = Some(sender.clone());
+    config.email_and_password.send_reset_password = Some(sender);
+    config.email_and_password.revoke_sessions_on_password_reset = true;
+    config.email_verification.auto_sign_in_after_verification = true;
 }
 
 #[async_trait]

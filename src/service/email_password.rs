@@ -132,8 +132,6 @@ impl AuthService {
             return Err(AuthError::EmailPasswordDisabled);
         }
         let email = normalize_email(email)?;
-        self.enforce_rate_limit(&email, ip_address.as_deref())
-            .await?;
         let user = self.store.find_user_by_email(&email).await?;
         let password_hash = match &user {
             Some(user) => self.store.find_password_hash(user.id).await?,
@@ -141,7 +139,6 @@ impl AuthService {
         };
         let password_valid = verify_password(password, password_hash).await?;
         let Some(user) = user.filter(|_| password_valid) else {
-            self.record_failure(&email, ip_address.as_deref()).await?;
             return Err(AuthError::InvalidEmailOrPassword);
         };
         if self.config.email_and_password.require_email_verification && !user.email_verified {
@@ -149,9 +146,6 @@ impl AuthService {
                 .await?;
             return Err(AuthError::EmailNotVerified);
         }
-        self.store
-            .clear_auth_failures(&super::account_limit_key(&email))
-            .await?;
         self.create_email_password_session(user, remember_me, ip_address, user_agent)
             .await
     }

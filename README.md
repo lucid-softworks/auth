@@ -34,7 +34,7 @@ supported surface covers:
 - the complete official `organizationClient` surface as an optional native plugin,
   including invitations, teams, custom roles, and organization-owned API keys
 - optional HIBP Pwned Passwords screening with Better Auth-compatible errors
-- durable account and client-address sign-in throttling through the configured store
+- Better Auth request rate limiting with global, special-route, plugin, and custom rules
 - optional operator-security policy for managed password replacement and local recovery
 - the complete user-owned `@better-auth/api-key` client surface as an optional
   native plugin, including pagination, metadata, permissions, quotas, rate limits,
@@ -84,6 +84,41 @@ the current user's email by default, and cannot unlink the final account unless
 `allow_unlinking_all` is enabled. Provider-token reads and rotations remain
 session-bound to the account owner; refresh rotation uses an atomic
 compare-and-swap so concurrent requests return the winning token set.
+
+Request rate limiting follows Better Auth's IP-and-path model. Release builds
+enable the production default; debug builds mirror Better Auth development and
+test mode by leaving it disabled unless explicitly enabled. Better Auth's
+10-second/100-request global rule, stricter sign-in/sign-up/password/email
+rules, plugin rules, ordered wildcard custom rules, and `false`-equivalent
+path exclusions use the same precedence:
+
+```rust
+use lucid_auth::{RateLimitCustomRule, RateLimitStorageMode};
+
+config.rate_limit.enabled = true;
+config.rate_limit.window = 10;
+config.rate_limit.max = 100;
+config.rate_limit.storage = RateLimitStorageMode::Database;
+config.rate_limit.custom_rules = vec![
+    RateLimitCustomRule::limit("/admin/*", 60, 20),
+    RateLimitCustomRule::disabled("/health"),
+];
+```
+
+Use `RateLimitCustomRule::dynamic` with a `RateLimitRuleResolver` when the
+decision depends on the request method, normalized path, query, or headers; a
+resolver returning `None` is Better Auth's functional `false` result.
+
+`Memory` is the default for a single service process. `Database` uses the
+configured `AuthStore` and PostgreSQL advisory locking for atomic limits across
+instances. `SecondaryStorage` and `Custom` accept an `Arc<dyn
+RateLimitStorage>` whose single `consume` operation must atomically decide and
+increment, matching Better Auth's storage hook. A rejected request returns only
+`{"message":"Too many requests. Please try again later."}`, status 429, and
+`X-Retry-After` in seconds. IP tracking disabled under
+`config.ip_address.disable_ip_tracking` disables request limiting too; native
+in-process `AuthService` calls are outside the HTTP limiter, matching Better
+Auth server-side API behavior.
 
 Username is an optional native plugin. Register it explicitly to add username
 fields to email signup and current-user updates and to mount the official

@@ -35,7 +35,10 @@ const nativePluginClient = {
   id: "lucid-native-conformance",
   version: "1.0.0",
   $InferServerPlugin: {},
-  pathMethods: { "/native-plugin/ping": "GET" },
+  pathMethods: {
+    "/native-plugin/ping": "GET",
+    "/native-plugin/rate-limit": "GET",
+  },
 };
 
 class BrowserTransport {
@@ -170,6 +173,21 @@ async function conformance(origin) {
       betterAuth: betterAuthPackage.version,
     });
     transport.assertRequest("/api/auth/native-plugin/ping", "GET");
+  });
+
+  await runCase("Better Auth request rate limiting", async () => {
+    assert.deepEqual(
+      success(await client.nativePlugin.rateLimit(), "nativePlugin.rateLimit first"),
+      { allowed: true },
+    );
+    assert.deepEqual(
+      success(await client.nativePlugin.rateLimit(), "nativePlugin.rateLimit second"),
+      { allowed: true },
+    );
+    const limited = await client.nativePlugin.rateLimit();
+    assert.equal(limited.data, null);
+    assert.equal(limited.error?.status, 429);
+    assert.equal(limited.error?.message, "Too many requests. Please try again later.");
   });
 
   await runCase("core email and password clients", async () => {

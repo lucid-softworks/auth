@@ -20,6 +20,7 @@ mod email_password;
 mod error;
 pub(crate) mod http;
 mod oauth;
+mod rate_limit;
 mod security;
 mod user_deletion;
 
@@ -49,6 +50,10 @@ where
         .layer(middleware::from_fn_with_state(
             service.clone(),
             security::validate_browser_request,
+        ))
+        .layer(middleware::from_fn_with_state(
+            service.clone(),
+            rate_limit::enforce,
         ))
         .layer(middleware::from_fn_with_state(
             service.clone(),

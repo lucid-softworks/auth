@@ -22,6 +22,7 @@ mod origin;
 mod owner_policy;
 mod passkey;
 mod plugin;
+mod rate_limit;
 mod service;
 mod step_up;
 mod store;
@@ -116,6 +117,10 @@ pub use plugin::{
 };
 #[cfg(feature = "axum")]
 pub use plugin::{AxumPluginRoute, PluginSession};
+pub use rate_limit::{
+    RateLimitConfig, RateLimitCustomRule, RateLimitOutcome, RateLimitRequest, RateLimitRule,
+    RateLimitRuleResolver, RateLimitStorage, RateLimitStorageMode,
+};
 pub use service::account_types::{
     LinkedAccount, ProviderAccountIdentity, ProviderAccountInfo, ProviderAccountUser,
     ProviderTokenResponse,

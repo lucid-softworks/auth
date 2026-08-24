@@ -86,8 +86,6 @@ impl AuthService {
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
         let username = normalize_username(username).map_err(|_| AuthError::InvalidCredentials)?;
-        self.enforce_rate_limit(&username, ip_address.as_deref())
-            .await?;
         let user = self.store.find_user_by_username(&username).await?;
         let password_hash = match &user {
             Some(user) => self.store.find_password_hash(user.id).await?,
@@ -95,13 +93,8 @@ impl AuthService {
         };
         let password_valid = verify_password(password, password_hash).await?;
         let Some(user) = user.filter(|_| password_valid) else {
-            self.record_failure(&username, ip_address.as_deref())
-                .await?;
             return Err(AuthError::InvalidCredentials);
         };
-        self.store
-            .clear_auth_failures(&super::account_limit_key(&username))
-            .await?;
         self.create_session(
             user,
             AuthenticationMethod::Password,

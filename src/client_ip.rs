@@ -47,20 +47,14 @@ impl IpAddressConfig {
         self.trusted_proxies.iter().map(ToString::to_string)
     }
 
-    /// Resolves a normalized client IP from a verified transport peer and the
-    /// configured forwarding headers.
-    pub fn resolve_client_ip<F>(&self, peer: IpAddr, mut header: F) -> Option<String>
+    /// Resolves a normalized client IP from Better Auth's configured headers.
+    pub fn resolve_client_ip<F>(&self, mut header: F) -> Option<String>
     where
         F: FnMut(&str) -> Option<String>,
     {
         if self.disable_ip_tracking {
             return None;
         }
-        let peer = canonical_ip(peer);
-        if !self.is_trusted_proxy(peer) {
-            return Some(normalize_ip(peer, self.ipv6_subnet));
-        }
-
         for name in &self.ip_address_headers {
             if let Some(value) = header(name)
                 && let Some(client) = self.resolve_forwarded_chain(&value)
@@ -68,12 +62,18 @@ impl IpAddressConfig {
                 return Some(normalize_ip(client, self.ipv6_subnet));
             }
         }
-        // A trusted edge without a usable forwarding header becomes a shared
-        // bucket instead of silently disabling IP throttling.
-        Some(normalize_ip(peer, self.ipv6_subnet))
+        cfg!(debug_assertions).then(|| "127.0.0.1".into())
     }
 
     fn resolve_forwarded_chain(&self, value: &str) -> Option<IpAddr> {
+        if self.trusted_proxies.is_empty() {
+            let mut values = value
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            let address = canonical_ip(values.next()?.parse().ok()?);
+            return values.next().is_none().then_some(address);
+        }
         for hop in value.split(',').rev() {
             let hop = canonical_ip(hop.trim().parse().ok()?);
             if !self.is_trusted_proxy(hop) {
@@ -131,22 +131,22 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    fn resolve(config: &IpAddressConfig, peer: &str, headers: &[(&str, &str)]) -> Option<String> {
+    fn resolve(config: &IpAddressConfig, headers: &[(&str, &str)]) -> Option<String> {
         let headers = headers.iter().copied().collect::<HashMap<_, _>>();
-        config.resolve_client_ip(peer.parse().unwrap(), |name| {
-            headers.get(name).map(ToString::to_string)
-        })
+        config.resolve_client_ip(|name| headers.get(name).map(ToString::to_string))
     }
 
     #[test]
-    fn direct_clients_cannot_spoof_forwarding_headers() {
+    fn accepts_only_a_single_header_value_without_trusted_proxies() {
         let config = IpAddressConfig::default();
-        for peer in ["198.51.100.9", "192.168.1.4"] {
-            assert_eq!(
-                resolve(&config, peer, &[("x-forwarded-for", "203.0.113.10")]).as_deref(),
-                Some(peer)
-            );
-        }
+        assert_eq!(
+            resolve(&config, &[("x-forwarded-for", "203.0.113.10")]).as_deref(),
+            Some("203.0.113.10")
+        );
+        assert_eq!(
+            resolve(&config, &[("x-forwarded-for", "203.0.113.10, 192.0.2.3")]).as_deref(),
+            Some("127.0.0.1")
+        );
     }
 
     #[test]
@@ -155,18 +155,12 @@ mod tests {
         config.trust_proxy("10.0.0.0/8").unwrap();
         config.trust_proxy("2001:db8:1::/48").unwrap();
         assert_eq!(
-            resolve(
-                &config,
-                "10.0.0.3",
-                &[("x-forwarded-for", "198.51.100.7, 10.0.0.2")]
-            )
-            .as_deref(),
+            resolve(&config, &[("x-forwarded-for", "198.51.100.7, 10.0.0.2")]).as_deref(),
             Some("198.51.100.7")
         );
         assert_eq!(
             resolve(
                 &config,
-                "2001:db8:1::3",
                 &[("x-forwarded-for", "2001:db8:abcd::1234, 2001:db8:1::2")]
             )
             .as_deref(),
@@ -179,16 +173,11 @@ mod tests {
         let mut config = IpAddressConfig::default();
         config.trust_proxy("10.0.0.0/8").unwrap();
         assert_eq!(
-            resolve(
-                &config,
-                "10.0.0.3",
-                &[("x-forwarded-for", "198.51.100.7, not-an-ip")]
-            )
-            .as_deref(),
-            Some("10.0.0.3")
+            resolve(&config, &[("x-forwarded-for", "198.51.100.7, not-an-ip")]).as_deref(),
+            Some("127.0.0.1")
         );
         assert_eq!(
-            resolve(&config, "::ffff:192.0.2.9", &[]).as_deref(),
+            resolve(&config, &[("x-forwarded-for", "::ffff:192.0.2.9")]).as_deref(),
             Some("192.0.2.9")
         );
     }
@@ -203,10 +192,10 @@ mod tests {
         config.trust_proxy("2001:db8::10").unwrap();
         assert!(config.trust_proxy("not-a-network").is_err());
         assert_eq!(
-            resolve(&config, "192.0.2.4", &[("cf-connecting-ip", "203.0.113.8")]).as_deref(),
+            resolve(&config, &[("cf-connecting-ip", "203.0.113.8")]).as_deref(),
             Some("203.0.113.8")
         );
         config.disable_ip_tracking = true;
-        assert_eq!(resolve(&config, "192.0.2.4", &[]), None);
+        assert_eq!(resolve(&config, &[]), None);
     }
 }

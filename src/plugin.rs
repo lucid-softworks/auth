@@ -47,8 +47,8 @@ pub struct PluginCookie {
 #[serde(rename_all = "camelCase")]
 pub struct PluginRateLimit {
     pub path: &'static str,
-    pub window_seconds: u64,
-    pub max_requests: u32,
+    pub window: u64,
+    pub max: u32,
 }
 
 /// Named middleware contribution, applied in dependency order.
@@ -232,6 +232,11 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
 
     fn migrations(&self) -> &'static [PluginMigration] {
         &[]
+    }
+
+    /// Runtime rules contributed with the plugin's configured options.
+    fn rate_limits(&self) -> Vec<PluginRateLimit> {
+        self.descriptor().rate_limits.to_vec()
     }
 
     async fn before(&self, _event: &BeforeAuthEvent) -> Result<(), AuthError> {

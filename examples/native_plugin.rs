@@ -26,8 +26,8 @@ const COOKIES: &[PluginCookie] = &[PluginCookie {
 }];
 const RATE_LIMITS: &[PluginRateLimit] = &[PluginRateLimit {
     path: "/native-example/greeting",
-    window_seconds: 60,
-    max_requests: 30,
+    window: 60,
+    max: 30,
 }];
 const MIDDLEWARE: &[PluginMiddleware] = &[PluginMiddleware {
     id: "example-response-header",

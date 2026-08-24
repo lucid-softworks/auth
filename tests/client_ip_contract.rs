@@ -5,7 +5,9 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use http_body_util::BodyExt;
-use lucid_auth::{AuthConfig, AuthService, MemoryStore, NewPasswordUser, UsernamePlugin};
+use lucid_auth::{
+    AuthConfig, AuthService, MemoryStore, NewPasswordUser, RateLimitCustomRule, UsernamePlugin,
+};
 use serde_json::{Value, json};
 use std::{net::SocketAddr, sync::Arc};
 use tower::ServiceExt;
@@ -84,10 +86,13 @@ async fn trusted_chain_drives_session_metadata() {
 }
 
 #[tokio::test]
-async fn untrusted_peer_cannot_rotate_spoofed_rate_limit_addresses() {
+async fn single_forwarded_addresses_drive_better_auth_rate_limit_keys() {
     let app = application(|config| {
-        config.max_attempts = 10;
-        config.max_ip_attempts = 1;
+        config.rate_limit.enabled = true;
+        config
+            .rate_limit
+            .custom_rules
+            .push(RateLimitCustomRule::limit("/sign-in/username", 10, 1));
     })
     .await;
     let response = app
@@ -98,9 +103,21 @@ async fn untrusted_peer_cannot_rotate_spoofed_rate_limit_addresses() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let response = app
+        .clone()
         .oneshot(sign_in("192.0.2.4:8443", "198.51.100.2", "password"))
         .await
         .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = app
+        .oneshot(sign_in("192.0.2.99:8443", "198.51.100.1", "password"))
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(response_json(response).await["code"], "TOO_MANY_REQUESTS");
+    assert_eq!(response.headers()["x-retry-after"], "10");
+    let body = response_json(response).await;
+    assert_eq!(
+        body,
+        json!({ "message": "Too many requests. Please try again later." })
+    );
 }

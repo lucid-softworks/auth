@@ -38,16 +38,14 @@ use crate::TrustedOrigin;
 use crate::cookie::{CookieKind, ResolvedCookie};
 use crate::{
     AuthConfig, AuthError, AuthSession, AuthStore, AuthUser, AuthenticationMethod,
-    PluginDescriptor, PluginMigrationContribution, Principal, SessionWithUser,
-    plugin::PluginRegistry,
+    PluginDescriptor, PluginMigrationContribution, Principal, RateLimitOutcome, RateLimitRequest,
+    SessionWithUser, plugin::PluginRegistry, rate_limit::RateLimiter,
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{Duration, Utc};
 use hmac::{Hmac, Mac};
 use session::{hash_token, random_token};
 use sha2::Sha256;
-#[cfg(feature = "axum")]
-use std::net::IpAddr;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -74,6 +72,7 @@ pub struct AuthService {
     store: Arc<dyn AuthStore>,
     config: Arc<AuthConfig>,
     plugins: Arc<PluginRegistry>,
+    rate_limiter: Arc<RateLimiter>,
 }
 
 impl AuthService {
@@ -85,10 +84,13 @@ impl AuthService {
     pub fn try_new(store: Arc<dyn AuthStore>, config: AuthConfig) -> Result<Self, AuthError> {
         config.validate()?;
         let plugins = PluginRegistry::build(&config.plugins, &config)?;
+        let rate_limiter =
+            RateLimiter::new(&config.rate_limit, store.clone(), plugins.rate_limits());
         Ok(Self {
             store,
             config: Arc::new(config),
             plugins: Arc::new(plugins),
+            rate_limiter: Arc::new(rate_limiter),
         })
     }
 
@@ -212,12 +214,35 @@ impl AuthService {
             .any(|trusted| trusted.matches(origin))
     }
 
-    #[cfg(feature = "axum")]
-    pub(crate) fn resolve_client_ip<F>(&self, peer: Option<IpAddr>, header: F) -> Option<String>
+    /// Resolves Better Auth client-IP headers for custom HTTP integrations.
+    pub fn resolve_client_ip<F>(&self, header: F) -> Option<String>
     where
         F: FnMut(&str) -> Option<String>,
     {
-        self.config.ip_address.resolve_client_ip(peer?, header)
+        self.config.ip_address.resolve_client_ip(header)
+    }
+
+    /// Applies Better Auth request rate limiting for a framework integration.
+    pub async fn consume_rate_limit_request(
+        &self,
+        request: &RateLimitRequest,
+        client_ip: Option<&str>,
+    ) -> Result<Option<RateLimitOutcome>, AuthError> {
+        if !self.config.rate_limit.enabled
+            || (client_ip.is_none() && self.config.ip_address.disable_ip_tracking)
+        {
+            return Ok(None);
+        }
+        let Some(rule) = self
+            .config
+            .rate_limit
+            .resolve_rule(request, self.plugins.rate_limit(&request.path))
+            .await?
+        else {
+            return Ok(None);
+        };
+        let key = format!("{}|{}", client_ip.unwrap_or("no-trusted-ip"), request.path);
+        self.rate_limiter.consume(&key, rule).await.map(Some)
     }
 
     pub fn development_session(&self) -> Option<SessionWithUser> {
@@ -311,51 +336,6 @@ impl AuthService {
         Some(token.to_owned())
     }
 
-    async fn enforce_rate_limit(
-        &self,
-        username: &str,
-        ip_address: Option<&str>,
-    ) -> Result<(), AuthError> {
-        let now = Utc::now();
-        let account_limited = self
-            .store
-            .rate_limit_exceeded(&account_limit_key(username), now, self.config.max_attempts)
-            .await?;
-        let ip_limited = match ip_address {
-            Some(address) => {
-                self.store
-                    .rate_limit_exceeded(&ip_limit_key(address), now, self.config.max_ip_attempts)
-                    .await?
-            }
-            None => false,
-        };
-        if account_limited || ip_limited {
-            return Err(AuthError::RateLimited);
-        }
-        Ok(())
-    }
-
-    async fn record_failure(
-        &self,
-        username: &str,
-        ip_address: Option<&str>,
-    ) -> Result<(), AuthError> {
-        let now = Utc::now();
-        self.store
-            .record_auth_failure(
-                &account_limit_key(username),
-                now,
-                self.config.lockout_window,
-            )
-            .await?;
-        if let Some(address) = ip_address {
-            self.store
-                .record_auth_failure(&ip_limit_key(address), now, self.config.lockout_window)
-                .await?;
-        }
-        Ok(())
-    }
-
     fn sign(&self, value: &[u8]) -> String {
         let mut mac = HmacSha256::new_from_slice(&self.config.secret)
             .expect("HMAC accepts arbitrary key lengths");
@@ -378,12 +358,4 @@ impl AuthService {
             .await?;
         Ok(())
     }
-}
-
-fn account_limit_key(username: &str) -> String {
-    format!("sign-in:account:{}", hash_token(username))
-}
-
-fn ip_limit_key(address: &str) -> String {
-    format!("sign-in:ip:{}", hash_token(address))
 }

@@ -17,18 +17,25 @@ use std::sync::Arc;
 
 pub(crate) struct ConformancePlugin;
 
-const ENDPOINTS: &[PluginEndpoint] = &[PluginEndpoint {
-    method: PluginHttpMethod::Get,
-    path: "/native-plugin/ping",
-    client_method: "nativePlugin.ping",
-}];
+const ENDPOINTS: &[PluginEndpoint] = &[
+    PluginEndpoint {
+        method: PluginHttpMethod::Get,
+        path: "/native-plugin/ping",
+        client_method: "nativePlugin.ping",
+    },
+    PluginEndpoint {
+        method: PluginHttpMethod::Get,
+        path: "/native-plugin/rate-limit",
+        client_method: "nativePlugin.rateLimit",
+    },
+];
 const MIDDLEWARE: &[PluginMiddleware] = &[PluginMiddleware {
     id: "conformance-header",
 }];
 const RATE_LIMITS: &[PluginRateLimit] = &[PluginRateLimit {
     path: "/native-plugin/ping",
-    window_seconds: 60,
-    max_requests: 60,
+    window: 60,
+    max: 60,
 }];
 const MIGRATIONS: &[PluginMigration] = &[PluginMigration {
     id: "create-pings",
@@ -62,10 +69,10 @@ impl AuthPlugin for ConformancePlugin {
     }
 
     fn routes(&self, _service: Arc<AuthService>) -> Vec<AxumPluginRoute> {
-        vec![AxumPluginRoute::new(
-            "/native-plugin/ping",
-            get(plugin_ping),
-        )]
+        vec![
+            AxumPluginRoute::new("/native-plugin/ping", get(plugin_ping)),
+            AxumPluginRoute::new("/native-plugin/rate-limit", get(rate_limit_probe)),
+        ]
     }
 
     fn middleware(&self, route: MethodRouter, _service: Arc<AuthService>) -> MethodRouter {
@@ -78,6 +85,10 @@ async fn plugin_ping() -> Json<serde_json::Value> {
         "plugin": "conformance",
         "betterAuth": COMPATIBLE_BETTER_AUTH_VERSION,
     }))
+}
+
+async fn rate_limit_probe() -> Json<serde_json::Value> {
+    Json(json!({ "allowed": true }))
 }
 
 async fn mark_response(request: Request, next: Next) -> Response {

@@ -286,7 +286,8 @@ async fn json_verification_promotes_mailbox_and_revokes_unproven_access() {
 
 #[tokio::test]
 async fn disabled_signup_expiry_rate_limits_and_redirect_security_match() {
-    let (app, _, sender) = application(|_, magic| {
+    let (app, _, sender) = application(|config, magic| {
+        config.rate_limit.enabled = true;
         magic.disable_sign_up = true;
         magic.expires_in = Duration::milliseconds(1);
         magic.rate_limit_max = 5;
@@ -340,7 +341,10 @@ async fn disabled_signup_expiry_rate_limits_and_redirect_security_match() {
     }
     let (status, error) = request_link(&app, json!({ "email": "blocked@example.com" })).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(error["code"], "TOO_MANY_REQUESTS");
+    assert_eq!(
+        error,
+        json!({ "message": "Too many requests. Please try again later." })
+    );
 
     let untrusted = request_link(
         &application(|_, _| {}).0,

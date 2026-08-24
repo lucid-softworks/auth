@@ -1,4 +1,6 @@
-use super::{AuthPlugin, PluginDescriptor, PluginHttpMethod, PluginMigrationContribution};
+use super::{
+    AuthPlugin, PluginDescriptor, PluginHttpMethod, PluginMigrationContribution, PluginRateLimit,
+};
 use crate::{AuthConfig, AuthError, protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION};
 use std::{collections::HashMap, sync::Arc};
 
@@ -7,6 +9,7 @@ mod lifecycle;
 pub(crate) struct PluginRegistry {
     plugins: Vec<Arc<dyn AuthPlugin>>,
     descriptors: Vec<PluginDescriptor>,
+    rate_limits: Vec<PluginRateLimit>,
 }
 
 impl PluginRegistry {
@@ -14,6 +17,7 @@ impl PluginRegistry {
         Self {
             plugins: Vec::new(),
             descriptors: Vec::new(),
+            rate_limits: Vec::new(),
         }
     }
 
@@ -29,6 +33,7 @@ impl PluginRegistry {
             let descriptor = plugin.descriptor();
             validate_descriptor(descriptor)?;
             plugin.validate(config)?;
+            validate_runtime_rate_limits(plugin.as_ref(), descriptor)?;
             if by_id.insert(descriptor.id, (index, descriptor)).is_some() {
                 return invalid(format!(
                     "plugin '{}' is enabled more than once",
@@ -41,14 +46,17 @@ impl PluginRegistry {
         let ordered_ids = dependency_order(&by_id)?;
         let mut ordered_plugins = Vec::with_capacity(plugins.len());
         let mut descriptors = Vec::with_capacity(plugins.len());
+        let mut rate_limits = Vec::new();
         for id in ordered_ids {
             let (index, descriptor) = by_id[&id];
+            rate_limits.extend(plugins[index].rate_limits());
             ordered_plugins.push(plugins[index].clone());
             descriptors.push(descriptor);
         }
         Ok(Self {
             plugins: ordered_plugins,
             descriptors,
+            rate_limits,
         })
     }
 
@@ -59,6 +67,17 @@ impl PluginRegistry {
 
     pub(crate) fn descriptors(&self) -> &[PluginDescriptor] {
         &self.descriptors
+    }
+
+    pub(crate) fn rate_limits(&self) -> &[PluginRateLimit] {
+        &self.rate_limits
+    }
+
+    pub(crate) fn rate_limit(&self, path: &str) -> Option<PluginRateLimit> {
+        self.rate_limits
+            .iter()
+            .copied()
+            .find(|rule| rule.path == path)
     }
 
     pub(crate) fn find<P: AuthPlugin + 'static>(&self) -> Option<&P> {
@@ -237,8 +256,8 @@ fn validate_policy_metadata(descriptor: PluginDescriptor) -> Result<(), AuthErro
             .endpoints
             .iter()
             .any(|endpoint| endpoint.path == rate_limit.path)
-            || rate_limit.window_seconds == 0
-            || rate_limit.max_requests == 0
+            || rate_limit.window == 0
+            || rate_limit.max == 0
         {
             return invalid(format!("plugin '{}' rate limit is invalid", descriptor.id));
         }
@@ -247,6 +266,28 @@ fn validate_policy_metadata(descriptor: PluginDescriptor) -> Result<(), AuthErro
         if !valid_id(middleware.id) {
             return invalid(format!(
                 "plugin '{}' middleware id is invalid",
+                descriptor.id
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_runtime_rate_limits(
+    plugin: &dyn AuthPlugin,
+    descriptor: PluginDescriptor,
+) -> Result<(), AuthError> {
+    for rate_limit in plugin.rate_limits() {
+        validate_path(rate_limit.path, descriptor.id)?;
+        if !descriptor
+            .endpoints
+            .iter()
+            .any(|endpoint| endpoint.path == rate_limit.path)
+            || rate_limit.window == 0
+            || rate_limit.max == 0
+        {
+            return invalid(format!(
+                "plugin '{}' runtime rate limit is invalid",
                 descriptor.id
             ));
         }

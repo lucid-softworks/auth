@@ -22,13 +22,11 @@ mod email;
 mod metadata;
 mod native_plugin;
 mod organization;
+mod rate_limit;
 mod session_fixture;
 mod social_provider;
 
-use email::{
-    ConformanceEmailSender, ConformanceMagicLinkSender, ConformanceMessages,
-    ConformanceOtpSender,
-};
+use email::{ConformanceMagicLinkSender, ConformanceMessages, ConformanceOtpSender};
 use native_plugin::ConformancePlugin;
 
 #[derive(Clone)]
@@ -192,19 +190,11 @@ fn conformance_config(origin: &str, messages: &ConformanceMessages) -> AuthConfi
         "theme".into(),
         AdditionalField::new(AdditionalFieldType::String),
     );
-    config.email_verification.sender = Some(Arc::new(ConformanceEmailSender {
-        verification: messages.verification_emails.clone(),
-        password_reset: messages.password_reset_emails.clone(),
-    }));
-    config.email_and_password.send_reset_password = Some(Arc::new(ConformanceEmailSender {
-        verification: messages.verification_emails.clone(),
-        password_reset: messages.password_reset_emails.clone(),
-    }));
-    config.email_and_password.revoke_sessions_on_password_reset = true;
-    config.email_verification.auto_sign_in_after_verification = true;
+    email::configure(&mut config, messages);
     config
         .set_base_url(origin)
         .expect("localhost fixture origin");
+    rate_limit::configure(&mut config);
     config
         .add_social_provider(social_provider::ConformanceSocialProvider)
         .expect("unique social provider");

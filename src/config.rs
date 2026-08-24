@@ -1,7 +1,7 @@
 use crate::{
     AuthError, AuthPlugin, CookieConfig, EmailVerificationConfig, PasswordBreachChecker,
     PasswordResetCallback, PasswordResetEmailSender, SessionConfig, TrustedOrigin, UserConfig,
-    client_ip::IpAddressConfig,
+    client_ip::IpAddressConfig, rate_limit::RateLimitConfig,
 };
 use chrono::Duration;
 use std::sync::Arc;
@@ -19,9 +19,8 @@ pub struct AuthConfig {
     pub use_secure_cookies: Option<bool>,
     pub cookies: CookieConfig,
     pub development_bypass: bool,
-    pub max_attempts: usize,
-    pub max_ip_attempts: usize,
-    pub lockout_window: Duration,
+    /// Better Auth-compatible global, special-route, plugin, and custom rate limiting.
+    pub rate_limit: RateLimitConfig,
     pub password_breach_checker: Option<Arc<dyn PasswordBreachChecker>>,
     /// Better Auth-compatible email/password behavior. The flow is disabled
     /// by default, matching Better Auth.
@@ -91,9 +90,7 @@ impl AuthConfig {
             use_secure_cookies: None,
             cookies: CookieConfig::default(),
             development_bypass: false,
-            max_attempts: 5,
-            max_ip_attempts: 15,
-            lockout_window: Duration::minutes(5),
+            rate_limit: RateLimitConfig::default(),
             password_breach_checker: None,
             email_and_password: EmailPasswordConfig::default(),
             email_verification: EmailVerificationConfig::default(),
@@ -221,6 +218,7 @@ impl AuthConfig {
     }
 
     pub(crate) fn validate(&self) -> Result<(), AuthError> {
+        self.rate_limit.validate()?;
         if self.session_fresh_age < Duration::zero() {
             return Err(AuthError::InvalidConfiguration(
                 "session fresh age must not be negative".into(),

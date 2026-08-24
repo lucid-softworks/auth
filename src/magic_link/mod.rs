@@ -28,13 +28,13 @@ const ENDPOINTS: &[PluginEndpoint] = &[
 const RATE_LIMITS: &[PluginRateLimit] = &[
     PluginRateLimit {
         path: "/sign-in/magic-link",
-        window_seconds: 60,
-        max_requests: 5,
+        window: 60,
+        max: 5,
     },
     PluginRateLimit {
         path: "/magic-link/verify",
-        window_seconds: 60,
-        max_requests: 5,
+        window: 60,
+        max: 5,
     },
 ];
 
@@ -158,6 +158,19 @@ impl AuthPlugin for MagicLinkPlugin {
             ));
         }
         Ok(())
+    }
+
+    fn rate_limits(&self) -> Vec<PluginRateLimit> {
+        let window = u64::try_from(self.config.rate_limit_window.num_seconds()).unwrap_or(u64::MAX);
+        let max = u32::try_from(self.config.rate_limit_max).unwrap_or(u32::MAX);
+        ENDPOINTS
+            .iter()
+            .map(|endpoint| PluginRateLimit {
+                path: endpoint.path,
+                window,
+                max,
+            })
+            .collect()
     }
 
     #[cfg(feature = "axum")]

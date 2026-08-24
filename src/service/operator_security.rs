@@ -1,6 +1,4 @@
-use super::{
-    AuthService, account_limit_key, password::hash_password, password::normalize_username,
-};
+use super::{AuthService, password::hash_password, password::normalize_username};
 use crate::{AuthError, OperatorSecurityError, OperatorSecurityPlugin, OperatorSecurityStatus};
 use serde_json::json;
 
@@ -53,9 +51,6 @@ impl AuthService {
         }
         self.plugins
             .reset_user_security_state_except(target.id, PLUGIN_ID)
-            .await?;
-        self.store
-            .clear_auth_failures(&account_limit_key(&username))
             .await?;
         self.audit_actorless(
             Some(target.id),
