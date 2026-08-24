@@ -36,6 +36,8 @@ mod operator_security;
 mod organization;
 #[path = "postgres_contract/passkey.rs"]
 mod passkey;
+#[path = "postgres_contract/phone_number.rs"]
+mod phone_number;
 #[path = "postgres_contract/rate_limit.rs"]
 mod rate_limit;
 #[path = "postgres_contract/schema.rs"]
@@ -90,7 +92,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     assert_extension_tables_absent(&pool).await?;
     oauth::assert_issuer_qualified_accounts(&store, &pool).await?;
 
-    let (service, api_keys) = contract_service(&store)?;
+    let (service, api_keys, phone_numbers) = contract_service(&store)?;
     let user = service
         .provision_password_user(NewPasswordUser {
             username: "owner".into(),
@@ -114,6 +116,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     verification::email_is_atomic(&store, &user).await?;
     verification::password_reset_is_atomic(&store, &pool, user.id).await?;
     email_otp::assert_redemption_is_atomic(&service, &pool).await?;
+    phone_number::assert_atomic_and_persistent(&service, &store, &pool, &phone_numbers).await?;
     magic_link::assert_promotion_is_atomic(&store, &pool).await?;
     email_signup_is_case_insensitive(&service, &pool).await?;
     username_signup_is_atomic(&service, &pool).await?;
@@ -160,7 +163,14 @@ async fn migration_checksum_upgrade_is_safe(
 
 fn contract_service(
     store: &Arc<PostgresStore>,
-) -> Result<(Arc<AuthService>, lucid_auth::ApiKeyConfiguration), AuthError> {
+) -> Result<
+    (
+        Arc<AuthService>,
+        lucid_auth::ApiKeyConfiguration,
+        phone_number::Fixture,
+    ),
+    AuthError,
+> {
     let mut config = AuthConfig::new([42_u8; 32])?;
     config.email_and_password.enabled = true;
     config.user.delete_user.enabled = true;
@@ -178,18 +188,23 @@ fn contract_service(
     );
     config.add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))?;
     config.add_plugin(AnonymousPlugin::default())?;
-    register_contract_plugins(&mut config, store)?;
+    let phone_numbers = register_contract_plugins(&mut config, store)?;
     let api_keys = api_key::register(&mut config)?;
-    Ok((Arc::new(AuthService::new(store.clone(), config)), api_keys))
+    Ok((
+        Arc::new(AuthService::new(store.clone(), config)),
+        api_keys,
+        phone_numbers,
+    ))
 }
 
 fn register_contract_plugins(
     config: &mut AuthConfig,
     store: &Arc<PostgresStore>,
-) -> Result<(), AuthError> {
+) -> Result<phone_number::Fixture, AuthError> {
     config.add_plugin(OwnerPolicyPlugin)?;
     config.add_plugin(UsernamePlugin::default())?;
     email_otp::register(config)?;
+    let phone_numbers = phone_number::register(config, store)?;
     config.add_plugin(PasskeyPlugin::new(PasskeyConfig::default()))?;
     config.add_plugin(GuestCapabilityPlugin::new(store.clone()))?;
     config.add_plugin(AuditPlugin::new(store.clone()).with_max_events(100))?;
@@ -223,7 +238,7 @@ fn register_contract_plugins(
             ..OrganizationPluginConfig::default()
         },
     ))?;
-    Ok(())
+    Ok(phone_numbers)
 }
 
 async fn migrate_legacy_extensions(

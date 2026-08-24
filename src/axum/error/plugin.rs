@@ -9,6 +9,7 @@ pub(super) fn response(error: &AuthError) -> Option<Response> {
     match error {
         AuthError::ApiKey(error) => Some(crate::api_key::api_key_error(error)),
         AuthError::EmailOtp(error) => Some(email_otp_error(*error)),
+        AuthError::PhoneNumber(error) => Some(phone_number_error(*error)),
         AuthError::TwoFactor(error) => Some(crate::two_factor::axum::two_factor_error(*error)),
         AuthError::StepUp(error) => {
             let details = match error {
@@ -60,6 +61,72 @@ pub(super) fn response(error: &AuthError) -> Option<Response> {
         }
         _ => None,
     }
+}
+
+fn phone_number_error(error: crate::PhoneNumberError) -> Response {
+    use crate::PhoneNumberError as Error;
+    let (status, code, message) = match error {
+        Error::InvalidPhoneNumber => (
+            StatusCode::BAD_REQUEST,
+            "INVALID_PHONE_NUMBER",
+            "Invalid phone number",
+        ),
+        Error::PhoneNumberExists => (
+            StatusCode::BAD_REQUEST,
+            "PHONE_NUMBER_EXIST",
+            "Phone number already exists",
+        ),
+        Error::PhoneNumberNotRegistered => (
+            StatusCode::BAD_REQUEST,
+            "PHONE_NUMBER_NOT_EXIST",
+            "phone number isn't registered",
+        ),
+        Error::InvalidPhoneNumberOrPassword => (
+            StatusCode::UNAUTHORIZED,
+            "INVALID_PHONE_NUMBER_OR_PASSWORD",
+            "Invalid phone number or password",
+        ),
+        Error::UnexpectedSignIn => (
+            StatusCode::UNAUTHORIZED,
+            "UNEXPECTED_ERROR",
+            "Unexpected error",
+        ),
+        Error::UnexpectedError => (
+            StatusCode::BAD_REQUEST,
+            "UNEXPECTED_ERROR",
+            "Unexpected error",
+        ),
+        Error::OtpNotFound => (StatusCode::BAD_REQUEST, "OTP_NOT_FOUND", "OTP not found"),
+        Error::OtpExpired => (StatusCode::BAD_REQUEST, "OTP_EXPIRED", "OTP expired"),
+        Error::InvalidOtp => (StatusCode::BAD_REQUEST, "INVALID_OTP", "Invalid OTP"),
+        Error::PhoneNumberNotVerified => (
+            StatusCode::UNAUTHORIZED,
+            "PHONE_NUMBER_NOT_VERIFIED",
+            "Phone number not verified",
+        ),
+        Error::PhoneNumberCannotBeUpdated => (
+            StatusCode::BAD_REQUEST,
+            "PHONE_NUMBER_CANNOT_BE_UPDATED",
+            "Phone number cannot be updated",
+        ),
+        Error::SendOtpNotImplemented => (
+            StatusCode::NOT_IMPLEMENTED,
+            "SEND_OTP_NOT_IMPLEMENTED",
+            "sendOTP not implemented",
+        ),
+        Error::TooManyAttempts => (
+            StatusCode::FORBIDDEN,
+            "TOO_MANY_ATTEMPTS",
+            "Too many attempts",
+        ),
+        Error::UserNotFound => (StatusCode::UNAUTHORIZED, "USER_NOT_FOUND", "User not found"),
+        Error::FailedToUpdateUser => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "FAILED_TO_UPDATE_USER",
+            "Failed to update user",
+        ),
+    };
+    (status, Json(ErrorResponse { code, message })).into_response()
 }
 
 fn email_otp_error(error: crate::EmailOtpError) -> Response {

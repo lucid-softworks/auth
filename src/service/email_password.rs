@@ -215,7 +215,7 @@ pub(super) fn normalize_email(email: &str) -> Result<String, AuthError> {
     Ok(email.to_lowercase())
 }
 
-fn valid_email(email: &str) -> bool {
+pub(super) fn valid_email(email: &str) -> bool {
     let Some((local, domain)) = email.split_once('@') else {
         return false;
     };

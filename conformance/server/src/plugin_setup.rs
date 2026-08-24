@@ -5,15 +5,26 @@ use super::{
     },
     native_plugin::ConformancePlugin,
     organization,
+    phone_number::{
+        ConformancePhoneNumberMessages, ConformancePhoneNumberSender,
+        ConformancePhoneNumberTemporaryEmail, ConformancePhoneNumberTemporaryName,
+    },
 };
 use lucid_auth::{
-    ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, EmailOtpConfig,
-    EmailOtpPlugin, MagicLinkConfig, MagicLinkPlugin, MemoryTwoFactorStore, OtpConfig,
-    PasskeyConfig, PasskeyPlugin, TotpConfig, TwoFactorConfig, TwoFactorPlugin,
+    ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, EmailOtpConfig, EmailOtpPlugin,
+    MagicLinkConfig, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore, OtpConfig, PasskeyConfig,
+    PasskeyPlugin, PhoneNumberConfig, PhoneNumberPlugin, PhoneNumberSignUpConfig, TotpConfig,
+    TwoFactorConfig, TwoFactorPlugin,
 };
 use std::{collections::BTreeMap, sync::Arc};
 
-pub(super) fn register(config: &mut AuthConfig, origin: &str, messages: &ConformanceMessages) {
+pub(super) fn register(
+    config: &mut AuthConfig,
+    origin: &str,
+    messages: &ConformanceMessages,
+    phone_number_messages: &ConformancePhoneNumberMessages,
+    store: Arc<MemoryStore>,
+) {
     config
         .add_plugin(PasskeyPlugin::new(PasskeyConfig {
             rp_id: Some("localhost".into()),
@@ -58,6 +69,7 @@ pub(super) fn register(config: &mut AuthConfig, origin: &str, messages: &Conform
     config
         .add_plugin(EmailOtpPlugin::new(email_otp))
         .expect("unique email-OTP plugin");
+    register_phone_number(config, phone_number_messages, store);
     config
         .add_plugin(TwoFactorPlugin::new(
             Arc::new(MemoryTwoFactorStore::default()),
@@ -73,4 +85,29 @@ pub(super) fn register(config: &mut AuthConfig, origin: &str, messages: &Conform
             },
         ))
         .expect("unique two-factor plugin");
+}
+
+fn register_phone_number(
+    config: &mut AuthConfig,
+    messages: &ConformancePhoneNumberMessages,
+    store: Arc<MemoryStore>,
+) {
+    config
+        .add_plugin(PhoneNumberPlugin::new(
+            store,
+            PhoneNumberConfig {
+                send_otp: Some(Arc::new(ConformancePhoneNumberSender {
+                    messages: messages.verification.clone(),
+                })),
+                send_password_reset_otp: Some(Arc::new(ConformancePhoneNumberSender {
+                    messages: messages.password_reset.clone(),
+                })),
+                sign_up_on_verification: Some(PhoneNumberSignUpConfig {
+                    temporary_email: Arc::new(ConformancePhoneNumberTemporaryEmail),
+                    temporary_name: Some(Arc::new(ConformancePhoneNumberTemporaryName)),
+                }),
+                ..PhoneNumberConfig::default()
+            },
+        ))
+        .expect("unique phone-number plugin");
 }

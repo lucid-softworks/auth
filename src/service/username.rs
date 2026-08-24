@@ -174,6 +174,15 @@ impl AuthService {
         session: &SessionWithUser,
         mut update: UserProfileUpdate,
     ) -> Result<crate::AuthUser, AuthError> {
+        let clear_phone_number = if self.configured_phone_number().is_some() {
+            match update.additional_fields.remove("phoneNumber") {
+                Some(serde_json::Value::Null) => true,
+                Some(_) => return Err(crate::PhoneNumberError::PhoneNumberCannotBeUpdated.into()),
+                None => false,
+            }
+        } else {
+            false
+        };
         update.additional_fields =
             self.update_additional_fields(DatabaseModel::User, update.additional_fields)?;
         if update.name.is_none()
@@ -181,18 +190,32 @@ impl AuthService {
             && update.username.is_none()
             && update.display_username.is_none()
             && update.additional_fields.is_empty()
+            && !clear_phone_number
         {
             return Err(AuthError::InvalidRequest("No fields to update".into()));
         }
         self.prepare_profile_names(session, &mut update).await?;
         update = self.apply_user_update_hook(session, update).await?;
-        let updated = self
-            .store
-            .update_user_profile(session.user.id, update)
-            .await?
-            .ok_or(AuthError::InvalidSession)?;
-        self.after_database_update(&DatabaseRecord::User(updated.clone()))
-            .await?;
+        let has_profile_update = update.name.is_some()
+            || update.image.is_some()
+            || update.username.is_some()
+            || update.display_username.is_some()
+            || !update.additional_fields.is_empty();
+        let updated = if has_profile_update {
+            let updated = self
+                .store
+                .update_user_profile(session.user.id, update)
+                .await?
+                .ok_or(AuthError::InvalidSession)?;
+            self.after_database_update(&DatabaseRecord::User(updated.clone()))
+                .await?;
+            updated
+        } else {
+            session.user.clone()
+        };
+        if clear_phone_number {
+            return self.clear_phone_number_for_update(&updated).await;
+        }
         Ok(updated)
     }
 

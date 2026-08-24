@@ -24,6 +24,7 @@ mod organization;
 mod passkey;
 mod password;
 mod password_reset;
+mod phone_number;
 #[cfg(feature = "axum")]
 mod plugin_session;
 mod recovery;

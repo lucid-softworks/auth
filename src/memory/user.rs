@@ -1,4 +1,4 @@
-use super::MemoryStore;
+use super::{MemoryStore, phone_number};
 use crate::{AuthError, AuthUser, OAuthAccount, UserProfileUpdate, UsernameError};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -24,10 +24,12 @@ pub(super) async fn create_password(
     if state.emails.contains_key(&user.email) {
         return Err(AuthError::UserAlreadyExists);
     }
+    ensure_phone_number_available(&state, &user, None)?;
     if let Some(username) = &user.username {
         state.usernames.insert(username.clone(), user.id);
     }
     state.emails.insert(user.email.clone(), user.id);
+    phone_number::index_phone_number(&mut state, &user)?;
     state.passwords.insert(user.id, password_hash.clone());
     account.user_id = user.id;
     state.oauth_accounts.insert(
@@ -62,11 +64,13 @@ pub(super) async fn upsert_password(
     {
         return Err(AuthError::UserAlreadyExists);
     }
+    ensure_phone_number_available(&state, &user, existing_id)?;
     let stored = if let Some(id) = existing_id {
         update_existing(&mut state, id, user)?
     } else {
         state.usernames.insert(username, user.id);
         state.emails.insert(user.email.clone(), user.id);
+        phone_number::index_phone_number(&mut state, &user)?;
         state.users.insert(user.id, user.clone());
         user
     };
@@ -93,6 +97,13 @@ fn update_existing(
         .ok_or_else(|| AuthError::Storage("username index is inconsistent".into()))?
         .email
         .clone();
+    let previous_phone_number = phone_number::user_phone_number(
+        state
+            .users
+            .get(&id)
+            .ok_or_else(|| AuthError::Storage("username index is inconsistent".into()))?,
+    )?
+    .map(str::to_owned);
     let existing = state
         .users
         .get_mut(&id)
@@ -105,6 +116,13 @@ fn update_existing(
     let stored = existing.clone();
     state.emails.remove(&previous_email);
     state.emails.insert(stored.email.clone(), id);
+    let current_phone_number = phone_number::user_phone_number(&stored)?.map(str::to_owned);
+    phone_number::replace_phone_number_index(
+        state,
+        id,
+        previous_phone_number,
+        current_phone_number,
+    );
     Ok(stored)
 }
 
@@ -117,6 +135,7 @@ pub(super) async fn create_without_account(
     if state.emails.contains_key(&user.email) {
         return Err(AuthError::UserAlreadyExists);
     }
+    ensure_phone_number_available(&state, &user, None)?;
     if let Some(username) = &user.username {
         if state.usernames.contains_key(username) {
             return Err(AuthError::UserAlreadyExists);
@@ -124,6 +143,7 @@ pub(super) async fn create_without_account(
         state.usernames.insert(username.clone(), user.id);
     }
     state.emails.insert(user.email.clone(), user.id);
+    phone_number::index_phone_number(&mut state, &user)?;
     state.users.insert(user.id, user.clone());
     Ok(user)
 }
@@ -170,6 +190,18 @@ pub(super) async fn update_profile(
         return Err(UsernameError::AlreadyTaken.into());
     }
     let previous_username = current.username.clone();
+    let previous_phone_number = phone_number::user_phone_number(current)?.map(str::to_owned);
+    let next_phone_number = match update.additional_fields.get("phoneNumber") {
+        Some(_) => {
+            phone_number::phone_number_from_fields(&update.additional_fields)?.map(str::to_owned)
+        }
+        None => previous_phone_number.clone(),
+    };
+    if next_phone_number.as_deref().is_some_and(|phone_number| {
+        !phone_number::phone_number_available(&state, phone_number, Some(user_id))
+    }) {
+        return Err(AuthError::UserAlreadyExists);
+    }
     let user = state.users.get_mut(&user_id).expect("user checked above");
     if let Some(name) = update.name {
         user.name = name;
@@ -194,7 +226,26 @@ pub(super) async fn update_profile(
             state.usernames.insert(username.clone(), user_id);
         }
     }
+    phone_number::replace_phone_number_index(
+        &mut state,
+        user_id,
+        previous_phone_number,
+        next_phone_number,
+    );
     Ok(Some(updated))
+}
+
+fn ensure_phone_number_available(
+    state: &super::MemoryState,
+    user: &AuthUser,
+    owner: Option<Uuid>,
+) -> Result<(), AuthError> {
+    if phone_number::user_phone_number(user)?.is_some_and(|phone_number| {
+        !phone_number::phone_number_available(state, phone_number, owner)
+    }) {
+        return Err(AuthError::UserAlreadyExists);
+    }
+    Ok(())
 }
 
 pub(super) async fn update_email(

@@ -6,20 +6,20 @@ use axum::{
     routing::{get, post},
 };
 use lucid_auth::{
-    AdditionalField, AdditionalFieldType, AdminConfig, AdminPlugin, AdminRole,
-    AuthConfig, AuthService, EmailOtpMessage, MagicLinkEmail, MemorySecondaryStorage, MemoryStore,
+    AdditionalField, AdditionalFieldType, AdminConfig, AdminPlugin, AdminRole, AuthConfig,
+    AuthService, EmailOtpMessage, MagicLinkEmail, MemorySecondaryStorage, MemoryStore,
     NewPasswordUser, PasswordResetEmail, TwoFactorOtp, UsernamePlugin, VerificationEmail,
 };
 use serde_json::json;
 use std::{io::Write, net::SocketAddr, sync::Arc};
 use tokio::sync::Mutex;
-use uuid::Uuid;
 
-mod email;
 mod cookie_cache;
+mod email;
 mod metadata;
 mod native_plugin;
 mod organization;
+mod phone_number;
 mod plugin_setup;
 mod rate_limit;
 mod session_fixture;
@@ -28,16 +28,18 @@ mod social_provider;
 use email::ConformanceMessages;
 
 #[derive(Clone)]
-struct Fixture {
+pub(crate) struct Fixture {
     pub(crate) service: Arc<AuthService>,
     pub(crate) store: Arc<MemoryStore>,
     pub(crate) secondary: Arc<MemorySecondaryStorage>,
-    pub(crate) owner_id: Uuid,
+    pub(crate) owner_id: uuid::Uuid,
     verification_emails: Arc<Mutex<Vec<VerificationEmail>>>,
     password_reset_emails: Arc<Mutex<Vec<PasswordResetEmail>>>,
     magic_links: Arc<Mutex<Vec<MagicLinkEmail>>>,
     email_otps: Arc<Mutex<Vec<EmailOtpMessage>>>,
     two_factor_otps: Arc<Mutex<Vec<TwoFactorOtp>>>,
+    pub(crate) phone_number_otps: Arc<Mutex<Vec<lucid_auth::PhoneNumberMessage>>>,
+    pub(crate) phone_number_reset_otps: Arc<Mutex<Vec<lucid_auth::PhoneNumberMessage>>>,
 }
 
 #[tokio::main]
@@ -49,7 +51,10 @@ async fn main() {
     let origin = format!("http://localhost:{port}");
     let fixture = fixture(&origin).await;
     let app = Router::new()
-        .route("/__conformance__/version", get(metadata::compatible_version))
+        .route(
+            "/__conformance__/version",
+            get(metadata::compatible_version),
+        )
         .route("/__conformance__/plugins", get(metadata::plugin_metadata))
         .route(
             "/__conformance__/verification-token/{email}",
@@ -63,13 +68,14 @@ async fn main() {
             "/__conformance__/magic-link-token/{email}",
             get(magic_link_token),
         )
-        .route(
-            "/__conformance__/email-otp/{kind}/{email}",
-            get(email_otp),
-        )
+        .route("/__conformance__/email-otp/{kind}/{email}", get(email_otp))
         .route(
             "/__conformance__/two-factor-otp/{email}",
             get(two_factor_otp),
+        )
+        .route(
+            "/__conformance__/phone-number-otp/{kind}/{phone_number}",
+            get(phone_number::captured),
         )
         .route(
             "/__conformance__/session/{authentication_method}",
@@ -163,7 +169,14 @@ async fn fixture(origin: &str) -> Fixture {
     let store = Arc::new(MemoryStore::default());
     let secondary = Arc::new(MemorySecondaryStorage::default());
     let messages = ConformanceMessages::default();
-    let config = conformance_config(origin, &messages, secondary.clone());
+    let phone_number_messages = phone_number::ConformancePhoneNumberMessages::default();
+    let config = conformance_config(
+        origin,
+        &messages,
+        &phone_number_messages,
+        store.clone(),
+        secondary.clone(),
+    );
     let service = Arc::new(
         AuthService::try_new(store.clone(), config).expect("valid conformance plugin registry"),
     );
@@ -187,12 +200,16 @@ async fn fixture(origin: &str) -> Fixture {
         magic_links: messages.magic_links,
         email_otps: messages.email_otps,
         two_factor_otps: messages.two_factor_otps,
+        phone_number_otps: phone_number_messages.verification,
+        phone_number_reset_otps: phone_number_messages.password_reset,
     }
 }
 
 fn conformance_config(
     origin: &str,
     messages: &ConformanceMessages,
+    phone_number_messages: &phone_number::ConformancePhoneNumberMessages,
+    store: Arc<MemoryStore>,
     secondary: Arc<MemorySecondaryStorage>,
 ) -> AuthConfig {
     let mut config = AuthConfig::new([82_u8; 32]).expect("fixture secret");
@@ -237,7 +254,9 @@ fn conformance_config(
     config
         .add_social_provider(social_provider::ConformanceSocialProvider)
         .expect("unique social provider");
-    config.add_plugin(UsernamePlugin::default()).expect("unique username plugin");
-    plugin_setup::register(&mut config, origin, messages);
+    config
+        .add_plugin(UsernamePlugin::default())
+        .expect("unique username plugin");
+    plugin_setup::register(&mut config, origin, messages, phone_number_messages, store);
     config
 }

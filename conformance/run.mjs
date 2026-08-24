@@ -10,6 +10,7 @@ import {
   anonymousClient,
   emailOTPClient,
   magicLinkClient,
+  phoneNumberClient,
   twoFactorClient,
   usernameClient,
   organizationClient,
@@ -147,6 +148,14 @@ async function capturedEmailOtp(origin, kind, email) {
   return (await response.json()).otp;
 }
 
+async function capturedPhoneNumberOtp(origin, kind, phoneNumber) {
+  const response = await fetch(
+    `${origin}/__conformance__/phone-number-otp/${kind}/${encodeURIComponent(phoneNumber)}`,
+  );
+  assert.equal(response.status, 200, `missing ${kind} OTP for ${phoneNumber}`);
+  return (await response.json()).code;
+}
+
 async function runCase(name, callback) {
   try {
     await callback();
@@ -172,6 +181,7 @@ async function conformance(origin) {
       passkeyClient(),
       apiKeyClient(),
       magicLinkClient(),
+      phoneNumberClient(),
       organizationClient({
         teams: { enabled: true },
         dynamicAccessControl: { enabled: true },
@@ -196,6 +206,7 @@ async function conformance(origin) {
     const apiKey = metadata.find((plugin) => plugin.id === "api-key");
     const anonymous = metadata.find((plugin) => plugin.id === "anonymous");
     const username = metadata.find((plugin) => plugin.id === "username");
+    const phoneNumber = metadata.find((plugin) => plugin.id === "phone-number");
     assert.equal(nativePlugin.client.betterAuthVersion, betterAuthPackage.version);
     assert.equal(nativePlugin.endpoints[0].clientMethod, "nativePlugin.ping");
     assert.equal(magicLink.client.factory, "magicLinkClient");
@@ -203,6 +214,20 @@ async function conformance(origin) {
     assert.equal(apiKey.client.factory, "apiKeyClient");
     assert.equal(anonymous.client.factory, "anonymousClient");
     assert.equal(username.client.factory, "usernameClient");
+    assert.equal(phoneNumber.client.factory, "phoneNumberClient");
+    assert.deepEqual(
+      phoneNumber.endpoints.map((endpoint) => [endpoint.path, endpoint.clientMethod]),
+      [
+        ["/sign-in/phone-number", "signIn.phoneNumber"],
+        ["/phone-number/send-otp", "phoneNumber.sendOtp"],
+        ["/phone-number/verify", "phoneNumber.verify"],
+        [
+          "/phone-number/request-password-reset",
+          "phoneNumber.requestPasswordReset",
+        ],
+        ["/phone-number/reset-password", "phoneNumber.resetPassword"],
+      ],
+    );
   });
 
   await runCase("get-session rejects POST without deferred refresh", async () => {
@@ -533,6 +558,115 @@ async function conformance(origin) {
     assert.equal(changedSession.user.email, newEmail);
     assert.equal(changedSession.user.emailVerified, true);
     success(await client.signOut(), "email OTP change signOut");
+  });
+
+  await runCase("phone-number official client", async () => {
+    const phoneNumber = "desk-extension-204";
+    const sent = success(
+      await client.phoneNumber.sendOtp({ phoneNumber }),
+      "phoneNumber.sendOtp",
+    );
+    assert.deepEqual(sent, { message: "code sent" });
+    transport.assertRequest("/api/auth/phone-number/send-otp", "POST", {
+      phoneNumber,
+    });
+
+    const code = await capturedPhoneNumberOtp(
+      origin,
+      "verification",
+      phoneNumber,
+    );
+    assert.match(code, /^\d{6}$/);
+    const verified = success(
+      await client.phoneNumber.verify({ phoneNumber, code }),
+      "phoneNumber.verify",
+    );
+    assert.equal(verified.status, true);
+    assert.equal(typeof verified.token, "string");
+    assert.equal(verified.user.phoneNumber, phoneNumber);
+    assert.equal(verified.user.phoneNumberVerified, true);
+    assert.equal(verified.user.email, `phone-${phoneNumber}@example.com`);
+    assert.equal(verified.user.name, `Phone ${phoneNumber}`);
+    transport.assertRequest("/api/auth/phone-number/verify", "POST", {
+      phoneNumber,
+      code,
+    });
+
+    const replay = await client.phoneNumber.verify({ phoneNumber, code });
+    assert.equal(replay.data, null);
+    assert.equal(replay.error?.status, 400);
+    assert.equal(replay.error?.code, "OTP_NOT_FOUND");
+
+    const requested = success(
+      await client.phoneNumber.requestPasswordReset({ phoneNumber }),
+      "phoneNumber.requestPasswordReset",
+    );
+    assert.deepEqual(requested, { status: true });
+    transport.assertRequest(
+      "/api/auth/phone-number/request-password-reset",
+      "POST",
+      { phoneNumber },
+    );
+    const resetOtp = await capturedPhoneNumberOtp(
+      origin,
+      "password-reset",
+      phoneNumber,
+    );
+    assert.match(resetOtp, /^\d{6}$/);
+    const newPassword = "phone replacement horse battery staple";
+    const reset = success(
+      await client.phoneNumber.resetPassword({
+        otp: resetOtp,
+        phoneNumber,
+        newPassword,
+      }),
+      "phoneNumber.resetPassword",
+    );
+    assert.deepEqual(reset, { status: true });
+    transport.assertRequest("/api/auth/phone-number/reset-password", "POST", {
+      otp: resetOtp,
+      phoneNumber,
+      newPassword,
+    });
+
+    const signedIn = success(
+      await client.signIn.phoneNumber({
+        phoneNumber,
+        password: newPassword,
+        rememberMe: false,
+      }),
+      "signIn.phoneNumber",
+    );
+    assert.equal(typeof signedIn.token, "string");
+    assert.equal(signedIn.user.phoneNumber, phoneNumber);
+    assert.equal(signedIn.user.phoneNumberVerified, true);
+    transport.assertRequest("/api/auth/sign-in/phone-number", "POST", {
+      phoneNumber,
+      password: newPassword,
+      rememberMe: false,
+    });
+
+    const rejectedUpdate = await client.updateUser({
+      phoneNumber: "another-opaque-phone",
+    });
+    assert.equal(rejectedUpdate.data, null);
+    assert.equal(rejectedUpdate.error?.status, 400);
+    assert.equal(rejectedUpdate.error?.code, "PHONE_NUMBER_CANNOT_BE_UPDATED");
+    const cleared = success(
+      await client.updateUser({ phoneNumber: null }),
+      "updateUser clear phone number",
+    );
+    assert.deepEqual(cleared, { status: true });
+    transport.assertRequest("/api/auth/update-user", "POST", {
+      phoneNumber: null,
+    });
+    const clearedSession = success(
+      await client.getSession(),
+      "getSession after phone-number clear",
+    );
+    assert.equal(clearedSession.user.phoneNumber ?? null, null);
+    assert.equal(clearedSession.user.phoneNumberVerified ?? false, false);
+    success(await client.signOut(), "phone-number signOut");
   });
 
   await runCase("username and session clients", async () => {

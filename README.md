@@ -33,6 +33,7 @@ The currently supported surface covers:
 - durable email verification with a native async delivery callback
 - enumeration-resistant password-reset email and single-use reset redemption
 - the complete official `emailOTPClient` surface as an optional native plugin
+- the complete official `phoneNumberClient` surface as an optional native plugin
 - the complete Better Auth username lifecycle as an optional native plugin
 - sign-out
 - the complete official anonymous client lifecycle as an optional native plugin
@@ -483,6 +484,35 @@ atomic; unknown-user verification and reset sends remain enumeration-safe.
 `send_verification_on_sign_up` and `override_default_email_verification` mirror
 the Better Auth plugin options. Native code can also call `create_email_otp` and
 `get_email_otp`, corresponding to Better Auth's server-only APIs.
+
+Phone Number is an optional native plugin. Supply the same memory or PostgreSQL
+store used by `AuthService`, an OTP sender, and—when OTP verification may create
+users—a temporary-email resolver:
+
+```rust
+let phone_number = PhoneNumberConfig {
+    send_otp: Some(Arc::new(MyPhoneOtpSender)),
+    send_password_reset_otp: Some(Arc::new(MyPhoneResetOtpSender)),
+    sign_up_on_verification: Some(PhoneNumberSignUpConfig {
+        temporary_email: Arc::new(MyTemporaryPhoneEmail),
+        temporary_name: None,
+    }),
+    ..PhoneNumberConfig::default()
+};
+config.add_plugin(PhoneNumberPlugin::new(store.clone(), phone_number))?;
+```
+
+The official Better Auth 1.7.1 `phoneNumberClient` supports opaque phone strings
+by default; format validation is opt-in through `PhoneNumberValidator`. Its
+defaults are six numeric digits, a 300-second expiry, three attempts, optional
+signup after verification, and password-based `signIn.phoneNumber`. OTP
+verification is the passwordless session/signup flow. The plugin also implements
+password-reset SMS delivery, authenticated phone replacement, atomic uniqueness,
+custom schema field names, and the native server-only `consume_phone_number_otp`
+API. `updateUser` may clear
+`phoneNumber` with `null`, which also clears verification, but cannot set or
+replace it directly. PostgreSQL deployments must apply the service's plugin
+migrations so the unique phone-number index is present.
 
 Organization is an optional native plugin. Its store is independent from the
 core authentication store and can use either memory or PostgreSQL:

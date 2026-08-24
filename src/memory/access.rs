@@ -1,4 +1,4 @@
-use super::MemoryStore;
+use super::{MemoryStore, phone_number};
 use crate::{
     AccessStore, AdminListCondition, AdminListOperator, AdminListUsersQuery, AdminSortDirection,
     AdminUserUpdate, AuthError, AuthSession, AuthUser,
@@ -85,6 +85,19 @@ impl AccessStore for MemoryStore {
             .ok_or(AuthError::NotFound)?
             .email
             .clone();
+        let previous_phone_number =
+            phone_number::user_phone_number(state.users.get(&user_id).ok_or(AuthError::NotFound)?)?
+                .map(str::to_owned);
+        let next_phone_number = match update.additional_fields.get("phoneNumber") {
+            Some(_) => phone_number::phone_number_from_fields(&update.additional_fields)?
+                .map(str::to_owned),
+            None => previous_phone_number.clone(),
+        };
+        if next_phone_number.as_deref().is_some_and(|phone_number| {
+            !phone_number::phone_number_available(&state, phone_number, Some(user_id))
+        }) {
+            return Err(AuthError::UserAlreadyExists);
+        }
         if let Some(email) = &update.email
             && state
                 .emails
@@ -125,12 +138,20 @@ impl AccessStore for MemoryStore {
             state.emails.remove(&previous_email);
             state.emails.insert(result.email.clone(), user_id);
         }
+        phone_number::replace_phone_number_index(
+            &mut state,
+            user_id,
+            previous_phone_number,
+            next_phone_number,
+        );
         Ok(result)
     }
 
     async fn delete_user(&self, user_id: Uuid) -> Result<(), AuthError> {
         let mut state = self.state.write().await;
         let user = state.users.remove(&user_id).ok_or(AuthError::NotFound)?;
+        let previous_phone_number = phone_number::user_phone_number(&user)?.map(str::to_owned);
+        phone_number::replace_phone_number_index(&mut state, user_id, previous_phone_number, None);
         if let Some(username) = user.username {
             state.usernames.remove(&username);
         }

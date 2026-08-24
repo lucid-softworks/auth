@@ -16,6 +16,7 @@ mod api_key;
 mod guest_capability;
 mod oauth;
 mod operator_security;
+mod phone_number;
 mod security;
 mod session;
 mod user;
@@ -26,6 +27,7 @@ struct MemoryState {
     users: HashMap<Uuid, AuthUser>,
     usernames: HashMap<String, Uuid>,
     emails: HashMap<String, Uuid>,
+    phone_numbers: HashMap<String, Uuid>,
     passwords: HashMap<Uuid, String>,
     oauth_accounts: HashMap<(String, String), OAuthAccount>,
     sessions: HashMap<String, AuthSession>,

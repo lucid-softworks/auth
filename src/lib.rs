@@ -23,6 +23,7 @@ mod organization;
 mod origin;
 mod owner_policy;
 mod passkey;
+mod phone_number;
 mod plugin;
 mod rate_limit;
 mod secondary_storage;
@@ -129,6 +130,14 @@ pub use passkey::{
     PasskeyPlugin, PasskeyRegistrationCallback, PasskeyRegistrationConfig,
     PasskeyRegistrationOverride, PasskeyRegistrationUser, PasskeyRegistrationUserResolver,
     PasskeyRegistrationVerified,
+};
+pub use phone_number::{
+    PhoneNumberConfig, PhoneNumberError, PhoneNumberMessage, PhoneNumberOtpSender,
+    PhoneNumberOtpVerifier, PhoneNumberPlugin, PhoneNumberRequestContext, PhoneNumberSchema,
+    PhoneNumberSignInInput, PhoneNumberSignUpConfig, PhoneNumberStore, PhoneNumberTemporaryEmail,
+    PhoneNumberTemporaryName, PhoneNumberValidator, PhoneNumberVerification,
+    PhoneNumberVerificationCallback, PhoneNumberVerified, PhoneNumberVerifyInput,
+    PhoneNumberWriteOutcome,
 };
 pub use plugin::{
     AfterAuthEvent, AuthPlugin, BeforeAuthEvent, PasswordCredentialChanged,

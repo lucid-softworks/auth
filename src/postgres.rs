@@ -16,6 +16,7 @@ mod oauth;
 mod operator_security;
 mod organization;
 mod passkey;
+mod phone_number;
 mod plugin;
 mod rows;
 mod schema;

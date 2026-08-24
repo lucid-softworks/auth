@@ -1,4 +1,4 @@
-use super::MemoryStore;
+use super::{MemoryStore, phone_number};
 use crate::{
     AccountDeleteOutcome, AuthError, AuthUser, OAuthAccount, OAuthAccountOwner,
     OAuthTokenUpdateOutcome,
@@ -85,8 +85,14 @@ pub(super) async fn create_user(
     if state.oauth_accounts.contains_key(&key) || state.emails.contains_key(&user.email) {
         return Err(AuthError::UserAlreadyExists);
     }
+    if phone_number::user_phone_number(&user)?.is_some_and(|phone_number| {
+        !phone_number::phone_number_available(&state, phone_number, None)
+    }) {
+        return Err(AuthError::UserAlreadyExists);
+    }
     account.user_id = user.id;
     state.emails.insert(user.email.clone(), user.id);
+    phone_number::index_phone_number(&mut state, &user)?;
     state.users.insert(user.id, user.clone());
     state.oauth_accounts.insert(key, account.clone());
     Ok(OAuthAccountOwner { account, user })
