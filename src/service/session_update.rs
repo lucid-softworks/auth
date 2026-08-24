@@ -12,6 +12,14 @@ impl AuthService {
         if fields.is_empty() {
             return Err(AuthError::InvalidRequest("No fields to update".into()));
         }
+        self.update_session_fields_with_hooks(current, fields).await
+    }
+
+    pub(super) async fn update_session_fields_with_hooks(
+        &self,
+        current: &SessionWithUser,
+        fields: Map<String, Value>,
+    ) -> Result<AuthSession, AuthError> {
         let mut candidate = current.session.clone();
         candidate.additional_fields.extend(fields);
         let candidate = match self
@@ -32,8 +40,7 @@ impl AuthService {
         }
         let persisted_fields = candidate.additional_fields;
         let updated = self
-            .store
-            .update_session_fields(current.session.id, persisted_fields)
+            .update_stored_session_fields(current, persisted_fields)
             .await?
             .ok_or(AuthError::InvalidSession)?;
         self.after_database_update(&DatabaseRecord::Session(updated.clone()))

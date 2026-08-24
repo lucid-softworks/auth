@@ -26,10 +26,7 @@ impl AuthService {
             organization_id.map_or(Value::Null, |id| Value::String(id.to_string())),
         );
         fields.insert(ACTIVE_TEAM_ID.into(), Value::Null);
-        self.store
-            .update_session_fields(session.session.id, fields)
-            .await?
-            .ok_or(AuthError::InvalidSession)
+        self.update_session_fields_with_hooks(session, fields).await
     }
 
     pub(crate) async fn set_active_team(
@@ -42,10 +39,7 @@ impl AuthService {
             ACTIVE_TEAM_ID.into(),
             team_id.map_or(Value::Null, |id| Value::String(id.to_string())),
         );
-        self.store
-            .update_session_fields(session.session.id, fields)
-            .await?
-            .ok_or(AuthError::InvalidSession)
+        self.update_session_fields_with_hooks(session, fields).await
     }
 }
 

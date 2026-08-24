@@ -155,6 +155,46 @@ impl AuthService {
         Ok(Some(candidate.session.clone()))
     }
 
+    pub(super) async fn update_stored_session_fields(
+        &self,
+        current: &SessionWithUser,
+        fields: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<AuthSession>, AuthError> {
+        let Some(secondary) = &self.config.secondary_storage else {
+            return self
+                .store
+                .update_session_fields(current.session.id, fields)
+                .await;
+        };
+        let Some(raw) = secondary.get(&current.session.token).await? else {
+            return Ok(None);
+        };
+        let cached: CachedSession = serde_json::from_str(&raw).map_err(storage_json)?;
+        let updated = if self.config.session.store_session_in_database {
+            let Some(updated) = self
+                .store
+                .update_session_fields(current.session.id, fields)
+                .await?
+            else {
+                return Ok(None);
+            };
+            updated
+        } else {
+            let mut updated = cached.session;
+            updated.additional_fields.extend(fields);
+            updated.updated_at = Utc::now();
+            updated
+        };
+        self.persist_secondary_session(
+            secondary.as_ref(),
+            &current.session.token,
+            &updated,
+            &cached.user,
+        )
+        .await?;
+        Ok(Some(updated))
+    }
+
     #[cfg(feature = "axum")]
     pub(super) async fn take_pending_stateless_session(
         &self,
