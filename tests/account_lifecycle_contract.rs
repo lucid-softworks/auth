@@ -72,6 +72,7 @@ impl SocialProvider for AccountProvider {
             email: self.email.into(),
             email_verified: true,
             image: Some("fixture.png".into()),
+            additional_fields: serde_json::Map::new(),
             profile: serde_json::Map::new(),
         })
     }

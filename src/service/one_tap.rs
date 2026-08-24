@@ -46,6 +46,7 @@ impl AuthService {
                 || google.is_some_and(|provider| provider.disable_sign_up()),
             require_email_verification: google
                 .is_some_and(|provider| provider.require_email_verification()),
+            override_user_info: false,
         };
         let tokens = OAuthTokens {
             id_token: Some(id_token.into()),
@@ -59,6 +60,7 @@ impl AuthService {
             email: claims.email,
             email_verified: claims.email_verified,
             image: claims.picture,
+            additional_fields: serde_json::Map::new(),
             profile: claims.profile,
         };
         let (result, _) = self
@@ -94,8 +96,7 @@ mod tests {
     use crate::{
         AnonymousPlugin, AuthConfig, AuthStore, BuiltinProvider, BuiltinProviderKind, MemoryStore,
         NewPasswordUser, OAuthAccountStore, OneTapConfig, OneTapPlugin, VerificationEmail,
-        VerificationEmailSender,
-        oauth::{crypto, google_id_token::fixture},
+        VerificationEmailSender, oauth::google_id_token::fixture,
     };
     use async_trait::async_trait;
     use serde_json::json;
@@ -171,12 +172,7 @@ mod tests {
             .unwrap();
         assert_eq!(owner.account.provider_id, "google");
         assert_eq!(owner.account.scope.as_deref(), Some("openid,profile,email"));
-        assert_eq!(
-            crypto::decrypt(&[115_u8; 32], owner.account.id_token.as_deref())
-                .unwrap()
-                .as_deref(),
-            Some(token.as_str())
-        );
+        assert_eq!(owner.account.id_token.as_deref(), Some(token.as_str()));
 
         let (_, second_token) = fixture::verifier_and_token(json!({
             "iss": "https://accounts.google.com",

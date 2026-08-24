@@ -4,6 +4,11 @@ use axum::{http::StatusCode, response::Response};
 
 pub(super) fn response(error: &AuthError) -> Option<Response> {
     match error {
+        AuthError::OAuthStateGenerationFailed => Some(super::dynamic_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_SERVER_ERROR",
+            "Unable to create verification",
+        )),
         AuthError::OAuthProviderNotSupported(provider) => Some(super::dynamic_error(
             StatusCode::BAD_REQUEST,
             "PROVIDER_NOT_SUPPORTED",
@@ -28,6 +33,8 @@ pub(super) fn is_error(error: &AuthError) -> bool {
             | AuthError::OAuthUserInfoUnavailable
             | AuthError::OAuthEmailNotFound
             | AuthError::OAuthStateMismatch
+            | AuthError::OAuthStateInvalid
+            | AuthError::OAuthStateGenerationFailed
             | AuthError::OAuthIssuerMismatch
             | AuthError::OAuthNonceBindingMissing
             | AuthError::OAuthAccountNotLinked

@@ -176,7 +176,8 @@ async fn fixture(origin: &str) -> Fixture {
         &phone_number_messages,
         store.clone(),
         secondary.clone(),
-    );
+    )
+    .await;
     let service = Arc::new(
         AuthService::try_new(store.clone(), config).expect("valid conformance plugin registry"),
     );
@@ -205,7 +206,7 @@ async fn fixture(origin: &str) -> Fixture {
     }
 }
 
-fn conformance_config(
+async fn conformance_config(
     origin: &str,
     messages: &ConformanceMessages,
     phone_number_messages: &phone_number::ConformancePhoneNumberMessages,
@@ -251,9 +252,7 @@ fn conformance_config(
         .set_base_url(origin)
         .expect("localhost fixture origin");
     rate_limit::configure(&mut config);
-    config
-        .add_social_provider(social_provider::ConformanceSocialProvider)
-        .expect("unique social provider");
+    social_provider::register(&mut config).await;
     config
         .add_plugin(UsernamePlugin::default())
         .expect("unique username plugin");

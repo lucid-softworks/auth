@@ -1,8 +1,9 @@
 use super::{
-    AuthorizationRequest, OAuthProviderConfig, OAuthTokens, OAuthUserInfo, SocialProvider,
-    TokenEndpointAuth,
+    AuthorizationRequest, OAuthClientAssertionContext, OAuthGrantType, OAuthProviderConfig,
+    OAuthTokens, OAuthUserInfo, SocialProvider, TokenEndpointAuth,
     provider::authorization_parameter_is_reserved,
-    provider_data::{map_profile, parse_token_response, verify_id_token},
+    provider_data::{map_profile, parse_token_response},
+    verify_id_token,
 };
 use crate::AuthError;
 use async_trait::async_trait;
@@ -152,6 +153,22 @@ impl SocialProvider for OAuthProviderConfig {
         {
             form.push(("client_secret", secret.clone()));
         }
+        if let TokenEndpointAuth::PrivateKeyJwt(assertion) = &self.token_endpoint_auth {
+            form.push((
+                "client_assertion",
+                assertion
+                    .client_assertion(OAuthClientAssertionContext {
+                        client_id: self.client_id.clone(),
+                        token_endpoint: self.token_endpoint.clone(),
+                        grant_type: OAuthGrantType::AuthorizationCode,
+                    })
+                    .await?,
+            ));
+            form.push((
+                "client_assertion_type",
+                "urn:ietf:params:oauth:client-assertion-type:jwt-bearer".into(),
+            ));
+        }
         let encoded = url::form_urlencoded::Serializer::new(String::new())
             .extend_pairs(form)
             .finish();
@@ -237,6 +254,23 @@ impl SocialProvider for OAuthProviderConfig {
             && let Some(secret) = &self.client_secret
         {
             form.push(("client_secret", secret.clone()));
+        }
+        if let TokenEndpointAuth::PrivateKeyJwt(assertion) = &self.token_endpoint_auth {
+            form.push((
+                "client_assertion",
+                assertion
+                    .client_assertion(OAuthClientAssertionContext {
+                        client_id: self.client_id.clone(),
+                        token_endpoint: self.token_endpoint.clone(),
+                        grant_type: OAuthGrantType::RefreshToken,
+                    })
+                    .await
+                    .map_err(|_| AuthError::OAuthFailedToRefreshToken)?,
+            ));
+            form.push((
+                "client_assertion_type",
+                "urn:ietf:params:oauth:client-assertion-type:jwt-bearer".into(),
+            ));
         }
         let encoded = url::form_urlencoded::Serializer::new(String::new())
             .extend_pairs(form)

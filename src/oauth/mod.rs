@@ -7,16 +7,19 @@ mod builtin_http;
 mod builtins;
 pub(crate) mod crypto;
 pub(crate) mod google_id_token;
+mod id_token;
 mod provider;
 mod provider_data;
 mod provider_http;
 
 pub use builtins::{BuiltinProvider, BuiltinProviderKind};
 pub use provider::{
-    AuthorizationRequest, OAuthProviderConfig, OAuthTokens, OAuthUserInfo, OidcConfig, ProfileMap,
-    SocialProvider, TokenEndpointAuth,
+    AuthorizationRequest, OAuthClientAssertion, OAuthClientAssertionContext, OAuthGrantType,
+    OAuthProviderConfig, OAuthRefreshContext, OAuthRequestContext, OAuthTokens, OAuthUserInfo,
+    OidcConfig, ProfileMap, SocialProvider, TokenEndpointAuth,
 };
 
+pub(crate) use id_token::verify_id_token;
 pub(crate) use provider::authorization_parameter_is_reserved;
 pub(crate) use provider_data::{map_profile, parse_token_response};
 pub(crate) fn synthetic_issuer(provider_id: &str) -> String {

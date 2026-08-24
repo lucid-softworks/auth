@@ -10,6 +10,18 @@ pub(super) fn response(error: &AuthError) -> Option<Response> {
         AuthError::ApiKey(error) => Some(crate::api_key::api_key_error(error)),
         AuthError::EmailOtp(error) => Some(email_otp_error(*error)),
         AuthError::PhoneNumber(error) => Some(phone_number_error(*error)),
+        AuthError::GenericOAuth(error) => {
+            let (code, message) = match error {
+                crate::GenericOAuthError::InvalidOAuthConfiguration => (
+                    "INVALID_OAUTH_CONFIGURATION",
+                    crate::INVALID_OAUTH_CONFIGURATION,
+                ),
+                crate::GenericOAuthError::TokenUrlNotFound => {
+                    ("TOKEN_URL_NOT_FOUND", crate::TOKEN_URL_NOT_FOUND)
+                }
+            };
+            Some(super::dynamic_error(StatusCode::BAD_REQUEST, code, message))
+        }
         AuthError::TwoFactor(error) => Some(crate::two_factor::axum::two_factor_error(*error)),
         AuthError::StepUp(error) => {
             let details = match error {

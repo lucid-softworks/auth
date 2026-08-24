@@ -109,13 +109,15 @@ impl AuthService {
         self.get_provider_access_token_for_account(account).await
     }
 
-    pub(crate) async fn refresh_provider_access_token_from_cookie(
+    pub(crate) async fn refresh_provider_access_token_from_cookie_with_context(
         &self,
         actor: &SessionWithUser,
         account: OAuthAccount,
+        context: &crate::OAuthRefreshContext,
     ) -> Result<ProviderTokenResponse, AuthError> {
         require_cookie_account(actor, &account)?;
-        self.refresh_provider_account(account).await
+        self.refresh_provider_account_with_context(account, context)
+            .await
     }
 
     pub(crate) async fn provider_account_info_from_cookie(

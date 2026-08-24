@@ -319,14 +319,19 @@ pub(crate) fn signed_cookie_token(
     headers: &HeaderMap,
     name: &str,
 ) -> Option<String> {
-    let cookie_value = headers
+    let cookie_value = cookie_value(headers, name)?;
+    service.verify_cookie_value(&cookie_value)
+}
+
+pub(crate) fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
         .get(header::COOKIE)?
         .to_str()
         .ok()?
         .split(';')
         .map(str::trim)
-        .find_map(|cookie| cookie.strip_prefix(&format!("{name}=")))?;
-    service.verify_cookie_value(cookie_value)
+        .find_map(|cookie| cookie.strip_prefix(&format!("{name}=")))
+        .map(str::to_owned)
 }
 
 pub(crate) fn user_agent(headers: &HeaderMap) -> Option<String> {

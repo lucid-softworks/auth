@@ -1,14 +1,12 @@
-use crate::{
-    AuthError, AuthService,
-    protocol::better_auth::{SignInResponse, SuccessResponse},
-};
+use crate::{AuthError, AuthService, protocol::better_auth::SignInResponse};
 use axum::{
     Extension, Json, Router,
     http::HeaderMap,
     middleware,
-    response::Response,
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 mod account;
@@ -21,12 +19,12 @@ mod email_password;
 mod error;
 pub(crate) mod http;
 mod oauth;
+mod oauth_state;
 mod rate_limit;
 mod security;
 mod session;
 mod user_deletion;
 
-use self::http::auth_error;
 pub use self::http::session_token;
 pub(crate) use self::oauth::with_provider_account_cookie;
 
@@ -83,15 +81,63 @@ pub(crate) async fn sign_in_response(
     })
 }
 
-async fn sign_out(Extension(service): Extension<Arc<AuthService>>, headers: HeaderMap) -> Response {
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SignOutInput {
+    #[serde(rename = "callbackURL")]
+    callback_url: Option<String>,
+    disable_redirect: Option<bool>,
+    state: Option<String>,
+}
+
+#[derive(Serialize)]
+struct SignOutResponse {
+    success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    redirect: Option<bool>,
+}
+
+async fn sign_out(
+    Extension(service): Extension<Arc<AuthService>>,
+    headers: HeaderMap,
+    body::OptionalBetterAuthBody(input): body::OptionalBetterAuthBody<SignOutInput>,
+) -> Response {
     if let Some(token) = session_token(&service, &headers)
-        && let Err(error) = service.sign_out(&token).await
+        && let result = service
+            .sign_out_with_provider_logout(
+                &token,
+                input.callback_url.as_deref(),
+                input.state.as_deref(),
+            )
+            .await
     {
-        return auth_error(error);
+        let url = result.unwrap_or(None);
+        let redirect = url.as_ref().map(|_| input.disable_redirect != Some(true));
+        let mut response = Json(SignOutResponse {
+            success: true,
+            url: url.clone(),
+            redirect,
+        })
+        .into_response();
+        if redirect == Some(true)
+            && let Some(url) = url
+            && let Ok(location) = axum::http::HeaderValue::from_str(&url)
+        {
+            response
+                .headers_mut()
+                .insert(axum::http::header::LOCATION, location);
+        }
+        return http::clear_session_cookie_from_request(&service, &headers, response);
     }
     http::clear_session_cookie_from_request(
         &service,
         &headers,
-        Json(SuccessResponse { success: true }),
+        Json(SignOutResponse {
+            success: true,
+            url: None,
+            redirect: None,
+        }),
     )
 }

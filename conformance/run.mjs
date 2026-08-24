@@ -1918,6 +1918,53 @@ async function conformance(origin) {
     );
   });
 
+  await runCase("generic OAuth uses the ordinary social client and callback", async () => {
+    transport.clearCookies();
+    const social = success(
+      await client.signIn.social({
+        provider: "generic-conformance",
+        callbackURL: "/generic-oauth/complete",
+        disableRedirect: true,
+        scopes: ["email"],
+        additionalParams: { audience: "official-client" },
+      }),
+      "signIn.social generic OAuth",
+    );
+    assert.equal(social.redirect, false);
+    const authorize = new URL(social.url);
+    assert.equal(authorize.origin, "https://generic.conformance.invalid");
+    assert.equal(authorize.searchParams.get("scope"), "email profile");
+    assert.equal(authorize.searchParams.get("audience"), "official-client");
+    assert.equal(authorize.searchParams.get("code_challenge_method"), "S256");
+    const state = authorize.searchParams.get("state");
+    assert.ok(state);
+    transport.assertRequest("/api/auth/sign-in/social", "POST", {
+      provider: "generic-conformance",
+      callbackURL: "/generic-oauth/complete",
+      disableRedirect: true,
+      scopes: ["email"],
+      additionalParams: { audience: "official-client" },
+    });
+    const callback = await transport.fetch(
+      origin +
+        "/api/auth/callback/generic-conformance?code=generic-official-code&state=" +
+        encodeURIComponent(state),
+      { redirect: "manual" },
+    );
+    assert.equal(callback.status, 302);
+    assert.equal(callback.headers.get("location"), "/generic-oauth/complete");
+    const session = success(
+      await client.getSession(),
+      "getSession after generic OAuth",
+    );
+    assert.equal(session.user.email, "generic-official@example.com");
+    assert.equal(session.user.name, "Generic Official User");
+    const selectedAccount = await decodedAccountCookie(transport);
+    assert.equal(selectedAccount.providerId, "generic-conformance");
+    assert.equal(selectedAccount.accountId, "generic-official-subject");
+    success(await client.signOut(), "signOut after generic OAuth");
+  });
+
   await runCase("linked account and provider token clients", async () => {
     await transport.useFixtureSession("strong");
     const linked = success(
@@ -1957,7 +2004,7 @@ async function conformance(origin) {
     assert.equal(linkedCookie.id, account.id);
     assert.equal(linkedCookie.userId, account.userId);
     assert.equal(linkedCookie.providerId, account.providerId);
-    assert.notEqual(linkedCookie.accessToken, "official-link-access-token");
+    assert.equal(linkedCookie.accessToken, "official-link-access-token");
 
     const validCookies = new Map(transport.cookies);
     const accountCookieName = [...transport.cookies.keys()].find((name) =>

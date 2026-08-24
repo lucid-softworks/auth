@@ -104,6 +104,7 @@ impl SocialProvider for SocialFixture {
             email: "social-upgrade@example.com".into(),
             email_verified: true,
             image: None,
+            additional_fields: serde_json::Map::new(),
             profile: serde_json::Map::new(),
         })
     }

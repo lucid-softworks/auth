@@ -16,6 +16,8 @@ pub enum AuthError {
     #[error(transparent)]
     Siwe(#[from] crate::SiweError),
     #[error(transparent)]
+    GenericOAuth(#[from] crate::GenericOAuthError),
+    #[error(transparent)]
     TwoFactor(#[from] crate::TwoFactorError),
     #[error(transparent)]
     StepUp(#[from] crate::StepUpError),
@@ -143,6 +145,10 @@ pub enum AuthError {
     OAuthEmailNotFound,
     #[error("the OAuth state is missing, expired, or does not match")]
     OAuthStateMismatch,
+    #[error("the OAuth state cookie is invalid")]
+    OAuthStateInvalid,
+    #[error("unable to create OAuth state verification")]
+    OAuthStateGenerationFailed,
     #[error("the OAuth issuer does not match the configured provider")]
     OAuthIssuerMismatch,
     #[error("the OAuth provider requires a bound ID-token nonce")]
@@ -151,6 +157,14 @@ pub enum AuthError {
     OAuthAccountNotLinked,
     #[error("social sign up is disabled")]
     OAuthSignupDisabled,
+    #[error("unable to update the OAuth account")]
+    OAuthUnableToUpdateAccount,
+    #[error("unable to create the OAuth user")]
+    OAuthUnableToCreateUser,
+    #[error("unable to create the OAuth session")]
+    OAuthUnableToCreateSession,
+    #[error("unable to link the OAuth account")]
+    OAuthUnableToLinkAccount,
     #[error("the account was not found")]
     AccountNotFound,
     #[error("the final account cannot be unlinked")]

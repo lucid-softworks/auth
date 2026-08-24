@@ -46,7 +46,7 @@ The currently supported surface covers:
 - immediate, verified, and current-address-confirmed email changes
 - password, fresh-session, and email-confirmed current-user deletion
 - native social OAuth/OIDC sign-in and callbacks for every Better Auth 1.7.1
-  built-in provider, with issuer-qualified accounts and encrypted provider tokens
+  built-in provider, with issuer-qualified accounts and optional provider-token encryption
 - the complete linked-account lifecycle: `listAccounts`, `linkSocial`,
   `unlinkAccount`, `accountInfo`, `getAccessToken`, and `refreshToken`
 - passkey rename and removal
@@ -91,13 +91,50 @@ scope, token-authentication, and profile policies. Implement `SocialProvider`
 to add a provider without changing OAuth state, callback, account, token, or
 session orchestration.
 
-OAuth state is durable, signed-cookie-bound, expiring, and single-use. PKCE,
+Better Auth's `genericOAuth` plugin is available through an async initialization
+step because discovery is fetched before providers are registered:
+
+```rust
+let mut provider = GenericOAuthConfig::new("company-sso", client_id);
+provider.client_secret = Some(client_secret);
+provider.discovery_url =
+    Some("https://id.example.com/.well-known/openid-configuration".into());
+
+config.add_plugin(
+    GenericOAuthPlugin::initialize(vec![provider]).await?
+)?;
+```
+
+Generic providers use only `signIn.social` and `/callback/:id`; there is no
+generic-OAuth client plugin or plugin-specific route. `GenericOAuthConfig`
+supports Better Auth 1.7.1 discovery, explicit endpoint precedence, stable
+subject/issuer resolvers, PKCE, OIDC nonce/JWKS verification, every token
+endpoint authentication method (including callback-driven
+`private_key_jwt`), custom token/user/profile callbacks, static or
+request-aware refresh parameters, provider logout, IDP-initiated restart, and
+the signup/profile controls. The exported presets are `auth0`, `gumroad`,
+`hubspot`, `keycloak`, `line`, `microsoft_entra_id`, `okta`, `patreon`,
+`slack`, and `yandex`. Microsoft Entra's generic preset requires a concrete
+tenant GUID; use the built-in Microsoft provider for `common`,
+`organizations`, or `consumers`.
+
+OAuth state is expiring and single-use. The default database strategy uses the
+verification store plus a signed `state` cookie; the Better Auth encrypted
+cookie strategy is selected with:
+
+```rust
+config.account.store_state_strategy = OAuthStateStrategy::Cookie;
+```
+
+PKCE,
 OIDC nonce, signature, issuer, audience, maximum-age, and redirect-URI checks
 are provider-driven. Accounts use Better Auth 1.7's `(issuer, accountId)` key;
-access, refresh, and ID tokens are randomized encrypted envelopes in both
-stores. PostgreSQL migration `0015_oauth_accounts.sql` deliberately replaces
-the old provider-qualified uniqueness model rather than retaining an
-incompatible fallback.
+access and refresh tokens are stored as returned by default and use Better
+Auth's randomized XChaCha20-Poly1305 hex envelopes only when
+`config.account.encrypt_oauth_tokens = true`. ID tokens follow Better Auth and
+remain unencrypted. PostgreSQL migration `0015_oauth_accounts.sql`
+deliberately replaces the old provider-qualified uniqueness model rather than
+retaining an incompatible fallback.
 
 Linked-account policy lives under `config.account.account_linking`. Explicit
 links require a provider-verified email unless the provider is trusted, require

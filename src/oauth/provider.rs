@@ -2,15 +2,14 @@ use crate::AuthError;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt, sync::Arc};
 use url::Url;
 
-const RESERVED_AUTHORIZATION_PARAMETERS: [&str; 9] = [
+const RESERVED_AUTHORIZATION_PARAMETERS: [&str; 8] = [
     "state",
     "client_id",
     "redirect_uri",
     "response_type",
-    "response_mode",
     "code_challenge",
     "code_challenge_method",
     "nonce",
@@ -51,25 +50,87 @@ pub struct OAuthUserInfo {
     pub email: String,
     pub email_verified: bool,
     pub image: Option<String>,
+    pub additional_fields: serde_json::Map<String, Value>,
     pub profile: serde_json::Map<String, Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OAuthGrantType {
+    AuthorizationCode,
+    RefreshToken,
+}
+
+#[derive(Debug, Clone)]
+pub struct OAuthClientAssertionContext {
+    pub client_id: String,
+    pub token_endpoint: String,
+    pub grant_type: OAuthGrantType,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct OAuthRefreshContext {
+    pub request: Option<OAuthRequestContext>,
+}
+
+#[derive(Debug, Clone)]
+pub struct OAuthRequestContext {
+    pub method: String,
+    pub uri: String,
+    pub headers: BTreeMap<String, String>,
+}
+
+#[async_trait]
+pub trait OAuthClientAssertion: Send + Sync {
+    async fn client_assertion(
+        &self,
+        context: OAuthClientAssertionContext,
+    ) -> Result<String, AuthError>;
+}
+
+#[derive(Clone)]
 pub enum TokenEndpointAuth {
     ClientSecretPost,
     ClientSecretBasic,
     None,
+    PrivateKeyJwt(Arc<dyn OAuthClientAssertion>),
 }
+
+impl fmt::Debug for TokenEndpointAuth {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::ClientSecretPost => "ClientSecretPost",
+            Self::ClientSecretBasic => "ClientSecretBasic",
+            Self::None => "None",
+            Self::PrivateKeyJwt(_) => "PrivateKeyJwt(..)",
+        })
+    }
+}
+
+impl PartialEq for TokenEndpointAuth {
+    fn eq(&self, other: &Self) -> bool {
+        matches!(
+            (self, other),
+            (Self::ClientSecretPost, Self::ClientSecretPost)
+                | (Self::ClientSecretBasic, Self::ClientSecretBasic)
+                | (Self::None, Self::None)
+                | (Self::PrivateKeyJwt(_), Self::PrivateKeyJwt(_))
+        )
+    }
+}
+
+impl Eq for TokenEndpointAuth {}
 
 #[derive(Debug, Clone)]
 pub struct OidcConfig {
     pub jwks_url: String,
     pub issuers: Vec<String>,
     pub audiences: Vec<String>,
-    pub algorithms: Vec<jsonwebtoken::Algorithm>,
+    pub algorithms: Vec<String>,
     pub requires_nonce: bool,
     pub nonce_sha256_fallback: bool,
-    pub maximum_age: Duration,
+    /// Optional maximum ID-token age. Generic OAuth discovery follows JOSE
+    /// validation and leaves this unset; built-ins may enforce a tighter age.
+    pub maximum_age: Option<Duration>,
     /// Optional issuer template for multi-tenant tokens. `{tid}` is replaced
     /// with the signed token's tenant claim and compared exactly to `iss`.
     pub dynamic_issuer_template: Option<String>,
@@ -138,11 +199,20 @@ pub struct OAuthProviderConfig {
 #[async_trait]
 pub trait SocialProvider: Send + Sync {
     fn id(&self) -> &str;
+    fn name(&self) -> &str {
+        self.id()
+    }
     fn issuer(&self) -> Option<&str>;
     fn requires_id_token_nonce(&self) -> bool;
     fn disable_implicit_sign_up(&self) -> bool;
     fn disable_sign_up(&self) -> bool;
     fn require_email_verification(&self) -> bool;
+    fn override_user_info(&self) -> bool {
+        false
+    }
+    fn allow_idp_initiated(&self) -> bool {
+        false
+    }
     fn id_token_audiences(&self) -> &[String] {
         &[]
     }
@@ -178,5 +248,23 @@ pub trait SocialProvider: Send + Sync {
 
     async fn refresh_access_token(&self, _refresh_token: &str) -> Result<OAuthTokens, AuthError> {
         Err(AuthError::OAuthTokenRefreshNotSupported(self.id().into()))
+    }
+
+    async fn refresh_access_token_with_context(
+        &self,
+        refresh_token: &str,
+        _context: &OAuthRefreshContext,
+    ) -> Result<OAuthTokens, AuthError> {
+        self.refresh_access_token(refresh_token).await
+    }
+
+    async fn create_end_session_url(
+        &self,
+        _id_token: Option<&str>,
+        _post_logout_redirect_uri: Option<&str>,
+        _state: Option<&str>,
+        _base_url: &Url,
+    ) -> Result<Option<Url>, AuthError> {
+        Ok(None)
     }
 }

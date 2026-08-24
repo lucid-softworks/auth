@@ -17,11 +17,10 @@ pub(super) async fn validate_browser_request(
     request: Request,
     next: Next,
 ) -> Response {
+    let path = request.uri().path();
     let is_oauth_callback = request.method() == Method::POST
-        && request
-            .uri()
-            .path()
-            .starts_with(&format!("{}/callback/", service.base_path()));
+        && (path.starts_with("/callback/")
+            || path.starts_with(&format!("{}/callback/", service.base_path())));
     if is_safe_method(request.method()) {
         return match validate_redirect_fields(&service, request).await {
             Ok(request) => next.run(request).await,

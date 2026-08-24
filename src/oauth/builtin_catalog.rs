@@ -182,10 +182,10 @@ fn oidc(kind: Kind, client_id: &str, issuer: Option<&str>) -> Option<OidcConfig>
             issuer.map_or(issuers, |value| vec![value.into()])
         },
         audiences: vec![client_id.into()],
-        algorithms: vec![jsonwebtoken::Algorithm::RS256],
+        algorithms: vec!["RS256".into()],
         requires_nonce: false,
         nonce_sha256_fallback: nonce_fallback,
-        maximum_age: Duration::hours(1),
+        maximum_age: Some(Duration::hours(1)),
         dynamic_issuer_template: dynamic,
     })
 }

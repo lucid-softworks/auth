@@ -122,6 +122,7 @@ impl SocialProvider for FixtureProvider {
             email: "oauth.casey@example.com".into(),
             email_verified: self.email_verified,
             image: Some("https://provider.fixture/avatar.png".into()),
+            additional_fields: serde_json::Map::new(),
             profile: serde_json::Map::new(),
         })
     }
@@ -143,6 +144,7 @@ fn application_with_policy(
     let mut config = AuthConfig::new([83_u8; 32]).unwrap();
     config.set_base_url("http://localhost").unwrap();
     config.trust_origin("http://localhost").unwrap();
+    config.account.encrypt_oauth_tokens = true;
     config.add_social_provider(provider).unwrap();
     if trusted {
         config.trust_social_provider("fixture").unwrap();
@@ -310,7 +312,8 @@ async fn assert_encrypted_account(store: &MemoryStore) {
             .access_token
             .as_deref()
             .unwrap()
-            .starts_with("$la$oauth$1$")
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
     );
     assert_ne!(owner.account.access_token.as_deref(), Some("access-secret"));
 }

@@ -1,11 +1,34 @@
 use async_trait::async_trait;
 use lucid_auth::{
-    AuthError, AuthorizationRequest, OAuthTokens, OAuthUserInfo, SocialProvider,
+    AuthError, AuthorizationRequest, GenericOAuthTokenExchange, GenericOAuthTokenRequest,
+    GenericOAuthUserInfo, OAuthTokens, OAuthUserInfo, SocialProvider,
 };
 use serde_json::Value;
 use url::Url;
 
 pub(crate) struct ConformanceSocialProvider;
+
+pub(crate) async fn register(config: &mut lucid_auth::AuthConfig) {
+    config
+        .add_social_provider(ConformanceSocialProvider)
+        .expect("unique social provider");
+    let mut generic = lucid_auth::GenericOAuthConfig::new(
+        "generic-conformance",
+        "generic-conformance-client",
+    );
+    generic.account_issuer = Some("https://generic.conformance.invalid".into());
+    generic.authorization_url = Some("https://generic.conformance.invalid/authorize".into());
+    generic.scopes = vec!["profile".into()];
+    generic.get_token = Some(std::sync::Arc::new(GenericConformanceToken));
+    generic.get_user_info = Some(std::sync::Arc::new(GenericConformanceUser));
+    config
+        .add_plugin(
+            lucid_auth::GenericOAuthPlugin::initialize(vec![generic])
+                .await
+                .expect("generic OAuth fixture initialization"),
+        )
+        .expect("unique generic OAuth plugin");
+}
 
 #[async_trait]
 impl SocialProvider for ConformanceSocialProvider {
@@ -92,6 +115,7 @@ impl SocialProvider for ConformanceSocialProvider {
                 email: "luna@example.com".into(),
                 email_verified: true,
                 image: Some("https://provider.conformance.invalid/linked.png".into()),
+                additional_fields: serde_json::Map::new(),
                 profile: serde_json::Map::from_iter([(
                     "fixture".into(),
                     Value::String("linked-account".into()),
@@ -108,6 +132,7 @@ impl SocialProvider for ConformanceSocialProvider {
             email: "official-social@example.com".into(),
             email_verified: true,
             image: Some("https://provider.conformance.invalid/avatar.png".into()),
+            additional_fields: serde_json::Map::new(),
             profile: serde_json::Map::new(),
         })
     }
@@ -125,5 +150,45 @@ impl SocialProvider for ConformanceSocialProvider {
             access_token_expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
             ..OAuthTokens::default()
         })
+    }
+}
+
+pub(crate) struct GenericConformanceToken;
+
+#[async_trait]
+impl GenericOAuthTokenExchange for GenericConformanceToken {
+    async fn exchange(&self, request: GenericOAuthTokenRequest) -> Result<OAuthTokens, AuthError> {
+        if request.code != "generic-official-code"
+            || request.code_verifier.as_deref().is_none_or(|value| value.len() != 128)
+            || !request
+                .redirect_uri
+                .ends_with("/api/auth/callback/generic-conformance")
+        {
+            return Err(AuthError::OAuthInvalidCode);
+        }
+        Ok(OAuthTokens {
+            access_token: Some("generic-official-access".into()),
+            refresh_token: Some("generic-official-refresh".into()),
+            scopes: vec!["profile".into(), "email".into()],
+            ..OAuthTokens::default()
+        })
+    }
+}
+
+pub(crate) struct GenericConformanceUser;
+
+#[async_trait]
+impl GenericOAuthUserInfo for GenericConformanceUser {
+    async fn user_info(&self, tokens: &OAuthTokens) -> Result<Option<Value>, AuthError> {
+        if tokens.access_token.as_deref() != Some("generic-official-access") {
+            return Ok(None);
+        }
+        Ok(Some(serde_json::json!({
+            "id": "generic-official-subject",
+            "name": "Generic Official User",
+            "email": "generic-official@example.com",
+            "emailVerified": true,
+            "image": "https://generic.conformance.invalid/avatar.png"
+        })))
     }
 }

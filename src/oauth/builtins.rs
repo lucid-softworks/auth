@@ -257,10 +257,10 @@ fn oidc(
         jwks_url,
         issuers,
         audiences: vec![provider.config.client_id.clone()],
-        algorithms: vec![jsonwebtoken::Algorithm::RS256],
+        algorithms: vec!["RS256".into()],
         requires_nonce: false,
         nonce_sha256_fallback: false,
-        maximum_age: Duration::hours(1),
+        maximum_age: Some(Duration::hours(1)),
         dynamic_issuer_template,
     }
 }

@@ -13,6 +13,7 @@ mod database_hooks;
 mod email;
 mod email_otp;
 mod error;
+mod generic_oauth;
 mod guest_capability;
 mod magic_link;
 mod memory;
@@ -35,6 +36,7 @@ mod session_config;
 mod siwe;
 mod step_up;
 mod store;
+mod symmetric_crypto;
 #[cfg(feature = "axum")]
 mod symmetric_jwe;
 mod two_factor;
@@ -71,8 +73,9 @@ pub use audit::{
 pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use client_ip::IpAddressConfig;
 pub use config::{
-    AccountConfig, AccountLinkingConfig, AuthConfig, EmailPasswordConfig, VerificationConfig,
-    VerificationIdentifierConfig, VerificationIdentifierHasher, VerificationIdentifierStorage,
+    AccountConfig, AccountLinkingConfig, AuthConfig, EmailPasswordConfig, OAuthStateStrategy,
+    VerificationConfig, VerificationIdentifierConfig, VerificationIdentifierHasher,
+    VerificationIdentifierStorage,
 };
 pub use cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
 pub use database_hooks::{
@@ -90,6 +93,17 @@ pub use email_otp::{
     EmailOtpVerification,
 };
 pub use error::AuthError;
+pub use generic_oauth::{
+    Auth0Options, BaseOAuthProviderOptions, GenericOAuthAccountIssuer,
+    GenericOAuthAccountKeyContext, GenericOAuthAccountSubject, GenericOAuthConfig,
+    GenericOAuthError, GenericOAuthMappedUser, GenericOAuthPlugin, GenericOAuthPresetError,
+    GenericOAuthProfileMapper, GenericOAuthRefreshContext, GenericOAuthRefreshParams,
+    GenericOAuthTokenExchange, GenericOAuthTokenRequest, GenericOAuthUserInfo, GumroadOptions,
+    HubSpotOptions, INVALID_OAUTH_CONFIGURATION, KeycloakOptions, LineOptions,
+    MicrosoftEntraIdOptions, OktaOptions, PatreonOptions, SlackOptions, TOKEN_URL_NOT_FOUND,
+    YandexOptions, auth0, gumroad, hubspot, keycloak, line, microsoft_entra_id, okta, patreon,
+    slack, yandex,
+};
 pub use guest_capability::{
     GuestCapabilityPlugin, GuestCapabilityPrincipal, GuestCapabilityStore, GuestGrant,
     GuestGrantSignInResult, IssuedGuestGrant, NewGuestGrant,
@@ -104,8 +118,10 @@ pub use model::{
     OAuthAccount, Principal, SessionWithUser, StoredPasskey, VerificationValue, VerifiedApiKey,
 };
 pub use oauth::{
-    AuthorizationRequest, BuiltinProvider, BuiltinProviderKind, OAuthProviderConfig, OAuthTokens,
-    OAuthUserInfo, OidcConfig, ProfileMap, SocialProvider, TokenEndpointAuth,
+    AuthorizationRequest, BuiltinProvider, BuiltinProviderKind, OAuthClientAssertion,
+    OAuthClientAssertionContext, OAuthGrantType, OAuthProviderConfig, OAuthRefreshContext,
+    OAuthRequestContext, OAuthTokens, OAuthUserInfo, OidcConfig, ProfileMap, SocialProvider,
+    TokenEndpointAuth,
 };
 pub use one_tap::{OneTapConfig, OneTapError, OneTapPlugin};
 pub use operator_security::{

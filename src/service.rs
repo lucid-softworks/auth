@@ -20,6 +20,7 @@ mod oauth;
 mod oauth_identity;
 mod oauth_sign_in;
 mod oauth_state;
+mod oauth_tokens;
 mod one_tap;
 mod operator_security;
 mod organization;
@@ -29,6 +30,9 @@ mod password_reset;
 mod phone_number;
 #[cfg(feature = "axum")]
 mod plugin_session;
+#[cfg(feature = "axum")]
+mod provider_logout;
+mod provider_refresh;
 mod recovery;
 mod session;
 mod session_create;
@@ -75,6 +79,8 @@ pub use email_password::{EmailSignUpInput, EmailSignUpResult};
 pub use email_verification::EmailVerificationResult;
 pub use oauth::{SocialIdTokenInput, SocialSignInInput, SocialSignInResult};
 pub use oauth_state::OAuthCallbackResult;
+#[cfg(feature = "axum")]
+pub(crate) use oauth_state::OAuthState;
 pub use passkey::{
     PasskeyRegistrationRequest, PasskeyRegistrationResult, PasskeyRegistrationVerification,
 };
@@ -93,6 +99,7 @@ pub struct AuthService {
     store: Arc<dyn AuthStore>,
     config: Arc<AuthConfig>,
     plugins: Arc<PluginRegistry>,
+    social_providers: Vec<Arc<dyn crate::SocialProvider>>,
     rate_limiter: Arc<RateLimiter>,
     pending_stateless_sessions: Arc<Mutex<HashMap<String, SessionWithUser>>>,
 }
@@ -106,6 +113,8 @@ impl AuthService {
     pub fn try_new(store: Arc<dyn AuthStore>, config: AuthConfig) -> Result<Self, AuthError> {
         config.validate()?;
         let plugins = PluginRegistry::build(&config.plugins, &config)?;
+        let mut social_providers = plugins.social_providers();
+        social_providers.extend(config.social_providers.iter().cloned());
         let rate_limiter = RateLimiter::new(
             &config.rate_limit,
             store.clone(),
@@ -116,6 +125,7 @@ impl AuthService {
             store,
             config: Arc::new(config),
             plugins: Arc::new(plugins),
+            social_providers,
             rate_limiter: Arc::new(rate_limiter),
             pending_stateless_sessions: Arc::new(Mutex::new(HashMap::new())),
         })
@@ -163,9 +173,19 @@ impl AuthService {
     }
 
     pub(crate) fn social_provider(&self, id: &str) -> Option<&Arc<dyn crate::SocialProvider>> {
-        self.config
-            .social_providers
+        self.social_providers
             .iter()
+            .find(|provider| provider.id() == id)
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn social_provider_for_logout(
+        &self,
+        id: &str,
+    ) -> Option<&Arc<dyn crate::SocialProvider>> {
+        self.social_providers
+            .iter()
+            .rev()
             .find(|provider| provider.id() == id)
     }
 

@@ -54,12 +54,57 @@ pub enum SocialSignInResult {
         url: String,
         redirect: bool,
         state: String,
+        state_cookie_name: &'static str,
+        state_cookie_value: String,
+        state_cookie_max_age: i64,
     },
     Session(Box<SignInResult>),
     Linked,
 }
 
 impl AuthService {
+    #[cfg(feature = "axum")]
+    pub(crate) async fn restart_idp_initiated_authorization(
+        &self,
+        provider_id: &str,
+    ) -> Result<(String, &'static str, String, i64), AuthError> {
+        let provider = self
+            .social_provider(provider_id)
+            .filter(|provider| provider.allow_idp_initiated())
+            .ok_or(AuthError::OAuthProviderNotFound)?;
+        let input = SocialSignInInput {
+            provider: provider_id.into(),
+            callback_url: None,
+            new_user_callback_url: None,
+            error_callback_url: None,
+            disable_redirect: false,
+            id_token: None,
+            scopes: None,
+            request_sign_up: false,
+            login_hint: None,
+            additional_params: BTreeMap::new(),
+            additional_data: serde_json::Map::new(),
+        };
+        match self
+            .start_social_authorization(provider.as_ref(), input, None, None)
+            .await?
+        {
+            SocialSignInResult::Authorization {
+                url,
+                state_cookie_name,
+                state_cookie_value,
+                state_cookie_max_age,
+                ..
+            } => Ok((
+                url,
+                state_cookie_name,
+                state_cookie_value,
+                state_cookie_max_age,
+            )),
+            _ => Err(AuthError::OAuthProviderNotFound),
+        }
+    }
+
     pub(super) async fn start_social_authorization(
         &self,
         provider: &dyn crate::SocialProvider,
@@ -68,24 +113,46 @@ impl AuthService {
         anonymous_user_id: Option<Uuid>,
     ) -> Result<SocialSignInResult, AuthError> {
         let base_url = self.oauth_base_url()?;
-        let callback_url = input.callback_url.unwrap_or_else(|| base_url.clone());
+        let callback_url = input
+            .callback_url
+            .filter(|url| !url.is_empty())
+            .unwrap_or_else(|| base_url.clone());
         let state = random_token();
         let mut code_verifier = format!("{}{}{}", random_token(), random_token(), random_token());
         code_verifier.truncate(128);
         let id_token_nonce = provider.requires_id_token_nonce().then(random_token);
+        let mut additional_data = input.additional_data;
+        for reserved in [
+            "oauthState",
+            "callbackURL",
+            "codeVerifier",
+            "errorURL",
+            "newUserURL",
+            "expiresAt",
+            "requestSignUp",
+            "idTokenNonce",
+            "link",
+            "provider",
+            "anonymousUserId",
+        ] {
+            additional_data.remove(reserved);
+        }
         let state_data = OAuthState {
+            oauth_state: Some(state.clone()),
             provider: input.provider,
             callback_url,
             code_verifier: code_verifier.clone(),
             error_url: input.error_callback_url,
             new_user_url: input.new_user_callback_url,
+            expires_at: (Utc::now() + Duration::minutes(10)).timestamp_millis(),
             request_sign_up: input.request_sign_up,
             id_token_nonce: id_token_nonce.clone(),
-            additional_data: input.additional_data,
+            additional_data,
             link,
             anonymous_user_id,
         };
-        self.save_oauth_state(&state, &state_data).await?;
+        let (state_cookie_name, state_cookie_value, state_cookie_max_age) =
+            self.save_oauth_state(&state, &state_data).await?;
         let url = provider.create_authorization_url(&AuthorizationRequest {
             state: state.clone(),
             code_verifier,
@@ -99,10 +166,30 @@ impl AuthService {
             url: url.into(),
             redirect: !input.disable_redirect,
             state,
+            state_cookie_name,
+            state_cookie_value,
+            state_cookie_max_age,
         })
     }
 
-    async fn save_oauth_state(&self, state: &str, value: &OAuthState) -> Result<(), AuthError> {
+    async fn save_oauth_state(
+        &self,
+        state: &str,
+        value: &OAuthState,
+    ) -> Result<(&'static str, String, i64), AuthError> {
+        if self.config.account.store_state_strategy == crate::OAuthStateStrategy::Cookie {
+            #[cfg(feature = "axum")]
+            {
+                let data = serde_json::to_vec(value).map_err(|_| AuthError::OAuthStateMismatch)?;
+                let encoded = crate::symmetric_crypto::encrypt(&self.config.secret, &data)
+                    .map_err(|_| AuthError::Worker)?;
+                return Ok(("oauth_state", encoded, 600));
+            }
+            #[cfg(not(feature = "axum"))]
+            return Err(AuthError::InvalidConfiguration(
+                "cookie OAuth state requires the axum feature".into(),
+            ));
+        }
         let now = Utc::now();
         self.create_verification_record(VerificationValue {
             purpose: STATE_PURPOSE.into(),
@@ -113,24 +200,55 @@ impl AuthService {
             created_at: now,
         })
         .await
+        .map_err(|_| AuthError::OAuthStateGenerationFailed)?;
+        Ok(("state", self.signed_cookie_value(state), 300))
     }
 
     #[cfg(feature = "axum")]
-    pub(crate) async fn oauth_state(&self, state: &str) -> Result<OAuthState, AuthError> {
+    pub(crate) async fn oauth_state(
+        &self,
+        state: &str,
+        cookie_value: Option<&str>,
+    ) -> Result<OAuthState, AuthError> {
+        if self.config.account.store_state_strategy == crate::OAuthStateStrategy::Cookie {
+            let value = cookie_value.ok_or(AuthError::OAuthStateMismatch)?;
+            let plaintext = crate::symmetric_crypto::decrypt(&self.config.secret, value)
+                .map_err(|_| AuthError::OAuthStateInvalid)?;
+            let state_data: OAuthState =
+                serde_json::from_slice(&plaintext).map_err(|_| AuthError::OAuthStateInvalid)?;
+            return Ok(state_data);
+        }
         let value = self
             .find_verification_value(STATE_PURPOSE, state)
             .await?
-            .filter(|value| value.expires_at > Utc::now())
             .ok_or(AuthError::OAuthStateMismatch)?;
-        serde_json::from_value(value.payload).map_err(|_| AuthError::OAuthStateMismatch)
+        let state_data: OAuthState = serde_json::from_value(value.payload)
+            .map_err(|_| AuthError::Storage("OAuth state payload is invalid".into()))?;
+        Ok(state_data)
     }
 
     #[cfg(feature = "axum")]
     pub(crate) async fn consume_oauth_state(&self, state: &str) -> Result<(), AuthError> {
+        if self.config.account.store_state_strategy == crate::OAuthStateStrategy::Cookie {
+            return Ok(());
+        }
         self.consume_verification_record(STATE_PURPOSE, state, Utc::now())
             .await?
             .ok_or(AuthError::OAuthStateMismatch)
             .map(|_| ())
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn oauth_state_cookie_name(&self) -> &'static str {
+        match self.config.account.store_state_strategy {
+            crate::OAuthStateStrategy::Database => "state",
+            crate::OAuthStateStrategy::Cookie => "oauth_state",
+        }
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn skip_oauth_state_cookie_check(&self) -> bool {
+        self.config.account.skip_state_cookie_check
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -163,7 +281,8 @@ impl AuthService {
         let redirect_uri = self.oauth_callback_url(provider.id())?;
         let tokens = provider
             .exchange_code(code, &state.code_verifier, &redirect_uri, device_id)
-            .await?;
+            .await
+            .map_err(|_| AuthError::OAuthInvalidCode)?;
         let user_info = provider
             .get_user_info(&tokens, state.id_token_nonce.as_deref(), provider_user)
             .await?;

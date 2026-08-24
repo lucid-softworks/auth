@@ -8,8 +8,7 @@ use super::{
     oauth_state::OAuthLinkState,
 };
 use crate::{
-    AccountDeleteOutcome, AuthError, OAuthAccount, OAuthTokenUpdateOutcome, OAuthTokens,
-    OAuthUserInfo, SessionWithUser, oauth::crypto,
+    AccountDeleteOutcome, AuthError, OAuthAccount, OAuthTokens, OAuthUserInfo, SessionWithUser,
 };
 use chrono::{Duration, Utc};
 use serde_json::Value;
@@ -176,9 +175,18 @@ impl AuthService {
             return Err(AuthError::LinkingDifferentEmailsNotAllowed);
         }
         account.user_id = user.id;
-        let account = self.prepare_account_create(account).await?;
-        let account = self.store.link_oauth_account(account).await?;
-        self.finish_account_create(&account).await?;
+        let account = self
+            .prepare_account_create(account)
+            .await
+            .map_err(|_| AuthError::OAuthUnableToLinkAccount)?;
+        let account = self
+            .store
+            .link_oauth_account(account)
+            .await
+            .map_err(|_| AuthError::OAuthUnableToLinkAccount)?;
+        self.finish_account_create(&account)
+            .await
+            .map_err(|_| AuthError::OAuthUnableToLinkAccount)?;
         Ok(())
     }
 
@@ -204,60 +212,6 @@ impl AuthService {
         }
         self.account_token_response(account, false)
             .map_err(|_| AuthError::OAuthFailedToGetAccessToken)
-    }
-
-    pub async fn refresh_provider_access_token(
-        &self,
-        actor: &SessionWithUser,
-        account_id: Uuid,
-    ) -> Result<ProviderTokenResponse, AuthError> {
-        require_account_session(actor)?;
-        let account = self.account_for_user(actor.user.id, account_id).await?;
-        self.refresh_provider_account(account).await
-    }
-
-    pub(super) async fn refresh_provider_account(
-        &self,
-        mut account: OAuthAccount,
-    ) -> Result<ProviderTokenResponse, AuthError> {
-        let provider = self
-            .social_provider(&account.provider_id)
-            .ok_or_else(|| AuthError::OAuthProviderNotSupported(account.provider_id.clone()))?;
-        if !provider.supports_token_refresh() {
-            return Err(AuthError::OAuthTokenRefreshNotSupported(
-                account.provider_id.clone(),
-            ));
-        }
-        let expected_refresh = account.refresh_token.clone();
-        let expected_updated = account.updated_at;
-        let refresh = crypto::decrypt(&self.config.secret, account.refresh_token.as_deref())
-            .map_err(|_| AuthError::OAuthFailedToRefreshToken)?
-            .ok_or(AuthError::OAuthRefreshTokenNotFound)?;
-        let tokens = match provider.refresh_access_token(&refresh).await {
-            Ok(tokens) => tokens,
-            Err(_) => {
-                let current = self.account_for_user(account.user_id, account.id).await?;
-                if current.updated_at != expected_updated {
-                    return self
-                        .account_token_response(current, true)
-                        .map_err(|_| AuthError::OAuthFailedToRefreshToken);
-                }
-                return Err(AuthError::OAuthFailedToRefreshToken);
-            }
-        };
-        apply_refreshed_tokens(self, &mut account, tokens)?;
-        let account = match self
-            .store
-            .compare_and_swap_oauth_tokens(account, expected_refresh.as_deref(), expected_updated)
-            .await?
-        {
-            OAuthTokenUpdateOutcome::Updated(account) | OAuthTokenUpdateOutcome::Stale(account) => {
-                account
-            }
-            OAuthTokenUpdateOutcome::NotFound => return Err(AuthError::AccountNotFound),
-        };
-        self.account_token_response(account, true)
-            .map_err(|_| AuthError::OAuthFailedToRefreshToken)
     }
 
     pub async fn provider_account_info(
@@ -296,7 +250,7 @@ impl AuthService {
         Ok(provider_account_info(account, info))
     }
 
-    async fn account_for_user(
+    pub(super) async fn account_for_user(
         &self,
         user_id: Uuid,
         account_id: Uuid,
@@ -309,17 +263,18 @@ impl AuthService {
             .ok_or(AuthError::AccountNotFound)
     }
 
-    fn account_token_response(
+    pub(super) fn account_token_response(
         &self,
         account: OAuthAccount,
         refreshed: bool,
     ) -> Result<ProviderTokenResponse, AuthError> {
         Ok(ProviderTokenResponse {
-            access_token: crypto::decrypt(&self.config.secret, account.access_token.as_deref())?
+            access_token: self
+                .unprotect_oauth_token(account.access_token.as_deref())?
                 .unwrap_or_default(),
             access_token_expires_at: account.access_token_expires_at,
             refresh_token: if refreshed {
-                crypto::decrypt(&self.config.secret, account.refresh_token.as_deref())?
+                self.unprotect_oauth_token(account.refresh_token.as_deref())?
             } else {
                 None
             },
@@ -328,37 +283,15 @@ impl AuthService {
                 .flatten(),
             scopes: (!refreshed).then(|| parse_scopes(account.scope.as_deref())),
             scope: refreshed.then_some(account.scope.clone()).flatten(),
-            id_token: crypto::decrypt(&self.config.secret, account.id_token.as_deref())?,
+            id_token: account.id_token,
             provider_id: refreshed.then_some(account.provider_id),
             account_id: refreshed.then_some(account.id),
         })
     }
 }
 
-fn apply_refreshed_tokens(
-    service: &AuthService,
-    account: &mut OAuthAccount,
-    tokens: OAuthTokens,
-) -> Result<(), AuthError> {
-    if let Some(token) = tokens.access_token {
-        account.access_token = crypto::encrypt(&service.config.secret, Some(token))?;
-    }
-    if let Some(token) = tokens.refresh_token {
-        account.refresh_token = crypto::encrypt(&service.config.secret, Some(token))?;
-    }
-    if let Some(token) = tokens.id_token {
-        account.id_token = crypto::encrypt(&service.config.secret, Some(token))?;
-    }
-    account.access_token_expires_at = tokens.access_token_expires_at;
-    account.refresh_token_expires_at = tokens
-        .refresh_token_expires_at
-        .or(account.refresh_token_expires_at);
-    account.updated_at = Utc::now();
-    Ok(())
-}
-
 pub(super) fn preserve_oauth_tokens(account: &mut OAuthAccount, previous: &OAuthAccount) {
-    account.scope = previous.scope.clone();
+    account.scope = merge_scopes(previous.scope.as_deref(), account.scope.as_deref());
     account
         .additional_fields
         .clone_from(&previous.additional_fields);
@@ -371,6 +304,32 @@ pub(super) fn preserve_oauth_tokens(account: &mut OAuthAccount, previous: &OAuth
     if account.id_token.is_none() {
         account.id_token.clone_from(&previous.id_token);
     }
+    if account.access_token_expires_at.is_none() {
+        account
+            .access_token_expires_at
+            .clone_from(&previous.access_token_expires_at);
+    }
+    if account.refresh_token_expires_at.is_none() {
+        account
+            .refresh_token_expires_at
+            .clone_from(&previous.refresh_token_expires_at);
+    }
+}
+
+fn merge_scopes(stored: Option<&str>, incoming: Option<&str>) -> Option<String> {
+    let mut merged = Vec::new();
+    for scope in stored
+        .into_iter()
+        .chain(incoming)
+        .flat_map(|scopes| scopes.split(','))
+        .map(str::trim)
+        .filter(|scope| !scope.is_empty())
+    {
+        if !merged.contains(&scope) {
+            merged.push(scope);
+        }
+    }
+    (!merged.is_empty()).then(|| merged.join(","))
 }
 
 fn provider_account_info(account: OAuthAccount, info: OAuthUserInfo) -> ProviderAccountInfo {

@@ -6,7 +6,6 @@ use crate::{
 };
 use async_trait::async_trait;
 use serde::Serialize;
-#[cfg(feature = "axum")]
 use std::sync::Arc;
 use std::{any::Any, borrow::Cow};
 use uuid::Uuid;
@@ -197,6 +196,8 @@ pub enum BeforeAuthEvent {
 /// Observational lifecycle events emitted after a successful write.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
+// Keep the public event payloads inline; registry dispatch borrows the event.
+#[allow(clippy::large_enum_variant)]
 pub enum AfterAuthEvent {
     SessionCreated { session: SessionWithUser },
     UserDeleted { user: AuthUser },
@@ -280,6 +281,11 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
     }
 
     fn schema_fields(&self) -> Vec<PluginSchemaField> {
+        Vec::new()
+    }
+
+    /// Social providers registered by a plugin ahead of core providers.
+    fn social_providers(&self) -> Vec<Arc<dyn crate::SocialProvider>> {
         Vec::new()
     }
 

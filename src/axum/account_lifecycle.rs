@@ -5,8 +5,8 @@ use super::http::{
 use crate::{AuthError, AuthService, OAuthAccount, SocialSignInInput, SocialSignInResult};
 use axum::{
     Extension, Json, Router,
-    extract::Query,
-    http::{HeaderMap, HeaderValue, header},
+    extract::{OriginalUri, Query},
+    http::{HeaderMap, HeaderValue, Method, Uri, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -81,7 +81,10 @@ async fn link_social(
         Ok(SocialSignInResult::Authorization {
             url,
             redirect,
-            state,
+            state_cookie_name,
+            state_cookie_value,
+            state_cookie_max_age,
+            ..
         }) => {
             let mut response = Json(LinkStatus {
                 url: url.clone(),
@@ -92,10 +95,10 @@ async fn link_social(
             if redirect && let Ok(location) = HeaderValue::from_str(&url) {
                 response.headers_mut().insert(header::LOCATION, location);
             }
-            let cookie = service.plugin_cookie("state");
+            let cookie = service.plugin_cookie(state_cookie_name);
             with_cookie(
                 response,
-                serialize_cookie(&cookie, &service.signed_cookie_value(&state), Some(300)),
+                serialize_cookie(&cookie, &state_cookie_value, Some(state_cookie_max_age)),
             )
         }
         Ok(SocialSignInResult::Linked) => {
@@ -144,15 +147,17 @@ async fn get_access_token(
     headers: HeaderMap,
     super::body::BetterAuthBody(input): super::body::BetterAuthBody<AccountSelection>,
 ) -> Response {
-    account_token_response(&service, &headers, input, false).await
+    account_token_response(&service, &headers, input, false, None).await
 }
 
 async fn refresh_token(
     Extension(service): Extension<Arc<AuthService>>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
     super::body::BetterAuthBody(input): super::body::BetterAuthBody<AccountSelection>,
 ) -> Response {
-    account_token_response(&service, &headers, input, true).await
+    account_token_response(&service, &headers, input, true, Some((&method, &uri))).await
 }
 
 async fn account_token_response(
@@ -160,6 +165,7 @@ async fn account_token_response(
     headers: &HeaderMap,
     input: AccountSelection,
     refresh: bool,
+    request: Option<(&Method, &Uri)>,
 ) -> Response {
     let Some(actor) = current_session(service, headers).await else {
         return auth_error(AuthError::Unauthorized);
@@ -175,16 +181,18 @@ async fn account_token_response(
     };
     let result = match (refresh, selected) {
         (true, SelectedAccount::Database(account_id)) => {
+            let context = refresh_context(headers, request);
             service
-                .refresh_provider_access_token(&actor, account_id)
+                .refresh_provider_access_token_with_context(&actor, account_id, &context)
                 .await
         }
         (false, SelectedAccount::Database(account_id)) => {
             service.get_provider_access_token(&actor, account_id).await
         }
         (true, SelectedAccount::Cookie(account)) => {
+            let context = refresh_context(headers, request);
             service
-                .refresh_provider_access_token_from_cookie(&actor, *account)
+                .refresh_provider_access_token_from_cookie_with_context(&actor, *account, &context)
                 .await
         }
         (false, SelectedAccount::Cookie(account)) => {
@@ -214,6 +222,27 @@ async fn account_token_response(
             clear_account_cookie(service, Some(headers), auth_error(error))
         }
         Err(error) => auth_error(error),
+    }
+}
+
+fn refresh_context(
+    headers: &HeaderMap,
+    request: Option<(&Method, &Uri)>,
+) -> crate::OAuthRefreshContext {
+    crate::OAuthRefreshContext {
+        request: request.map(|(method, uri)| crate::OAuthRequestContext {
+            method: method.to_string(),
+            uri: uri.to_string(),
+            headers: headers
+                .iter()
+                .filter_map(|(name, value)| {
+                    value
+                        .to_str()
+                        .ok()
+                        .map(|value| (name.as_str().to_owned(), value.to_owned()))
+                })
+                .collect(),
+        }),
     }
 }
 

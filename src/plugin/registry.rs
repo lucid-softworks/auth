@@ -115,6 +115,13 @@ impl PluginRegistry {
     pub(crate) fn migrations(&self) -> Vec<PluginMigrationContribution> {
         self.migrations.clone()
     }
+
+    pub(crate) fn social_providers(&self) -> Vec<Arc<dyn crate::SocialProvider>> {
+        self.plugins
+            .iter()
+            .flat_map(|plugin| plugin.social_providers())
+            .collect()
+    }
 }
 
 fn validate_descriptor(descriptor: PluginDescriptor) -> Result<(), AuthError> {

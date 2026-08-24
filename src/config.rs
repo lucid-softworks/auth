@@ -8,7 +8,9 @@ use chrono::Duration;
 use std::sync::Arc;
 use url::Url;
 
+mod account;
 mod verification;
+pub use account::{AccountConfig, AccountLinkingConfig, OAuthStateStrategy};
 pub use verification::{
     VerificationConfig, VerificationIdentifierConfig, VerificationIdentifierHasher,
     VerificationIdentifierStorage,
@@ -290,58 +292,43 @@ impl AuthConfig {
             ));
         }
         validate_additional_field_config(self)?;
-        if !self.social_providers.is_empty() && self.base_url.is_none() {
-            return Err(AuthError::InvalidConfiguration(
-                "a base URL is required when social providers are configured".into(),
-            ));
-        }
-        for provider in &self.social_providers {
-            provider.validate_configuration()?;
-        }
-        for trusted in &self.trusted_social_providers {
-            if !self
-                .social_providers
-                .iter()
-                .any(|provider| provider.id() == trusted)
-            {
-                return Err(AuthError::InvalidConfiguration(format!(
-                    "trusted social provider '{trusted}' is not configured"
-                )));
-            }
-        }
-        Ok(())
+        validate_social_provider_config(self)
     }
 }
 
-/// Better Auth 1.7 account-linking policy.
-#[derive(Debug, Clone, Default)]
-pub struct AccountConfig {
-    pub account_linking: AccountLinkingConfig,
-    pub additional_fields: crate::AdditionalFieldSet,
-    /// Stores the selected provider account in Better Auth's encrypted
-    /// `account_data` cookie. Disabled by default when a database is present.
-    pub store_account_cookie: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct AccountLinkingConfig {
-    pub enabled: bool,
-    pub allow_different_emails: bool,
-    pub allow_unlinking_all: bool,
-    pub disable_implicit_linking: bool,
-    pub require_local_email_verified: bool,
-}
-
-impl Default for AccountLinkingConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            allow_different_emails: false,
-            allow_unlinking_all: false,
-            disable_implicit_linking: false,
-            require_local_email_verified: true,
+fn validate_social_provider_config(config: &AuthConfig) -> Result<(), AuthError> {
+    let plugin_providers = config
+        .plugins
+        .iter()
+        .flat_map(|plugin| plugin.social_providers())
+        .collect::<Vec<_>>();
+    if (!config.social_providers.is_empty() || !plugin_providers.is_empty())
+        && config.base_url.is_none()
+    {
+        return Err(AuthError::InvalidConfiguration(
+            "a base URL is required when social providers are configured".into(),
+        ));
+    }
+    for provider in config
+        .social_providers
+        .iter()
+        .chain(plugin_providers.iter())
+    {
+        provider.validate_configuration()?;
+    }
+    for trusted in &config.trusted_social_providers {
+        if !config
+            .social_providers
+            .iter()
+            .chain(plugin_providers.iter())
+            .any(|provider| provider.id() == trusted)
+        {
+            return Err(AuthError::InvalidConfiguration(format!(
+                "trusted social provider '{trusted}' is not configured"
+            )));
         }
     }
+    Ok(())
 }
 
 fn validate_additional_field_config(config: &AuthConfig) -> Result<(), AuthError> {
