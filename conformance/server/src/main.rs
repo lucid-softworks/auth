@@ -7,8 +7,8 @@ use axum::{
 };
 use lucid_auth::{
     AdditionalField, AdditionalFieldType, AdminConfig, AdminPlugin, AdminRole,
-    AuthConfig, AuthService, MagicLinkEmail, MemorySecondaryStorage, MemoryStore, NewPasswordUser,
-    PasswordResetEmail, TwoFactorOtp, UsernamePlugin, VerificationEmail,
+    AuthConfig, AuthService, EmailOtpMessage, MagicLinkEmail, MemorySecondaryStorage, MemoryStore,
+    NewPasswordUser, PasswordResetEmail, TwoFactorOtp, UsernamePlugin, VerificationEmail,
 };
 use serde_json::json;
 use std::{io::Write, net::SocketAddr, sync::Arc};
@@ -36,6 +36,7 @@ struct Fixture {
     verification_emails: Arc<Mutex<Vec<VerificationEmail>>>,
     password_reset_emails: Arc<Mutex<Vec<PasswordResetEmail>>>,
     magic_links: Arc<Mutex<Vec<MagicLinkEmail>>>,
+    email_otps: Arc<Mutex<Vec<EmailOtpMessage>>>,
     two_factor_otps: Arc<Mutex<Vec<TwoFactorOtp>>>,
 }
 
@@ -61,6 +62,10 @@ async fn main() {
         .route(
             "/__conformance__/magic-link-token/{email}",
             get(magic_link_token),
+        )
+        .route(
+            "/__conformance__/email-otp/{kind}/{email}",
+            get(email_otp),
         )
         .route(
             "/__conformance__/two-factor-otp/{email}",
@@ -139,6 +144,21 @@ async fn two_factor_otp(
     }
 }
 
+async fn email_otp(
+    Extension(fixture): Extension<Fixture>,
+    Path((kind, email)): Path<(String, String)>,
+) -> Response {
+    let sent = fixture.email_otps.lock().await;
+    match sent
+        .iter()
+        .rev()
+        .find(|message| message.email == email && message.kind.as_str() == kind)
+    {
+        Some(message) => Json(json!({ "otp": message.otp })).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
 async fn fixture(origin: &str) -> Fixture {
     let store = Arc::new(MemoryStore::default());
     let secondary = Arc::new(MemorySecondaryStorage::default());
@@ -165,6 +185,7 @@ async fn fixture(origin: &str) -> Fixture {
         verification_emails: messages.verification_emails,
         password_reset_emails: messages.password_reset_emails,
         magic_links: messages.magic_links,
+        email_otps: messages.email_otps,
         two_factor_otps: messages.two_factor_otps,
     }
 }

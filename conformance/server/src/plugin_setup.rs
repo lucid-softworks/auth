@@ -1,12 +1,15 @@
 use super::{
-    email::{ConformanceMagicLinkSender, ConformanceMessages, ConformanceOtpSender},
+    email::{
+        ConformanceEmailOtpSender, ConformanceMagicLinkSender, ConformanceMessages,
+        ConformanceOtpSender,
+    },
     native_plugin::ConformancePlugin,
     organization,
 };
 use lucid_auth::{
-    ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, MagicLinkConfig,
-    MagicLinkPlugin, MemoryTwoFactorStore, OtpConfig, PasskeyConfig, PasskeyPlugin, TotpConfig,
-    TwoFactorConfig, TwoFactorPlugin,
+    ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, EmailOtpConfig,
+    EmailOtpPlugin, MagicLinkConfig, MagicLinkPlugin, MemoryTwoFactorStore, OtpConfig,
+    PasskeyConfig, PasskeyPlugin, TotpConfig, TwoFactorConfig, TwoFactorPlugin,
 };
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -48,6 +51,13 @@ pub(super) fn register(config: &mut AuthConfig, origin: &str, messages: &Conform
             },
         ))))
         .expect("unique magic-link plugin");
+    let mut email_otp = EmailOtpConfig::new(Arc::new(ConformanceEmailOtpSender {
+        messages: messages.email_otps.clone(),
+    }));
+    email_otp.change_email.enabled = true;
+    config
+        .add_plugin(EmailOtpPlugin::new(email_otp))
+        .expect("unique email-OTP plugin");
     config
         .add_plugin(TwoFactorPlugin::new(
             Arc::new(MemoryTwoFactorStore::default()),

@@ -8,6 +8,7 @@ use axum::{
 pub(super) fn response(error: &AuthError) -> Option<Response> {
     match error {
         AuthError::ApiKey(error) => Some(crate::api_key::api_key_error(error)),
+        AuthError::EmailOtp(error) => Some(email_otp_error(*error)),
         AuthError::TwoFactor(error) => Some(crate::two_factor::axum::two_factor_error(*error)),
         AuthError::StepUp(error) => {
             let details = match error {
@@ -59,4 +60,41 @@ pub(super) fn response(error: &AuthError) -> Option<Response> {
         }
         _ => None,
     }
+}
+
+fn email_otp_error(error: crate::EmailOtpError) -> Response {
+    use crate::EmailOtpError as Error;
+    let (status, code, message) = match error {
+        Error::InvalidOtp => (StatusCode::BAD_REQUEST, "INVALID_OTP", "Invalid OTP"),
+        Error::OtpExpired => (StatusCode::BAD_REQUEST, "OTP_EXPIRED", "OTP expired"),
+        Error::TooManyAttempts => (
+            StatusCode::FORBIDDEN,
+            "TOO_MANY_ATTEMPTS",
+            "Too many attempts",
+        ),
+        Error::UserNotFound => (StatusCode::BAD_REQUEST, "USER_NOT_FOUND", "User not found"),
+        Error::InvalidOtpType => (StatusCode::BAD_REQUEST, "BAD_REQUEST", "Invalid OTP type"),
+        Error::ChangeEmailDisabled => (
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "Change email with OTP is disabled",
+        ),
+        Error::CurrentEmailOtpRequired => (
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "OTP is required to verify current email",
+        ),
+        Error::EmailIsSame => (StatusCode::BAD_REQUEST, "BAD_REQUEST", "Email is the same"),
+        Error::EmailAlreadyInUse => (
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "Email already in use",
+        ),
+        Error::HashedOtpUnavailable => (
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "OTP is hashed, cannot return the plain text OTP",
+        ),
+    };
+    (status, Json(ErrorResponse { code, message })).into_response()
 }

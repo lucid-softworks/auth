@@ -132,6 +132,10 @@ name = "email_password_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "email_otp_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "email_verification_contract"
 required-features = ["axum"]
 

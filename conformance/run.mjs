@@ -8,6 +8,7 @@ import { symmetricDecodeJWT } from "better-auth/crypto";
 import {
   adminClient,
   anonymousClient,
+  emailOTPClient,
   magicLinkClient,
   twoFactorClient,
   usernameClient,
@@ -138,6 +139,14 @@ async function decodedAccountCookie(transport) {
   );
 }
 
+async function capturedEmailOtp(origin, kind, email) {
+  const response = await fetch(
+    `${origin}/__conformance__/email-otp/${kind}/${encodeURIComponent(email)}`,
+  );
+  assert.equal(response.status, 200, `missing ${kind} OTP for ${email}`);
+  return (await response.json()).otp;
+}
+
 async function runCase(name, callback) {
   try {
     await callback();
@@ -157,6 +166,7 @@ async function conformance(origin) {
     plugins: [
       usernameClient(),
       anonymousClient(),
+      emailOTPClient(),
       adminClient(),
       twoFactorClient(),
       passkeyClient(),
@@ -182,12 +192,14 @@ async function conformance(origin) {
     const metadata = await plugins.json();
     const nativePlugin = metadata.find((plugin) => plugin.id === "conformance");
     const magicLink = metadata.find((plugin) => plugin.id === "magic-link");
+    const emailOtp = metadata.find((plugin) => plugin.id === "email-otp");
     const apiKey = metadata.find((plugin) => plugin.id === "api-key");
     const anonymous = metadata.find((plugin) => plugin.id === "anonymous");
     const username = metadata.find((plugin) => plugin.id === "username");
     assert.equal(nativePlugin.client.betterAuthVersion, betterAuthPackage.version);
     assert.equal(nativePlugin.endpoints[0].clientMethod, "nativePlugin.ping");
     assert.equal(magicLink.client.factory, "magicLinkClient");
+    assert.equal(emailOtp.client.factory, "emailOTPClient");
     assert.equal(apiKey.client.factory, "apiKeyClient");
     assert.equal(anonymous.client.factory, "anonymousClient");
     assert.equal(username.client.factory, "usernameClient");
@@ -409,6 +421,118 @@ async function conformance(origin) {
     );
     assert.equal(signedIn.user.email, "email.user@example.com");
     success(await client.signOut(), "signOut after password reset");
+  });
+
+  await runCase("email OTP official client", async () => {
+    const sentVerification = success(
+      await client.emailOtp.sendVerificationOtp({
+        email: "LUNA@example.com",
+        type: "email-verification",
+      }),
+      "emailOtp.sendVerificationOtp",
+    );
+    assert.equal(sentVerification.success, true);
+    const verificationOtp = await capturedEmailOtp(
+      origin,
+      "email-verification",
+      "luna@example.com",
+    );
+    const wrongOtp = await client.emailOtp.checkVerificationOtp({
+      email: "luna@example.com",
+      type: "email-verification",
+      otp: "not-the-otp",
+    });
+    assert.equal(wrongOtp.data, null);
+    assert.equal(wrongOtp.error?.status, 400);
+    assert.equal(wrongOtp.error?.code, "INVALID_OTP");
+    const checked = success(
+      await client.emailOtp.checkVerificationOtp({
+        email: "luna@example.com",
+        type: "email-verification",
+        otp: verificationOtp,
+      }),
+      "emailOtp.checkVerificationOtp",
+    );
+    assert.equal(checked.success, true);
+    const verified = success(
+      await client.emailOtp.verifyEmail({
+        email: "luna@example.com",
+        otp: verificationOtp,
+      }),
+      "emailOtp.verifyEmail",
+    );
+    assert.equal(verified.status, true);
+    assert.equal(verified.user.emailVerified, true);
+    assert.equal(typeof verified.token, "string");
+    const replay = await client.emailOtp.verifyEmail({
+      email: "luna@example.com",
+      otp: verificationOtp,
+    });
+    assert.equal(replay.data, null);
+    assert.equal(replay.error?.code, "INVALID_OTP");
+    success(await client.signOut(), "email OTP verification signOut");
+
+    const email = "otp-user@example.com";
+    success(
+      await client.emailOtp.sendVerificationOtp({ email, type: "sign-in" }),
+      "emailOtp.sendVerificationOtp sign-in",
+    );
+    const signInOtp = await capturedEmailOtp(origin, "sign-in", email);
+    const signedIn = success(
+      await client.signIn.emailOtp({
+        email,
+        otp: signInOtp,
+        name: "OTP User",
+        image: "https://example.com/otp-user.png",
+        department: "authentication",
+      }),
+      "signIn.emailOtp",
+    );
+    assert.equal(signedIn.user.email, email);
+    assert.equal(signedIn.user.emailVerified, true);
+    assert.equal(signedIn.user.department, "authentication");
+    success(await client.signOut(), "email OTP sign-in signOut");
+
+    success(
+      await client.emailOtp.requestPasswordReset({ email }),
+      "emailOtp.requestPasswordReset",
+    );
+    const resetOtp = await capturedEmailOtp(origin, "forget-password", email);
+    const reset = success(
+      await client.emailOtp.resetPassword({
+        email,
+        otp: resetOtp,
+        password: "OTP replacement horse battery staple",
+      }),
+      "emailOtp.resetPassword",
+    );
+    assert.equal(reset.success, true);
+    success(
+      await client.signIn.email({
+        email,
+        password: "OTP replacement horse battery staple",
+      }),
+      "email sign-in after OTP reset",
+    );
+
+    const newEmail = "otp-user-changed@example.com";
+    success(
+      await client.emailOtp.requestEmailChange({ newEmail }),
+      "emailOtp.requestEmailChange",
+    );
+    const changeOtp = await capturedEmailOtp(origin, "change-email", newEmail);
+    const changed = success(
+      await client.emailOtp.changeEmail({ newEmail, otp: changeOtp }),
+      "emailOtp.changeEmail",
+    );
+    assert.equal(changed.success, true);
+    const changedSession = success(
+      await client.getSession(),
+      "getSession after email OTP change",
+    );
+    assert.equal(changedSession.user.email, newEmail);
+    assert.equal(changedSession.user.emailVerified, true);
+    success(await client.signOut(), "email OTP change signOut");
   });
 
   await runCase("username and session clients", async () => {

@@ -22,6 +22,8 @@ mod anonymous;
 mod api_key;
 #[path = "postgres_contract/audit.rs"]
 mod audit;
+#[path = "postgres_contract/email_otp.rs"]
+mod email_otp;
 #[path = "postgres_contract/guest_capability.rs"]
 mod guest_capability;
 #[path = "postgres_contract/magic_link.rs"]
@@ -111,6 +113,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     verification::values_are_atomic(&store, user.id).await?;
     verification::email_is_atomic(&store, &user).await?;
     verification::password_reset_is_atomic(&store, &pool, user.id).await?;
+    email_otp::assert_redemption_is_atomic(&service, &pool).await?;
     magic_link::assert_promotion_is_atomic(&store, &pool).await?;
     email_signup_is_case_insensitive(&service, &pool).await?;
     username_signup_is_atomic(&service, &pool).await?;
@@ -186,6 +189,7 @@ fn register_contract_plugins(
 ) -> Result<(), AuthError> {
     config.add_plugin(OwnerPolicyPlugin)?;
     config.add_plugin(UsernamePlugin::default())?;
+    email_otp::register(config)?;
     config.add_plugin(PasskeyPlugin::new(PasskeyConfig::default()))?;
     config.add_plugin(GuestCapabilityPlugin::new(store.clone()))?;
     config.add_plugin(AuditPlugin::new(store.clone()).with_max_events(100))?;

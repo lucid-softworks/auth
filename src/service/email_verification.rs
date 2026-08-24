@@ -22,7 +22,9 @@ impl AuthService {
         callback_url: Option<&str>,
         session: Option<&SessionWithUser>,
     ) -> Result<(), AuthError> {
-        if self.config.email_verification.sender.is_none() {
+        if self.config.email_verification.sender.is_none()
+            && !self.email_otp_overrides_verification()
+        {
             return Err(AuthError::VerificationEmailNotEnabled);
         }
         let normalized = super::email_password::normalize_email(email)?;
@@ -59,12 +61,16 @@ impl AuthService {
         user: &AuthUser,
         callback_url: Option<&str>,
     ) -> Result<(), AuthError> {
+        self.send_signup_email_otp_if_configured(user).await?;
         let send = self
             .config
             .email_verification
             .send_on_sign_up
             .unwrap_or(self.config.email_and_password.require_email_verification);
-        if send && self.config.email_verification.sender.is_some() {
+        if send
+            && (self.config.email_verification.sender.is_some()
+                || self.email_otp_overrides_verification())
+        {
             self.deliver_verification_email(user.clone(), callback_url)
                 .await?;
         }
@@ -77,7 +83,8 @@ impl AuthService {
         callback_url: Option<&str>,
     ) -> Result<(), AuthError> {
         if self.config.email_verification.send_on_sign_in
-            && self.config.email_verification.sender.is_some()
+            && (self.config.email_verification.sender.is_some()
+                || self.email_otp_overrides_verification())
         {
             self.deliver_verification_email(user.clone(), callback_url)
                 .await?;
@@ -313,6 +320,9 @@ impl AuthService {
         user: AuthUser,
         callback_url: Option<&str>,
     ) -> Result<(), AuthError> {
+        if self.deliver_overridden_email_otp(&user).await? {
+            return Ok(());
+        }
         let sender = self
             .config
             .email_verification

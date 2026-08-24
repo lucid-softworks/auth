@@ -32,6 +32,7 @@ The currently supported surface covers:
 - core email/password signup, signin, and current-password verification
 - durable email verification with a native async delivery callback
 - enumeration-resistant password-reset email and single-use reset redemption
+- the complete official `emailOTPClient` surface as an optional native plugin
 - the complete Better Auth username lifecycle as an optional native plugin
 - sign-out
 - the complete official anonymous client lifecycle as an optional native plugin
@@ -462,6 +463,26 @@ custom hasher when persisted token secrecy is required. Delivery receives the
 email, verification URL, token, metadata, and a narrowed request context.
 `callbackURL`, `newUserCallbackURL`, and `errorCallbackURL` use Better Auth's
 exact casing, and all redirects pass the configured trusted-origin policy.
+
+Email OTP is also optional. Implement `EmailOtpSender` and register the plugin;
+the official Better Auth 1.7.1 `emailOTPClient` then supports verification,
+passwordless sign-in/signup, password reset, and configured email changes:
+
+```rust
+let mut email_otp = EmailOtpConfig::new(Arc::new(MyEmailOtpSender));
+email_otp.storage = EmailOtpStorage::Hashed;
+email_otp.change_email.enabled = true;
+config.add_plugin(EmailOtpPlugin::new(email_otp))?;
+```
+
+Defaults match Better Auth: six numeric digits, a 300-second expiry, three
+attempts, rotating resends, plain storage, disabled signup-triggered delivery,
+and disabled email change. Select `Hashed`, `Encrypted`, or a custom storage
+adapter when persisted OTP secrecy is required. Successful redemption is
+atomic; unknown-user verification and reset sends remain enumeration-safe.
+`send_verification_on_sign_up` and `override_default_email_verification` mirror
+the Better Auth plugin options. Native code can also call `create_email_otp` and
+`get_email_otp`, corresponding to Better Auth's server-only APIs.
 
 Organization is an optional native plugin. Its store is independent from the
 core authentication store and can use either memory or PostgreSQL:

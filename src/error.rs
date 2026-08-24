@@ -8,6 +8,8 @@ pub enum AuthError {
     #[error(transparent)]
     Username(#[from] crate::UsernameError),
     #[error(transparent)]
+    EmailOtp(#[from] crate::EmailOtpError),
+    #[error(transparent)]
     TwoFactor(#[from] crate::TwoFactorError),
     #[error(transparent)]
     StepUp(#[from] crate::StepUpError),

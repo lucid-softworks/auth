@@ -11,6 +11,7 @@ mod config;
 mod cookie;
 mod database_hooks;
 mod email;
+mod email_otp;
 mod error;
 mod guest_capability;
 mod magic_link;
@@ -78,6 +79,12 @@ pub use database_hooks::{
 pub use email::{
     EmailVerificationConfig, PasswordResetCallback, PasswordResetEmail, PasswordResetEmailSender,
     VerificationEmail, VerificationEmailSender,
+};
+pub use email_otp::{
+    EmailOtpChangeEmailConfig, EmailOtpConfig, EmailOtpEncryptor, EmailOtpError, EmailOtpGenerator,
+    EmailOtpHasher, EmailOtpMessage, EmailOtpPlugin, EmailOtpRequestContext,
+    EmailOtpResendStrategy, EmailOtpSender, EmailOtpSignInInput, EmailOtpStorage, EmailOtpType,
+    EmailOtpVerification,
 };
 pub use error::AuthError;
 pub use guest_capability::{

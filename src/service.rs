@@ -10,6 +10,7 @@ mod api_key_policy;
 mod audit;
 mod change_email;
 mod database;
+mod email_otp;
 mod email_password;
 mod email_verification;
 mod guest;

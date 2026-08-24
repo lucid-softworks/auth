@@ -1,6 +1,5 @@
 use crate::AuthError;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-#[cfg(feature = "axum")]
 use chacha20poly1305::aead::{OsRng, rand_core::RngCore};
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce, aead::Aead};
 #[cfg(feature = "axum")]
@@ -24,7 +23,6 @@ const ENCODE_URI_COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'(')
     .remove(b')');
 
-#[cfg(feature = "axum")]
 pub(crate) fn encrypt(secret: &[u8], plaintext: &[u8]) -> Result<String, AuthError> {
     let key = Sha256::digest(secret);
     let cipher = XChaCha20Poly1305::new_from_slice(&key)
