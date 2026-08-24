@@ -14,8 +14,14 @@ pub(super) async fn assert_atomic(
         .refresh_session(&session.token, expires_at, now)
         .await?
         .expect("an existing PostgreSQL session refreshes");
-    assert_eq!(refreshed.expires_at, expires_at);
-    assert_eq!(refreshed.updated_at, now);
+    assert_eq!(
+        refreshed.expires_at.timestamp_micros(),
+        expires_at.timestamp_micros()
+    );
+    assert_eq!(
+        refreshed.updated_at.timestamp_micros(),
+        now.timestamp_micros()
+    );
 
     store.delete_session(&session.token).await?;
     assert!(
