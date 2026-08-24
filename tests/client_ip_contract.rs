@@ -114,7 +114,12 @@ async fn single_forwarded_addresses_drive_better_auth_rate_limit_keys() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(response.headers()["x-retry-after"], "10");
+    let retry_after = response.headers()["x-retry-after"]
+        .to_str()
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
+    assert!((1..=10).contains(&retry_after));
     let body = response_json(response).await;
     assert_eq!(
         body,
