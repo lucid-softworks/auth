@@ -118,6 +118,9 @@ impl AuthService {
         if let Some(hooks) = &self.config.database_hooks {
             hooks.after_update(record, &context).await?;
         }
+        if let DatabaseRecord::User(user) = record {
+            self.refresh_secondary_user_sessions(user).await?;
+        }
         Ok(())
     }
 

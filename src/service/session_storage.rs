@@ -20,6 +20,36 @@ struct SessionReference {
 }
 
 impl AuthService {
+    pub(super) async fn refresh_secondary_user_sessions(
+        &self,
+        user: &AuthUser,
+    ) -> Result<(), AuthError> {
+        let Some(secondary) = &self.config.secondary_storage else {
+            return Ok(());
+        };
+        for reference in self.active_references(user.id).await? {
+            let Some(raw) = secondary.get(&reference.token).await? else {
+                continue;
+            };
+            let Ok(mut cached) = serde_json::from_str::<CachedSession>(&raw) else {
+                continue;
+            };
+            let remaining = ttl(cached.session.expires_at);
+            if remaining == 0 {
+                continue;
+            }
+            cached.user = user.clone();
+            secondary
+                .set(
+                    &reference.token,
+                    serde_json::to_string(&cached).map_err(storage_json)?,
+                    Some(remaining),
+                )
+                .await?;
+        }
+        Ok(())
+    }
+
     pub(super) async fn persist_session(
         &self,
         token: &str,
@@ -275,8 +305,9 @@ impl AuthService {
             return Ok(Vec::new());
         };
         let now = Utc::now().timestamp_millis();
-        let mut references: Vec<SessionReference> =
-            serde_json::from_str(&value).map_err(storage_json)?;
+        let Ok(mut references) = serde_json::from_str::<Vec<SessionReference>>(&value) else {
+            return Ok(Vec::new());
+        };
         references.retain(|reference| reference.expires_at > now);
         Ok(references)
     }
