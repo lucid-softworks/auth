@@ -24,6 +24,7 @@ import { apiKeyClient } from "@better-auth/api-key/client";
 import { base32 } from "@better-auth/utils/base32";
 import { createOTP } from "@better-auth/utils/otp";
 import { installVirtualAuthenticator } from "./virtual-authenticator.mjs";
+import { bearerConformance } from "./bearer.mjs";
 import { oauthPopupConformance } from "./oauth-popup.mjs";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
@@ -133,6 +134,14 @@ function chunkedCookie(cookies, name) {
     .sort(([left], [right]) => left - right)
     .map(([, value]) => value)
     .join("");
+}
+
+function responseCookiePair(response, suffix = ".session_token") {
+  const cookie = response.headers
+    .getSetCookie()
+    .find((candidate) => candidate.slice(0, candidate.indexOf("=")).endsWith(suffix));
+  assert.ok(cookie, `response did not set a ${suffix} cookie`);
+  return cookie.split(";", 1)[0];
 }
 
 async function decodedAccountCookie(transport) {
@@ -355,6 +364,7 @@ async function conformance(origin) {
     const lastLoginMethod = metadata.find(
       (plugin) => plugin.id === "last-login-method",
     );
+    const bearer = metadata.find((plugin) => plugin.id === "bearer");
     assert.equal(nativePlugin.client.betterAuthVersion, betterAuthPackage.version);
     assert.equal(nativePlugin.endpoints[0].clientMethod, "nativePlugin.ping");
     assert.equal(magicLink.client.factory, "magicLinkClient");
@@ -368,6 +378,11 @@ async function conformance(origin) {
     assert.equal(multiSession.client.factory, "multiSessionClient");
     assert.equal(lastLoginMethod.client.factory, "lastLoginMethodClient");
     assert.deepEqual(lastLoginMethod.endpoints, []);
+    assert.ok(bearer, "bearer plugin metadata is missing");
+    assert.equal(bearer.client, null);
+    assert.deepEqual(bearer.endpoints, []);
+    assert.deepEqual(bearer.cookies, []);
+    assert.deepEqual(bearer.rateLimits, []);
     assert.deepEqual(
       multiSession.endpoints.map((endpoint) => [endpoint.path, endpoint.clientMethod]),
       [
@@ -2293,6 +2308,130 @@ async function conformance(origin) {
   });
 }
 
+async function nativeBearerConformance(origin) {
+  const signUp = async (identity) => {
+    const response = await fetch(`${origin}/api/auth/sign-up/email`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin,
+      },
+      body: JSON.stringify({
+        name: `Native Bearer ${identity}`,
+        email: `native-bearer-${identity}@example.com`,
+        password: "correct horse battery staple",
+      }),
+    });
+    assert.equal(response.status, 200);
+    const body = await response.clone().json();
+    const signedToken = response.headers.get("set-auth-token");
+    assert.ok(signedToken, "native bearer plugin did not expose a session token");
+    const cookie = responseCookiePair(response);
+    assert.equal(
+      signedToken,
+      decodeURIComponent(cookie.slice(cookie.indexOf("=") + 1)),
+    );
+    assert.equal(
+      response.headers.get("access-control-expose-headers"),
+      "set-auth-token",
+    );
+    return {
+      cookie,
+      email: body.user.email,
+      opaqueToken: body.token,
+      signedToken,
+    };
+  };
+  const getSession = async ({ authorization, cookie } = {}) => {
+    const headers = new Headers();
+    if (authorization !== undefined) headers.set("authorization", authorization);
+    if (cookie !== undefined) headers.set("cookie", cookie);
+    const response = await fetch(`${origin}/api/auth/get-session`, { headers });
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+
+  const first = await signUp("first");
+  const second = await signUp("second");
+  assert.equal(
+    (await getSession({ authorization: `Bearer ${first.opaqueToken}` })).user.email,
+    first.email,
+  );
+  assert.equal(
+    (await getSession({ authorization: `bEaReR ${first.signedToken}` })).user.email,
+    first.email,
+  );
+  assert.equal(
+    (
+      await getSession({
+        authorization: `Bearer ${encodeURIComponent(first.signedToken)}`,
+      })
+    ).user.email,
+    first.email,
+  );
+  assert.equal(
+    (
+      await getSession({
+        authorization: `Bearer ${first.opaqueToken}.invalid-signature`,
+        cookie: second.cookie,
+      })
+    ).user.email,
+    second.email,
+  );
+  assert.equal(
+    (
+      await getSession({
+        authorization: `Bearer ${first.signedToken}`,
+        cookie: second.cookie,
+      })
+    ).user.email,
+    first.email,
+  );
+
+  const requests = [];
+  let authToken = first.signedToken;
+  const client = createAuthClient({
+    baseURL: origin,
+    fetchOptions: {
+      auth: { type: "Bearer", token: () => authToken },
+      customFetchImpl: async (input, init = {}) => {
+        const request = new Request(input, init);
+        requests.push(request.clone());
+        return fetch(request);
+      },
+    },
+  });
+  assert.equal(
+    success(await client.getSession(), "native signed bearer getSession").user.email,
+    first.email,
+  );
+  assert.equal(
+    requests.at(-1).headers.get("authorization"),
+    `Bearer ${first.signedToken}`,
+  );
+  authToken = first.opaqueToken;
+  assert.equal(
+    success(await client.getSession(), "native opaque bearer getSession").user.email,
+    first.email,
+  );
+  assert.equal(
+    requests.at(-1).headers.get("authorization"),
+    `Bearer ${first.opaqueToken}`,
+  );
+
+  const signedOut = await fetch(`${origin}/api/auth/sign-out`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${first.signedToken}` },
+  });
+  assert.equal(signedOut.status, 200);
+  assert.equal(signedOut.headers.get("set-auth-token"), null);
+  assert.equal(
+    await getSession({ authorization: `Bearer ${first.signedToken}` }),
+    null,
+  );
+  console.log("ok - Bearer official client against native server");
+}
+
 async function cookieCacheConformance(origin, strategy) {
   const transport = new BrowserTransport(origin);
   const client = createAuthClient({
@@ -2416,12 +2555,16 @@ function stopServer(child) {
 
 await siweClientConformance();
 await lastLoginMethodClientConformance();
+await bearerConformance();
 await oauthPopupConformance();
 
 for (const strategy of ["compact", "jwt", "jwe"]) {
   const { child, origin } = await startServer(strategy);
   try {
-    if (strategy === "compact") await conformance(origin);
+    if (strategy === "compact") {
+      await conformance(origin);
+      await nativeBearerConformance(origin);
+    }
     await cookieCacheConformance(origin, strategy);
   } finally {
     stopServer(child);

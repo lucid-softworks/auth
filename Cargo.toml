@@ -187,6 +187,10 @@ name = "oauth_popup_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "bearer_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "siwe_contract"
 required-features = ["axum"]
 

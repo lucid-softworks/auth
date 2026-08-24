@@ -15,6 +15,17 @@ impl AuthService {
     pub fn verify_cookie_value(&self, value: &str) -> Option<String> {
         let value = decode_cookie_component(value);
         let (token, signature) = value.rsplit_once('.')?;
+        self.verify_cookie_signature(token, signature)
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn verify_bearer_cookie_value(&self, value: &str) -> Option<String> {
+        let value = decode_cookie_component(value);
+        let mut parts = value.split('.');
+        self.verify_cookie_signature(parts.next()?, parts.next()?)
+    }
+
+    fn verify_cookie_signature(&self, token: &str, signature: &str) -> Option<String> {
         let decoded = STANDARD.decode(signature).ok()?;
         let mut mac = HmacSha256::new_from_slice(&self.config.secret).ok()?;
         mac.update(token.as_bytes());

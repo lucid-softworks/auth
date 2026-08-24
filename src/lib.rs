@@ -5,6 +5,7 @@ mod admin;
 mod anonymous;
 mod api_key;
 mod audit;
+mod bearer;
 mod breached_password;
 mod client_ip;
 mod config;
@@ -73,6 +74,7 @@ pub use audit::{
     AUDIT_ACTION_VOCABULARY_VERSION, AuditEvent, AuditMetadata, AuditOutcome, AuditPlugin,
     AuditStore, MemoryAuditStore,
 };
+pub use bearer::{BearerConfig, BearerPlugin};
 pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use client_ip::IpAddressConfig;
 pub use config::{

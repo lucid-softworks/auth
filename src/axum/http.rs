@@ -283,6 +283,9 @@ fn cookie_pairs(headers: &HeaderMap) -> Vec<(&str, &str)> {
 }
 
 pub fn session_token(service: &AuthService, headers: &HeaderMap) -> Option<String> {
+    if let Some(token) = crate::bearer::session_token(service, headers) {
+        return Some(token);
+    }
     let cookie = service.session_cookie();
     signed_cookie_token(service, headers, &cookie.name)
 }

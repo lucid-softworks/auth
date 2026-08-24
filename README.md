@@ -276,6 +276,45 @@ Better Call's merge and serialization rules. Generated official-client popup
 failures currently return their error code as the `message`, while the exported
 error-code metadata still contains the descriptive text.
 
+Bearer session authentication is a separate, optional server plugin:
+
+```rust
+config.add_plugin(BearerPlugin::default())?;
+```
+
+Better Auth 1.7.1 has no `bearerClient()` factory. Use the ordinary client fetch
+configuration with the complete signed value returned in `set-auth-token`:
+
+```ts
+export const authClient = createAuthClient({
+  baseURL: "https://auth.example.com",
+  fetchOptions: {
+    auth: { type: "Bearer", token: storedSessionToken },
+  },
+});
+```
+
+By default the plugin accepts either an opaque database session token or the
+signed Better Call cookie value. Set
+`BearerPlugin::new(BearerConfig { require_signature: true })` to accept only the
+signed form. An accepted bearer credential takes precedence over a session
+cookie even if its session no longer exists; an invalid signed credential is a
+no-op and leaves cookie authentication available, matching upstream. Normal
+session existence, expiry, revocation, cache binding, bans, and enabled plugin
+policy still apply. Matching upstream hook ordering, a syntactically accepted
+Bearer credential bypasses browser `Origin` and cross-site-navigation checks;
+an invalid signed credential does not bypass those checks for a coexisting
+cookie. The plugin never reads query/body tokens and does not add bearer-specific
+JSON errors, `WWW-Authenticate`, routes, schema, migrations, or client metadata.
+Responses that set a live primary session cookie expose its complete decoded
+signed value through `set-auth-token` and
+`Access-Control-Expose-Headers`; sign-out/expiry cookies do not.
+
+JWT-plugin tokens are service tokens for external resource servers to verify
+against JWKS. Bearer does not accept those JWTs; it transports Better Auth
+session credentials. OAuth Popup uses this plugin only for a cross-origin
+embedded client that cannot rely on its partitioned browser cookie.
+
 Additional fields for Better Auth's user, session, account, and verification
 models are explicit and typed. Core and plugin schema descriptors are merged in
 dependency order and available through `AuthService::database_schema_fields`.
