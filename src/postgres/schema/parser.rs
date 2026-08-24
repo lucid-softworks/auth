@@ -290,6 +290,7 @@ fn normalize_type(value: &str) -> String {
     {
         "BIGINT" | "INT8" => "bigint".into(),
         "BOOLEAN" | "BOOL" => "boolean".into(),
+        "DOUBLE" => "double precision".into(),
         "INTEGER" | "INT" | "INT4" => "integer".into(),
         "JSONB" => "jsonb".into(),
         "TEXT" => "text".into(),
@@ -355,5 +356,12 @@ mod tests {
         );
         assert!(manifest.tables.contains_key("current_table"));
         assert!(!manifest.tables.contains_key("legacy_table"));
+    }
+
+    #[test]
+    fn normalizes_double_precision_to_the_catalog_type() {
+        let mut manifest = SchemaManifest::default();
+        manifest.apply("CREATE TABLE example (network DOUBLE PRECISION);");
+        assert_eq!(manifest.tables["example"]["network"], "double precision");
     }
 }
