@@ -1,10 +1,111 @@
 use super::PluginRegistry;
 use crate::{
-    AfterAuthEvent, AuthError, BeforeAuthEvent, PasswordCredentialChanged, SensitiveOperation,
-    SessionWithUser, UserManagementDecision, UserManagementOperation,
+    AfterAuthEvent, AuthError, BeforeAuthEvent, BeforeDatabaseHook, DatabaseHookContext,
+    DatabaseRecord, PasswordCredentialChanged, SensitiveOperation, SessionWithUser,
+    UserManagementDecision, UserManagementOperation,
 };
 
 impl PluginRegistry {
+    pub(crate) async fn before_database_create(
+        &self,
+        mut record: DatabaseRecord,
+        context: &DatabaseHookContext,
+    ) -> Result<DatabaseRecord, AuthError> {
+        for hooks in self
+            .plugins
+            .iter()
+            .filter_map(|plugin| plugin.database_hooks())
+        {
+            record = apply_before(
+                hooks.before_create(&record, context).await?,
+                record,
+                "create",
+            )?;
+        }
+        Ok(record)
+    }
+
+    pub(crate) async fn after_database_create(
+        &self,
+        record: &DatabaseRecord,
+        context: &DatabaseHookContext,
+    ) -> Result<(), AuthError> {
+        for hooks in self
+            .plugins
+            .iter()
+            .filter_map(|plugin| plugin.database_hooks())
+        {
+            hooks.after_create(record, context).await?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn before_database_update(
+        &self,
+        mut record: DatabaseRecord,
+        context: &DatabaseHookContext,
+    ) -> Result<DatabaseRecord, AuthError> {
+        for hooks in self
+            .plugins
+            .iter()
+            .filter_map(|plugin| plugin.database_hooks())
+        {
+            record = apply_before(
+                hooks.before_update(&record, context).await?,
+                record,
+                "update",
+            )?;
+        }
+        Ok(record)
+    }
+
+    pub(crate) async fn after_database_update(
+        &self,
+        record: &DatabaseRecord,
+        context: &DatabaseHookContext,
+    ) -> Result<(), AuthError> {
+        for hooks in self
+            .plugins
+            .iter()
+            .filter_map(|plugin| plugin.database_hooks())
+        {
+            hooks.after_update(record, context).await?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn before_database_delete(
+        &self,
+        record: &DatabaseRecord,
+        context: &DatabaseHookContext,
+    ) -> Result<(), AuthError> {
+        for hooks in self
+            .plugins
+            .iter()
+            .filter_map(|plugin| plugin.database_hooks())
+        {
+            if !hooks.before_delete(record, context).await? {
+                return Err(cancelled(record, "delete"));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn after_database_delete(
+        &self,
+        record: &DatabaseRecord,
+        context: &DatabaseHookContext,
+    ) -> Result<(), AuthError> {
+        for hooks in self
+            .plugins
+            .iter()
+            .filter_map(|plugin| plugin.database_hooks())
+        {
+            hooks.after_delete(record, context).await?;
+        }
+        Ok(())
+    }
+
     pub(crate) async fn before(&self, event: &BeforeAuthEvent) -> Result<(), AuthError> {
         for plugin in &self.plugins {
             plugin.before(event).await?;
@@ -118,5 +219,29 @@ impl PluginRegistry {
             }
         }
         Ok(None)
+    }
+}
+
+fn apply_before(
+    result: BeforeDatabaseHook,
+    current: DatabaseRecord,
+    operation: &'static str,
+) -> Result<DatabaseRecord, AuthError> {
+    match result {
+        BeforeDatabaseHook::Continue => Ok(current),
+        BeforeDatabaseHook::Replace(replacement) if replacement.model() == current.model() => {
+            Ok(*replacement)
+        }
+        BeforeDatabaseHook::Replace(_) => Err(AuthError::InvalidConfiguration(
+            "a database hook replaced a record with a different model".into(),
+        )),
+        BeforeDatabaseHook::Cancel => Err(cancelled(&current, operation)),
+    }
+}
+
+fn cancelled(record: &DatabaseRecord, operation: &'static str) -> AuthError {
+    AuthError::DatabaseHookCancelled {
+        model: record.model().as_str(),
+        operation,
     }
 }

@@ -66,13 +66,13 @@ pub trait AuthStore:
     async fn create_password_user(
         &self,
         user: AuthUser,
-        password_hash: String,
+        credential_account: OAuthAccount,
     ) -> Result<AuthUser, AuthError>;
 
     async fn upsert_password_user(
         &self,
         user: AuthUser,
-        password_hash: String,
+        credential_account: OAuthAccount,
     ) -> Result<AuthUser, AuthError>;
 
     async fn create_anonymous_user(&self, user: AuthUser) -> Result<AuthUser, AuthError>;
@@ -178,6 +178,8 @@ pub trait AuthStore:
         &self,
         token_hash: &str,
     ) -> Result<Option<(AuthSession, AuthUser)>, AuthError>;
+
+    async fn find_session_by_id(&self, session_id: Uuid) -> Result<Option<AuthSession>, AuthError>;
 
     async fn update_session_fields(
         &self,

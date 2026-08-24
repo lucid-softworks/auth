@@ -237,6 +237,7 @@ async fn sign_up_email(
                 remember_me: input.remember_me,
                 username: input.username,
                 display_username: input.display_username,
+                additional_fields: input.additional_fields,
             },
             client_ip(&service, &headers, peer),
             user_agent(&headers),

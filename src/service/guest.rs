@@ -71,8 +71,7 @@ impl AuthService {
             .ok_or(AuthError::InvalidGuestGrant)?;
         let id = Uuid::new_v4();
         let user = self
-            .store
-            .create_anonymous_user(AuthUser {
+            .prepare_user_create(AuthUser {
                 id,
                 username: None,
                 display_username: None,
@@ -90,6 +89,8 @@ impl AuthService {
                 updated_at: now,
             })
             .await?;
+        let user = self.store.create_anonymous_user(user).await?;
+        self.finish_user_create(&user).await?;
         let result = self
             .create_session_until(
                 user,

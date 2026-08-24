@@ -7,7 +7,7 @@ impl AuthService {
         &self,
         actor: &SessionWithUser,
         user_id: Uuid,
-        update: AdminUserUpdate,
+        mut update: AdminUserUpdate,
     ) -> Result<AuthUser, AuthError> {
         self.require_admin_permission(actor, "user", &["update"])
             .await?;
@@ -18,14 +18,22 @@ impl AuthService {
             .ok_or(crate::AdminError::UserNotFound)?;
         let revoke_target_sessions = self.authorize_admin_update(actor, &target, &update).await?;
         validate_updated_email(self, user_id, update.email.as_deref()).await?;
+        update.additional_fields =
+            self.update_additional_fields(crate::DatabaseModel::User, update.additional_fields)?;
         let banned = update.banned == Some(true);
+        let candidate = self
+            .prepare_user_update(&target, admin_update_candidate(&target, &update))
+            .await?;
+        update = admin_update_from_candidate(candidate);
         let user = self
             .store
             .admin_update_user(user_id, update)
             .await
             .map_err(admin_user_error)?;
+        self.after_database_update(&crate::DatabaseRecord::User(user.clone()))
+            .await?;
         if banned || revoke_target_sessions {
-            self.store.delete_user_sessions(user_id).await?;
+            self.delete_user_sessions_with_hooks(user_id).await?;
         }
         Ok(user)
     }
@@ -83,6 +91,51 @@ impl AuthService {
             revoke_target_sessions |= decision.revoke_target_sessions;
         }
         Ok(revoke_target_sessions)
+    }
+}
+
+fn admin_update_candidate(target: &AuthUser, update: &AdminUserUpdate) -> AuthUser {
+    let mut user = target.clone();
+    if let Some(value) = &update.name {
+        user.name.clone_from(value);
+    }
+    if let Some(value) = &update.email {
+        user.email.clone_from(value);
+    }
+    if let Some(value) = update.email_verified {
+        user.email_verified = value;
+    }
+    if let Some(value) = &update.image {
+        user.image.clone_from(value);
+    }
+    if let Some(value) = &update.role {
+        user.role.clone_from(value);
+    }
+    if let Some(value) = update.banned {
+        user.banned = value;
+    }
+    if let Some(value) = &update.ban_reason {
+        user.ban_reason.clone_from(value);
+    }
+    if let Some(value) = &update.ban_expires {
+        user.ban_expires.clone_from(value);
+    }
+    user.additional_fields
+        .extend(update.additional_fields.clone());
+    user
+}
+
+fn admin_update_from_candidate(user: AuthUser) -> AdminUserUpdate {
+    AdminUserUpdate {
+        name: Some(user.name),
+        email: Some(user.email),
+        email_verified: Some(user.email_verified),
+        image: Some(user.image),
+        role: Some(user.role),
+        banned: Some(user.banned),
+        ban_reason: Some(user.ban_reason),
+        ban_expires: Some(user.ban_expires),
+        additional_fields: user.additional_fields,
     }
 }
 

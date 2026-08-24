@@ -177,6 +177,11 @@ pub enum AuthError {
     CrossSiteNavigationLogin,
     #[error("the authentication request is invalid: {0}")]
     InvalidRequest(String),
+    #[error("the {operation} hook cancelled the {model} database operation")]
+    DatabaseHookCancelled {
+        model: &'static str,
+        operation: &'static str,
+    },
     #[error("a passkey ceremony is missing or expired")]
     PasskeyChallengeExpired,
     #[error("passkey verification failed")]

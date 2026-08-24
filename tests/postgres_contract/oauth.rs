@@ -42,6 +42,7 @@ pub(super) async fn assert_issuer_qualified_accounts(
         .await?
         .expect("issuer-qualified account");
     assert_eq!(loaded.account.id, account.id);
+    assert_eq!(loaded.account.additional_fields["tenant"], "alpha");
     assert_eq!(
         loaded.account.access_token.as_deref(),
         Some("encrypted-one")
@@ -168,6 +169,10 @@ fn fixture_account(
         refresh_token_expires_at: Some(now + chrono::Duration::days(30)),
         scope: Some("openid,email".into()),
         password: None,
+        additional_fields: serde_json::Map::from_iter([(
+            "tenant".into(),
+            serde_json::json!("alpha"),
+        )]),
         created_at: now,
         updated_at: now,
     }

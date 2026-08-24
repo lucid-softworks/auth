@@ -178,6 +178,7 @@ async fn concurrent_normalized_duplicates_create_exactly_one_user() {
         remember_me: None,
         username: Some(username.into()),
         display_username: None,
+        additional_fields: serde_json::Map::new(),
     };
     let (left, right) = tokio::join!(
         service.sign_up_email(signup("left@example.com", "Concurrent_User"), None, None),
@@ -312,6 +313,7 @@ async fn custom_normalization_validation_and_immutable_usernames_apply_in_order(
                 remember_me: None,
                 username: Some("JÖHN User".into()),
                 display_username: None,
+                additional_fields: serde_json::Map::new(),
             },
             None,
             None,

@@ -1,7 +1,7 @@
 use super::{AuthService, SignInResult, hash_token, random_token};
 use crate::{
     AfterAuthEvent, AuthError, AuthSession, AuthUser, AuthenticationMethod, BeforeAuthEvent,
-    SessionWithUser,
+    DatabaseModel, DatabaseRecord, SessionWithUser,
 };
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -59,18 +59,27 @@ impl AuthService {
             updated_at: now,
             ip_address,
             user_agent,
-            additional_fields: serde_json::Map::new(),
+            additional_fields: self
+                .create_additional_fields(DatabaseModel::Session, serde_json::Map::new())?,
+        };
+        let session = match self
+            .before_database_create(DatabaseRecord::Session(session))
+            .await?
+        {
+            DatabaseRecord::Session(session) => session,
+            _ => unreachable!("database hook model was validated"),
         };
         self.store.delete_expired_sessions(now).await?;
         self.store.create_session(session.clone()).await?;
+        self.after_database_create(&DatabaseRecord::Session(session.clone()))
+            .await?;
         let result = SignInResult {
             token,
             session: SessionWithUser { session, user },
         };
         if let Err(error) = self.plugins.initialize_session(&result.session).await {
             let _ = self
-                .store
-                .delete_session_by_id(result.session.session.id)
+                .delete_session_id_with_hooks(result.session.session.id)
                 .await;
             return Err(error);
         }

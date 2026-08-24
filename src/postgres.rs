@@ -48,15 +48,15 @@ impl AuthStore for PostgresStore {
     async fn create_password_user(
         &self,
         user: AuthUser,
-        password_hash: String,
+        credential_account: crate::OAuthAccount,
     ) -> Result<AuthUser, AuthError> {
-        user::create_password_user(&self.pool, user, password_hash).await
+        user::create_password_user(&self.pool, user, credential_account).await
     }
 
     async fn upsert_password_user(
         &self,
         mut user: AuthUser,
-        password_hash: String,
+        credential_account: crate::OAuthAccount,
     ) -> Result<AuthUser, AuthError> {
         user.email = user.email.to_lowercase();
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
@@ -67,7 +67,8 @@ impl AuthStore for PostgresStore {
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) \
              ON CONFLICT (username) DO UPDATE SET \
                display_username = EXCLUDED.display_username, name = EXCLUDED.name, \
-               email = EXCLUDED.email, role = EXCLUDED.role, updated_at = EXCLUDED.updated_at \
+               email = EXCLUDED.email, additional_fields = EXCLUDED.additional_fields, \
+               role = EXCLUDED.role, updated_at = EXCLUDED.updated_at \
              RETURNING id, username, display_username, name, email, email_verified, image, additional_fields, role, \
                is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at",
         )
@@ -91,15 +92,21 @@ impl AuthStore for PostgresStore {
         .map_err(storage_error)?;
         sqlx::query(
             "INSERT INTO lucid_auth_accounts \
-             (id, user_id, issuer, provider_id, account_id, password_hash, created_at, updated_at) \
-             VALUES ($1, $2, 'local:credential', 'credential', $3, $4, $5, $5) \
-             ON CONFLICT (issuer, account_id) DO NOTHING",
+             (id, user_id, issuer, provider_id, account_id, password_hash, additional_fields, created_at, updated_at) \
+             VALUES ($1, $2, 'local:credential', 'credential', $3, $4, $5, $6, $6) \
+             ON CONFLICT (issuer, account_id) DO UPDATE SET \
+               password_hash = EXCLUDED.password_hash, \
+               additional_fields = EXCLUDED.additional_fields, \
+               updated_at = EXCLUDED.updated_at",
         )
-        .bind(Uuid::new_v4())
+        .bind(credential_account.id)
         .bind(stored.id)
         .bind(stored.id.to_string())
-        .bind(password_hash)
-        .bind(Utc::now())
+        .bind(credential_account.password)
+        .bind(serde_json::Value::Object(
+            credential_account.additional_fields,
+        ))
+        .bind(credential_account.updated_at)
         .execute(&mut *transaction)
         .await
         .map_err(storage_error)?;
@@ -318,6 +325,10 @@ impl AuthStore for PostgresStore {
         token_hash: &str,
     ) -> Result<Option<(AuthSession, AuthUser)>, AuthError> {
         session::find(&self.pool, token_hash).await
+    }
+
+    async fn find_session_by_id(&self, session_id: Uuid) -> Result<Option<AuthSession>, AuthError> {
+        session::find_by_id(&self.pool, session_id).await
     }
 
     async fn update_session_fields(

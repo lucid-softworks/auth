@@ -6,8 +6,8 @@ use super::{
     random_token,
 };
 use crate::{
-    AuthError, AuthUser, AuthenticationMethod, OAuthAccount, OAuthTokens, OAuthUserInfo,
-    VerificationValue,
+    AuthError, AuthUser, AuthenticationMethod, DatabaseModel, DatabaseRecord, OAuthAccount,
+    OAuthTokens, OAuthUserInfo, VerificationValue,
     oauth::{AuthorizationRequest, crypto},
 };
 use chrono::{Duration, Utc};
@@ -108,15 +108,15 @@ impl AuthService {
 
     async fn save_oauth_state(&self, state: &str, value: &OAuthState) -> Result<(), AuthError> {
         let now = Utc::now();
-        self.store
-            .create_verification(VerificationValue {
-                purpose: STATE_PURPOSE.into(),
-                identifier: state.into(),
-                payload: serde_json::to_value(value).map_err(|_| AuthError::OAuthStateMismatch)?,
-                expires_at: now + Duration::minutes(10),
-                created_at: now,
-            })
-            .await
+        self.create_verification_record(VerificationValue {
+            purpose: STATE_PURPOSE.into(),
+            identifier: state.into(),
+            payload: serde_json::to_value(value).map_err(|_| AuthError::OAuthStateMismatch)?,
+            additional_fields: serde_json::Map::new(),
+            expires_at: now + Duration::minutes(10),
+            created_at: now,
+        })
+        .await
     }
 
     #[cfg(feature = "axum")]
@@ -132,8 +132,7 @@ impl AuthService {
 
     #[cfg(feature = "axum")]
     pub(crate) async fn consume_oauth_state(&self, state: &str) -> Result<(), AuthError> {
-        self.store
-            .consume_verification(STATE_PURPOSE, state, Utc::now())
+        self.consume_verification_record(STATE_PURPOSE, state, Utc::now())
             .await?
             .ok_or(AuthError::OAuthStateMismatch)
             .map(|_| ())
@@ -256,7 +255,9 @@ impl AuthService {
             account.user_id = owner.user.id;
             account.created_at = owner.account.created_at;
             super::account_lifecycle::preserve_oauth_tokens(&mut account, &owner.account);
-            self.store.update_oauth_account_tokens(account).await?;
+            let account = self.prepare_account_update(account).await?;
+            let account = self.store.update_oauth_account_tokens(account).await?;
+            self.finish_account_update(&account).await?;
             return Ok((owner.user, false));
         }
         if let Some(user) = self.store.find_user_by_email(&user_info.email).await? {
@@ -274,7 +275,9 @@ impl AuthService {
                 return Err(AuthError::OAuthAccountNotLinked);
             }
             account.user_id = user.id;
-            self.store.link_oauth_account(account).await?;
+            let account = self.prepare_account_create(account).await?;
+            let account = self.store.link_oauth_account(account).await?;
+            self.finish_account_create(&account).await?;
             return Ok((user, false));
         }
         self.create_social_user(provider, user_info, account, request_sign_up, now)
@@ -300,7 +303,8 @@ impl AuthService {
             email: user_info.email,
             email_verified: user_info.email_verified,
             image: user_info.image,
-            additional_fields: serde_json::Map::new(),
+            additional_fields: self
+                .create_additional_fields(DatabaseModel::User, serde_json::Map::new())?,
             role: self.default_user_role(),
             is_anonymous: false,
             banned: false,
@@ -309,8 +313,19 @@ impl AuthService {
             created_at: now,
             updated_at: now,
         };
+        let user = match self
+            .before_database_create(DatabaseRecord::User(user))
+            .await?
+        {
+            DatabaseRecord::User(user) => user,
+            _ => unreachable!("database hook model was validated"),
+        };
         account.user_id = user.id;
+        let account = self.prepare_account_create(account).await?;
         let owner = self.store.create_oauth_user(user, account).await?;
+        self.after_database_create(&DatabaseRecord::User(owner.user.clone()))
+            .await?;
+        self.finish_account_create(&owner.account).await?;
         Ok((owner.user, true))
     }
 
@@ -334,6 +349,7 @@ impl AuthService {
             refresh_token_expires_at: tokens.refresh_token_expires_at,
             scope: (!tokens.scopes.is_empty()).then(|| tokens.scopes.join(",")),
             password: None,
+            additional_fields: serde_json::Map::new(),
             created_at: now,
             updated_at: now,
         })

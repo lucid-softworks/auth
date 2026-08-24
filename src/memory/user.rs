@@ -6,8 +6,12 @@ use uuid::Uuid;
 pub(super) async fn create_password(
     store: &MemoryStore,
     mut user: AuthUser,
-    password_hash: String,
+    mut account: OAuthAccount,
 ) -> Result<AuthUser, AuthError> {
+    let password_hash = account
+        .password
+        .clone()
+        .ok_or_else(|| AuthError::Storage("credential account requires a password hash".into()))?;
     user.email = user.email.to_lowercase();
     let mut state = store.state.write().await;
     if user
@@ -25,7 +29,7 @@ pub(super) async fn create_password(
     }
     state.emails.insert(user.email.clone(), user.id);
     state.passwords.insert(user.id, password_hash.clone());
-    let account = credential_account(&user, password_hash);
+    account.user_id = user.id;
     state.oauth_accounts.insert(
         (account.issuer.clone(), account.account_id.clone()),
         account,
@@ -37,8 +41,12 @@ pub(super) async fn create_password(
 pub(super) async fn upsert_password(
     store: &MemoryStore,
     mut user: AuthUser,
-    password_hash: String,
+    mut account: OAuthAccount,
 ) -> Result<AuthUser, AuthError> {
+    let password_hash = account
+        .password
+        .clone()
+        .ok_or_else(|| AuthError::Storage("credential account requires a password hash".into()))?;
     user.email = user.email.to_lowercase();
     let username = user
         .username
@@ -66,7 +74,7 @@ pub(super) async fn upsert_password(
         .passwords
         .entry(stored.id)
         .or_insert_with(|| password_hash.clone());
-    let account = credential_account(&stored, password_hash);
+    account.user_id = stored.id;
     state
         .oauth_accounts
         .entry((account.issuer.clone(), account.account_id.clone()))
@@ -92,6 +100,7 @@ fn update_existing(
     existing.name = user.name;
     existing.email = user.email;
     existing.role = user.role;
+    existing.additional_fields = user.additional_fields;
     existing.updated_at = user.updated_at;
     let stored = existing.clone();
     state.emails.remove(&previous_email);
@@ -305,10 +314,10 @@ pub(super) async fn set_password_hash(
         .expect("user checked above")
         .clone();
     let account = credential_account(&user, password_hash);
-    state
-        .oauth_accounts
-        .entry((account.issuer.clone(), account.account_id.clone()))
-        .or_insert(account);
+    state.oauth_accounts.insert(
+        (account.issuer.clone(), account.account_id.clone()),
+        account,
+    );
     if let Some(user) = state.users.get_mut(&user_id) {
         user.updated_at = Utc::now();
     }
@@ -329,7 +338,8 @@ fn credential_account(user: &AuthUser, password: String) -> OAuthAccount {
         refresh_token_expires_at: None,
         scope: None,
         password: Some(password),
+        additional_fields: serde_json::Map::new(),
         created_at: user.created_at,
-        updated_at: user.updated_at,
+        updated_at: Utc::now(),
     }
 }

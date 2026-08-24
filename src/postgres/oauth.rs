@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 const ACCOUNT_COLUMNS: &str = "id, user_id, issuer, account_id, provider_id, access_token, \
     refresh_token, id_token, access_token_expires_at, refresh_token_expires_at, scope, \
-    password_hash, created_at, updated_at";
+    password_hash, additional_fields, created_at, updated_at";
 
 const USER_COLUMNS: &str = "id, username, display_username, name, email, email_verified, image, \
     additional_fields, role, is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at";
@@ -80,6 +80,7 @@ struct AccountRow {
     refresh_token_expires_at: Option<DateTime<Utc>>,
     scope: Option<String>,
     password_hash: Option<String>,
+    additional_fields: serde_json::Value,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -99,6 +100,11 @@ impl From<AccountRow> for OAuthAccount {
             refresh_token_expires_at: row.refresh_token_expires_at,
             scope: row.scope,
             password: row.password_hash,
+            additional_fields: row
+                .additional_fields
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
@@ -166,7 +172,7 @@ pub(super) async fn update_tokens(
     sqlx::query_as::<_, AccountRow>(&format!(
         "UPDATE lucid_auth_accounts SET provider_id = $4, access_token = $5, refresh_token = $6, \
          id_token = $7, access_token_expires_at = $8, refresh_token_expires_at = $9, \
-         updated_at = $10 WHERE id = $1 AND issuer = $2 AND account_id = $3 \
+         additional_fields = $10, updated_at = $11 WHERE id = $1 AND issuer = $2 AND account_id = $3 \
          RETURNING {ACCOUNT_COLUMNS}"
     ))
     .bind(account.id)
@@ -178,6 +184,7 @@ pub(super) async fn update_tokens(
     .bind(&account.id_token)
     .bind(account.access_token_expires_at)
     .bind(account.refresh_token_expires_at)
+    .bind(serde_json::Value::Object(account.additional_fields))
     .bind(account.updated_at)
     .fetch_optional(pool)
     .await
@@ -218,8 +225,8 @@ async fn insert_account(
     sqlx::query_as::<_, AccountRow>(&format!(
         "INSERT INTO lucid_auth_accounts \
          (id, user_id, issuer, account_id, provider_id, access_token, refresh_token, id_token, \
-          access_token_expires_at, refresh_token_expires_at, scope, password_hash, created_at, updated_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) \
+          access_token_expires_at, refresh_token_expires_at, scope, password_hash, additional_fields, created_at, updated_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) \
          RETURNING {ACCOUNT_COLUMNS}"
     ))
     .bind(account.id)
@@ -234,6 +241,7 @@ async fn insert_account(
     .bind(account.refresh_token_expires_at)
     .bind(account.scope)
     .bind(account.password)
+    .bind(serde_json::Value::Object(account.additional_fields))
     .bind(account.created_at)
     .bind(account.updated_at)
     .fetch_one(&mut **transaction)
@@ -303,9 +311,10 @@ pub(super) async fn compare_and_swap_tokens(
 ) -> Result<OAuthTokenUpdateOutcome, AuthError> {
     let updated = sqlx::query_as::<_, AccountRow>(&format!(
         "UPDATE lucid_auth_accounts SET access_token = $4, refresh_token = $5, id_token = $6, \
-         access_token_expires_at = $7, refresh_token_expires_at = $8, updated_at = $9 \
+         access_token_expires_at = $7, refresh_token_expires_at = $8, \
+         additional_fields = $9, updated_at = $10 \
          WHERE id = $1 AND user_id = $2 AND updated_at = $3 \
-         AND refresh_token IS NOT DISTINCT FROM $10 RETURNING {ACCOUNT_COLUMNS}"
+         AND refresh_token IS NOT DISTINCT FROM $11 RETURNING {ACCOUNT_COLUMNS}"
     ))
     .bind(account.id)
     .bind(account.user_id)
@@ -315,6 +324,7 @@ pub(super) async fn compare_and_swap_tokens(
     .bind(&account.id_token)
     .bind(account.access_token_expires_at)
     .bind(account.refresh_token_expires_at)
+    .bind(serde_json::Value::Object(account.additional_fields))
     .bind(account.updated_at)
     .bind(expected_refresh_token)
     .fetch_optional(pool)

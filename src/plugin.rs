@@ -1,8 +1,8 @@
 #[cfg(feature = "axum")]
 use crate::AuthService;
 use crate::{
-    AuthConfig, AuthError, AuthUser, AuthenticationMethod, SessionWithUser,
-    protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+    AdditionalField, AuthConfig, AuthError, AuthUser, AuthenticationMethod, DatabaseHooks,
+    DatabaseModel, SessionWithUser, protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
 };
 use async_trait::async_trait;
 use serde::Serialize;
@@ -112,6 +112,24 @@ pub struct PluginMigration {
 pub struct PluginMigrationContribution {
     pub plugin_id: &'static str,
     pub migration: PluginMigration,
+}
+
+/// Additional Better Auth database field contributed by a native plugin.
+#[derive(Debug, Clone)]
+pub struct PluginSchemaField {
+    pub model: DatabaseModel,
+    pub name: String,
+    pub field: AdditionalField,
+}
+
+impl PluginSchemaField {
+    pub fn new(model: DatabaseModel, name: impl Into<String>, field: AdditionalField) -> Self {
+        Self {
+            model,
+            name: name.into(),
+            field,
+        }
+    }
 }
 
 /// Erased Axum route contributed without constraining the host router's state.
@@ -237,6 +255,14 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
     /// Runtime rules contributed with the plugin's configured options.
     fn rate_limits(&self) -> Vec<PluginRateLimit> {
         self.descriptor().rate_limits.to_vec()
+    }
+
+    fn schema_fields(&self) -> Vec<PluginSchemaField> {
+        Vec::new()
+    }
+
+    fn database_hooks(&self) -> Option<&dyn DatabaseHooks> {
+        None
     }
 
     async fn before(&self, _event: &BeforeAuthEvent) -> Result<(), AuthError> {

@@ -173,15 +173,13 @@ impl AuthService {
             };
             if found.expires_at <= Utc::now() {
                 let _ = self
-                    .store
-                    .consume_verification(purpose, &token_hash, Utc::now())
+                    .consume_verification_record(purpose, &token_hash, Utc::now())
                     .await;
                 return Err(AuthError::TokenExpired);
             }
             let (user, email, new_email) = self.change_email_token_user(&found, current).await?;
             let value = self
-                .store
-                .consume_verification(purpose, &token_hash, Utc::now())
+                .consume_verification_record(purpose, &token_hash, Utc::now())
                 .await?
                 .ok_or_else(|| {
                     if found.expires_at <= Utc::now() {
@@ -260,15 +258,15 @@ impl AuthService {
         let token = random_token();
         let token_hash = hash_token(&token);
         let now = Utc::now();
-        self.store
-            .create_verification(VerificationValue {
-                purpose: PURPOSE.into(),
-                identifier: token_hash.clone(),
-                payload: json!({ "email": user.email }),
-                expires_at: now + self.config.email_verification.expires_in,
-                created_at: now,
-            })
-            .await?;
+        self.create_verification_record(VerificationValue {
+            purpose: PURPOSE.into(),
+            identifier: token_hash.clone(),
+            payload: json!({ "email": user.email }),
+            additional_fields: serde_json::Map::new(),
+            expires_at: now + self.config.email_verification.expires_in,
+            created_at: now,
+        })
+        .await?;
         let email = VerificationEmail {
             url: self.verification_url(&token, callback_url)?,
             user,
@@ -276,8 +274,7 @@ impl AuthService {
         };
         if let Err(error) = sender.send(email).await {
             let _ = self
-                .store
-                .consume_verification(PURPOSE, &token_hash, Utc::now())
+                .consume_verification_record(PURPOSE, &token_hash, Utc::now())
                 .await;
             return Err(error);
         }

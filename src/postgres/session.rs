@@ -48,6 +48,22 @@ pub(super) async fn find(
     Ok(user.map(|user| (session, user)))
 }
 
+pub(super) async fn find_by_id(
+    pool: &PgPool,
+    session_id: uuid::Uuid,
+) -> Result<Option<AuthSession>, AuthError> {
+    sqlx::query_as::<_, SessionRow>(
+        "SELECT id, user_id, token_hash, actor_user_id, authentication_method, \
+         expires_at, created_at, updated_at, ip_address, user_agent, additional_fields \
+         FROM lucid_auth_sessions WHERE id = $1",
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await
+    .map(|row| row.map(AuthSession::from))
+    .map_err(storage_error)
+}
+
 pub(super) async fn update_fields(
     pool: &PgPool,
     session_id: uuid::Uuid,

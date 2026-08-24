@@ -106,18 +106,17 @@ impl AuthService {
         let key = context.key();
         let now = Utc::now();
         let _ = self
-            .store
-            .consume_verification(OTP_PURPOSE, &key, now)
+            .consume_verification_record(OTP_PURPOSE, &key, now)
             .await?;
-        self.store
-            .create_verification(VerificationValue {
-                purpose: OTP_PURPOSE.into(),
-                identifier: key,
-                payload: json!({ "hash": otp_hash(&code), "attempts": 0 }),
-                expires_at: now + otp.period,
-                created_at: now,
-            })
-            .await?;
+        self.create_verification_record(VerificationValue {
+            purpose: OTP_PURPOSE.into(),
+            identifier: key,
+            payload: json!({ "hash": otp_hash(&code), "attempts": 0 }),
+            additional_fields: serde_json::Map::new(),
+            expires_at: now + otp.period,
+            created_at: now,
+        })
+        .await?;
         let _ = otp
             .sender
             .send(TwoFactorOtp {
@@ -151,8 +150,7 @@ impl AuthService {
         }
         let key = context.key();
         let value = self
-            .store
-            .consume_verification(OTP_PURPOSE, &key, Utc::now())
+            .consume_verification_record(OTP_PURPOSE, &key, Utc::now())
             .await?
             .ok_or(TwoFactorError::OtpExpired)?;
         let attempts = value.payload["attempts"]
@@ -164,15 +162,15 @@ impl AuthService {
         }
         let expected = value.payload["hash"].as_str().unwrap_or_default();
         if !constant_time_equal(expected.as_bytes(), otp_hash(code).as_bytes()) {
-            self.store
-                .create_verification(VerificationValue {
-                    purpose: OTP_PURPOSE.into(),
-                    identifier: key,
-                    payload: json!({ "hash": expected, "attempts": attempts + 1 }),
-                    expires_at: value.expires_at,
-                    created_at: value.created_at,
-                })
-                .await?;
+            self.create_verification_record(VerificationValue {
+                purpose: OTP_PURPOSE.into(),
+                identifier: key,
+                payload: json!({ "hash": expected, "attempts": attempts + 1 }),
+                additional_fields: serde_json::Map::new(),
+                expires_at: value.expires_at,
+                created_at: value.created_at,
+            })
+            .await?;
             if context.is_sign_in() {
                 self.record_two_factor_failure(context.user.id).await?;
             }

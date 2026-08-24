@@ -15,6 +15,8 @@ pub struct LinkedAccount {
     pub account_id: String,
     pub user_id: Uuid,
     pub scopes: Vec<String>,
+    #[serde(flatten)]
+    pub additional_fields: serde_json::Map<String, Value>,
 }
 
 impl From<OAuthAccount> for LinkedAccount {
@@ -28,6 +30,7 @@ impl From<OAuthAccount> for LinkedAccount {
             account_id: account.account_id,
             user_id: account.user_id,
             scopes: parse_scopes(account.scope.as_deref()),
+            additional_fields: account.additional_fields,
         }
     }
 }

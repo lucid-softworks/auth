@@ -53,17 +53,17 @@ impl AuthStore for MemoryStore {
     async fn create_password_user(
         &self,
         user: AuthUser,
-        password_hash: String,
+        credential_account: crate::OAuthAccount,
     ) -> Result<AuthUser, AuthError> {
-        user::create_password(self, user, password_hash).await
+        user::create_password(self, user, credential_account).await
     }
 
     async fn upsert_password_user(
         &self,
         user: AuthUser,
-        password_hash: String,
+        credential_account: crate::OAuthAccount,
     ) -> Result<AuthUser, AuthError> {
-        user::upsert_password(self, user, password_hash).await
+        user::upsert_password(self, user, credential_account).await
     }
 
     async fn create_anonymous_user(&self, user: AuthUser) -> Result<AuthUser, AuthError> {
@@ -350,6 +350,17 @@ impl AuthStore for MemoryStore {
             .get(&session.user_id)
             .cloned()
             .map(|user| (session, user)))
+    }
+
+    async fn find_session_by_id(&self, session_id: Uuid) -> Result<Option<AuthSession>, AuthError> {
+        Ok(self
+            .state
+            .read()
+            .await
+            .sessions
+            .values()
+            .find(|session| session.id == session_id)
+            .cloned())
     }
 
     async fn update_session_fields(

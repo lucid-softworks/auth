@@ -61,15 +61,15 @@ impl AuthService {
         }
         let identifier = magic_link_identifier(&config.token_storage, &token).await?;
         let now = Utc::now();
-        self.store
-            .create_verification(VerificationValue {
-                purpose: PURPOSE.into(),
-                identifier,
-                payload: json!({ "email": email, "name": request.name }),
-                expires_at: now + config.expires_in,
-                created_at: now,
-            })
-            .await?;
+        self.create_verification_record(VerificationValue {
+            purpose: PURPOSE.into(),
+            identifier,
+            payload: json!({ "email": email, "name": request.name }),
+            additional_fields: serde_json::Map::new(),
+            expires_at: now + config.expires_in,
+            created_at: now,
+        })
+        .await?;
         let message = MagicLinkEmail {
             email,
             url: self.magic_link_url(
@@ -93,8 +93,7 @@ impl AuthService {
     ) -> Result<MagicLinkVerified, MagicLinkVerificationError> {
         let identifier = magic_link_identifier(&config.token_storage, token).await?;
         let Some(value) = self
-            .store
-            .consume_verification(PURPOSE, &identifier, Utc::now())
+            .consume_verification_record(PURPOSE, &identifier, Utc::now())
             .await?
         else {
             return redirect_error("INVALID_TOKEN", None);
@@ -140,12 +139,14 @@ impl AuthService {
             return redirect_error("new_user_signup_disabled", None);
         }
         let default_role = self.default_user_role();
-        match self
-            .store
-            .create_user_without_account(new_magic_link_user(email, name, &default_role))
-            .await
-        {
-            Ok(user) => Ok((user, true)),
+        let user = self
+            .prepare_user_create(new_magic_link_user(email, name, &default_role))
+            .await?;
+        match self.store.create_user_without_account(user).await {
+            Ok(user) => {
+                self.finish_user_create(&user).await?;
+                Ok((user, true))
+            }
             Err(AuthError::UserAlreadyExists) => redirect_error(
                 "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL",
                 Some("User already exists. Use another email."),

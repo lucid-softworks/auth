@@ -83,6 +83,8 @@ pub struct OAuthAccount {
     pub scope: Option<String>,
     #[serde(skip_serializing)]
     pub password: Option<String>,
+    #[serde(flatten)]
+    pub additional_fields: serde_json::Map<String, serde_json::Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -128,6 +130,8 @@ pub struct VerificationValue {
     pub purpose: String,
     pub identifier: String,
     pub payload: serde_json::Value,
+    #[serde(default, flatten)]
+    pub additional_fields: serde_json::Map<String, serde_json::Value>,
     pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
 }

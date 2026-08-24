@@ -1,5 +1,5 @@
 use super::AuthService;
-use crate::{AuthError, AuthSession, SessionWithUser};
+use crate::{AuthError, AuthSession, DatabaseModel, DatabaseRecord, SessionWithUser};
 use serde_json::{Map, Value};
 
 impl AuthService {
@@ -8,16 +8,36 @@ impl AuthService {
         current: &SessionWithUser,
         fields: Map<String, Value>,
     ) -> Result<AuthSession, AuthError> {
-        let fields = crate::additional_fields::parse_update_fields(
-            &self.config.session.additional_fields,
-            fields,
-        )?;
+        let fields = self.update_additional_fields(DatabaseModel::Session, fields)?;
         if fields.is_empty() {
             return Err(AuthError::InvalidRequest("No fields to update".into()));
         }
-        self.store
-            .update_session_fields(current.session.id, fields)
+        let mut candidate = current.session.clone();
+        candidate.additional_fields.extend(fields);
+        let candidate = match self
+            .before_database_update(DatabaseRecord::Session(candidate))
             .await?
-            .ok_or(AuthError::InvalidSession)
+        {
+            DatabaseRecord::Session(session) => session,
+            _ => unreachable!("database hook model was validated"),
+        };
+        if candidate.id != current.session.id
+            || candidate.user_id != current.session.user_id
+            || candidate.token_hash != current.session.token_hash
+            || candidate.created_at != current.session.created_at
+        {
+            return Err(AuthError::InvalidConfiguration(
+                "a session update database hook changed a protected field".into(),
+            ));
+        }
+        let persisted_fields = candidate.additional_fields;
+        let updated = self
+            .store
+            .update_session_fields(current.session.id, persisted_fields)
+            .await?
+            .ok_or(AuthError::InvalidSession)?;
+        self.after_database_update(&DatabaseRecord::Session(updated.clone()))
+            .await?;
+        Ok(updated)
     }
 }

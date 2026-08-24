@@ -335,6 +335,7 @@ async fn concurrent_case_variant_signup_creates_one_account() {
         remember_me: None,
         username: None,
         display_username: None,
+        additional_fields: serde_json::Map::new(),
     };
     let (first, second) = tokio::join!(
         service.sign_up_email(signup("Casey@Example.com"), None, None),

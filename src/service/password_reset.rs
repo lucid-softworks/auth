@@ -29,19 +29,19 @@ impl AuthService {
         let token = random_token();
         let identifier = hash_token(&token);
         let now = Utc::now();
-        self.store
-            .create_verification(VerificationValue {
-                purpose: PURPOSE.into(),
-                identifier,
-                payload: json!({ "user_id": user.id }),
-                expires_at: now
-                    + self
-                        .config
-                        .email_and_password
-                        .reset_password_token_expires_in,
-                created_at: now,
-            })
-            .await?;
+        self.create_verification_record(VerificationValue {
+            purpose: PURPOSE.into(),
+            identifier,
+            payload: json!({ "user_id": user.id }),
+            additional_fields: serde_json::Map::new(),
+            expires_at: now
+                + self
+                    .config
+                    .email_and_password
+                    .reset_password_token_expires_in,
+            created_at: now,
+        })
+        .await?;
         let message = PasswordResetEmail {
             url: self.password_reset_url(&token, redirect_to)?,
             user,

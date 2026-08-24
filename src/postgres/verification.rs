@@ -11,6 +11,7 @@ struct VerificationRow {
     purpose: String,
     identifier: String,
     payload: serde_json::Value,
+    additional_fields: serde_json::Value,
     expires_at: DateTime<Utc>,
     created_at: DateTime<Utc>,
 }
@@ -21,6 +22,11 @@ impl From<VerificationRow> for VerificationValue {
             purpose: row.purpose,
             identifier: row.identifier,
             payload: row.payload,
+            additional_fields: row
+                .additional_fields
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
             expires_at: row.expires_at,
             created_at: row.created_at,
         }
@@ -36,7 +42,7 @@ pub(super) async fn consume_email_verification(
     let value = sqlx::query_as::<_, VerificationRow>(
         "DELETE FROM lucid_auth_verifications \
          WHERE purpose = 'email-verification' AND identifier = $1 \
-         RETURNING purpose, identifier, payload, expires_at, created_at",
+         RETURNING purpose, identifier, payload, additional_fields, expires_at, created_at",
     )
     .bind(token_hash)
     .fetch_optional(&mut *transaction)
@@ -99,7 +105,7 @@ pub(super) async fn consume_password_reset(
     let value = sqlx::query_as::<_, VerificationRow>(
         "DELETE FROM lucid_auth_verifications \
          WHERE purpose = 'password-reset' AND identifier = $1 \
-         RETURNING purpose, identifier, payload, expires_at, created_at",
+         RETURNING purpose, identifier, payload, additional_fields, expires_at, created_at",
     )
     .bind(token_hash)
     .fetch_optional(&mut *transaction)
@@ -162,12 +168,13 @@ impl VerificationStore for PostgresStore {
     async fn create_verification(&self, value: VerificationValue) -> Result<(), AuthError> {
         sqlx::query(
             "INSERT INTO lucid_auth_verifications \
-             (purpose, identifier, payload, expires_at, created_at) \
-             VALUES ($1, $2, $3, $4, $5)",
+             (purpose, identifier, payload, additional_fields, expires_at, created_at) \
+             VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(value.purpose)
         .bind(value.identifier)
         .bind(value.payload)
+        .bind(serde_json::Value::Object(value.additional_fields))
         .bind(value.expires_at)
         .bind(value.created_at)
         .execute(&self.pool)
@@ -182,7 +189,7 @@ impl VerificationStore for PostgresStore {
         identifier: &str,
     ) -> Result<Option<VerificationValue>, AuthError> {
         sqlx::query_as::<_, VerificationRow>(
-            "SELECT purpose, identifier, payload, expires_at, created_at \
+            "SELECT purpose, identifier, payload, additional_fields, expires_at, created_at \
              FROM lucid_auth_verifications WHERE purpose = $1 AND identifier = $2",
         )
         .bind(purpose)
@@ -202,7 +209,7 @@ impl VerificationStore for PostgresStore {
         sqlx::query_as::<_, VerificationRow>(
             "DELETE FROM lucid_auth_verifications \
              WHERE purpose = $1 AND identifier = $2 \
-             RETURNING purpose, identifier, payload, expires_at, created_at",
+             RETURNING purpose, identifier, payload, additional_fields, expires_at, created_at",
         )
         .bind(purpose)
         .bind(identifier)

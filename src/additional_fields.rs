@@ -2,7 +2,11 @@ use crate::AuthError;
 #[cfg(feature = "axum")]
 use crate::{AuthSession, AuthUser};
 use serde_json::{Map, Value};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt, sync::Arc};
+
+mod validation;
+
+pub(crate) use validation::{reserved_field_names, validate_field_names};
 
 /// Better Auth-compatible primitive type for an additional database field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,11 +22,104 @@ pub enum AdditionalFieldType {
 
 /// Input/output policy for a configured user or session additional field.
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdditionalFieldReference {
+    pub model: String,
+    pub field: String,
+    pub on_delete: AdditionalFieldOnDelete,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdditionalFieldOnDelete {
+    NoAction,
+    Restrict,
+    Cascade,
+    SetNull,
+    SetDefault,
+}
+
+pub trait AdditionalFieldDefault: Send + Sync {
+    fn value(&self) -> Result<Value, AuthError>;
+}
+
+impl<F> AdditionalFieldDefault for F
+where
+    F: Fn() -> Result<Value, AuthError> + Send + Sync,
+{
+    fn value(&self) -> Result<Value, AuthError> {
+        self()
+    }
+}
+
+pub trait AdditionalFieldTransform: Send + Sync {
+    fn transform(&self, value: Value) -> Result<Value, AuthError>;
+}
+
+impl<F> AdditionalFieldTransform for F
+where
+    F: Fn(Value) -> Result<Value, AuthError> + Send + Sync,
+{
+    fn transform(&self, value: Value) -> Result<Value, AuthError> {
+        self(value)
+    }
+}
+
+pub trait AdditionalFieldValidator: Send + Sync {
+    fn validate(&self, value: &Value) -> Result<(), String>;
+}
+
+impl<F> AdditionalFieldValidator for F
+where
+    F: Fn(&Value) -> Result<(), String> + Send + Sync,
+{
+    fn validate(&self, value: &Value) -> Result<(), String> {
+        self(value)
+    }
+}
+
+#[derive(Clone)]
 pub struct AdditionalField {
     pub field_type: AdditionalFieldType,
     pub required: bool,
     pub input: bool,
     pub returned: bool,
+    pub field_name: Option<String>,
+    pub references: Option<AdditionalFieldReference>,
+    pub unique: bool,
+    pub bigint: bool,
+    pub sortable: bool,
+    pub index: bool,
+    default_value: Option<Value>,
+    default_factory: Option<Arc<dyn AdditionalFieldDefault>>,
+    on_update: Option<Arc<dyn AdditionalFieldDefault>>,
+    input_transform: Option<Arc<dyn AdditionalFieldTransform>>,
+    output_transform: Option<Arc<dyn AdditionalFieldTransform>>,
+    input_validator: Option<Arc<dyn AdditionalFieldValidator>>,
+    output_validator: Option<Arc<dyn AdditionalFieldValidator>>,
+}
+
+impl fmt::Debug for AdditionalField {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AdditionalField")
+            .field("field_type", &self.field_type)
+            .field("required", &self.required)
+            .field("input", &self.input)
+            .field("returned", &self.returned)
+            .field("field_name", &self.field_name)
+            .field("references", &self.references)
+            .field("unique", &self.unique)
+            .field("bigint", &self.bigint)
+            .field("sortable", &self.sortable)
+            .field("index", &self.index)
+            .field("default_value", &self.default_value)
+            .field("has_default_factory", &self.default_factory.is_some())
+            .field("has_on_update", &self.on_update.is_some())
+            .field("has_input_transform", &self.input_transform.is_some())
+            .field("has_output_transform", &self.output_transform.is_some())
+            .field("has_input_validator", &self.input_validator.is_some())
+            .field("has_output_validator", &self.output_validator.is_some())
+            .finish()
+    }
 }
 
 impl AdditionalField {
@@ -32,6 +129,19 @@ impl AdditionalField {
             required: true,
             input: true,
             returned: true,
+            field_name: None,
+            references: None,
+            unique: false,
+            bigint: false,
+            sortable: false,
+            index: false,
+            default_value: None,
+            default_factory: None,
+            on_update: None,
+            input_transform: None,
+            output_transform: None,
+            input_validator: None,
+            output_validator: None,
         }
     }
 
@@ -50,6 +160,85 @@ impl AdditionalField {
         self
     }
 
+    pub fn default_value(mut self, value: Value) -> Self {
+        self.default_value = Some(value);
+        self.default_factory = None;
+        self
+    }
+
+    pub fn default_with(mut self, factory: Arc<dyn AdditionalFieldDefault>) -> Self {
+        self.default_factory = Some(factory);
+        self.default_value = None;
+        self
+    }
+
+    pub fn on_update_with(mut self, factory: Arc<dyn AdditionalFieldDefault>) -> Self {
+        self.on_update = Some(factory);
+        self
+    }
+
+    pub fn transform_input(mut self, transform: Arc<dyn AdditionalFieldTransform>) -> Self {
+        self.input_transform = Some(transform);
+        self
+    }
+
+    pub fn transform_output(mut self, transform: Arc<dyn AdditionalFieldTransform>) -> Self {
+        self.output_transform = Some(transform);
+        self
+    }
+
+    pub fn validate_input(mut self, validator: Arc<dyn AdditionalFieldValidator>) -> Self {
+        self.input_validator = Some(validator);
+        self
+    }
+
+    pub fn validate_output(mut self, validator: Arc<dyn AdditionalFieldValidator>) -> Self {
+        self.output_validator = Some(validator);
+        self
+    }
+
+    pub fn field_name(mut self, name: impl Into<String>) -> Self {
+        self.field_name = Some(name.into());
+        self
+    }
+
+    pub fn references(mut self, reference: AdditionalFieldReference) -> Self {
+        self.references = Some(reference);
+        self
+    }
+
+    pub fn unique(mut self, unique: bool) -> Self {
+        self.unique = unique;
+        self
+    }
+
+    pub fn bigint(mut self, bigint: bool) -> Self {
+        self.bigint = bigint;
+        self
+    }
+
+    pub fn sortable(mut self, sortable: bool) -> Self {
+        self.sortable = sortable;
+        self
+    }
+
+    pub fn index(mut self, index: bool) -> Self {
+        self.index = index;
+        self
+    }
+
+    pub fn has_default(&self) -> bool {
+        self.default_value.is_some() || self.default_factory.is_some()
+    }
+
+    fn default(&self) -> Result<Option<Value>, AuthError> {
+        self.default_factory
+            .as_ref()
+            .map(|factory| factory.value())
+            .transpose()
+            .map(|dynamic| dynamic.or_else(|| self.default_value.clone()))
+    }
+
     fn accepts(&self, value: &Value) -> bool {
         if value.is_null() {
             return !self.required;
@@ -61,7 +250,7 @@ impl AdditionalField {
             AdditionalFieldType::Date => value
                 .as_str()
                 .is_some_and(|value| chrono::DateTime::parse_from_rfc3339(value).is_ok()),
-            AdditionalFieldType::Json => value.is_object(),
+            AdditionalFieldType::Json => value.is_object() || value.is_array(),
             AdditionalFieldType::StringArray => value
                 .as_array()
                 .is_some_and(|values| values.iter().all(Value::is_string)),
@@ -96,14 +285,65 @@ pub(crate) fn parse_update_fields(
             }
             continue;
         }
-        if !field.accepts(value) {
-            return Err(AuthError::InvalidRequest(format!(
-                "{name} has an invalid value"
-            )));
+        parsed.insert(name.clone(), process_input(name, field, value.clone())?);
+    }
+    for (name, field) in configured {
+        if parsed.contains_key(name) || supplied.contains_key(name) {
+            continue;
         }
-        parsed.insert(name.clone(), value.clone());
+        if let Some(factory) = &field.on_update {
+            parsed.insert(name.clone(), process_input(name, field, factory.value()?)?);
+        }
     }
     Ok(parsed)
+}
+
+pub(crate) fn parse_create_fields(
+    configured: &AdditionalFieldSet,
+    supplied: Map<String, Value>,
+) -> Result<Map<String, Value>, AuthError> {
+    let mut parsed = Map::new();
+    for (name, field) in configured {
+        if let Some(value) = supplied.get(name) {
+            if !field.input {
+                if json_truthy(value) {
+                    return Err(AuthError::InvalidRequest(format!(
+                        "{name} is not allowed to be set"
+                    )));
+                }
+            } else {
+                parsed.insert(name.clone(), process_input(name, field, value.clone())?);
+                continue;
+            }
+        }
+        if let Some(value) = field.default()? {
+            parsed.insert(name.clone(), process_input(name, field, value)?);
+        } else if field.required {
+            return Err(AuthError::InvalidRequest(format!("{name} is required")));
+        }
+    }
+    Ok(parsed)
+}
+
+fn process_input(
+    name: &str,
+    field: &AdditionalField,
+    mut value: Value,
+) -> Result<Value, AuthError> {
+    if let Some(validator) = &field.input_validator {
+        validator
+            .validate(&value)
+            .map_err(AuthError::InvalidRequest)?;
+    }
+    if let Some(transform) = &field.input_transform {
+        value = transform.transform(value)?;
+    }
+    if !field.accepts(&value) {
+        return Err(AuthError::InvalidRequest(format!(
+            "{name} has an invalid value"
+        )));
+    }
+    Ok(value)
 }
 
 pub(crate) fn json_truthy(value: &Value) -> bool {
@@ -126,24 +366,31 @@ pub(crate) fn filter_session_output(configured: &AdditionalFieldSet, session: &m
     filter_output(configured, &mut session.additional_fields);
 }
 
-#[cfg(feature = "axum")]
 fn filter_output(configured: &AdditionalFieldSet, values: &mut Map<String, Value>) {
-    values.retain(|name, _| configured.get(name).is_none_or(|field| field.returned));
+    values.retain(|name, value| {
+        let Some(field) = configured.get(name) else {
+            return true;
+        };
+        if !field.returned {
+            return false;
+        }
+        if let Some(transform) = &field.output_transform {
+            let Ok(transformed) = transform.transform(value.clone()) else {
+                return false;
+            };
+            *value = transformed;
+        }
+        field
+            .output_validator
+            .as_ref()
+            .is_none_or(|validator| validator.validate(value).is_ok())
+    });
 }
 
-pub(crate) fn validate_field_names(
-    model: &str,
+pub(crate) fn filtered_output(
     configured: &AdditionalFieldSet,
-    reserved: &[&str],
-) -> Result<(), AuthError> {
-    if configured.keys().any(|name| {
-        name.trim().is_empty()
-            || reserved.contains(&name.as_str())
-            || name.chars().any(|character| character.is_control())
-    }) {
-        return Err(AuthError::InvalidConfiguration(format!(
-            "{model} additional field names must be non-empty and must not replace core fields"
-        )));
-    }
-    Ok(())
+    mut values: Map<String, Value>,
+) -> Map<String, Value> {
+    filter_output(configured, &mut values);
+    values
 }

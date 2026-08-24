@@ -101,7 +101,7 @@ impl AuthService {
                 authenticated_at,
             })
             .await?;
-        self.store.delete_session_by_id(actor.session.id).await?;
+        self.delete_session_id_with_hooks(actor.session.id).await?;
         plugin
             .store
             .delete_step_up_session(state.session_id)

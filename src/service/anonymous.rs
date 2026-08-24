@@ -45,8 +45,7 @@ impl AuthService {
             None => "Anonymous".into(),
         };
         let user = self
-            .store
-            .create_anonymous_user(AuthUser {
+            .prepare_user_create(AuthUser {
                 id,
                 username: None,
                 display_username: None,
@@ -63,8 +62,13 @@ impl AuthService {
                 created_at: now,
                 updated_at: now,
             })
+            .await?;
+        let user = self
+            .store
+            .create_anonymous_user(user)
             .await
             .map_err(|_| AuthError::AnonymousUserCreationFailed)?;
+        self.finish_user_create(&user).await?;
         let result = match self
             .create_session(
                 user.clone(),
@@ -82,11 +86,11 @@ impl AuthService {
             }
         };
         if self
-            .store
-            .create_verification(VerificationValue {
+            .create_verification_record(VerificationValue {
                 purpose: UPGRADE_PURPOSE.into(),
                 identifier: user.id.to_string(),
                 payload: json!({}),
+                additional_fields: serde_json::Map::new(),
                 expires_at: result.session.session.expires_at,
                 created_at: now,
             })
@@ -121,11 +125,9 @@ impl AuthService {
             return Err(AuthError::UserIsNotAnonymous);
         }
         let _ = self
-            .store
-            .consume_verification(UPGRADE_PURPOSE, &session.user.id.to_string(), Utc::now())
+            .consume_verification_record(UPGRADE_PURPOSE, &session.user.id.to_string(), Utc::now())
             .await;
-        self.store
-            .delete_user_sessions(session.user.id)
+        self.delete_user_sessions_with_hooks(session.user.id)
             .await
             .map_err(|_| AuthError::AnonymousUserSessionDeletionFailed)?;
         self.store
@@ -149,8 +151,7 @@ impl AuthService {
             return Ok(());
         };
         let claimed = self
-            .store
-            .consume_verification(UPGRADE_PURPOSE, &source.user.id.to_string(), Utc::now())
+            .consume_verification_record(UPGRADE_PURPOSE, &source.user.id.to_string(), Utc::now())
             .await?
             .is_some();
         if !claimed {
@@ -169,11 +170,11 @@ impl AuthService {
         };
         if let Err(error) = callback_result {
             let _ = self
-                .store
-                .create_verification(VerificationValue {
+                .create_verification_record(VerificationValue {
                     purpose: UPGRADE_PURPOSE.into(),
                     identifier: source.user.id.to_string(),
                     payload: json!({}),
+                    additional_fields: serde_json::Map::new(),
                     expires_at: source.session.expires_at,
                     created_at: Utc::now(),
                 })

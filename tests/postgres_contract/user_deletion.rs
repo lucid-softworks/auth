@@ -15,6 +15,7 @@ pub(super) async fn assert_transactional(
                 remember_me: None,
                 username: Some("postgres_delete".into()),
                 display_username: None,
+                additional_fields: serde_json::Map::new(),
             },
             None,
             None,

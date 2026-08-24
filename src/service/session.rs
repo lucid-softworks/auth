@@ -29,7 +29,7 @@ impl AuthService {
             .into_iter()
             .any(|session| session.id == session_id && session.expires_at > Utc::now());
         if owned {
-            self.store.delete_session_by_id(session_id).await?;
+            self.delete_session_id_with_hooks(session_id).await?;
             self.audit(
                 actor.user.id,
                 Some(actor.user.id),
@@ -47,7 +47,7 @@ impl AuthService {
         let sessions = self.store.list_sessions(actor.user.id).await?;
         for session in sessions {
             if session.id != actor.session.id {
-                self.store.delete_session_by_id(session.id).await?;
+                self.delete_session_id_with_hooks(session.id).await?;
             }
         }
         self.audit(
@@ -66,7 +66,7 @@ impl AuthService {
         actor: &SessionWithUser,
     ) -> Result<(), AuthError> {
         require_account_session(actor)?;
-        self.store.delete_user_sessions(actor.user.id).await?;
+        self.delete_user_sessions_with_hooks(actor.user.id).await?;
         self.audit(
             actor.user.id,
             Some(actor.user.id),

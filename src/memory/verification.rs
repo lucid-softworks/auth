@@ -67,6 +67,7 @@ mod tests {
             purpose: "test".into(),
             identifier: identifier.into(),
             payload: json!({ "value": identifier }),
+            additional_fields: serde_json::Map::new(),
             expires_at,
             created_at: Utc::now(),
         }

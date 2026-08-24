@@ -28,6 +28,8 @@ pub struct EmailSignUpRequest {
     pub remember_me: Option<bool>,
     pub username: Option<String>,
     pub display_username: Option<String>,
+    #[serde(flatten)]
+    pub additional_fields: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]

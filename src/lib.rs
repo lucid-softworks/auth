@@ -9,6 +9,7 @@ mod breached_password;
 mod client_ip;
 mod config;
 mod cookie;
+mod database_hooks;
 mod email;
 mod error;
 mod guest_capability;
@@ -37,7 +38,9 @@ pub mod postgres;
 pub mod protocol;
 
 pub use additional_fields::{
-    AdditionalField, AdditionalFieldSet, AdditionalFieldType, SessionConfig,
+    AdditionalField, AdditionalFieldDefault, AdditionalFieldOnDelete, AdditionalFieldReference,
+    AdditionalFieldSet, AdditionalFieldTransform, AdditionalFieldType, AdditionalFieldValidator,
+    SessionConfig,
 };
 pub use admin::{
     AdminConfig, AdminCreateUser, AdminError, AdminListCondition, AdminListOperator,
@@ -58,8 +61,14 @@ pub use audit::{
 };
 pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use client_ip::IpAddressConfig;
-pub use config::{AccountConfig, AccountLinkingConfig, AuthConfig, EmailPasswordConfig};
+pub use config::{
+    AccountConfig, AccountLinkingConfig, AuthConfig, EmailPasswordConfig, VerificationConfig,
+};
 pub use cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
+pub use database_hooks::{
+    BeforeDatabaseHook, DatabaseHookContext, DatabaseHookRequest, DatabaseHooks, DatabaseModel,
+    DatabaseRecord,
+};
 pub use email::{
     EmailVerificationConfig, PasswordResetCallback, PasswordResetEmail, PasswordResetEmailSender,
     VerificationEmail, VerificationEmailSender,
@@ -112,8 +121,8 @@ pub use plugin::{
     AfterAuthEvent, AuthPlugin, BeforeAuthEvent, PasswordCredentialChanged,
     PasswordCredentialSource, PluginClientMetadata, PluginCookie, PluginDescriptor, PluginEndpoint,
     PluginHttpMethod, PluginMiddleware, PluginMigration, PluginMigrationContribution,
-    PluginRateLimit, SensitiveOperation, UserManagementAction, UserManagementDecision,
-    UserManagementOperation,
+    PluginRateLimit, PluginSchemaField, SensitiveOperation, UserManagementAction,
+    UserManagementDecision, UserManagementOperation,
 };
 #[cfg(feature = "axum")]
 pub use plugin::{AxumPluginRoute, PluginSession};

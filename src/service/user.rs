@@ -68,18 +68,13 @@ impl AuthService {
                 .await?;
         }
         let has_password = input.password.is_some();
-        let user = match input.password {
-            Some(password) => {
-                self.store
-                    .create_password_user(user, hash_password(password).await?)
-                    .await
-            }
-            None => self.store.create_user_without_account(user).await,
-        }
-        .map_err(|error| match error {
-            AuthError::Username(UsernameError::AlreadyTaken) => AuthError::UserAlreadyExists,
-            error => super::access::admin_user_error(error),
-        })?;
+        let user = self
+            .persist_admin_user(user, input.password)
+            .await
+            .map_err(|error| match error {
+                AuthError::Username(UsernameError::AlreadyTaken) => AuthError::UserAlreadyExists,
+                error => super::access::admin_user_error(error),
+            })?;
         if has_password {
             self.plugins
                 .password_credential_changed(&PasswordCredentialChanged {
@@ -96,6 +91,37 @@ impl AuthService {
             json!({ "role": user.role, "username": user.username }),
         )
         .await;
+        Ok(user)
+    }
+
+    async fn persist_admin_user(
+        &self,
+        user: AuthUser,
+        password: Option<String>,
+    ) -> Result<AuthUser, AuthError> {
+        let user = self.prepare_user_create(user).await?;
+        let (user, credential) = match password {
+            Some(password) => {
+                let credential = self
+                    .prepare_credential_account(
+                        user.id,
+                        hash_password(password).await?,
+                        user.created_at,
+                        false,
+                    )
+                    .await?;
+                let user = self
+                    .store
+                    .create_password_user(user, credential.clone())
+                    .await?;
+                (user, Some(credential))
+            }
+            None => (self.store.create_user_without_account(user).await?, None),
+        };
+        self.finish_user_create(&user).await?;
+        if let Some(credential) = credential {
+            self.finish_account_create(&credential).await?;
+        }
         Ok(user)
     }
 

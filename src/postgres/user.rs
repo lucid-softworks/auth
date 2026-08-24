@@ -1,6 +1,5 @@
 use super::{UserRow, storage_error};
 use crate::{AuthError, AuthUser, UserProfileUpdate, UsernameError};
-use chrono::Utc;
 use sqlx::PgPool;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
@@ -72,7 +71,7 @@ pub(super) async fn load_by_id_transaction(
 pub(super) async fn create_password_user(
     pool: &PgPool,
     mut user: AuthUser,
-    password_hash: String,
+    credential_account: crate::OAuthAccount,
 ) -> Result<AuthUser, AuthError> {
     user.email = user.email.to_lowercase();
     let mut transaction = pool.begin().await.map_err(storage_error)?;
@@ -104,14 +103,15 @@ pub(super) async fn create_password_user(
     .map_err(user_insert_error)?;
     sqlx::query(
         "INSERT INTO lucid_auth_accounts \
-         (id, user_id, issuer, provider_id, account_id, password_hash, created_at, updated_at) \
-         VALUES ($1, $2, 'local:credential', 'credential', $3, $4, $5, $5)",
+         (id, user_id, issuer, provider_id, account_id, password_hash, additional_fields, created_at, updated_at) \
+         VALUES ($1, $2, 'local:credential', 'credential', $3, $4, $5, $6, $6)",
     )
-    .bind(Uuid::new_v4())
+    .bind(credential_account.id)
     .bind(stored.id)
     .bind(stored.id.to_string())
-    .bind(password_hash)
-    .bind(Utc::now())
+    .bind(credential_account.password)
+    .bind(serde_json::Value::Object(credential_account.additional_fields))
+    .bind(credential_account.created_at)
     .execute(&mut *transaction)
     .await
     .map_err(storage_error)?;

@@ -132,31 +132,49 @@ This route boundary is separate from `AuthService::provision_password_user`, so
 closed-registration applications can still provision and authenticate native
 username accounts without exposing Better Auth's public username plugin.
 
-User and session additional fields are explicit and typed. Only configured
-input fields can be changed through `updateUser` or `updateSession`; core IDs,
-tokens, ownership, timestamps, expiry, and input-disabled fields are never
-writable. Set `returned(false)` for persisted server-only values:
+Additional fields for Better Auth's user, session, account, and verification
+models are explicit and typed. Core and plugin schema descriptors are merged in
+dependency order and available through `AuthService::database_schema_fields`.
+Creation applies required/default rules plus input validators and transforms;
+updates also apply `on_update_with`; responses apply returned/output policy.
+Core IDs, tokens, ownership, timestamps, expiry, and input-disabled fields are
+never writable. Set `returned(false)` for persisted server-only values:
 
 ```rust
 config.user.additional_fields.insert(
     "timezone".into(),
-    AdditionalField::new(AdditionalFieldType::String),
+    AdditionalField::new(AdditionalFieldType::String).default_value(json!("UTC")),
 );
 config.session.additional_fields.insert(
     "theme".into(),
-    AdditionalField::new(AdditionalFieldType::String),
+    AdditionalField::new(AdditionalFieldType::String).optional(),
+);
+config.account.additional_fields.insert(
+    "tenantReference".into(),
+    AdditionalField::new(AdditionalFieldType::String).optional(),
 );
 config.user.additional_fields.insert(
     "managedFlag".into(),
     AdditionalField::new(AdditionalFieldType::Boolean)
+        .optional()
         .input(false)
         .returned(false),
 );
 ```
 
-PostgreSQL migration `0014_session_additional_fields.sql` adds durable JSONB
-session fields. User fields use the existing JSONB user field store. Both are
-merged atomically and filtered before every Better Auth response.
+PostgreSQL migrations `0014_session_additional_fields.sql` and
+`0017_database_additional_fields.sql` add durable JSONB storage for session,
+account, and verification fields. User fields use the existing JSONB store.
+
+Set `AuthConfig::database_hooks` for host hooks or implement
+`AuthPlugin::database_hooks` for plugin hooks. Before hooks run in plugin
+dependency order and then host order; they can continue, replace a typed record,
+or cancel. A cancellation or error prevents the authoritative write. After
+hooks run in the same order after persistence has committed, so an after-hook
+error is reported but does not roll the write back. HTTP calls include method,
+path, query, and headers in `DatabaseHookContext`; native calls have no request.
+`run_in_background` schedules non-authoritative follow-up work. Update hooks may
+not change protected identity, ownership, or creation fields.
 
 Email changes are disabled by default, matching Better Auth. Enable the
 verified flow with the existing verification-email sender:

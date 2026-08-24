@@ -133,11 +133,15 @@ fn contract_service(
     config.user.delete_user.enabled = true;
     config.user.additional_fields.insert(
         "timezone".into(),
-        AdditionalField::new(AdditionalFieldType::String),
+        AdditionalField::new(AdditionalFieldType::String).optional(),
+    );
+    config.user.additional_fields.insert(
+        "department".into(),
+        AdditionalField::new(AdditionalFieldType::String).optional(),
     );
     config.session.additional_fields.insert(
         "theme".into(),
-        AdditionalField::new(AdditionalFieldType::String),
+        AdditionalField::new(AdditionalFieldType::String).optional(),
     );
     config.add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))?;
     config.add_plugin(AnonymousPlugin::default())?;
@@ -294,6 +298,7 @@ async fn email_signup_is_case_insensitive(
         remember_me: None,
         username: None,
         display_username: None,
+        additional_fields: serde_json::Map::new(),
     };
     let (left, right) = tokio::join!(
         service.sign_up_email(signup("Case.Variant@Example.com"), None, None),
@@ -326,6 +331,7 @@ async fn username_signup_is_atomic(
         remember_me: None,
         username: Some(username.into()),
         display_username: None,
+        additional_fields: serde_json::Map::new(),
     };
     let (left, right) = tokio::join!(
         service.sign_up_email(

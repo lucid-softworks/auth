@@ -19,6 +19,7 @@ pub async fn password_reset_is_atomic(
             purpose: "password-reset".into(),
             identifier: token_hash.clone(),
             payload: json!({ "user_id": user_id }),
+            additional_fields: serde_json::Map::new(),
             expires_at: now + Duration::minutes(1),
             created_at: now,
         })
@@ -65,6 +66,7 @@ pub async fn email_is_atomic(
             purpose: "email-verification".into(),
             identifier: token_hash.clone(),
             payload: json!({ "email": user.email }),
+            additional_fields: serde_json::Map::new(),
             expires_at: now + Duration::minutes(1),
             created_at: now,
         })
@@ -101,6 +103,7 @@ pub async fn values_are_atomic(
             purpose: "contract".into(),
             identifier: "single-use".into(),
             payload: json!({ "subject": user_id }),
+            additional_fields: serde_json::Map::from_iter([("channel".into(), json!("email"))]),
             expires_at: now + Duration::minutes(1),
             created_at: now,
         })
@@ -109,9 +112,16 @@ pub async fn values_are_atomic(
         store.consume_verification("contract", "single-use", now),
         store.consume_verification("contract", "single-use", now)
     );
+    let values = [left?, right?];
+    assert_eq!(values.iter().filter(|value| value.is_some()).count(), 1);
     assert_eq!(
-        usize::from(left?.is_some()) + usize::from(right?.is_some()),
-        1
+        values
+            .iter()
+            .flatten()
+            .next()
+            .expect("one atomic consumer")
+            .additional_fields["channel"],
+        "email"
     );
 
     store
@@ -119,6 +129,7 @@ pub async fn values_are_atomic(
             purpose: "contract".into(),
             identifier: "expired".into(),
             payload: json!({}),
+            additional_fields: serde_json::Map::new(),
             expires_at: now - Duration::seconds(1),
             created_at: now - Duration::minutes(1),
         })

@@ -32,16 +32,16 @@ impl AuthService {
     ) -> Result<(), AuthError> {
         let now = Utc::now();
         self.store.delete_expired_verifications(now).await?;
-        self.store
-            .create_verification(VerificationValue {
-                purpose: purpose.into(),
-                identifier: token.into(),
-                payload: serde_json::to_value(ceremony)
-                    .map_err(|error| AuthError::Storage(error.to_string()))?,
-                expires_at: now + Duration::minutes(5),
-                created_at: now,
-            })
-            .await
+        self.create_verification_record(VerificationValue {
+            purpose: purpose.into(),
+            identifier: token.into(),
+            payload: serde_json::to_value(ceremony)
+                .map_err(|error| AuthError::Storage(error.to_string()))?,
+            additional_fields: serde_json::Map::new(),
+            expires_at: now + Duration::minutes(5),
+            created_at: now,
+        })
+        .await
     }
 
     pub(super) async fn consume_passkey_ceremony(
@@ -50,8 +50,7 @@ impl AuthService {
         token: &str,
     ) -> Result<PasskeyCeremony, AuthError> {
         let value = self
-            .store
-            .consume_verification(purpose, token, Utc::now())
+            .consume_verification_record(purpose, token, Utc::now())
             .await?
             .ok_or(AuthError::PasskeyChallengeExpired)?;
         serde_json::from_value(value.payload).map_err(|_| AuthError::PasskeyChallengeExpired)

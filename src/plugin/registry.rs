@@ -1,33 +1,32 @@
 use super::{
     AuthPlugin, PluginDescriptor, PluginHttpMethod, PluginMigrationContribution, PluginRateLimit,
 };
-use crate::{AuthConfig, AuthError, protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION};
-use std::{collections::HashMap, sync::Arc};
+use crate::{
+    AdditionalFieldSet, AuthConfig, AuthError, DatabaseModel,
+    protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 mod lifecycle;
+mod schema;
+
+use schema::{core_schema_fields, merge_schema_fields};
 
 pub(crate) struct PluginRegistry {
     plugins: Vec<Arc<dyn AuthPlugin>>,
     descriptors: Vec<PluginDescriptor>,
     rate_limits: Vec<PluginRateLimit>,
+    schema_fields: BTreeMap<DatabaseModel, AdditionalFieldSet>,
 }
 
 impl PluginRegistry {
-    pub(crate) fn empty() -> Self {
-        Self {
-            plugins: Vec::new(),
-            descriptors: Vec::new(),
-            rate_limits: Vec::new(),
-        }
-    }
-
     pub(crate) fn build(
         plugins: &[Arc<dyn AuthPlugin>],
         config: &AuthConfig,
     ) -> Result<Self, AuthError> {
-        if plugins.is_empty() {
-            return Ok(Self::empty());
-        }
         let mut by_id = HashMap::new();
         for (index, plugin) in plugins.iter().enumerate() {
             let descriptor = plugin.descriptor();
@@ -47,9 +46,15 @@ impl PluginRegistry {
         let mut ordered_plugins = Vec::with_capacity(plugins.len());
         let mut descriptors = Vec::with_capacity(plugins.len());
         let mut rate_limits = Vec::new();
+        let mut schema_fields = core_schema_fields(config);
         for id in ordered_ids {
             let (index, descriptor) = by_id[&id];
             rate_limits.extend(plugins[index].rate_limits());
+            merge_schema_fields(
+                &mut schema_fields,
+                plugins[index].schema_fields(),
+                descriptor.id,
+            )?;
             ordered_plugins.push(plugins[index].clone());
             descriptors.push(descriptor);
         }
@@ -57,6 +62,7 @@ impl PluginRegistry {
             plugins: ordered_plugins,
             descriptors,
             rate_limits,
+            schema_fields,
         })
     }
 
@@ -78,6 +84,12 @@ impl PluginRegistry {
             .iter()
             .copied()
             .find(|rule| rule.path == path)
+    }
+
+    pub(crate) fn schema_fields(&self, model: DatabaseModel) -> &AdditionalFieldSet {
+        self.schema_fields
+            .get(&model)
+            .expect("every Better Auth core model has a schema field set")
     }
 
     pub(crate) fn find<P: AuthPlugin + 'static>(&self) -> Option<&P> {

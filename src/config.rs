@@ -1,7 +1,7 @@
 use crate::{
-    AuthError, AuthPlugin, CookieConfig, EmailVerificationConfig, PasswordBreachChecker,
-    PasswordResetCallback, PasswordResetEmailSender, SessionConfig, TrustedOrigin, UserConfig,
-    client_ip::IpAddressConfig, rate_limit::RateLimitConfig,
+    AuthError, AuthPlugin, CookieConfig, DatabaseHooks, EmailVerificationConfig,
+    PasswordBreachChecker, PasswordResetCallback, PasswordResetEmailSender, SessionConfig,
+    TrustedOrigin, UserConfig, client_ip::IpAddressConfig, rate_limit::RateLimitConfig,
 };
 use chrono::Duration;
 use std::sync::Arc;
@@ -29,6 +29,8 @@ pub struct AuthConfig {
     pub user: UserConfig,
     pub session: SessionConfig,
     pub account: AccountConfig,
+    pub verification: VerificationConfig,
+    pub database_hooks: Option<Arc<dyn DatabaseHooks>>,
     /// Better Auth-compatible built-in or custom social providers.
     pub(crate) social_providers: Vec<Arc<dyn crate::SocialProvider>>,
     pub(crate) trusted_social_providers: Vec<String>,
@@ -97,6 +99,8 @@ impl AuthConfig {
             user: UserConfig::default(),
             session: SessionConfig::default(),
             account: AccountConfig::default(),
+            verification: VerificationConfig::default(),
+            database_hooks: None,
             social_providers: Vec::new(),
             trusted_social_providers: Vec::new(),
             ip_address: IpAddressConfig::default(),
@@ -297,6 +301,12 @@ impl AuthConfig {
 #[derive(Debug, Clone, Default)]
 pub struct AccountConfig {
     pub account_linking: AccountLinkingConfig,
+    pub additional_fields: crate::AdditionalFieldSet,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct VerificationConfig {
+    pub additional_fields: crate::AdditionalFieldSet,
 }
 
 #[derive(Debug, Clone)]
@@ -321,42 +331,28 @@ impl Default for AccountLinkingConfig {
 }
 
 fn validate_additional_field_config(config: &AuthConfig) -> Result<(), AuthError> {
-    crate::additional_fields::validate_field_names(
-        "user",
-        &config.user.additional_fields,
-        &[
-            "id",
-            "name",
-            "email",
-            "emailVerified",
-            "image",
-            "createdAt",
-            "updatedAt",
-            "username",
-            "displayUsername",
-            "isAnonymous",
-            "role",
-            "banned",
-            "banReason",
-            "banExpires",
-            "twoFactorEnabled",
-        ],
-    )?;
-    crate::additional_fields::validate_field_names(
-        "session",
-        &config.session.additional_fields,
-        &[
-            "id",
-            "token",
-            "userId",
-            "expiresAt",
-            "createdAt",
-            "updatedAt",
-            "ipAddress",
-            "userAgent",
-            "impersonatedBy",
-        ],
-    )
+    for (model, fields) in [
+        (crate::DatabaseModel::User, &config.user.additional_fields),
+        (
+            crate::DatabaseModel::Session,
+            &config.session.additional_fields,
+        ),
+        (
+            crate::DatabaseModel::Account,
+            &config.account.additional_fields,
+        ),
+        (
+            crate::DatabaseModel::Verification,
+            &config.verification.additional_fields,
+        ),
+    ] {
+        crate::additional_fields::validate_field_names(
+            model.as_str(),
+            fields,
+            crate::additional_fields::reserved_field_names(model),
+        )?;
+    }
+    Ok(())
 }
 
 fn normalize_base_path(value: &str) -> Result<String, AuthError> {

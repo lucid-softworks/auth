@@ -7,6 +7,7 @@ mod api_key;
 mod api_key_policy;
 mod audit;
 mod change_email;
+mod database;
 mod email_password;
 mod email_verification;
 mod guest;
@@ -100,6 +101,14 @@ impl AuthService {
 
     pub fn plugin_migrations(&self) -> Vec<PluginMigrationContribution> {
         self.plugins.migrations()
+    }
+
+    /// The effective Better Auth schema after core and plugin fields are merged.
+    pub fn database_schema_fields(
+        &self,
+        model: crate::DatabaseModel,
+    ) -> &crate::AdditionalFieldSet {
+        self.plugins.schema_fields(model)
     }
 
     pub(crate) fn admin_plugin(&self) -> Result<&crate::AdminPlugin, AuthError> {
@@ -291,7 +300,7 @@ impl AuthService {
             return Ok(None);
         };
         if session.expires_at <= Utc::now() {
-            self.store.delete_session(&token_hash).await?;
+            self.delete_session_token_with_hooks(&token_hash).await?;
             return Ok(None);
         }
         if self.plugins.find::<crate::AdminPlugin>().is_some()
@@ -302,7 +311,8 @@ impl AuthService {
         }
         let session = SessionWithUser { session, user };
         if !self.plugins.validates_session(&session).await? {
-            self.store.delete_session_by_id(session.session.id).await?;
+            self.delete_session_id_with_hooks(session.session.id)
+                .await?;
             return Ok(None);
         }
         Ok(Some(session))
@@ -319,7 +329,8 @@ impl AuthService {
     }
 
     pub async fn sign_out(&self, token: &str) -> Result<(), AuthError> {
-        self.store.delete_session(&hash_token(token)).await
+        self.delete_session_token_with_hooks(&hash_token(token))
+            .await
     }
 
     pub fn signed_cookie_value(&self, token: &str) -> String {

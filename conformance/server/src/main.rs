@@ -184,11 +184,15 @@ fn conformance_config(origin: &str, messages: &ConformanceMessages) -> AuthConfi
     config.user.change_email.enabled = true;
     config.user.additional_fields.insert(
         "timezone".into(),
-        AdditionalField::new(AdditionalFieldType::String),
+        AdditionalField::new(AdditionalFieldType::String).default_value(json!("UTC")),
+    );
+    config.user.additional_fields.insert(
+        "department".into(),
+        AdditionalField::new(AdditionalFieldType::String).optional(),
     );
     config.session.additional_fields.insert(
         "theme".into(),
-        AdditionalField::new(AdditionalFieldType::String),
+        AdditionalField::new(AdditionalFieldType::String).default_value(json!("system")),
     );
     email::configure(&mut config, messages);
     config

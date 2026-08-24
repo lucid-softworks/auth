@@ -53,6 +53,7 @@ async fn account(fixture: &Fixture, email: &str) -> (String, lucid_auth::AuthUse
                 remember_me: None,
                 username: None,
                 display_username: None,
+                additional_fields: serde_json::Map::new(),
             },
             None,
             None,

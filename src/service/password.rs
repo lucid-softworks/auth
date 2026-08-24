@@ -46,29 +46,57 @@ impl AuthService {
         let email = input
             .email
             .unwrap_or_else(|| format!("{username}@users.localhost"));
+        let mut user = AuthUser {
+            id: Uuid::new_v4(),
+            username: Some(username.clone()),
+            display_username: Some(input.username),
+            name: input.name,
+            email,
+            email_verified: false,
+            image: None,
+            additional_fields: serde_json::Map::new(),
+            role: input.role,
+            is_anonymous: false,
+            banned: false,
+            ban_reason: None,
+            ban_expires: None,
+            created_at: now,
+            updated_at: now,
+        };
+        let existing = self.store.find_user_by_username(&username).await?;
+        let creating = existing.is_none();
+        user = if let Some(existing) = existing {
+            user.id = existing.id;
+            user.created_at = existing.created_at;
+            user.additional_fields = existing.additional_fields;
+            match self
+                .before_database_update(crate::DatabaseRecord::User(user))
+                .await?
+            {
+                crate::DatabaseRecord::User(user) => user,
+                _ => unreachable!("database hook model was validated"),
+            }
+        } else {
+            self.prepare_user_create(user).await?
+        };
+        let credential = self
+            .prepare_credential_account(user.id, input.password_hash, user.created_at, !creating)
+            .await?;
         let user = self
             .store
-            .upsert_password_user(
-                AuthUser {
-                    id: Uuid::new_v4(),
-                    username: Some(username.clone()),
-                    display_username: Some(input.username),
-                    name: input.name,
-                    email,
-                    email_verified: false,
-                    image: None,
-                    additional_fields: serde_json::Map::new(),
-                    role: input.role,
-                    is_anonymous: false,
-                    banned: false,
-                    ban_reason: None,
-                    ban_expires: None,
-                    created_at: now,
-                    updated_at: now,
-                },
-                input.password_hash,
-            )
+            .upsert_password_user(user, credential.clone())
             .await?;
+        if creating {
+            self.finish_user_create(&user).await?;
+        } else {
+            self.after_database_update(&crate::DatabaseRecord::User(user.clone()))
+                .await?;
+        }
+        if creating {
+            self.finish_account_create(&credential).await?;
+        } else {
+            self.finish_account_update(&credential).await?;
+        }
         self.plugins
             .password_credential_changed(&PasswordCredentialChanged {
                 user_id: user.id,
@@ -145,7 +173,8 @@ impl AuthService {
         updated_user.updated_at = Utc::now();
 
         let replacement_session = if revoke_other_sessions {
-            self.store.delete_user_sessions(session.user.id).await?;
+            self.delete_user_sessions_with_hooks(session.user.id)
+                .await?;
             Some(
                 self.create_session(
                     updated_user.clone(),

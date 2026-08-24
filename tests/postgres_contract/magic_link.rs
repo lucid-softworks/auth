@@ -1,7 +1,7 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{
-    AuthSession, AuthStore, AuthUser, AuthenticationMethod, VerificationStore, VerificationValue,
-    postgres::PostgresStore,
+    AuthSession, AuthStore, AuthUser, AuthenticationMethod, OAuthAccount, VerificationStore,
+    VerificationValue, postgres::PostgresStore,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -11,10 +11,11 @@ pub(super) async fn assert_promotion_is_atomic(
     pool: &sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let now = Utc::now();
+    let user_id = Uuid::new_v4();
     let user = store
         .create_password_user(
             AuthUser {
-                id: Uuid::new_v4(),
+                id: user_id,
                 username: None,
                 display_username: None,
                 name: "Unverified magic-link user".into(),
@@ -30,7 +31,7 @@ pub(super) async fn assert_promotion_is_atomic(
                 created_at: now,
                 updated_at: now,
             },
-            "credential-hash".into(),
+            credential_account(user_id, now),
         )
         .await?;
     store
@@ -53,6 +54,7 @@ pub(super) async fn assert_promotion_is_atomic(
             purpose: "magic-link".into(),
             identifier: "postgres-magic-token".into(),
             payload: json!({ "email": user.email }),
+            additional_fields: serde_json::Map::new(),
             expires_at: now + Duration::minutes(1),
             created_at: now,
         })
@@ -78,4 +80,24 @@ pub(super) async fn assert_promotion_is_atomic(
         0
     );
     Ok(())
+}
+
+fn credential_account(user_id: Uuid, now: chrono::DateTime<Utc>) -> OAuthAccount {
+    OAuthAccount {
+        id: Uuid::new_v4(),
+        user_id,
+        issuer: "local:credential".into(),
+        account_id: user_id.to_string(),
+        provider_id: "credential".into(),
+        access_token: None,
+        refresh_token: None,
+        id_token: None,
+        access_token_expires_at: None,
+        refresh_token_expires_at: None,
+        scope: None,
+        password: Some("credential-hash".into()),
+        additional_fields: serde_json::Map::new(),
+        created_at: now,
+        updated_at: now,
+    }
 }

@@ -136,21 +136,23 @@ async fn signup(fixture: &Fixture, email: &str) -> (String, Value) {
 fn configure_fields(config: &mut AuthConfig) {
     config.user.additional_fields.insert(
         "timezone".into(),
-        AdditionalField::new(AdditionalFieldType::String),
+        AdditionalField::new(AdditionalFieldType::String).optional(),
     );
     config.user.additional_fields.insert(
         "managedFlag".into(),
         AdditionalField::new(AdditionalFieldType::Boolean)
+            .optional()
             .input(false)
             .returned(false),
     );
     config.session.additional_fields.insert(
         "theme".into(),
-        AdditionalField::new(AdditionalFieldType::String),
+        AdditionalField::new(AdditionalFieldType::String).optional(),
     );
     config.session.additional_fields.insert(
         "privateNote".into(),
         AdditionalField::new(AdditionalFieldType::String)
+            .optional()
             .input(false)
             .returned(false),
     );

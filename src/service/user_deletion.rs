@@ -77,7 +77,7 @@ impl AuthService {
         self.plugins
             .before(&BeforeAuthEvent::UserDelete { user: user.clone() })
             .await?;
-        self.store.delete_user(user.id).await?;
+        self.delete_user_record_with_hooks(&user).await?;
         self.plugins
             .after(&AfterAuthEvent::UserDeleted { user: user.clone() })
             .await;
@@ -99,15 +99,15 @@ impl AuthService {
             .ok_or(AuthError::NotFound)?;
         let token = delete_token();
         let now = Utc::now();
-        self.store
-            .create_verification(VerificationValue {
-                purpose: PURPOSE.into(),
-                identifier: hash_token(&token),
-                payload: json!({ "userId": session.user.id }),
-                expires_at: now + config.delete_token_expires_in,
-                created_at: now,
-            })
-            .await?;
+        self.create_verification_record(VerificationValue {
+            purpose: PURPOSE.into(),
+            identifier: hash_token(&token),
+            payload: json!({ "userId": session.user.id }),
+            additional_fields: serde_json::Map::new(),
+            expires_at: now + config.delete_token_expires_in,
+            created_at: now,
+        })
+        .await?;
         let mut url = self.config.base_url.clone().ok_or_else(|| {
             AuthError::InvalidConfiguration(
                 "a base URL is required for account-deletion verification".into(),
@@ -136,8 +136,7 @@ impl AuthService {
         token: &str,
     ) -> Result<(), AuthError> {
         let value = self
-            .store
-            .consume_verification(PURPOSE, &hash_token(token), Utc::now())
+            .consume_verification_record(PURPOSE, &hash_token(token), Utc::now())
             .await?
             .ok_or(AuthError::InvalidDeleteUserToken)?;
         let user_id = session.user.id.to_string();

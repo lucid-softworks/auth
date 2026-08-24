@@ -37,11 +37,22 @@ impl AuthService {
             return Ok(None);
         }
         if can_update {
+            let mut candidate = session.user.clone();
+            candidate.email = new_email;
+            candidate.email_verified = false;
+            let candidate = self.prepare_user_update(&session.user, candidate).await?;
             let updated = self
                 .store
-                .update_user_email(session.user.id, &session.user.email, &new_email, false)
+                .update_user_email(
+                    session.user.id,
+                    &session.user.email,
+                    &candidate.email,
+                    candidate.email_verified,
+                )
                 .await?
                 .ok_or(AuthError::InvalidSession)?;
+            self.after_database_update(&crate::DatabaseRecord::User(updated.clone()))
+                .await?;
             if can_verify {
                 self.deliver_verification_email(updated.clone(), callback_url)
                     .await?;
@@ -82,8 +93,7 @@ impl AuthService {
         };
         if let Err(error) = sender.send(confirmation).await {
             let _ = self
-                .store
-                .consume_verification(CHANGE_CONFIRMATION_PURPOSE, &token_hash, Utc::now())
+                .consume_verification_record(CHANGE_CONFIRMATION_PURPOSE, &token_hash, Utc::now())
                 .await;
             return Err(error);
         }
@@ -114,8 +124,7 @@ impl AuthService {
         };
         if let Err(error) = sender.send(email).await {
             let _ = self
-                .store
-                .consume_verification(CHANGE_VERIFICATION_PURPOSE, &token_hash, Utc::now())
+                .consume_verification_record(CHANGE_VERIFICATION_PURPOSE, &token_hash, Utc::now())
                 .await;
             return Err(error);
         }
@@ -131,19 +140,19 @@ impl AuthService {
         let token = random_token();
         let token_hash = hash_token(&token);
         let now = Utc::now();
-        self.store
-            .create_verification(VerificationValue {
-                purpose: purpose.into(),
-                identifier: token_hash.clone(),
-                payload: json!({
-                    "userId": user.id,
-                    "email": user.email,
-                    "newEmail": new_email,
-                }),
-                expires_at: now + self.config.email_verification.expires_in,
-                created_at: now,
-            })
-            .await?;
+        self.create_verification_record(VerificationValue {
+            purpose: purpose.into(),
+            identifier: token_hash.clone(),
+            payload: json!({
+                "userId": user.id,
+                "email": user.email,
+                "newEmail": new_email,
+            }),
+            additional_fields: serde_json::Map::new(),
+            expires_at: now + self.config.email_verification.expires_in,
+            created_at: now,
+        })
+        .await?;
         Ok((token, token_hash))
     }
 }

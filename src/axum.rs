@@ -16,6 +16,7 @@ mod account_lifecycle;
 pub(crate) mod admin;
 pub(crate) mod body;
 mod cors;
+mod database_hooks;
 mod email_password;
 mod error;
 pub(crate) mod http;
@@ -59,6 +60,7 @@ where
             service.clone(),
             cors::credentialed_trusted_origins,
         ))
+        .layer(middleware::from_fn(database_hooks::request_context))
         .layer(Extension(service.clone()));
     Router::new().nest(service.base_path(), routes)
 }

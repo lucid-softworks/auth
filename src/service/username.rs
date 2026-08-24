@@ -1,6 +1,7 @@
 use super::{AuthService, SignInResult, password::verify_password};
 use crate::{
-    AuthError, SessionWithUser, UserProfileUpdate, UsernameConfig, UsernameError, UsernamePlugin,
+    AuthError, DatabaseModel, DatabaseRecord, SessionWithUser, UserProfileUpdate, UsernameConfig,
+    UsernameError, UsernamePlugin,
 };
 
 impl AuthService {
@@ -11,7 +12,7 @@ impl AuthService {
     ) -> Result<crate::protocol::better_auth::BetterAuthUser, AuthError> {
         let mut user = user.clone();
         crate::additional_fields::filter_user_output(
-            &self.config.user.additional_fields,
+            self.database_schema_fields(DatabaseModel::User),
             &mut user,
         );
         let mut output = crate::protocol::better_auth::BetterAuthUser::from(&user);
@@ -58,7 +59,7 @@ impl AuthService {
     ) -> crate::protocol::better_auth::BetterAuthSession {
         let mut session = session.clone();
         crate::additional_fields::filter_session_output(
-            &self.config.session.additional_fields,
+            self.database_schema_fields(DatabaseModel::Session),
             &mut session,
         );
         crate::protocol::better_auth::BetterAuthSession::from_session(&session, token)
@@ -173,10 +174,8 @@ impl AuthService {
         session: &SessionWithUser,
         mut update: UserProfileUpdate,
     ) -> Result<crate::AuthUser, AuthError> {
-        update.additional_fields = crate::additional_fields::parse_update_fields(
-            &self.config.user.additional_fields,
-            update.additional_fields,
-        )?;
+        update.additional_fields =
+            self.update_additional_fields(DatabaseModel::User, update.additional_fields)?;
         if update.name.is_none()
             && update.image.is_none()
             && update.username.is_none()
@@ -185,39 +184,100 @@ impl AuthService {
         {
             return Err(AuthError::InvalidRequest("No fields to update".into()));
         }
-        if update.username.is_some() || update.display_username.is_some() {
-            let config = self.username_config()?;
-            if let Some(value) = update.username.as_deref() {
-                config.validate_username(value).await?;
-                let normalized = config.normalize(value);
-                if config.immutable_username
-                    && session.user.username.is_some()
-                    && session.user.username.as_deref() != Some(normalized.as_str())
-                {
-                    return Err(UsernameError::Immutable.into());
-                }
-                if self
-                    .store
-                    .find_user_by_username(&normalized)
-                    .await?
-                    .is_some_and(|user| user.id != session.user.id)
-                {
-                    return Err(UsernameError::AlreadyTaken.into());
-                }
-                update.username = Some(normalized);
-            }
-            if let Some(value) = update.display_username.as_deref() {
-                if !config.display_username {
-                    update.display_username = None;
-                } else {
-                    config.validate_display_username(value).await?;
-                    update.display_username = Some(config.normalize_display(value));
-                }
-            }
-        }
-        self.store
+        self.prepare_profile_names(session, &mut update).await?;
+        update = self.apply_user_update_hook(session, update).await?;
+        let updated = self
+            .store
             .update_user_profile(session.user.id, update)
             .await?
-            .ok_or(AuthError::InvalidSession)
+            .ok_or(AuthError::InvalidSession)?;
+        self.after_database_update(&DatabaseRecord::User(updated.clone()))
+            .await?;
+        Ok(updated)
+    }
+
+    async fn prepare_profile_names(
+        &self,
+        session: &SessionWithUser,
+        update: &mut UserProfileUpdate,
+    ) -> Result<(), AuthError> {
+        if update.username.is_none() && update.display_username.is_none() {
+            return Ok(());
+        }
+        let config = self.username_config()?;
+        if let Some(value) = update.username.as_deref() {
+            config.validate_username(value).await?;
+            let normalized = config.normalize(value);
+            if config.immutable_username
+                && session.user.username.is_some()
+                && session.user.username.as_deref() != Some(normalized.as_str())
+            {
+                return Err(UsernameError::Immutable.into());
+            }
+            if self
+                .store
+                .find_user_by_username(&normalized)
+                .await?
+                .is_some_and(|user| user.id != session.user.id)
+            {
+                return Err(UsernameError::AlreadyTaken.into());
+            }
+            update.username = Some(normalized);
+        }
+        if let Some(value) = update.display_username.as_deref() {
+            if !config.display_username {
+                update.display_username = None;
+            } else {
+                config.validate_display_username(value).await?;
+                update.display_username = Some(config.normalize_display(value));
+            }
+        }
+        Ok(())
+    }
+
+    async fn apply_user_update_hook(
+        &self,
+        session: &SessionWithUser,
+        mut update: UserProfileUpdate,
+    ) -> Result<UserProfileUpdate, AuthError> {
+        let mut candidate = session.user.clone();
+        if let Some(name) = &update.name {
+            candidate.name.clone_from(name);
+        }
+        if let Some(image) = &update.image {
+            candidate.image.clone_from(image);
+        }
+        if let Some(username) = &update.username {
+            candidate.username = Some(username.clone());
+        }
+        if let Some(display_username) = &update.display_username {
+            candidate.display_username = Some(display_username.clone());
+        }
+        candidate
+            .additional_fields
+            .extend(update.additional_fields.clone());
+        let candidate = match self
+            .before_database_update(DatabaseRecord::User(candidate))
+            .await?
+        {
+            DatabaseRecord::User(user) => user,
+            _ => unreachable!("database hook model was validated"),
+        };
+        if candidate.id != session.user.id
+            || candidate.email != session.user.email
+            || candidate.created_at != session.user.created_at
+            || candidate.role != session.user.role
+            || candidate.is_anonymous != session.user.is_anonymous
+        {
+            return Err(AuthError::InvalidConfiguration(
+                "a user update database hook changed a protected field".into(),
+            ));
+        }
+        update.name = Some(candidate.name);
+        update.image = Some(candidate.image);
+        update.username = candidate.username;
+        update.display_username = candidate.display_username;
+        update.additional_fields = candidate.additional_fields;
+        Ok(update)
     }
 }

@@ -86,13 +86,18 @@ impl AuthService {
                 },
             )
             .await?;
+        let mut candidate = target.clone();
+        candidate.role = role.into();
+        let candidate = self.prepare_user_update(&target, candidate).await?;
         let updated = self
             .store
-            .update_user_role(user_id, role)
+            .update_user_role(user_id, &candidate.role)
             .await
             .map_err(admin_user_error)?;
+        self.after_database_update(&crate::DatabaseRecord::User(updated.clone()))
+            .await?;
         if decision.revoke_target_sessions {
-            self.store.delete_user_sessions(user_id).await?;
+            self.delete_user_sessions_with_hooks(user_id).await?;
         }
         self.audit(
             actor.user.id,
@@ -143,12 +148,24 @@ impl AuthService {
                 .default_ban_expires_in_seconds
                 .map(|seconds| Utc::now() + chrono::Duration::seconds(seconds))
         });
+        let mut candidate = target.clone();
+        candidate.banned = true;
+        candidate.ban_reason.clone_from(&reason);
+        candidate.ban_expires = expires_at;
+        let candidate = self.prepare_user_update(&target, candidate).await?;
         let updated = self
             .store
-            .update_user_ban(user_id, true, reason.clone(), expires_at)
+            .update_user_ban(
+                user_id,
+                candidate.banned,
+                candidate.ban_reason.clone(),
+                candidate.ban_expires,
+            )
             .await
             .map_err(admin_user_error)?;
-        self.store.delete_user_sessions(user_id).await?;
+        self.after_database_update(&crate::DatabaseRecord::User(updated.clone()))
+            .await?;
+        self.delete_user_sessions_with_hooks(user_id).await?;
         self.audit(
             actor.user.id,
             Some(user_id),
@@ -167,11 +184,28 @@ impl AuthService {
     ) -> Result<AuthUser, AuthError> {
         self.require_admin_permission(actor, "user", &["ban"])
             .await?;
+        let target = self
+            .store
+            .find_user_by_id(user_id)
+            .await?
+            .ok_or(crate::AdminError::UserNotFound)?;
+        let mut candidate = target.clone();
+        candidate.banned = false;
+        candidate.ban_reason = None;
+        candidate.ban_expires = None;
+        let candidate = self.prepare_user_update(&target, candidate).await?;
         let updated = self
             .store
-            .update_user_ban(user_id, false, None, None)
+            .update_user_ban(
+                user_id,
+                candidate.banned,
+                candidate.ban_reason,
+                candidate.ban_expires,
+            )
             .await
             .map_err(admin_user_error)?;
+        self.after_database_update(&crate::DatabaseRecord::User(updated.clone()))
+            .await?;
         self.audit(
             actor.user.id,
             Some(user_id),
@@ -200,7 +234,7 @@ impl AuthService {
     ) -> Result<(), AuthError> {
         self.require_admin_permission(actor, "session", &["revoke"])
             .await?;
-        self.store.delete_session_by_id(session_id).await?;
+        self.delete_session_id_with_hooks(session_id).await?;
         self.audit(
             actor.user.id,
             None,
@@ -219,7 +253,7 @@ impl AuthService {
     ) -> Result<(), AuthError> {
         self.require_admin_permission(actor, "session", &["revoke"])
             .await?;
-        self.store.delete_user_sessions(user_id).await?;
+        self.delete_user_sessions_with_hooks(user_id).await?;
         self.audit(
             actor.user.id,
             Some(user_id),
@@ -293,7 +327,8 @@ impl AuthService {
         if account_is_banned(&actor_session.user) {
             return Err(AuthError::Forbidden);
         }
-        self.store.delete_session_by_id(session.session.id).await?;
+        self.delete_session_id_with_hooks(session.session.id)
+            .await?;
         let result = SignInResult {
             token: actor_session_token.to_owned(),
             session: actor_session,

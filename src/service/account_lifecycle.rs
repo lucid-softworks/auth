@@ -21,11 +21,19 @@ impl AuthService {
         actor: &SessionWithUser,
     ) -> Result<Vec<LinkedAccount>, AuthError> {
         require_account_session(actor)?;
+        let configured = self.database_schema_fields(crate::DatabaseModel::Account);
         Ok(self
             .store
             .list_user_accounts(actor.user.id)
             .await?
             .into_iter()
+            .map(|mut account| {
+                account.additional_fields = crate::additional_fields::filtered_output(
+                    configured,
+                    account.additional_fields,
+                );
+                account
+            })
             .map(LinkedAccount::from)
             .collect())
     }
@@ -36,6 +44,16 @@ impl AuthService {
         account_id: Uuid,
     ) -> Result<(), AuthError> {
         require_fresh_session(self, actor)?;
+        let account = self
+            .store
+            .list_user_accounts(actor.user.id)
+            .await?
+            .into_iter()
+            .find(|account| account.id == account_id);
+        if let Some(account) = &account {
+            self.before_database_delete(&crate::DatabaseRecord::Account(account.clone()))
+                .await?;
+        }
         let outcome = self
             .store
             .delete_user_account(
@@ -45,7 +63,13 @@ impl AuthService {
             )
             .await?;
         match outcome {
-            AccountDeleteOutcome::Deleted => Ok(()),
+            AccountDeleteOutcome::Deleted => {
+                if let Some(account) = account {
+                    self.after_database_delete(&crate::DatabaseRecord::Account(account))
+                        .await?;
+                }
+                Ok(())
+            }
             AccountDeleteOutcome::NotFound => Err(AuthError::AccountNotFound),
             AccountDeleteOutcome::LastAccount => Err(AuthError::FailedToUnlinkLastAccount),
         }
@@ -133,7 +157,9 @@ impl AuthService {
             account.user_id = user.id;
             account.created_at = owner.account.created_at;
             preserve_oauth_tokens(&mut account, &owner.account);
-            self.store.update_oauth_account_tokens(account).await?;
+            let account = self.prepare_account_update(account).await?;
+            let account = self.store.update_oauth_account_tokens(account).await?;
+            self.finish_account_update(&account).await?;
             return Ok(());
         }
         let trusted = self
@@ -150,7 +176,9 @@ impl AuthService {
             return Err(AuthError::LinkingDifferentEmailsNotAllowed);
         }
         account.user_id = user.id;
-        self.store.link_oauth_account(account).await?;
+        let account = self.prepare_account_create(account).await?;
+        let account = self.store.link_oauth_account(account).await?;
+        self.finish_account_create(&account).await?;
         Ok(())
     }
 
@@ -315,6 +343,9 @@ fn apply_refreshed_tokens(
 
 pub(super) fn preserve_oauth_tokens(account: &mut OAuthAccount, previous: &OAuthAccount) {
     account.scope = previous.scope.clone();
+    account
+        .additional_fields
+        .clone_from(&previous.additional_fields);
     if account.access_token.is_none() {
         account.access_token.clone_from(&previous.access_token);
     }
