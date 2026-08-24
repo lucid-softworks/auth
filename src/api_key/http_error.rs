@@ -56,6 +56,9 @@ pub(crate) fn api_key_error(error: &ApiKeyError) -> Response {
 
 fn request_error_details(error: &ApiKeyError) -> (StatusCode, &'static str, &'static str) {
     use ApiKeyError::*;
+    if let Some(details) = organization_error_details(error) {
+        return details;
+    }
     match error {
         ServerOnlyProperty => details(
             StatusCode::BAD_REQUEST,
@@ -117,17 +120,46 @@ fn request_error_details(error: &ApiKeyError) -> (StatusCode, &'static str, &'st
             "REFILL_INTERVAL_AND_AMOUNT_REQUIRED",
             "refillInterval is required when refillAmount is provided",
         ),
-        OrganizationPluginRequired => details(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "ORGANIZATION_PLUGIN_REQUIRED",
-            "Organization plugin is required for organization-owned API keys. Please install and configure the organization plugin.",
-        ),
         _ => details(
             StatusCode::INTERNAL_SERVER_ERROR,
             "INTERNAL_SERVER_ERROR",
             "Authentication failed",
         ),
     }
+}
+
+fn organization_error_details(
+    error: &ApiKeyError,
+) -> Option<(StatusCode, &'static str, &'static str)> {
+    use ApiKeyError::*;
+    Some(match error {
+        OrganizationPluginRequired => details(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "ORGANIZATION_PLUGIN_REQUIRED",
+            "Organization plugin is required for organization-owned API keys. Please install and configure the organization plugin.",
+        ),
+        OrganizationIdRequired => details(
+            StatusCode::BAD_REQUEST,
+            "ORGANIZATION_ID_REQUIRED",
+            "Organization ID is required for organization-owned API keys.",
+        ),
+        UserNotOrganizationMember => details(
+            StatusCode::FORBIDDEN,
+            "USER_NOT_MEMBER_OF_ORGANIZATION",
+            "You are not a member of the organization that owns this API key.",
+        ),
+        InsufficientOrganizationPermission => details(
+            StatusCode::FORBIDDEN,
+            "INSUFFICIENT_API_KEY_PERMISSIONS",
+            "You do not have permission to perform this action on organization API keys.",
+        ),
+        InvalidReferenceId => details(
+            StatusCode::UNAUTHORIZED,
+            "INVALID_REFERENCE_ID_FROM_API_KEY",
+            "The reference id from the API key is invalid.",
+        ),
+        _ => return None,
+    })
 }
 
 const fn details(

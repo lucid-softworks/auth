@@ -6,8 +6,8 @@ use super::{
     },
 };
 use crate::{
-    ApiKey, ApiKeyConfiguration, ApiKeyError, ApiKeyUseOutcome, AuthError, IssuedApiKey, NewApiKey,
-    SessionWithUser, VerifiedApiKey,
+    ApiKey, ApiKeyConfiguration, ApiKeyError, ApiKeyReference, ApiKeyUseOutcome, AuthError,
+    IssuedApiKey, NewApiKey, SessionWithUser, VerifiedApiKey,
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::Utc;
@@ -42,9 +42,40 @@ impl AuthService {
         &self,
         actor: &SessionWithUser,
         config: &ApiKeyConfiguration,
+        input: NewApiKey,
+    ) -> Result<IssuedApiKey, AuthError> {
+        self.issue_api_key_for_reference(actor, config, input, None)
+            .await
+    }
+
+    pub async fn issue_organization_api_key(
+        &self,
+        actor: &SessionWithUser,
+        config: &ApiKeyConfiguration,
+        input: NewApiKey,
+        organization_id: Uuid,
+    ) -> Result<IssuedApiKey, AuthError> {
+        self.issue_api_key_for_reference(actor, config, input, Some(organization_id))
+            .await
+    }
+
+    async fn issue_api_key_for_reference(
+        &self,
+        actor: &SessionWithUser,
+        config: &ApiKeyConfiguration,
         mut input: NewApiKey,
+        organization_id: Option<Uuid>,
     ) -> Result<IssuedApiKey, AuthError> {
         self.plugins.authorize_application_access(actor).await?;
+        let reference_id = match config.reference {
+            ApiKeyReference::User => actor.user.id.to_string(),
+            ApiKeyReference::Organization => {
+                let organization_id = organization_id.ok_or(ApiKeyError::OrganizationIdRequired)?;
+                self.authorize_organization_api_key(actor, organization_id, "create")
+                    .await?;
+                organization_id.to_string()
+            }
+        };
         validate_create(config, &input)?;
         normalize_permissions(&mut input.permissions);
         let expires_at = input.expires_at.or_else(|| {
@@ -69,7 +100,7 @@ impl AuthService {
                 }),
                 prefix: input.prefix.or_else(|| config.default_prefix.clone()),
                 key_hash: hash_key(&key),
-                reference_id: actor.user.id.to_string(),
+                reference_id,
                 refill_interval: input.refill_interval,
                 refill_amount: input.refill_amount,
                 last_refill_at: None,
@@ -95,11 +126,11 @@ impl AuthService {
     pub async fn get_api_key(
         &self,
         actor: &SessionWithUser,
-        config_id: &str,
+        config: &ApiKeyConfiguration,
         api_key_id: Uuid,
     ) -> Result<ApiKey, AuthError> {
         self.plugins.authorize_application_access(actor).await?;
-        self.owned_api_key(actor, config_id, api_key_id).await
+        self.owned_api_key(actor, config, api_key_id, "read").await
     }
 
     pub async fn list_api_keys(
@@ -109,11 +140,43 @@ impl AuthService {
         sort_by: Option<&str>,
         direction: ApiKeySortDirection,
     ) -> Result<Vec<ApiKey>, AuthError> {
+        self.list_api_keys_for_reference(actor, config_id, sort_by, direction, None)
+            .await
+    }
+
+    pub async fn list_organization_api_keys(
+        &self,
+        actor: &SessionWithUser,
+        config_id: Option<&str>,
+        sort_by: Option<&str>,
+        direction: ApiKeySortDirection,
+        organization_id: Uuid,
+    ) -> Result<Vec<ApiKey>, AuthError> {
+        self.list_api_keys_for_reference(
+            actor,
+            config_id,
+            sort_by,
+            direction,
+            Some(organization_id),
+        )
+        .await
+    }
+
+    async fn list_api_keys_for_reference(
+        &self,
+        actor: &SessionWithUser,
+        config_id: Option<&str>,
+        sort_by: Option<&str>,
+        direction: ApiKeySortDirection,
+        organization_id: Option<Uuid>,
+    ) -> Result<Vec<ApiKey>, AuthError> {
         self.plugins.authorize_application_access(actor).await?;
-        let mut keys = self
-            .store
-            .list_api_keys(&actor.user.id.to_string(), config_id)
-            .await?;
+        if let Some(organization_id) = organization_id {
+            self.authorize_organization_api_key(actor, organization_id, "read")
+                .await?;
+        }
+        let reference_id = organization_id.unwrap_or(actor.user.id).to_string();
+        let mut keys = self.store.list_api_keys(&reference_id, config_id).await?;
         if let Some(sort_by) = sort_by {
             sort_api_keys(&mut keys, sort_by, direction);
         }
@@ -129,7 +192,7 @@ impl AuthService {
     ) -> Result<ApiKey, AuthError> {
         self.plugins.authorize_application_access(actor).await?;
         let mut api_key = self
-            .owned_api_key(actor, &config.config_id, api_key_id)
+            .owned_api_key(actor, config, api_key_id, "update")
             .await?;
         validate_update(config, &update)?;
         apply_update(&mut api_key, update);
@@ -143,11 +206,12 @@ impl AuthService {
     pub async fn delete_api_key(
         &self,
         actor: &SessionWithUser,
-        config_id: &str,
+        config: &ApiKeyConfiguration,
         api_key_id: Uuid,
     ) -> Result<(), AuthError> {
         self.plugins.authorize_application_access(actor).await?;
-        self.owned_api_key(actor, config_id, api_key_id).await?;
+        self.owned_api_key(actor, config, api_key_id, "delete")
+            .await?;
         if !self.store.delete_api_key(api_key_id).await? {
             return Err(ApiKeyError::NotFound.into());
         }
@@ -169,7 +233,7 @@ impl AuthService {
         if expected_config_id.is_some_and(|expected| stored.config_id != expected) {
             return Err(ApiKeyError::Invalid.into());
         }
-        configurations
+        let configuration = configurations
             .iter()
             .find(|config| config.config_id == stored.config_id)
             .ok_or(ApiKeyError::Invalid)?;
@@ -204,15 +268,20 @@ impl AuthService {
                 .into());
             }
         };
-        let user_id = api_key
-            .reference_id
-            .parse()
-            .map_err(|_| ApiKeyError::Invalid)?;
-        let user = self
-            .store
-            .find_user_by_id(user_id)
-            .await?
-            .ok_or(ApiKeyError::Invalid)?;
+        let user = if configuration.reference == ApiKeyReference::User {
+            let user_id = api_key
+                .reference_id
+                .parse()
+                .map_err(|_| ApiKeyError::Invalid)?;
+            Some(
+                self.store
+                    .find_user_by_id(user_id)
+                    .await?
+                    .ok_or(ApiKeyError::Invalid)?,
+            )
+        } else {
+            None
+        };
         Ok(VerifiedApiKey { api_key, user })
     }
 
@@ -223,16 +292,57 @@ impl AuthService {
     async fn owned_api_key(
         &self,
         actor: &SessionWithUser,
-        config_id: &str,
+        config: &ApiKeyConfiguration,
         api_key_id: Uuid,
+        action: &str,
     ) -> Result<ApiKey, AuthError> {
-        self.store
+        let api_key = self
+            .store
             .find_api_key(api_key_id)
             .await?
-            .filter(|api_key| {
-                api_key.reference_id == actor.user.id.to_string() && api_key.config_id == config_id
-            })
-            .ok_or_else(|| ApiKeyError::NotFound.into())
+            .filter(|api_key| api_key.config_id == config.config_id)
+            .ok_or(ApiKeyError::NotFound)?;
+        match config.reference {
+            ApiKeyReference::User if api_key.reference_id != actor.user.id.to_string() => {
+                Err(ApiKeyError::NotFound.into())
+            }
+            ApiKeyReference::Organization => {
+                let organization_id = api_key
+                    .reference_id
+                    .parse()
+                    .map_err(|_| ApiKeyError::NotFound)?;
+                self.authorize_organization_api_key(actor, organization_id, action)
+                    .await?;
+                Ok(api_key)
+            }
+            ApiKeyReference::User => Ok(api_key),
+        }
+    }
+
+    async fn authorize_organization_api_key(
+        &self,
+        actor: &SessionWithUser,
+        organization_id: Uuid,
+        action: &str,
+    ) -> Result<(), AuthError> {
+        let plugin = self
+            .plugins
+            .find::<crate::OrganizationPlugin>()
+            .ok_or(ApiKeyError::OrganizationPluginRequired)?;
+        let member = plugin
+            .store
+            .find_member(organization_id, actor.user.id)
+            .await?
+            .ok_or(ApiKeyError::UserNotOrganizationMember)?;
+        let required = BTreeMap::from([("apiKey".into(), vec![action.into()])]);
+        if self
+            .organization_has_permission(&member, &required, true)
+            .await?
+        {
+            Ok(())
+        } else {
+            Err(ApiKeyError::InsufficientOrganizationPermission.into())
+        }
     }
 }
 

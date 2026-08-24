@@ -194,11 +194,11 @@ pub struct IssuedApiKey {
     pub key: String,
 }
 
-/// A valid API key and the active user account that owns it.
+/// A valid API key and its user when the configuration is user-owned.
 #[derive(Debug, Clone)]
 pub struct VerifiedApiKey {
     pub api_key: ApiKey,
-    pub user: AuthUser,
+    pub user: Option<AuthUser>,
 }
 
 /// Server-side session metadata.

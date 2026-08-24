@@ -45,6 +45,18 @@ pub(super) fn response(error: &AuthError) -> Option<Response> {
             let (status, code, message) = super::admin::details(*error);
             Some((status, Json(ErrorResponse { code, message })).into_response())
         }
+        AuthError::Organization(error) => {
+            let status = match error.status {
+                crate::OrganizationErrorStatus::BadRequest => StatusCode::BAD_REQUEST,
+                crate::OrganizationErrorStatus::Unauthorized => StatusCode::UNAUTHORIZED,
+                crate::OrganizationErrorStatus::Forbidden => StatusCode::FORBIDDEN,
+                crate::OrganizationErrorStatus::NotFound => StatusCode::NOT_FOUND,
+                crate::OrganizationErrorStatus::InternalServerError => {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                }
+            };
+            Some(super::dynamic_error(status, error.code, &error.message))
+        }
         _ => None,
     }
 }

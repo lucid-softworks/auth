@@ -2,10 +2,11 @@ use lucid_auth::{
     AccessStore, AccountDeleteOutcome, AdditionalField, AdditionalFieldType, AdminPlugin,
     AnonymousPlugin, AuditPlugin, AuthConfig, AuthError, AuthService, AuthStore, AuthUser,
     EmailSignUpInput, GuestCapabilityPlugin, NewPasswordUser, OAuthAccount, OAuthAccountStore,
-    OAuthTokenUpdateOutcome, OperatorSecurityConfig, OperatorSecurityPlugin, OwnerPolicyPlugin,
-    PasskeyConfig, PasskeyPlugin, PluginMigration, PluginMigrationContribution, StepUpPolicyConfig,
-    StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin, UsernameError, UsernamePlugin,
-    postgres::PostgresStore,
+    OAuthTokenUpdateOutcome, OperatorSecurityConfig, OperatorSecurityPlugin,
+    OrganizationDynamicAccessControlConfig, OrganizationPlugin, OrganizationPluginConfig,
+    OrganizationTeamsConfig, OwnerPolicyPlugin, PasskeyConfig, PasskeyPlugin, PluginMigration,
+    PluginMigrationContribution, StepUpPolicyConfig, StepUpPolicyPlugin, TwoFactorConfig,
+    TwoFactorPlugin, UsernameError, UsernamePlugin, postgres::PostgresStore,
 };
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
@@ -29,6 +30,8 @@ mod magic_link;
 mod oauth;
 #[path = "postgres_contract/operator_security.rs"]
 mod operator_security;
+#[path = "postgres_contract/organization.rs"]
+mod organization;
 #[path = "postgres_contract/passkey.rs"]
 mod passkey;
 #[path = "postgres_contract/step_up.rs"]
@@ -91,6 +94,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     migrate_legacy_extensions(&service, &store, &pool, user.id).await?;
     anonymous::assert_lifecycle(&service, &store).await?;
     let signed_in = authenticate_owner(&service, &user).await?;
+    organization::assert_persistence(&service, &store, &signed_in.session).await?;
     admin::assert_query_and_update(&service, &signed_in.session).await?;
     account_update::assert_persistence(&service, &store, &signed_in.session, &pool).await?;
     let step_up_session = step_up::authenticate_fixture(&service, &store).await?;
@@ -164,6 +168,20 @@ fn register_contract_plugins(
         store.clone(),
         OperatorSecurityConfig::default(),
     ))?;
+    config.add_plugin(OrganizationPlugin::with_config(
+        store.clone(),
+        OrganizationPluginConfig {
+            teams: OrganizationTeamsConfig {
+                enabled: true,
+                ..OrganizationTeamsConfig::default()
+            },
+            dynamic_access_control: OrganizationDynamicAccessControlConfig {
+                enabled: true,
+                ..OrganizationDynamicAccessControlConfig::default()
+            },
+            ..OrganizationPluginConfig::default()
+        },
+    ))?;
     Ok(())
 }
 
@@ -207,6 +225,7 @@ async fn assert_extension_tables_absent(
     two_factor::assert_table_absent(pool).await?;
     step_up::assert_tables_absent(pool).await?;
     operator_security::assert_table_absent(pool).await?;
+    organization::assert_table_absent(pool).await?;
     assert!(
         !sqlx::query_scalar::<_, bool>("SELECT to_regclass('lucid_auth_guest_grants') IS NOT NULL")
             .fetch_one(pool)

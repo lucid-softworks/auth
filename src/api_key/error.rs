@@ -42,4 +42,12 @@ pub enum ApiKeyError {
     PermissionDenied,
     #[error("Organization plugin is required for organization-owned API keys")]
     OrganizationPluginRequired,
+    #[error("Organization ID is required for organization-owned API keys")]
+    OrganizationIdRequired,
+    #[error("You are not a member of the organization that owns this API key")]
+    UserNotOrganizationMember,
+    #[error("You do not have permission to perform this action on organization API keys")]
+    InsufficientOrganizationPermission,
+    #[error("The reference id from the API key is invalid")]
+    InvalidReferenceId,
 }

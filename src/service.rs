@@ -16,6 +16,7 @@ mod oauth;
 mod oauth_sign_in;
 mod oauth_state;
 mod operator_security;
+mod organization;
 mod passkey;
 mod password;
 mod password_reset;

@@ -13,6 +13,8 @@ pub enum AuthError {
     StepUp(#[from] crate::StepUpError),
     #[error(transparent)]
     OperatorSecurity(#[from] crate::OperatorSecurityError),
+    #[error(transparent)]
+    Organization(#[from] crate::OrganizationError),
     #[error("invalid username or password")]
     InvalidCredentials,
     #[error("invalid email or password")]

@@ -7,10 +7,10 @@ use axum::{
 };
 use lucid_auth::{
     AdditionalField, AdditionalFieldType, AdminConfig, AdminPlugin, AdminRole,
-    ApiKeyConfiguration, ApiKeyPlugin, AuthConfig, AuthService,
-    MagicLinkConfig, MagicLinkEmail, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore,
-    NewPasswordUser, OtpConfig, PasskeyConfig, PasskeyPlugin, PasswordResetEmail,
-    TotpConfig, TwoFactorConfig, TwoFactorOtp, TwoFactorPlugin, UsernamePlugin, VerificationEmail,
+    ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, AuthService, MagicLinkConfig,
+    MagicLinkEmail, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore, NewPasswordUser, OtpConfig,
+    PasskeyConfig, PasskeyPlugin, PasswordResetEmail, TotpConfig, TwoFactorConfig, TwoFactorOtp,
+    TwoFactorPlugin, UsernamePlugin, VerificationEmail,
 };
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -21,6 +21,7 @@ use uuid::Uuid;
 mod email;
 mod metadata;
 mod native_plugin;
+mod organization;
 mod session_fixture;
 mod social_provider;
 
@@ -207,9 +208,7 @@ fn conformance_config(origin: &str, messages: &ConformanceMessages) -> AuthConfi
     config
         .add_social_provider(social_provider::ConformanceSocialProvider)
         .expect("unique social provider");
-    config
-        .add_plugin(UsernamePlugin::default())
-        .expect("unique username plugin");
+    config.add_plugin(UsernamePlugin::default()).expect("unique username plugin");
     add_conformance_plugins(&mut config, origin, messages);
     config
 }
@@ -223,17 +222,20 @@ fn add_conformance_plugins(config: &mut AuthConfig, origin: &str, messages: &Con
             ..PasskeyConfig::default()
         }))
         .expect("unique passkey plugin");
+    organization::register(config);
     config
-        .add_plugin(ApiKeyPlugin::new(ApiKeyConfiguration {
+        .add_plugin(ApiKeyPlugin::with_configurations(vec![ApiKeyConfiguration {
             enable_metadata: true,
             enable_session_for_api_keys: true,
             default_permissions: Some(BTreeMap::from([("documents".into(), vec!["read".into()])])),
             ..ApiKeyConfiguration::default()
-        }))
+        }, ApiKeyConfiguration {
+            config_id: "organization".into(),
+            reference: ApiKeyReference::Organization,
+            ..ApiKeyConfiguration::default()
+        }]))
         .expect("unique API-key plugin");
-    config
-        .add_plugin(ConformancePlugin)
-        .expect("unique conformance plugin");
+    config.add_plugin(ConformancePlugin).expect("unique conformance plugin");
     config
         .add_plugin(MagicLinkPlugin::new(MagicLinkConfig::new(Arc::new(
             ConformanceMagicLinkSender {

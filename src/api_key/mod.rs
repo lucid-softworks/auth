@@ -184,7 +184,15 @@ impl AuthPlugin for ApiKeyPlugin {
             id: "api-key",
             display_name: "Better Auth API Key",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
-            dependencies: &[],
+            dependencies: if self
+                .configurations
+                .iter()
+                .any(|config| config.reference == ApiKeyReference::Organization)
+            {
+                &["organization"]
+            } else {
+                &[]
+            },
             conflicts: &[],
             endpoints: ENDPOINTS,
             cookies: &[],
@@ -244,11 +252,12 @@ impl AuthPlugin for ApiKeyPlugin {
                 None,
             )
             .await?;
+        let user = verified.user.ok_or(ApiKeyError::InvalidReferenceId)?;
         let now = Utc::now();
         let session = SessionWithUser {
             session: AuthSession {
                 id: verified.api_key.id,
-                user_id: verified.user.id,
+                user_id: user.id,
                 token_hash: String::new(),
                 actor_user_id: None,
                 authentication_method: AuthenticationMethod::Password,
@@ -265,7 +274,7 @@ impl AuthPlugin for ApiKeyPlugin {
                     .map(str::to_owned),
                 additional_fields: serde_json::Map::new(),
             },
-            user: verified.user,
+            user,
         };
         Ok(Some(crate::plugin::PluginSession {
             session,
@@ -282,9 +291,6 @@ fn validate_configurations(configurations: &[ApiKeyConfiguration]) -> Result<(),
     for config in configurations {
         if !ids.insert(config.config_id.as_str()) {
             return invalid("API-key configuration IDs must be unique");
-        }
-        if config.reference == ApiKeyReference::Organization {
-            return invalid("organization-owned API keys require organization compatibility (#30)");
         }
         if config.default_key_length == 0
             || config.minimum_prefix_length > config.maximum_prefix_length

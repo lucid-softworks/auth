@@ -21,6 +21,7 @@ pub(super) struct CreateRequest {
     pub rate_limit_enabled: Option<bool>,
     pub permissions: Option<BTreeMap<String, Vec<String>>>,
     pub user_id: Option<String>,
+    pub organization_id: Option<String>,
 }
 
 impl CreateRequest {

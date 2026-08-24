@@ -92,7 +92,21 @@ async fn create(
         rate_limit_time_window: Some(config.rate_limit.time_window_milliseconds),
         rate_limit_max: Some(config.rate_limit.max_requests),
     };
-    match service.issue_api_key(&actor, config, request).await {
+    let result = if config.reference == crate::ApiKeyReference::Organization {
+        let Some(organization_id) = input
+            .organization_id
+            .as_deref()
+            .and_then(|id| Uuid::parse_str(id).ok())
+        else {
+            return auth_error(ApiKeyError::OrganizationIdRequired.into());
+        };
+        service
+            .issue_organization_api_key(&actor, config, request, organization_id)
+            .await
+    } else {
+        service.issue_api_key(&actor, config, request).await
+    };
+    match result {
         Ok(issued) => http_response::issued(issued.api_key, issued.key),
         Err(error) => auth_error(error),
     }
@@ -111,7 +125,7 @@ async fn get_one(
         return auth_error(ApiKeyError::NotFound.into());
     };
     let config = resolve_configuration(&configurations, input.config_id.as_deref());
-    match service.get_api_key(&actor, &config.config_id, id).await {
+    match service.get_api_key(&actor, config, id).await {
         Ok(api_key) => Json(api_key).into_response(),
         Err(error) => auth_error(error),
     }
@@ -122,9 +136,6 @@ async fn list(
     headers: HeaderMap,
     Query(input): Query<ListRequest>,
 ) -> Response {
-    if input.organization_id.is_some() {
-        return auth_error(ApiKeyError::OrganizationPluginRequired.into());
-    }
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(ApiKeyError::UnauthorizedSession.into());
     };
@@ -133,15 +144,33 @@ async fn list(
         Some("asc") | None => ApiKeySortDirection::Ascending,
         Some(_) => return auth_error(AuthError::InvalidRequest("invalid sortDirection".into())),
     };
-    match service
-        .list_api_keys(
-            &actor,
-            input.config_id.as_deref(),
-            input.sort_by.as_deref(),
-            direction,
-        )
-        .await
-    {
+    let result = match input.organization_id.as_deref() {
+        Some(id) => match Uuid::parse_str(id) {
+            Ok(id) => {
+                service
+                    .list_organization_api_keys(
+                        &actor,
+                        input.config_id.as_deref(),
+                        input.sort_by.as_deref(),
+                        direction,
+                        id,
+                    )
+                    .await
+            }
+            Err(_) => Err(ApiKeyError::UserNotOrganizationMember.into()),
+        },
+        None => {
+            service
+                .list_api_keys(
+                    &actor,
+                    input.config_id.as_deref(),
+                    input.sort_by.as_deref(),
+                    direction,
+                )
+                .await
+        }
+    };
+    match result {
         Ok(api_keys) => {
             let total = api_keys.len();
             let offset = input.offset.unwrap_or(0);
@@ -213,10 +242,7 @@ async fn delete(
         return auth_error(ApiKeyError::NotFound.into());
     };
     let config = resolve_configuration(&configurations, input.config_id.as_deref());
-    match service
-        .delete_api_key(&actor, &config.config_id, key_id)
-        .await
-    {
+    match service.delete_api_key(&actor, config, key_id).await {
         Ok(()) => Json(json!({ "success": true })).into_response(),
         Err(error) => auth_error(error),
     }

@@ -17,6 +17,7 @@ mod memory;
 mod model;
 mod oauth;
 mod operator_security;
+mod organization;
 mod origin;
 mod owner_policy;
 mod passkey;
@@ -83,6 +84,19 @@ pub use oauth::{
 pub use operator_security::{
     OperatorSecurityConfig, OperatorSecurityError, OperatorSecurityPlugin, OperatorSecurityService,
     OperatorSecurityStatus, OperatorSecurityStore,
+};
+pub use organization::{
+    FullOrganization, MemoryOrganizationStore, NewOrganization, NewOrganizationInvitation,
+    Organization, OrganizationCreateOutcome, OrganizationCreation, OrganizationCreationPolicy,
+    OrganizationDataStore, OrganizationDynamicAccessControlConfig, OrganizationError,
+    OrganizationErrorStatus, OrganizationInvitation, OrganizationInvitationAcceptance,
+    OrganizationInvitationDetails, OrganizationInvitationEmail, OrganizationInvitationEmailSender,
+    OrganizationInvitationStatus, OrganizationInvitationStore, OrganizationInvitationWriteOutcome,
+    OrganizationLifecycleHooks, OrganizationMember, OrganizationMemberStore,
+    OrganizationMemberWithUser, OrganizationMemberWriteOutcome, OrganizationPermissions,
+    OrganizationPlugin, OrganizationPluginConfig, OrganizationRole, OrganizationRoleStore,
+    OrganizationStore, OrganizationTeam, OrganizationTeamMember, OrganizationTeamStore,
+    OrganizationTeamWriteOutcome, OrganizationTeamsConfig, OrganizationUpdate,
 };
 pub use origin::TrustedOrigin;
 pub use owner_policy::OwnerPolicyPlugin;

@@ -31,6 +31,8 @@ supported surface covers:
 - passkey rename and removal
 - all 15 official admin-client methods, including configurable permissions,
   filtering, additional fields, session revocation, bans, and impersonation
+- the complete official `organizationClient` surface as an optional native plugin,
+  including invitations, teams, custom roles, and organization-owned API keys
 - optional HIBP Pwned Passwords screening with Better Auth-compatible errors
 - durable account and client-address sign-in throttling through the configured store
 - optional operator-security policy for managed password replacement and local recovery
@@ -372,6 +374,32 @@ email, verification URL, token, metadata, and a narrowed request context.
 `callbackURL`, `newUserCallbackURL`, and `errorCallbackURL` use Better Auth's
 exact casing, and all redirects pass the configured trusted-origin policy.
 
+Organization is an optional native plugin. Its store is independent from the
+core authentication store and can use either memory or PostgreSQL:
+
+```rust
+let organizations = Arc::new(MemoryOrganizationStore::default());
+let organization = OrganizationPluginConfig {
+    teams: OrganizationTeamsConfig {
+        enabled: true,
+        ..OrganizationTeamsConfig::default()
+    },
+    dynamic_access_control: OrganizationDynamicAccessControlConfig {
+        enabled: true,
+        ..OrganizationDynamicAccessControlConfig::default()
+    },
+    ..OrganizationPluginConfig::default()
+};
+config.add_plugin(OrganizationPlugin::with_config(organizations, organization))?;
+```
+
+The plugin implements every Better Auth 1.7.1 `organizationClient` method for
+organizations, active state, members, invitations, teams, permissions, and
+dynamic roles. Limits and last-owner rules are enforced atomically. Invitation
+delivery, creation policy, and all documented organization/member/invitation/team
+lifecycle hooks have native async traits. PostgreSQL users pass the shared
+`PostgresStore` and apply the plugin migration described below.
+
 API Key is an optional native plugin. Register it explicitly; without the plugin,
 its routes and PostgreSQL table do not exist:
 
@@ -396,10 +424,10 @@ memory and PostgreSQL stores.
 Set `enable_session_for_api_keys` to accept the configured headers (default
 `x-api-key`) as Better Auth sessions. Multiple named configurations, custom key
 generation, starting-character display, expiry bounds/defaults, metadata,
-permissions, refills, and per-key rate limits are supported. Organization-owned
-keys depend on the Organization plugin tracked in
-[#30](https://github.com/lucid-softworks/auth/issues/30); advanced request
-callbacks and secondary/custom-storage profiles are tracked in
+permissions, refills, and per-key rate limits are supported. Set a named
+configuration's `reference` to `ApiKeyReference::Organization` to require the
+Organization plugin and enforce its `apiKey` create/read/update/delete
+permissions. Advanced request callbacks and secondary/custom-storage profiles are tracked in
 [#76](https://github.com/lucid-softworks/auth/issues/76).
 
 Native plugins implement `AuthPlugin` and are registered with

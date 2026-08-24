@@ -14,6 +14,7 @@ mod guest_capability;
 mod migrate;
 mod oauth;
 mod operator_security;
+mod organization;
 mod passkey;
 mod plugin;
 mod rows;

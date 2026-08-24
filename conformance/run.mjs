@@ -9,6 +9,7 @@ import {
   magicLinkClient,
   twoFactorClient,
   usernameClient,
+  organizationClient,
 } from "better-auth/client/plugins";
 import { passkeyClient } from "@better-auth/passkey/client";
 import { apiKeyClient } from "@better-auth/api-key/client";
@@ -131,6 +132,10 @@ async function conformance(origin) {
       passkeyClient(),
       apiKeyClient(),
       magicLinkClient(),
+      organizationClient({
+        teams: { enabled: true },
+        dynamicAccessControl: { enabled: true },
+      }),
       nativePluginClient,
     ],
   });
@@ -972,6 +977,379 @@ async function conformance(origin) {
       "apiKey.delete",
     );
     assert.equal(deleted.success, true);
+  });
+
+  await runCase("complete organization client", async () => {
+    await transport.useFixtureSession("strong");
+    const created = success(
+      await client.organization.create({
+        name: "Conformance Organization",
+        slug: "conformance-organization",
+        metadata: { fixture: true },
+      }),
+      "organization.create",
+    );
+    assert.equal(created.slug, "conformance-organization");
+    assert.equal(created.members.length, 1);
+
+    const checked = success(
+      await client.organization.checkSlug({ slug: "available-organization" }),
+      "organization.checkSlug",
+    );
+    assert.equal(checked.status, true);
+    const organizations = success(
+      await client.organization.list(),
+      "organization.list",
+    );
+    assert.ok(organizations.some((organization) => organization.id === created.id));
+    const fullOrganization = success(
+      await client.organization.getFullOrganization(),
+      "organization.getFullOrganization",
+    );
+    assert.equal(fullOrganization.id, created.id);
+    assert.deepEqual(fullOrganization.invitations, []);
+    assert.equal(fullOrganization.teams.length, 1);
+    assert.equal(
+      success(await client.organization.getActiveMember(), "organization.getActiveMember").role,
+      "owner",
+    );
+    assert.equal(
+      success(await client.organization.getActiveMemberRole(), "organization.getActiveMemberRole").role,
+      "owner",
+    );
+    assert.equal(
+      success(
+        await client.organization.hasPermission({ permissions: { organization: ["update"] } }),
+        "organization.hasPermission",
+      ).success,
+      true,
+    );
+    const updated = success(
+      await client.organization.update({
+        organizationId: created.id,
+        data: { name: "Updated Organization" },
+      }),
+      "organization.update",
+    );
+    assert.equal(updated.name, "Updated Organization");
+    assert.equal(
+      success(
+        await client.organization.getOrganization({ query: { organizationId: created.id } }),
+        "organization.getOrganization",
+      ).id,
+      created.id,
+    );
+
+    const initialTeams = success(
+      await client.organization.listTeams({ query: { organizationId: created.id } }),
+      "organization.listTeams",
+    );
+    assert.equal(initialTeams.length, 1);
+    const team = success(
+      await client.organization.createTeam({ name: "Platform", organizationId: created.id }),
+      "organization.createTeam",
+    );
+    const renamedTeam = success(
+      await client.organization.updateTeam({ teamId: team.id, data: { name: "Core Platform" } }),
+      "organization.updateTeam",
+    );
+    assert.equal(renamedTeam.name, "Core Platform");
+    success(await client.organization.setActiveTeam({ teamId: initialTeams[0].id }), "organization.setActiveTeam");
+    assert.ok(
+      success(await client.organization.listUserTeams(), "organization.listUserTeams")
+        .some((candidate) => candidate.id === initialTeams[0].id),
+    );
+    assert.equal(
+      success(
+        await client.organization.listTeamMembers({ query: { teamId: initialTeams[0].id } }),
+        "organization.listTeamMembers",
+      ).length,
+      1,
+    );
+
+    const role = success(
+      await client.organization.createRole({
+        organizationId: created.id,
+        role: "editor",
+        permission: { ac: ["read"], member: [] },
+      }),
+      "organization.createRole",
+    ).roleData;
+    assert.equal(role.role, "editor");
+    assert.ok(
+      success(await client.organization.listRoles({ query: { organizationId: created.id } }), "organization.listRoles")
+        .some((candidate) => candidate.id === role.id),
+    );
+    assert.equal(
+      success(
+        await client.organization.getRole({ query: { organizationId: created.id, roleId: role.id } }),
+        "organization.getRole",
+      ).id,
+      role.id,
+    );
+    const changedRole = success(
+      await client.organization.updateRole({
+        organizationId: created.id,
+        roleId: role.id,
+        data: { roleName: "publisher", permission: { ac: ["read"] } },
+      }),
+      "organization.updateRole",
+    ).roleData;
+    assert.equal(changedRole.role, "publisher");
+    assert.equal(
+      success(
+        await client.organization.deleteRole({ organizationId: created.id, roleId: role.id }),
+        "organization.deleteRole",
+      ).success,
+      true,
+    );
+
+    const invitation = success(
+      await client.organization.inviteMember({
+        email: "organization-member@example.com",
+        role: "member",
+        organizationId: created.id,
+        teamId: initialTeams[0].id,
+      }),
+      "organization.inviteMember",
+    );
+    assert.ok(
+      success(
+        await client.organization.listInvitations({ query: { organizationId: created.id } }),
+        "organization.listInvitations",
+      ).some((candidate) => candidate.id === invitation.id),
+    );
+    const canceledInvitation = success(
+      await client.organization.inviteMember({
+        email: "cancel-invitation@example.com",
+        role: "member",
+        organizationId: created.id,
+      }),
+      "organization.inviteMember for cancellation",
+    );
+    assert.equal(
+      success(
+        await client.organization.cancelInvitation({ invitationId: canceledInvitation.id }),
+        "organization.cancelInvitation",
+      ).status,
+      "canceled",
+    );
+
+    const organizationKey = success(
+      await client.apiKey.create({
+        configId: "organization",
+        organizationId: created.id,
+        name: "Organization key",
+      }),
+      "organization-owned apiKey.create",
+    );
+    assert.equal(organizationKey.referenceId, created.id);
+    assert.ok(
+      success(
+        await client.apiKey.list({ query: { organizationId: created.id, configId: "organization" } }),
+        "organization-owned apiKey.list",
+      ).apiKeys.some((key) => key.id === organizationKey.id),
+    );
+    const verifiedOrganizationKey = await transport.fetch(
+      `${origin}/api/auth/api-key/verify`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key: organizationKey.key, configId: "organization" }),
+      },
+    );
+    assert.equal(verifiedOrganizationKey.status, 200);
+    assert.equal((await verifiedOrganizationKey.json()).valid, true);
+    success(await client.apiKey.delete({ keyId: organizationKey.id, configId: "organization" }), "organization-owned apiKey.delete");
+
+    success(await client.signOut(), "signOut before invitation acceptance");
+    const invitee = success(
+      await client.signUp.email({
+        name: "Organization Member",
+        email: "organization-member@example.com",
+        password: "correct horse battery staple",
+      }),
+      "signUp.email organization member",
+    );
+    assert.ok(invitee.user.id);
+    success(
+      await client.sendVerificationEmail({ email: "organization-member@example.com" }),
+      "organization member sendVerificationEmail",
+    );
+    const memberVerification = await transport.fetch(
+      `${origin}/__conformance__/verification-token/organization-member%40example.com`,
+    );
+    assert.equal(memberVerification.status, 200);
+    success(
+      await client.verifyEmail({ query: { token: (await memberVerification.json()).token } }),
+      "organization member verifyEmail",
+    );
+    const userInvitations = success(
+      await client.organization.listUserInvitations(),
+      "organization.listUserInvitations",
+    );
+    assert.equal(
+      userInvitations.find((candidate) => candidate.id === invitation.id).organizationName,
+      "Updated Organization",
+    );
+    assert.equal(
+      success(
+        await client.organization.getInvitation({ query: { id: invitation.id } }),
+        "organization.getInvitation",
+      ).id,
+      invitation.id,
+    );
+    const accepted = success(
+      await client.organization.acceptInvitation({ invitationId: invitation.id }),
+      "organization.acceptInvitation",
+    );
+    assert.equal(accepted.member.userId, invitee.user.id);
+    success(await client.organization.setActive({ organizationId: created.id }), "organization.setActive invitee");
+    assert.ok(
+      success(await client.organization.listUserTeams(), "organization.listUserTeams invitee")
+        .some((candidate) => candidate.id === initialTeams[0].id),
+    );
+
+    await transport.useFixtureSession("strong");
+    success(await client.organization.setActive({ organizationId: created.id }), "organization.setActive owner");
+    let members = success(
+      await client.organization.listMembers({ query: { organizationId: created.id } }),
+      "organization.listMembers",
+    );
+    assert.equal(members.total, 2);
+    const filteredMembersResult = await client.organization.listMembers({
+        query: {
+          organizationId: created.id,
+          filterField: "role",
+          filterOperator: "eq",
+          filterValue: "member",
+          sortBy: "createdAt",
+          sortDirection: "desc",
+          limit: 1,
+          offset: 0,
+        },
+      });
+    const filteredMembers = success(
+      filteredMembersResult,
+      "organization.listMembers filtering",
+    );
+    assert.equal(filteredMembers.total, 1);
+    assert.equal(filteredMembers.members[0].userId, invitee.user.id);
+    const inviteeMember = members.members.find((member) => member.userId === invitee.user.id);
+    assert.ok(inviteeMember);
+    assert.equal(
+      success(
+        await client.organization.updateMemberRole({
+          memberId: inviteeMember.id,
+          organizationId: created.id,
+          role: "admin",
+        }),
+        "organization.updateMemberRole",
+      ).role,
+      "admin",
+    );
+    assert.equal(
+      success(
+        await client.organization.removeTeamMember({
+          teamId: initialTeams[0].id,
+          userId: invitee.user.id,
+          organizationId: created.id,
+        }),
+        "organization.removeTeamMember",
+      ).message,
+      "Team member removed successfully.",
+    );
+    assert.equal(
+      success(
+        await client.organization.addTeamMember({
+          teamId: initialTeams[0].id,
+          userId: invitee.user.id,
+          organizationId: created.id,
+        }),
+        "organization.addTeamMember",
+      ).userId,
+      invitee.user.id,
+    );
+    assert.equal(
+      success(
+        await client.organization.removeMember({
+          memberIdOrEmail: inviteeMember.id,
+          organizationId: created.id,
+        }),
+        "organization.removeMember",
+      ).member.userId,
+      invitee.user.id,
+    );
+    const leaveInvitation = success(
+      await client.organization.inviteMember({
+        email: "organization-member@example.com",
+        role: "member",
+        organizationId: created.id,
+      }),
+      "organization.inviteMember before leave",
+    );
+    success(await client.signOut(), "signOut owner before member leave");
+    success(
+      await client.signIn.email({
+        email: "organization-member@example.com",
+        password: "correct horse battery staple",
+      }),
+      "signIn organization member",
+    );
+    success(
+      await client.organization.acceptInvitation({ invitationId: leaveInvitation.id }),
+      "organization.acceptInvitation before leave",
+    );
+    success(await client.organization.leave({ organizationId: created.id }), "organization.leave");
+
+    await transport.useFixtureSession("strong");
+    const rejectedInvitation = success(
+      await client.organization.inviteMember({
+        email: "organization-reject@example.com",
+        role: "member",
+        organizationId: created.id,
+      }),
+      "organization.inviteMember before rejection",
+    );
+    success(await client.signOut(), "signOut owner before rejection");
+    success(
+      await client.signUp.email({
+        name: "Organization Rejection",
+        email: "organization-reject@example.com",
+        password: "correct horse battery staple",
+      }),
+      "signUp.email organization rejection",
+    );
+    assert.equal(
+      success(
+        await client.organization.rejectInvitation({ invitationId: rejectedInvitation.id }),
+        "organization.rejectInvitation",
+      ).invitation.status,
+      "rejected",
+    );
+
+    await transport.useFixtureSession("strong");
+    success(await client.organization.setActive({ organizationId: created.id }), "organization.setActive owner final");
+    members = success(
+      await client.organization.listMembers({ query: { organizationId: created.id } }),
+      "organization.listMembers after leave",
+    );
+    assert.equal(members.total, 1);
+    const clearedTeam = await client.organization.setActiveTeam({ teamId: null });
+    assert.equal(clearedTeam.error, null, `organization.clearActiveTeam: ${JSON.stringify(clearedTeam.error)}`);
+    assert.equal(clearedTeam.data, null);
+    assert.equal(
+      success(
+        await client.organization.removeTeam({ teamId: team.id, organizationId: created.id }),
+        "organization.removeTeam",
+      ).message,
+      "Team removed successfully.",
+    );
+    const deleted = success(
+      await client.organization.delete({ organizationId: created.id }),
+      "organization.delete",
+    );
+    assert.equal(deleted.id, created.id);
   });
 
   await runCase("anonymous and sign-out clients", async () => {
