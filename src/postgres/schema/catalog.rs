@@ -43,7 +43,7 @@ async fn load_columns(
     sqlx::query_as::<_, (String, String, String)>(
         "SELECT table_name, column_name, data_type \
          FROM information_schema.columns \
-         WHERE table_schema = current_schema() AND table_name LIKE 'lucid_auth_%'",
+         WHERE table_schema = current_schema()",
     )
     .fetch_all(pool)
     .await
@@ -62,8 +62,7 @@ async fn load_indexes(pool: &sqlx::PgPool) -> Result<BTreeMap<(String, String), 
          JOIN pg_class AS table_class ON table_class.oid = pg_index.indrelid \
          JOIN pg_class AS index_class ON index_class.oid = pg_index.indexrelid \
          JOIN pg_namespace ON pg_namespace.oid = table_class.relnamespace \
-         WHERE pg_namespace.nspname = current_schema() \
-           AND table_class.relname LIKE 'lucid_auth_%'",
+         WHERE pg_namespace.nspname = current_schema()",
     )
     .fetch_all(pool)
     .await
