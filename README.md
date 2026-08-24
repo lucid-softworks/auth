@@ -7,8 +7,26 @@ embedding a JavaScript authentication server.
 
 The compatibility target is Better Auth `1.7.1`. See the
 [compatibility matrix](COMPATIBILITY.md) for method-level coverage, known
-limitations, upgrade audit, and links to every tracked gap. The currently
-supported surface covers:
+limitations, upgrade audit, and links to every tracked gap.
+
+## Start here
+
+- [Install and run the memory or PostgreSQL server](docs/installation.md)
+- [Connect React, Vue, Svelte, Solid, vanilla, SSR, and extension clients](docs/frameworks.md)
+- [Review the production proxy, TLS, cookie, CORS, secret, and migration checklist](docs/production.md)
+- [Choose only supported core methods and plugins](COMPATIBILITY.md)
+
+The crate targets Rust 1.90 and Axum 0.8. The official client must be pinned to
+Better Auth 1.7.1. From a checkout, this starts the CI-compiled memory example:
+
+```sh
+export BETTER_AUTH_SECRET="$(openssl rand -base64 32)"
+export BETTER_AUTH_URL="http://localhost:3000"
+export FRONTEND_ORIGIN="http://localhost:5173"
+cargo run --example http_memory --features axum
+```
+
+The currently supported surface covers:
 
 - `getSession` and `useSession`
 - core email/password signup, signin, and current-password verification

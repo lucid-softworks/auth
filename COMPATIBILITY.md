@@ -168,7 +168,10 @@ authentication methods.
 | Trusted origins, CSRF, redirect validation | Supported | Better Auth exact, wildcard, custom-scheme, and relative-path matching; same-origin requests; Fetch Metadata checks; and validation of all four redirect fields; [#5](https://github.com/lucid-softworks/auth/issues/5). |
 | Base URL/path, CORS, and configurable cookies | Supported | Static base URL, custom route mount, trusted credentialed CORS, secure-name inference, cross-subdomain and per-cookie policy; [#6](https://github.com/lucid-softworks/auth/issues/6). |
 | Trusted-proxy client IP resolution | Supported | Better Auth's ordered configurable headers, single-value handling without a proxy list, right-to-left trusted IP/CIDR chains, development/test localhost fallback, IPv4-mapped IPv6 and subnet normalization, and disabled tracking; [#7](https://github.com/lucid-softworks/auth/issues/7) and [#59](https://github.com/lucid-softworks/auth/issues/59). |
-| Framework and production installation guides | Planned | [#65](https://github.com/lucid-softworks/auth/issues/65). |
+| Framework and production installation guides | Supported | Runnable memory/PostgreSQL Axum examples, explicit Cargo/client pins, React/Vue/Svelte/Solid/vanilla and SSR boundaries, plus proxy/TLS/cookie/CORS/migration guidance; [#65](https://github.com/lucid-softworks/auth/issues/65). |
+| Browser extension clients | Supported | Standard official browser clients work with an exact extension trusted origin, credentialed CORS, and manifest host permission. Cookie availability remains subject to the browser/manifest policy. |
+| Expo / React Native integration | Planned | The official `@better-auth/expo` client requires a matching native server plugin for cookie transport and deep-link behavior; [#77](https://github.com/lucid-softworks/auth/issues/77). |
+| Electron integration | Planned | The official Electron client/proxy pair requires server-side transfer/code-exchange routes and plugin state; [#78](https://github.com/lucid-softworks/auth/issues/78). |
 
 ## TypeScript server and framework boundary
 
@@ -179,10 +182,11 @@ server plugin are **not applicable directly**. The corresponding behavior must
 be implemented through native Rust service APIs, traits, routes, and migrations.
 
 Framework client integrations for React, Vue, Svelte, Solid, and vanilla clients
-are compatibility targets. Framework server adapters for Next.js, SvelteKit,
-Nuxt, Astro, Hono, Express, and similar TypeScript runtimes remain their native
-framework concerns; deployment guidance is tracked in
-[#65](https://github.com/lucid-softworks/auth/issues/65).
+use the supported HTTP surface. Framework server adapters for Next.js,
+SvelteKit, Nuxt, Astro, Hono, Express, and similar TypeScript runtimes are
+replaced by the Axum router; see the
+[framework guide](docs/frameworks.md) for same-origin proxying, SSR session
+fetching, and the Expo/Electron protocol boundary.
 
 ## Project-specific extensions
 
