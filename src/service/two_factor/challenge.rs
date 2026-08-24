@@ -106,8 +106,7 @@ impl AuthService {
         }
         let identifier = challenge_identifier.ok_or(TwoFactorError::InvalidCookie)?;
         let value = self
-            .store
-            .find_verification(CHALLENGE_PURPOSE, &identifier)
+            .find_verification_value(CHALLENGE_PURPOSE, &identifier)
             .await?
             .filter(|value| value.expires_at > Utc::now())
             .ok_or(TwoFactorError::InvalidCookie)?;
@@ -214,8 +213,7 @@ impl AuthService {
             return Ok(());
         };
         let attempts = self
-            .store
-            .find_verification(ATTEMPTS_PURPOSE, identifier)
+            .find_verification_value(ATTEMPTS_PURPOSE, identifier)
             .await?
             .and_then(|value| value.payload["attempts"].as_u64())
             .and_then(|value| u32::try_from(value).ok())

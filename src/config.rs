@@ -8,6 +8,12 @@ use chrono::Duration;
 use std::sync::Arc;
 use url::Url;
 
+mod verification;
+pub use verification::{
+    VerificationConfig, VerificationIdentifierConfig, VerificationIdentifierHasher,
+    VerificationIdentifierStorage,
+};
+
 /// Runtime behavior for an authentication service.
 #[derive(Clone)]
 pub struct AuthConfig {
@@ -32,8 +38,8 @@ pub struct AuthConfig {
     pub account: AccountConfig,
     pub verification: VerificationConfig,
     pub database_hooks: Option<Arc<dyn DatabaseHooks>>,
-    /// Better Auth-compatible secondary storage for live sessions and, by
-    /// default, request rate limits.
+    /// Better Auth-compatible secondary storage for live sessions,
+    /// verification values, and, by default, request rate limits.
     pub secondary_storage: Option<Arc<dyn SecondaryStorage>>,
     /// Better Auth-compatible built-in or custom social providers.
     pub(crate) social_providers: Vec<Arc<dyn crate::SocialProvider>>,
@@ -307,11 +313,6 @@ impl AuthConfig {
 #[derive(Debug, Clone, Default)]
 pub struct AccountConfig {
     pub account_linking: AccountLinkingConfig,
-    pub additional_fields: crate::AdditionalFieldSet,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct VerificationConfig {
     pub additional_fields: crate::AdditionalFieldSet,
 }
 

@@ -122,8 +122,7 @@ impl AuthService {
     #[cfg(feature = "axum")]
     pub(crate) async fn oauth_state(&self, state: &str) -> Result<OAuthState, AuthError> {
         let value = self
-            .store
-            .find_verification(STATE_PURPOSE, state)
+            .find_verification_value(STATE_PURPOSE, state)
             .await?
             .filter(|value| value.expires_at > Utc::now())
             .ok_or(AuthError::OAuthStateMismatch)?;

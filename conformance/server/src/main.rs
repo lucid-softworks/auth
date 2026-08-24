@@ -7,13 +7,10 @@ use axum::{
 };
 use lucid_auth::{
     AdditionalField, AdditionalFieldType, AdminConfig, AdminPlugin, AdminRole,
-    ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, AuthService, MagicLinkConfig,
-    MagicLinkEmail, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore, NewPasswordUser, OtpConfig,
-    PasskeyConfig, PasskeyPlugin, PasswordResetEmail, TotpConfig, TwoFactorConfig, TwoFactorOtp,
-    TwoFactorPlugin, UsernamePlugin, VerificationEmail,
+    AuthConfig, AuthService, MagicLinkEmail, MemorySecondaryStorage, MemoryStore, NewPasswordUser,
+    PasswordResetEmail, TwoFactorOtp, UsernamePlugin, VerificationEmail,
 };
 use serde_json::json;
-use std::collections::BTreeMap;
 use std::{io::Write, net::SocketAddr, sync::Arc};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -23,17 +20,18 @@ mod cookie_cache;
 mod metadata;
 mod native_plugin;
 mod organization;
+mod plugin_setup;
 mod rate_limit;
 mod session_fixture;
 mod social_provider;
 
-use email::{ConformanceMagicLinkSender, ConformanceMessages, ConformanceOtpSender};
-use native_plugin::ConformancePlugin;
+use email::ConformanceMessages;
 
 #[derive(Clone)]
 struct Fixture {
     pub(crate) service: Arc<AuthService>,
     pub(crate) store: Arc<MemoryStore>,
+    pub(crate) secondary: Arc<MemorySecondaryStorage>,
     pub(crate) owner_id: Uuid,
     verification_emails: Arc<Mutex<Vec<VerificationEmail>>>,
     password_reset_emails: Arc<Mutex<Vec<PasswordResetEmail>>>,
@@ -143,8 +141,9 @@ async fn two_factor_otp(
 
 async fn fixture(origin: &str) -> Fixture {
     let store = Arc::new(MemoryStore::default());
+    let secondary = Arc::new(MemorySecondaryStorage::default());
     let messages = ConformanceMessages::default();
-    let config = conformance_config(origin, &messages);
+    let config = conformance_config(origin, &messages, secondary.clone());
     let service = Arc::new(
         AuthService::try_new(store.clone(), config).expect("valid conformance plugin registry"),
     );
@@ -161,6 +160,7 @@ async fn fixture(origin: &str) -> Fixture {
     Fixture {
         service,
         store,
+        secondary,
         owner_id: owner.id,
         verification_emails: messages.verification_emails,
         password_reset_emails: messages.password_reset_emails,
@@ -169,8 +169,14 @@ async fn fixture(origin: &str) -> Fixture {
     }
 }
 
-fn conformance_config(origin: &str, messages: &ConformanceMessages) -> AuthConfig {
+fn conformance_config(
+    origin: &str,
+    messages: &ConformanceMessages,
+    secondary: Arc<MemorySecondaryStorage>,
+) -> AuthConfig {
     let mut config = AuthConfig::new([82_u8; 32]).expect("fixture secret");
+    config.secondary_storage = Some(secondary);
+    config.session.store_session_in_database = true;
     cookie_cache::configure(&mut config);
     if std::env::var_os("LUCID_AUTH_DEFER_SESSION_REFRESH").is_some() {
         config.session.cookie_cache.enabled = false;
@@ -210,53 +216,6 @@ fn conformance_config(origin: &str, messages: &ConformanceMessages) -> AuthConfi
         .add_social_provider(social_provider::ConformanceSocialProvider)
         .expect("unique social provider");
     config.add_plugin(UsernamePlugin::default()).expect("unique username plugin");
-    add_conformance_plugins(&mut config, origin, messages);
+    plugin_setup::register(&mut config, origin, messages);
     config
-}
-
-fn add_conformance_plugins(config: &mut AuthConfig, origin: &str, messages: &ConformanceMessages) {
-    config
-        .add_plugin(PasskeyPlugin::new(PasskeyConfig {
-            rp_id: Some("localhost".into()),
-            rp_name: Some("lucid-auth conformance".into()),
-            origins: Some(vec![origin.into()]),
-            ..PasskeyConfig::default()
-        }))
-        .expect("unique passkey plugin");
-    organization::register(config);
-    config
-        .add_plugin(ApiKeyPlugin::with_configurations(vec![ApiKeyConfiguration {
-            enable_metadata: true,
-            enable_session_for_api_keys: true,
-            default_permissions: Some(BTreeMap::from([("documents".into(), vec!["read".into()])])),
-            ..ApiKeyConfiguration::default()
-        }, ApiKeyConfiguration {
-            config_id: "organization".into(),
-            reference: ApiKeyReference::Organization,
-            ..ApiKeyConfiguration::default()
-        }]))
-        .expect("unique API-key plugin");
-    config.add_plugin(ConformancePlugin).expect("unique conformance plugin");
-    config
-        .add_plugin(MagicLinkPlugin::new(MagicLinkConfig::new(Arc::new(
-            ConformanceMagicLinkSender {
-                messages: messages.magic_links.clone(),
-            },
-        ))))
-        .expect("unique magic-link plugin");
-    config
-        .add_plugin(TwoFactorPlugin::new(
-            Arc::new(MemoryTwoFactorStore::default()),
-            TwoFactorConfig {
-                totp: TotpConfig {
-                    period: chrono::Duration::seconds(1),
-                    ..TotpConfig::default()
-                },
-                otp: Some(OtpConfig::new(Arc::new(ConformanceOtpSender {
-                    messages: messages.two_factor_otps.clone(),
-                }))),
-                ..TwoFactorConfig::default()
-            },
-        ))
-        .expect("unique two-factor plugin");
 }

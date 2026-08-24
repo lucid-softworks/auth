@@ -183,6 +183,24 @@ impl VerificationStore for PostgresStore {
         .map_err(storage_error)
     }
 
+    async fn reserve_verification(&self, value: VerificationValue) -> Result<bool, AuthError> {
+        sqlx::query(
+            "INSERT INTO lucid_auth_verifications \
+             (purpose, identifier, payload, additional_fields, expires_at, created_at) \
+             VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
+        )
+        .bind(value.purpose)
+        .bind(value.identifier)
+        .bind(value.payload)
+        .bind(serde_json::Value::Object(value.additional_fields))
+        .bind(value.expires_at)
+        .bind(value.created_at)
+        .execute(&self.pool)
+        .await
+        .map(|result| result.rows_affected() == 1)
+        .map_err(storage_error)
+    }
+
     async fn find_verification(
         &self,
         purpose: &str,
@@ -219,6 +237,43 @@ impl VerificationStore for PostgresStore {
             row.map(VerificationValue::from)
                 .filter(|value| value.expires_at > now)
         })
+        .map_err(storage_error)
+    }
+
+    async fn update_verification(
+        &self,
+        value: VerificationValue,
+    ) -> Result<Option<VerificationValue>, AuthError> {
+        sqlx::query_as::<_, VerificationRow>(
+            "UPDATE lucid_auth_verifications SET payload = $3, additional_fields = $4, \
+             expires_at = $5 WHERE purpose = $1 AND identifier = $2 \
+             RETURNING purpose, identifier, payload, additional_fields, expires_at, created_at",
+        )
+        .bind(value.purpose)
+        .bind(value.identifier)
+        .bind(value.payload)
+        .bind(serde_json::Value::Object(value.additional_fields))
+        .bind(value.expires_at)
+        .fetch_optional(&self.pool)
+        .await
+        .map(|row| row.map(VerificationValue::from))
+        .map_err(storage_error)
+    }
+
+    async fn delete_verification(
+        &self,
+        purpose: &str,
+        identifier: &str,
+    ) -> Result<Option<VerificationValue>, AuthError> {
+        sqlx::query_as::<_, VerificationRow>(
+            "DELETE FROM lucid_auth_verifications WHERE purpose = $1 AND identifier = $2 \
+             RETURNING purpose, identifier, payload, additional_fields, expires_at, created_at",
+        )
+        .bind(purpose)
+        .bind(identifier)
+        .fetch_optional(&self.pool)
+        .await
+        .map(|row| row.map(VerificationValue::from))
         .map_err(storage_error)
     }
 

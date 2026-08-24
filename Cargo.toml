@@ -105,6 +105,9 @@ name = "session_refresh_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "secondary_verification_contract"
+
+[[test]]
 name = "social_oauth_contract"
 required-features = ["axum"]
 

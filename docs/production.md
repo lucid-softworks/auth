@@ -107,9 +107,19 @@ overwrites, not ones it appends from arbitrary clients.
 - Use database rate-limit storage when more than one service instance accepts
   requests. The memory limiter is not shared across instances.
 - A configured `SecondaryStorage` becomes authoritative for sessions and the
-  default rate limiter. Enable `store_session_in_database` only when a DB mirror
-  is required; enable `preserve_session_in_database` when ended rows must remain
-  as expired audit records.
+  default rate limiter, and for verification values unless
+  `verification.store_in_database` enables a database mirror. Verification
+  entries use remaining-expiry TTLs and require atomic `getAndDelete` for
+  single-use consumption. Secondary-only deployments reject verification
+  reservation flows that require database uniqueness.
+- Choose `verification.store_identifier.default` and its ordered prefix
+  `overrides` deliberately. `Plain` is the Better Auth default; `Hashed` uses
+  SHA-256 base64url without padding, and `Custom` delegates to a native async
+  hasher. Switching modes invalidates outstanding short-lived values except for
+  Better Auth's hashed-to-plain lookup fallback.
+- Enable `store_session_in_database` only when a session DB mirror is required;
+  enable `preserve_session_in_database` when ended rows must remain as expired
+  audit records.
 - Database and secondary sessions slide after `session.update_age` (one day by
   default). Use `disable_session_refresh` for fully fixed expiry, or
   `defer_session_refresh` when GET session reads must remain write-free; the

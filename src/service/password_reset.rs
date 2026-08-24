@@ -23,7 +23,7 @@ impl AuthService {
         let email = super::email_password::normalize_email(email)?;
         let Some(user) = self.store.find_user_by_email(&email).await? else {
             let _ = hash_token(&random_token());
-            let _ = self.store.find_verification(PURPOSE, "dummy").await?;
+            let _ = self.find_verification_value(PURPOSE, "dummy").await?;
             return Ok(());
         };
         let token = random_token();
@@ -53,8 +53,7 @@ impl AuthService {
 
     pub async fn password_reset_token_valid(&self, token: &str) -> Result<bool, AuthError> {
         Ok(self
-            .store
-            .find_verification(PURPOSE, &hash_token(token))
+            .find_verification_value(PURPOSE, &hash_token(token))
             .await?
             .is_some_and(|value| value.expires_at > Utc::now()))
     }
@@ -62,19 +61,49 @@ impl AuthService {
     pub async fn reset_password(&self, token: &str, password: String) -> Result<(), AuthError> {
         self.validate_new_password(&password).await?;
         let hash = hash_password(password).await?;
-        match self
-            .store
-            .consume_password_reset(
-                &hash_token(token),
-                hash,
-                Utc::now(),
-                self.config
-                    .email_and_password
-                    .revoke_sessions_on_password_reset,
-            )
-            .await?
+        let token_hash = hash_token(token);
+        let outcome = if self.config.secondary_storage.is_some()
+            && !self.config.verification.store_in_database
         {
+            self.consume_secondary_password_reset(&token_hash, hash)
+                .await?
+        } else {
+            let mut outcome = PasswordResetOutcome::InvalidToken;
+            for identifier in self
+                .verification_identifier_candidates(PURPOSE, &token_hash)
+                .await?
+            {
+                outcome = self
+                    .store
+                    .consume_password_reset(
+                        &identifier,
+                        hash.clone(),
+                        Utc::now(),
+                        self.config.secondary_storage.is_none()
+                            && self
+                                .config
+                                .email_and_password
+                                .revoke_sessions_on_password_reset,
+                    )
+                    .await?;
+                if !matches!(outcome, PasswordResetOutcome::InvalidToken) {
+                    self.clear_cached_verification(PURPOSE, &token_hash).await?;
+                    break;
+                }
+            }
+            outcome
+        };
+        match outcome {
             PasswordResetOutcome::Reset(user) => {
+                if self.config.secondary_storage.is_some()
+                    && self
+                        .config
+                        .email_and_password
+                        .revoke_sessions_on_password_reset
+                {
+                    self.delete_user_sessions_with_hooks(user.id).await?;
+                }
+                self.refresh_secondary_user_sessions(&user).await?;
                 self.plugins
                     .password_credential_changed(&PasswordCredentialChanged {
                         user_id: user.id,
@@ -89,6 +118,35 @@ impl AuthService {
             PasswordResetOutcome::InvalidToken => Err(AuthError::InvalidPasswordResetToken),
             PasswordResetOutcome::UserNotFound => Err(AuthError::PasswordResetUserNotFound),
         }
+    }
+
+    async fn consume_secondary_password_reset(
+        &self,
+        token_hash: &str,
+        password_hash: String,
+    ) -> Result<PasswordResetOutcome, AuthError> {
+        let Some(value) = self
+            .consume_verification_record(PURPOSE, token_hash, Utc::now())
+            .await?
+        else {
+            return Ok(PasswordResetOutcome::InvalidToken);
+        };
+        let user_id = value
+            .payload
+            .get("user_id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| uuid::Uuid::parse_str(value).ok())
+            .ok_or_else(|| AuthError::Storage("password reset payload is invalid".into()))?;
+        if self.store.find_user_by_id(user_id).await?.is_none() {
+            return Ok(PasswordResetOutcome::UserNotFound);
+        }
+        self.store.set_password_hash(user_id, password_hash).await?;
+        let user = self
+            .store
+            .update_user_profile(user_id, crate::UserProfileUpdate::default())
+            .await?
+            .ok_or_else(|| AuthError::Storage("password reset user disappeared".into()))?;
+        Ok(PasswordResetOutcome::Reset(Box::new(user)))
     }
 
     fn password_reset_url(

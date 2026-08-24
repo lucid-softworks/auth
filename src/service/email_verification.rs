@@ -106,10 +106,8 @@ impl AuthService {
         {
             return Ok(result);
         }
-        let outcome = self
-            .store
-            .consume_email_verification(&hash_token(token), Utc::now())
-            .await?;
+        let token_hash = hash_token(token);
+        let outcome = self.consume_email_verification_token(&token_hash).await?;
         let user = match outcome {
             EmailVerificationOutcome::InvalidToken => return Err(AuthError::InvalidToken),
             EmailVerificationOutcome::Expired => return Err(AuthError::TokenExpired),
@@ -117,6 +115,7 @@ impl AuthService {
                 return Err(AuthError::VerificationUserNotFound);
             }
             EmailVerificationOutcome::AlreadyVerified(user) => {
+                self.refresh_secondary_user_sessions(&user).await?;
                 return Ok(EmailVerificationResult {
                     user,
                     session_token: None,
@@ -125,6 +124,7 @@ impl AuthService {
             }
             EmailVerificationOutcome::Verified(user) => user,
         };
+        self.refresh_secondary_user_sessions(&user).await?;
         let session_token = if self
             .config
             .email_verification
@@ -157,6 +157,66 @@ impl AuthService {
         })
     }
 
+    async fn consume_email_verification_token(
+        &self,
+        token_hash: &str,
+    ) -> Result<EmailVerificationOutcome, AuthError> {
+        if self.config.secondary_storage.is_some() && !self.config.verification.store_in_database {
+            return self.consume_secondary_email_verification(token_hash).await;
+        }
+        let mut outcome = EmailVerificationOutcome::InvalidToken;
+        for identifier in self
+            .verification_identifier_candidates(PURPOSE, token_hash)
+            .await?
+        {
+            outcome = self
+                .store
+                .consume_email_verification(&identifier, Utc::now())
+                .await?;
+            if !matches!(outcome, EmailVerificationOutcome::InvalidToken) {
+                self.clear_cached_verification(PURPOSE, token_hash).await?;
+                break;
+            }
+        }
+        Ok(outcome)
+    }
+
+    async fn consume_secondary_email_verification(
+        &self,
+        token_hash: &str,
+    ) -> Result<EmailVerificationOutcome, AuthError> {
+        let Some(found) = self.find_verification_value(PURPOSE, token_hash).await? else {
+            return Ok(EmailVerificationOutcome::InvalidToken);
+        };
+        let now = Utc::now();
+        let Some(value) = self
+            .consume_verification_record(PURPOSE, token_hash, now)
+            .await?
+        else {
+            return Ok(if found.expires_at <= now {
+                EmailVerificationOutcome::Expired
+            } else {
+                EmailVerificationOutcome::InvalidToken
+            });
+        };
+        let email = value
+            .payload
+            .get("email")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| AuthError::Storage("email verification payload is invalid".into()))?;
+        let Some(user) = self.store.find_user_by_email(email).await? else {
+            return Ok(EmailVerificationOutcome::UserNotFound);
+        };
+        if user.email_verified {
+            return Ok(EmailVerificationOutcome::AlreadyVerified(user));
+        }
+        self.store
+            .update_user_email(user.id, email, email, true)
+            .await?
+            .map(EmailVerificationOutcome::Verified)
+            .ok_or_else(|| AuthError::Storage("email verification user disappeared".into()))
+    }
+
     async fn consume_change_email_token(
         &self,
         token: &str,
@@ -168,7 +228,10 @@ impl AuthService {
             super::change_email::CHANGE_CONFIRMATION_PURPOSE,
             super::change_email::CHANGE_VERIFICATION_PURPOSE,
         ] {
-            let Some(found) = self.store.find_verification(purpose, &token_hash).await? else {
+            let Some(found) = self
+                .find_verification_record(purpose, &token_hash, false)
+                .await?
+            else {
                 continue;
             };
             if found.expires_at <= Utc::now() {
@@ -203,6 +266,7 @@ impl AuthService {
                 .update_user_email(user.id, &email, &new_email, true)
                 .await?
                 .ok_or(AuthError::VerificationUserNotFound)?;
+            self.refresh_secondary_user_sessions(&updated).await?;
             let session_token = match current {
                 Some((_, token)) => Some(token.to_owned()),
                 None => Some(

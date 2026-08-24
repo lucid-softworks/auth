@@ -152,45 +152,6 @@ impl AuthService {
         Ok(())
     }
 
-    pub(super) async fn create_verification_record(
-        &self,
-        mut value: crate::VerificationValue,
-    ) -> Result<(), AuthError> {
-        value.additional_fields =
-            self.create_additional_fields(DatabaseModel::Verification, value.additional_fields)?;
-        let value = match self
-            .before_database_create(DatabaseRecord::Verification(value))
-            .await?
-        {
-            DatabaseRecord::Verification(value) => value,
-            _ => unreachable!("database hook model was validated"),
-        };
-        self.store.create_verification(value.clone()).await?;
-        self.after_database_create(&DatabaseRecord::Verification(value))
-            .await
-    }
-
-    pub(super) async fn consume_verification_record(
-        &self,
-        purpose: &str,
-        identifier: &str,
-        now: DateTime<Utc>,
-    ) -> Result<Option<crate::VerificationValue>, AuthError> {
-        if let Some(candidate) = self.store.find_verification(purpose, identifier).await? {
-            self.before_database_delete(&DatabaseRecord::Verification(candidate))
-                .await?;
-        }
-        let consumed = self
-            .store
-            .consume_verification(purpose, identifier, now)
-            .await?;
-        if let Some(value) = &consumed {
-            self.after_database_delete(&DatabaseRecord::Verification(value.clone()))
-                .await?;
-        }
-        Ok(consumed)
-    }
-
     pub(super) async fn prepare_account_create(
         &self,
         mut account: crate::OAuthAccount,

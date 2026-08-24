@@ -66,6 +66,7 @@ pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use client_ip::IpAddressConfig;
 pub use config::{
     AccountConfig, AccountLinkingConfig, AuthConfig, EmailPasswordConfig, VerificationConfig,
+    VerificationIdentifierConfig, VerificationIdentifierHasher, VerificationIdentifierStorage,
 };
 pub use cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
 pub use database_hooks::{

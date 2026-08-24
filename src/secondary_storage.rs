@@ -53,9 +53,16 @@ impl SecondaryStorage for MemorySecondaryStorage {
     }
 
     async fn get_and_delete(&self, key: &str) -> Result<Option<String>, AuthError> {
-        let value = self.get(key).await?;
-        self.delete(key).await?;
-        Ok(value)
+        let mut entries = self.entries.lock().await;
+        if entries
+            .get(key)
+            .and_then(|entry| entry.expires_at)
+            .is_some_and(|expires| expires <= Utc::now())
+        {
+            entries.remove(key);
+            return Ok(None);
+        }
+        Ok(entries.remove(key).map(|entry| entry.value))
     }
 
     async fn set(&self, key: &str, value: String, ttl: Option<u64>) -> Result<(), AuthError> {

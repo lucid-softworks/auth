@@ -245,6 +245,9 @@ pub trait OAuthAccountStore: Send + Sync {
 pub trait VerificationStore: Send + Sync {
     async fn create_verification(&self, value: VerificationValue) -> Result<(), AuthError>;
 
+    /// Atomically creates a verification reservation only when its key is free.
+    async fn reserve_verification(&self, value: VerificationValue) -> Result<bool, AuthError>;
+
     async fn find_verification(
         &self,
         purpose: &str,
@@ -258,6 +261,17 @@ pub trait VerificationStore: Send + Sync {
         purpose: &str,
         identifier: &str,
         now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<VerificationValue>, AuthError>;
+
+    async fn update_verification(
+        &self,
+        value: VerificationValue,
+    ) -> Result<Option<VerificationValue>, AuthError>;
+
+    async fn delete_verification(
+        &self,
+        purpose: &str,
+        identifier: &str,
     ) -> Result<Option<VerificationValue>, AuthError>;
 
     async fn delete_expired_verifications(

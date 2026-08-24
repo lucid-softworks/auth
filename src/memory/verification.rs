@@ -17,6 +17,16 @@ impl VerificationStore for MemoryStore {
         Ok(())
     }
 
+    async fn reserve_verification(&self, value: VerificationValue) -> Result<bool, AuthError> {
+        let key = (value.purpose.clone(), value.identifier.clone());
+        let mut state = self.state.write().await;
+        if state.verifications.contains_key(&key) {
+            return Ok(false);
+        }
+        state.verifications.insert(key, value);
+        Ok(true)
+    }
+
     async fn find_verification(
         &self,
         purpose: &str,
@@ -43,6 +53,32 @@ impl VerificationStore for MemoryStore {
             return Ok(None);
         };
         Ok((value.expires_at > now).then_some(value))
+    }
+
+    async fn update_verification(
+        &self,
+        value: VerificationValue,
+    ) -> Result<Option<VerificationValue>, AuthError> {
+        let key = (value.purpose.clone(), value.identifier.clone());
+        let mut state = self.state.write().await;
+        if !state.verifications.contains_key(&key) {
+            return Ok(None);
+        }
+        state.verifications.insert(key, value.clone());
+        Ok(Some(value))
+    }
+
+    async fn delete_verification(
+        &self,
+        purpose: &str,
+        identifier: &str,
+    ) -> Result<Option<VerificationValue>, AuthError> {
+        Ok(self
+            .state
+            .write()
+            .await
+            .verifications
+            .remove(&(purpose.to_owned(), identifier.to_owned())))
     }
 
     async fn delete_expired_verifications(&self, now: DateTime<Utc>) -> Result<u64, AuthError> {

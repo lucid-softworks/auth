@@ -672,15 +672,24 @@ that mode is enabled. `disableRefresh=true` suppresses one request, and
 one-day session never slides and renewed cookies remain non-persistent.
 
 Set `config.secondary_storage` to an `Arc<dyn SecondaryStorage>` to make it the
-authoritative live-session store. `store_session_in_database` mirrors sessions
-to the primary store and `preserve_session_in_database` expires instead of
-deleting that audit row on revocation. The default rate-limit storage mode also
-selects configured secondary storage. Use `SessionStorageMode::Stateless` only
-with cookie cache enabled; pure stateless sessions cannot be individually
-revoked, so use short cache lifetimes and version invalidation for incidents.
-Custom `AuthStore` implementations must make `refresh_session` an atomic
-update-only operation: a missing or concurrently deleted token returns `None`
-and must never be inserted again.
+authoritative live-session and verification-value store. Verification records
+use `verification:<processed identifier>` keys, remaining-expiry TTLs, and
+atomic `getAndDelete` consumption. `verification.store_in_database` adds a
+durable mirror; it defaults to `false`, matching Better Auth. Identifier storage
+defaults to `Plain`; select `VerificationIdentifierStorage::Hashed` for Better
+Auth's SHA-256 base64url profile, provide a `Custom` async hasher, and use ordered
+`verification.store_identifier.overrides` for purpose-prefix rules. Atomic
+verification reservation fails closed when secondary-only storage is selected.
+
+`store_session_in_database` mirrors sessions to the primary store and
+`preserve_session_in_database` expires instead of deleting that audit row on
+revocation. The default rate-limit storage mode also selects configured
+secondary storage. Use `SessionStorageMode::Stateless` only with cookie cache
+enabled; pure stateless sessions cannot be individually revoked, so use short
+cache lifetimes and version invalidation for incidents. Custom `AuthStore`
+implementations must make session refresh and verification consume/reserve
+operations atomic update/delete/insert-only operations; missing or concurrently
+deleted records must never be inserted again.
 
 Migration `0019_better_auth_session_tokens.sql` intentionally invalidates old
 hashed session rows and stores Better Auth's opaque token so `listSessions` and

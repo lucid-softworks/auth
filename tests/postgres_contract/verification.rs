@@ -140,5 +140,50 @@ pub async fn values_are_atomic(
             .await?
             .is_none()
     );
+    reservation_update_and_delete_are_atomic(store, now).await?;
+    Ok(())
+}
+
+async fn reservation_update_and_delete_are_atomic(
+    store: &PostgresStore,
+    now: chrono::DateTime<Utc>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let reservation = VerificationValue {
+        purpose: "contract".into(),
+        identifier: "reservation".into(),
+        payload: json!({ "winner": true }),
+        additional_fields: serde_json::Map::new(),
+        expires_at: now + Duration::minutes(1),
+        created_at: now,
+    };
+    let (left, right) = tokio::join!(
+        store.reserve_verification(reservation.clone()),
+        store.reserve_verification(reservation.clone())
+    );
+    assert_eq!(usize::from(left?) + usize::from(right?), 1);
+
+    let mut updated = reservation;
+    updated.payload = json!({ "winner": "updated" });
+    updated.expires_at = now + Duration::minutes(2);
+    assert_eq!(
+        store
+            .update_verification(updated)
+            .await?
+            .expect("reserved value can be updated")
+            .payload,
+        json!({ "winner": "updated" })
+    );
+    assert!(
+        store
+            .delete_verification("contract", "reservation")
+            .await?
+            .is_some()
+    );
+    assert!(
+        store
+            .delete_verification("contract", "reservation")
+            .await?
+            .is_none()
+    );
     Ok(())
 }

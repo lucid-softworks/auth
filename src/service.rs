@@ -28,6 +28,7 @@ mod session;
 mod session_create;
 #[cfg(feature = "axum")]
 mod session_http_cache;
+mod session_references;
 mod session_refresh;
 mod session_storage;
 mod session_update;
@@ -36,6 +37,7 @@ mod types;
 mod user;
 mod user_deletion;
 mod username;
+mod verification_storage;
 
 #[cfg(feature = "axum")]
 use crate::TrustedOrigin;
