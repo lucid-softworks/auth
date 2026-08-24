@@ -183,6 +183,10 @@ name = "one_tap_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "oauth_popup_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "siwe_contract"
 required-features = ["axum"]
 

@@ -24,6 +24,7 @@ import { apiKeyClient } from "@better-auth/api-key/client";
 import { base32 } from "@better-auth/utils/base32";
 import { createOTP } from "@better-auth/utils/otp";
 import { installVirtualAuthenticator } from "./virtual-authenticator.mjs";
+import { oauthPopupConformance } from "./oauth-popup.mjs";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
 const betterAuthPackage = JSON.parse(
@@ -2415,6 +2416,7 @@ function stopServer(child) {
 
 await siweClientConformance();
 await lastLoginMethodClientConformance();
+await oauthPopupConformance();
 
 for (const strategy of ["compact", "jwt", "jwe"]) {
   const { child, origin } = await startServer(strategy);

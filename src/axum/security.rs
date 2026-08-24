@@ -21,6 +21,12 @@ pub(super) async fn validate_browser_request(
     let is_oauth_callback = request.method() == Method::POST
         && (path.starts_with("/callback/")
             || path.starts_with(&format!("{}/callback/", service.base_path())));
+    let is_oauth_popup_start = request.method() == Method::GET
+        && (path == "/oauth-popup/start"
+            || path == format!("{}/oauth-popup/start", service.base_path()));
+    if is_oauth_popup_start {
+        return next.run(request).await;
+    }
     if is_safe_method(request.method()) {
         return match validate_redirect_fields(&service, request).await {
             Ok(request) => next.run(request).await,

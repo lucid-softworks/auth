@@ -15,7 +15,6 @@ pub struct OAuthCallbackResult {
 pub(crate) struct OAuthState {
     #[serde(default)]
     pub oauth_state: Option<String>,
-    pub provider: String,
     pub callback_url: String,
     pub code_verifier: String,
     pub error_url: Option<String>,
@@ -26,6 +25,7 @@ pub(crate) struct OAuthState {
     #[serde(flatten)]
     pub additional_data: serde_json::Map<String, Value>,
     pub link: Option<OAuthLinkState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub anonymous_user_id: Option<Uuid>,
 }
 

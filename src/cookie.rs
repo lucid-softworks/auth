@@ -43,6 +43,11 @@ pub struct CookieAttributes {
     pub same_site: Option<SameSite>,
     pub secure: Option<bool>,
     pub http_only: Option<bool>,
+    pub expires: Option<chrono::DateTime<chrono::Utc>>,
+    /// Cookie-specific lifetime in seconds. Plugin serializers apply this
+    /// after their requested default, matching Better Call's merge order.
+    pub max_age: Option<f64>,
+    pub partitioned: Option<bool>,
 }
 
 /// Name and attribute overrides for one authentication cookie.
@@ -61,6 +66,9 @@ pub struct CookieConfig {
     pub session_data: CookieOptions,
     pub account_data: CookieOptions,
     pub dont_remember: CookieOptions,
+    /// Per-suffix options for Better Auth plugin cookies such as
+    /// `oauth_popup` and `oauth_state`.
+    pub plugin: std::collections::BTreeMap<String, CookieOptions>,
     cross_subdomain_enabled: bool,
     cross_subdomain_domain: Option<String>,
 }
@@ -74,6 +82,7 @@ impl Default for CookieConfig {
             session_data: CookieOptions::default(),
             account_data: CookieOptions::default(),
             dont_remember: CookieOptions::default(),
+            plugin: std::collections::BTreeMap::new(),
             cross_subdomain_enabled: false,
             cross_subdomain_domain: None,
         }
@@ -123,7 +132,7 @@ impl CookieConfig {
             #[cfg(feature = "axum")]
             CookieKind::DontRemember => "dont_remember",
             CookieKind::PasskeyChallenge => "better-auth-passkey",
-            #[cfg(feature = "axum")]
+            #[cfg(any(feature = "axum", test))]
             CookieKind::Plugin => "plugin",
         };
         let suffix = suffix_override.unwrap_or(default_suffix);
@@ -136,8 +145,8 @@ impl CookieConfig {
             #[cfg(feature = "axum")]
             CookieKind::DontRemember => Some(&self.dont_remember),
             CookieKind::PasskeyChallenge => None,
-            #[cfg(feature = "axum")]
-            CookieKind::Plugin => None,
+            #[cfg(any(feature = "axum", test))]
+            CookieKind::Plugin => self.plugin.get(suffix),
         };
         let unprefixed_name = options
             .and_then(|options| options.name.clone())
@@ -147,13 +156,24 @@ impl CookieConfig {
         } else {
             unprefixed_name
         };
+        let attributes = self.resolve_attributes(options, secure_name, base_url_host);
+        ResolvedCookie { name, attributes }
+    }
+
+    #[cfg(any(feature = "axum", test))]
+    fn resolve_attributes(
+        &self,
+        options: Option<&CookieOptions>,
+        secure_name: bool,
+        base_url_host: Option<&str>,
+    ) -> ResolvedCookieAttributes {
         let cross_subdomain = self.cross_subdomain_enabled.then(|| {
             self.cross_subdomain_domain
                 .as_deref()
                 .or(base_url_host)
                 .map(str::to_owned)
         });
-        let attributes = ResolvedCookieAttributes {
+        ResolvedCookieAttributes {
             path: options
                 .and_then(|options| options.attributes.path.clone())
                 .clone()
@@ -175,8 +195,17 @@ impl CookieConfig {
                 .and_then(|options| options.attributes.http_only)
                 .or(self.default_attributes.http_only)
                 .unwrap_or(true),
-        };
-        ResolvedCookie { name, attributes }
+            expires: options
+                .and_then(|options| options.attributes.expires)
+                .or(self.default_attributes.expires),
+            max_age: options
+                .and_then(|options| options.attributes.max_age)
+                .or(self.default_attributes.max_age),
+            partitioned: options
+                .and_then(|options| options.attributes.partitioned)
+                .or(self.default_attributes.partitioned)
+                .unwrap_or(false),
+        }
     }
 }
 
@@ -191,7 +220,7 @@ pub(crate) enum CookieKind {
     #[cfg(feature = "axum")]
     DontRemember,
     PasskeyChallenge,
-    #[cfg(feature = "axum")]
+    #[cfg(any(feature = "axum", test))]
     Plugin,
 }
 
@@ -210,6 +239,9 @@ pub(crate) struct ResolvedCookieAttributes {
     pub same_site: SameSite,
     pub secure: bool,
     pub http_only: bool,
+    pub expires: Option<chrono::DateTime<chrono::Utc>>,
+    pub max_age: Option<f64>,
+    pub partitioned: bool,
 }
 
 #[cfg(test)]
@@ -238,5 +270,27 @@ mod tests {
         config.set_cross_subdomain(true, None);
         let cookie = config.resolve(CookieKind::PasskeyChallenge, false, Some("example.com"));
         assert_eq!(cookie.attributes.domain.as_deref(), Some("example.com"));
+    }
+
+    #[test]
+    fn plugin_cookie_options_are_resolved_by_exact_suffix() {
+        let mut config = CookieConfig::default();
+        config.plugin.insert(
+            "oauth_popup".into(),
+            CookieOptions {
+                name: Some("popup-marker".into()),
+                attributes: CookieAttributes {
+                    max_age: Some(42.9),
+                    partitioned: Some(true),
+                    ..CookieAttributes::default()
+                },
+            },
+        );
+        let cookie =
+            config.resolve_with_suffix(CookieKind::Plugin, Some("oauth_popup"), false, None);
+        assert_eq!(cookie.name, "popup-marker");
+        assert_eq!(cookie.attributes.max_age, Some(42.9));
+        assert!(cookie.attributes.partitioned);
+        assert!(cookie.attributes.expires.is_none());
     }
 }

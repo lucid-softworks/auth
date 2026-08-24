@@ -233,6 +233,49 @@ Better Auth 1.7.1, including URI encoding and its 400-day cookie limit. The
 official client reads and compares the cookie synchronously and can clear it;
 its optional `domain` setting affects clearing only.
 
+OAuth Popup is optional and reuses the configured social and Generic OAuth
+providers:
+
+```rust
+config.add_plugin(OAuthPopupPlugin)?;
+```
+
+Use Better Auth's official 1.7.1 browser plugin:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { oauthPopupClient } from "better-auth/client/plugins";
+
+export const authClient = createAuthClient({
+  baseURL: "https://auth.example.com",
+  plugins: [oauthPopupClient()],
+});
+
+await authClient.signIn.popup({
+  provider: "google",
+  callbackURL: "/dashboard",
+});
+```
+
+`GET /oauth-popup/start` validates the opener and callback URLs, creates the
+ordinary OAuth state plus a signed `oauth_popup` marker, and redirects to the
+provider. The callback retains its redirect and cookies but returns Better
+Auth's pinned CSP-protected completion document, which posts the signed session
+cookie value to the opener. Top-level use needs no other plugin. A client inside
+a cross-origin iframe stores that value and sends it as a bearer session
+credential, so embedded use additionally requires Bearer support ([#34]).
+
+The marker intentionally is not bound into OAuth state, is not revalidated on
+the callback, and uses one fixed cookie. Concurrent popup starts can therefore
+overwrite each other's opener marker. Database OAuth state remains one-time;
+encrypted cookie state keeps Better Auth's normal ten-minute replay window.
+These are the Better Auth 1.7.1 protocol boundaries rather than extra Lucid
+behavior. Per-cookie naming and attributes can be set with
+`config.cookies.plugin["oauth_popup"]`; `max_age` and `partitioned` follow
+Better Call's merge and serialization rules. Generated official-client popup
+failures currently return their error code as the `message`, while the exported
+error-code metadata still contains the descriptive text.
+
 Additional fields for Better Auth's user, session, account, and verification
 models are explicit and typed. Core and plugin schema descriptors are merged in
 dependency order and available through `AuthService::database_schema_fields`.

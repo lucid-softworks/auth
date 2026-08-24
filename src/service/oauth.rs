@@ -132,14 +132,12 @@ impl AuthService {
             "requestSignUp",
             "idTokenNonce",
             "link",
-            "provider",
             "anonymousUserId",
         ] {
             additional_data.remove(reserved);
         }
         let state_data = OAuthState {
             oauth_state: Some(state.clone()),
-            provider: input.provider,
             callback_url,
             code_verifier: code_verifier.clone(),
             error_url: input.error_callback_url,
@@ -172,7 +170,7 @@ impl AuthService {
         })
     }
 
-    async fn save_oauth_state(
+    pub(crate) async fn save_oauth_state(
         &self,
         state: &str,
         value: &OAuthState,
@@ -264,9 +262,6 @@ impl AuthService {
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<OAuthCallbackResult, AuthError> {
-        if state.provider != provider_id {
-            return Err(AuthError::OAuthStateMismatch);
-        }
         let provider = self
             .social_provider(provider_id)
             .ok_or(AuthError::OAuthProviderNotFound)?;

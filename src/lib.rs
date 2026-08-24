@@ -21,6 +21,7 @@ mod memory;
 mod model;
 mod multi_session;
 mod oauth;
+mod oauth_popup;
 mod one_tap;
 mod operator_security;
 mod organization;
@@ -130,6 +131,10 @@ pub use oauth::{
     OAuthClientAssertionContext, OAuthGrantType, OAuthProviderConfig, OAuthRefreshContext,
     OAuthRequestContext, OAuthTokens, OAuthUserInfo, OidcConfig, ProfileMap, SocialProvider,
     TokenEndpointAuth,
+};
+pub use oauth_popup::{
+    OAUTH_POPUP_DATA_ELEMENT_ID, OAUTH_POPUP_MESSAGE_TYPE, OAUTH_POPUP_SCRIPT_CSP_HASH,
+    OAuthPopupPlugin, POPUP_MARKER_COOKIE, POPUP_TOKEN_STORAGE_KEY,
 };
 pub use one_tap::{OneTapConfig, OneTapError, OneTapPlugin};
 pub use operator_security::{

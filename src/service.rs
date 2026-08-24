@@ -78,6 +78,8 @@ use uuid::Uuid;
 
 pub use api_key::{ApiKeySortDirection, ApiKeyUpdate};
 #[cfg(feature = "axum")]
+pub(crate) use cookie_signing::decode_cookie_component;
+#[cfg(feature = "axum")]
 pub(crate) use email_password::valid_email;
 pub use email_password::{EmailSignUpInput, EmailSignUpResult};
 pub use email_verification::EmailVerificationResult;

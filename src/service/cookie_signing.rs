@@ -23,7 +23,7 @@ impl AuthService {
     }
 }
 
-fn decode_cookie_component(value: &str) -> String {
+pub(crate) fn decode_cookie_component(value: &str) -> String {
     let bytes = value.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());
     let mut index = 0;
