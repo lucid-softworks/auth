@@ -8,6 +8,11 @@ use axum::{
 use std::net::SocketAddr;
 
 pub(crate) use super::error::auth_error;
+pub(crate) use account_cookie::{
+    account_data_cookie, clear_account_cookie, refresh_account_cookie, with_account_cookie,
+};
+
+mod account_cookie;
 
 pub(crate) type PeerAddress = Option<Extension<ConnectInfo<SocketAddr>>>;
 
@@ -82,6 +87,18 @@ pub(crate) async fn with_session_cookie(
     with_session_cache_cookie(service, token, None, remember_me, response).await
 }
 
+pub(crate) async fn with_bound_session_cookie(
+    service: &AuthService,
+    headers: &HeaderMap,
+    user_id: uuid::Uuid,
+    token: &str,
+    remember_me: Option<bool>,
+    body: impl IntoResponse,
+) -> Response {
+    let response = with_session_cookie(service, token, remember_me, body).await;
+    refresh_account_cookie(service, headers, user_id, response)
+}
+
 pub(crate) async fn with_session_cache_cookie(
     service: &AuthService,
     token: &str,
@@ -102,7 +119,19 @@ pub(crate) async fn with_session_cache_cookie(
     }
 }
 
-pub(crate) fn clear_session_cookie(service: &AuthService, body: impl IntoResponse) -> Response {
+pub(crate) fn clear_session_cookie_from_request(
+    service: &AuthService,
+    headers: &HeaderMap,
+    body: impl IntoResponse,
+) -> Response {
+    clear_session_cookie_store(service, Some(headers), body)
+}
+
+fn clear_session_cookie_store(
+    service: &AuthService,
+    headers: Option<&HeaderMap>,
+    body: impl IntoResponse,
+) -> Response {
     let response = with_cookie(
         body,
         serialize_cookie(&service.session_cookie(), "", Some(0)),
@@ -111,14 +140,22 @@ pub(crate) fn clear_session_cookie(service: &AuthService, body: impl IntoRespons
         response,
         serialize_cookie(&service.session_data_cookie(), "", Some(0)),
     );
-    with_cookie(
+    let response = with_cookie(
         response,
         serialize_cookie(&service.dont_remember_cookie(), "", Some(0)),
-    )
+    );
+    if service.account_cookie_enabled() {
+        clear_account_cookie(service, headers, response)
+    } else {
+        response
+    }
 }
 
 pub(crate) fn session_data_cookie(service: &AuthService, headers: &HeaderMap) -> Option<String> {
-    let cookie = service.session_data_cookie();
+    chunked_cookie(headers, &service.session_data_cookie())
+}
+
+fn chunked_cookie(headers: &HeaderMap, cookie: &ResolvedCookie) -> Option<String> {
     let values: Vec<_> = headers
         .get(header::COOKIE)?
         .to_str()
@@ -148,18 +185,27 @@ pub(crate) fn with_chunked_session_data_cookie(
     max_age: Option<i64>,
     body: impl IntoResponse,
 ) -> Response {
+    with_chunked_cookie(&service.session_data_cookie(), value, max_age, None, body)
+}
+
+fn with_chunked_cookie(
+    cookie: &ResolvedCookie,
+    value: &str,
+    max_age: Option<i64>,
+    existing: Option<&HeaderMap>,
+    body: impl IntoResponse,
+) -> Response {
     const MAX_COOKIE_SIZE: usize = 4_050;
     const MAX_CHUNKS: usize = 100;
-    let cookie = service.session_data_cookie();
-    if serialize_cookie(&cookie, value, max_age).len() <= MAX_COOKIE_SIZE {
-        return with_cookie(body, serialize_cookie(&cookie, value, max_age));
+    let mut response = expire_existing_cookie_store(cookie, existing, body);
+    if serialize_cookie(cookie, value, max_age).len() <= MAX_COOKIE_SIZE {
+        return with_cookie(response, serialize_cookie(cookie, value, max_age));
     }
     let mut largest_name = cookie.clone();
     largest_name.name = format!("{}.{}", largest_name.name, MAX_CHUNKS - 1);
     let overhead = serialize_cookie(&largest_name, "", max_age).len();
     let chunk_size = MAX_COOKIE_SIZE.saturating_sub(overhead);
     let count = value.len().div_ceil(chunk_size.max(1));
-    let mut response = body.into_response();
     if chunk_size == 0 || count > MAX_CHUNKS {
         return response;
     }
@@ -170,6 +216,62 @@ pub(crate) fn with_chunked_session_data_cookie(
         response = with_cookie(response, serialize_cookie(&chunk, value, max_age));
     }
     response
+}
+
+fn clear_cookie_store(
+    cookie: &ResolvedCookie,
+    headers: Option<&HeaderMap>,
+    body: impl IntoResponse,
+) -> Response {
+    let mut names = vec![cookie.name.clone()];
+    if let Some(headers) = headers {
+        let prefix = format!("{}.", cookie.name);
+        for (name, _) in cookie_pairs(headers) {
+            if name.starts_with(&prefix) && !names.iter().any(|existing| existing == name) {
+                names.push(name.into());
+            }
+        }
+    }
+    names
+        .into_iter()
+        .fold(body.into_response(), |response, name| {
+            let mut expired = cookie.clone();
+            expired.name = name;
+            with_cookie(response, serialize_cookie(&expired, "", Some(0)))
+        })
+}
+
+fn expire_existing_cookie_store(
+    cookie: &ResolvedCookie,
+    headers: Option<&HeaderMap>,
+    body: impl IntoResponse,
+) -> Response {
+    let Some(headers) = headers else {
+        return body.into_response();
+    };
+    let prefix = format!("{}.", cookie.name);
+    cookie_pairs(headers)
+        .into_iter()
+        .filter(|(name, _)| *name == cookie.name || name.starts_with(&prefix))
+        .map(|(name, _)| name)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .fold(body.into_response(), |response, name| {
+            let mut expired = cookie.clone();
+            expired.name = name.into();
+            with_cookie(response, serialize_cookie(&expired, "", Some(0)))
+        })
+}
+
+fn cookie_pairs(headers: &HeaderMap) -> Vec<(&str, &str)> {
+    headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .into_iter()
+        .flat_map(|value| value.split(';'))
+        .map(str::trim)
+        .filter_map(|value| value.split_once('='))
+        .collect()
 }
 
 pub fn session_token(service: &AuthService, headers: &HeaderMap) -> Option<String> {

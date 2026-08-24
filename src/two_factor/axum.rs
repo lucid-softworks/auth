@@ -4,7 +4,7 @@ use super::http::{
 };
 use crate::{
     AuthError, AuthService, AxumPluginRoute, SessionWithUser,
-    axum::http::{auth_error, session_token, signed_cookie_token, with_session_cookie},
+    axum::http::{auth_error, session_token, signed_cookie_token, with_bound_session_cookie},
     protocol::better_auth::{BetterAuthUser, StatusResponse},
     service::{BackupCodeVerification, TwoFactorEnableResult, TwoFactorVerification},
 };
@@ -83,12 +83,17 @@ async fn enable(
         )),
     };
     match result {
-        Ok(result) => enable_response(&service, result).await,
+        Ok(result) => enable_response(&service, &headers, session.user.id, result).await,
         Err(error) => auth_error(error),
     }
 }
 
-async fn enable_response(service: &AuthService, result: TwoFactorEnableResult) -> Response {
+async fn enable_response(
+    service: &AuthService,
+    headers: &HeaderMap,
+    user_id: uuid::Uuid,
+    result: TwoFactorEnableResult,
+) -> Response {
     let response = Json(EnableResponse {
         method: result.method,
         totp_uri: result.totp_uri,
@@ -96,7 +101,15 @@ async fn enable_response(service: &AuthService, result: TwoFactorEnableResult) -
     });
     match result.replacement_session {
         Some(replacement) => {
-            with_session_cookie(service, &replacement.token, Some(true), response).await
+            with_bound_session_cookie(
+                service,
+                headers,
+                user_id,
+                &replacement.token,
+                Some(true),
+                response,
+            )
+            .await
         }
         None => response.into_response(),
     }
@@ -122,8 +135,10 @@ async fn disable(
         .await
     {
         Ok(replacement) => {
-            let response = with_session_cookie(
+            let response = with_bound_session_cookie(
                 &service,
+                &headers,
+                session.user.id,
                 &replacement.token,
                 Some(true),
                 Json(StatusResponse { status: true }),
@@ -181,7 +196,7 @@ async fn verify_totp(
         )
         .await
     {
-        Ok(result) => verification_response(&service, result).await,
+        Ok(result) => verification_response(&service, &headers, result).await,
         Err(error) => challenge_verification_error(&service, error),
     }
 }
@@ -213,7 +228,7 @@ async fn verify_otp(
         )
         .await
     {
-        Ok(result) => verification_response(&service, result).await,
+        Ok(result) => verification_response(&service, &headers, result).await,
         Err(error) => verification_error(&service, error),
     }
 }
@@ -270,7 +285,7 @@ async fn verify_backup_code(
         )
         .await
     {
-        Ok(result) => backup_verification_response(&service, result).await,
+        Ok(result) => backup_verification_response(&service, &headers, result).await,
         Err(error) => challenge_verification_error(&service, error),
     }
 }
@@ -282,7 +297,12 @@ struct VerificationResponse {
     user: BetterAuthUser,
 }
 
-async fn verification_response(service: &AuthService, result: TwoFactorVerification) -> Response {
+async fn verification_response(
+    service: &AuthService,
+    headers: &HeaderMap,
+    result: TwoFactorVerification,
+) -> Response {
+    let user_id = result.result.session.user.id;
     let user = match service.better_auth_user(&result.result.session.user).await {
         Ok(user) => user,
         Err(error) => return auth_error(error),
@@ -291,8 +311,15 @@ async fn verification_response(service: &AuthService, result: TwoFactorVerificat
         token: Some(result.result.token.clone()),
         user,
     });
-    let mut response =
-        with_session_cookie(service, &result.result.token, result.remember_me, response).await;
+    let mut response = with_bound_session_cookie(
+        service,
+        headers,
+        user_id,
+        &result.result.token,
+        result.remember_me,
+        response,
+    )
+    .await;
     response = expire_plugin_cookie(service, "two_factor", response);
     if let Some(trust_cookie) = result.trust_cookie {
         response = set_plugin_cookie(
@@ -313,10 +340,11 @@ async fn verification_response(service: &AuthService, result: TwoFactorVerificat
 
 async fn backup_verification_response(
     service: &AuthService,
+    headers: &HeaderMap,
     result: BackupCodeVerification,
 ) -> Response {
     if let Some(completed) = result.completed {
-        return verification_response(service, completed).await;
+        return verification_response(service, headers, completed).await;
     }
     match service.better_auth_user(&result.user).await {
         Ok(user) => Json(VerificationResponse {

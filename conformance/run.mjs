@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { createAuthClient } from "better-auth/client";
 import { getCookieCache } from "better-auth/cookies";
+import { symmetricDecodeJWT } from "better-auth/crypto";
 import {
   adminClient,
   anonymousClient,
@@ -110,6 +111,31 @@ function success(result, method) {
   assert.equal(result.error, null, `${method}: ${JSON.stringify(result.error)}`);
   assert.notEqual(result.data, null, `${method}: missing data`);
   return result.data;
+}
+
+function chunkedCookie(cookies, name) {
+  const direct = cookies.get(name);
+  if (direct) return direct;
+  return [...cookies]
+    .flatMap(([cookieName, value]) => {
+      const match = cookieName.match(
+        new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(\\d+)$`),
+      );
+      return match ? [[Number(match[1]), value]] : [];
+    })
+    .sort(([left], [right]) => left - right)
+    .map(([, value]) => value)
+    .join("");
+}
+
+async function decodedAccountCookie(transport) {
+  const value = chunkedCookie(transport.cookies, "better-auth.account_data");
+  assert.ok(value, "better-auth.account_data cookie is missing");
+  return symmetricDecodeJWT(
+    value,
+    "R".repeat(32),
+    "better-auth-account",
+  );
 }
 
 async function runCase(name, callback) {
@@ -1457,7 +1483,15 @@ async function conformance(origin) {
     assert.equal(session.user.email, "official-social@example.com");
     assert.notEqual(session.user.id, anonymous.user.id);
     assert.equal(session.user.image, "https://provider.conformance.invalid/avatar.png");
+    const selectedAccount = await decodedAccountCookie(transport);
+    assert.equal(selectedAccount.userId, session.user.id);
+    assert.equal(selectedAccount.providerId, "conformance-oauth");
+    assert.equal(selectedAccount.accountId, "official-client-subject");
     success(await client.signOut(), "signOut after social OAuth");
+    assert.equal(
+      chunkedCookie(transport.cookies, "better-auth.account_data"),
+      "",
+    );
   });
 
   await runCase("linked account and provider token clients", async () => {
@@ -1495,12 +1529,52 @@ async function conformance(origin) {
     assert.deepEqual(account.scopes, []);
     assert.equal(account.issuer, "https://issuer.conformance.invalid");
     assert.equal(account.accountId, "official-linked-subject");
+    const linkedCookie = await decodedAccountCookie(transport);
+    assert.equal(linkedCookie.id, account.id);
+    assert.equal(linkedCookie.userId, account.userId);
+    assert.equal(linkedCookie.providerId, account.providerId);
+    assert.notEqual(linkedCookie.accessToken, "official-link-access-token");
+
+    const validCookies = new Map(transport.cookies);
+    const accountCookieName = [...transport.cookies.keys()].find((name) =>
+      name.startsWith("better-auth.account_data"),
+    );
+    const accountCookieValue = transport.cookies.get(accountCookieName);
+    transport.cookies.set(
+      accountCookieName,
+      `${accountCookieValue.slice(0, -1)}${accountCookieValue.endsWith("A") ? "B" : "A"}`,
+    );
+    const tampered = await client.getAccessToken({ useAccountCookie: true });
+    assert.equal(tampered.data, null);
+    assert.equal(tampered.error?.status, 400);
+    assert.equal(chunkedCookie(transport.cookies, "better-auth.account_data"), "");
+    transport.cookies = validCookies;
+
+    const cookieAccess = success(
+      await client.getAccessToken({ useAccountCookie: true }),
+      "getAccessToken account cookie",
+    );
+    assert.equal(cookieAccess.accessToken, "official-link-access-token");
+
+    const cookieInfo = success(
+      await client.accountInfo({ query: { useAccountCookie: true } }),
+      "accountInfo account cookie",
+    );
+    assert.equal(cookieInfo.account.id, account.id);
+    assert.equal(cookieInfo.data.fixture, "linked-account");
+
+    const cookieRefreshed = success(
+      await client.refreshToken({ useAccountCookie: true }),
+      "refreshToken account cookie",
+    );
+    assert.equal(cookieRefreshed.accessToken, "official-refreshed-access-token");
+    assert.equal((await decodedAccountCookie(transport)).id, account.id);
 
     const access = success(
       await client.getAccessToken({ accountId: account.id }),
       "getAccessToken",
     );
-    assert.equal(access.accessToken, "official-link-access-token");
+    assert.equal(access.accessToken, "official-refreshed-access-token");
     assert.equal(access.idToken, "official-link-id-token");
 
     const refreshed = success(
@@ -1521,6 +1595,21 @@ async function conformance(origin) {
     assert.equal(info.user.email, "luna@example.com");
     assert.equal(info.data.fixture, "linked-account");
 
+    const accountOnlyCookies = [...transport.cookies]
+      .filter(([name]) => name.startsWith("better-auth.account_data"))
+      .map(([name, value]) => `${name}=${value}`)
+      .join("; ");
+    const accountOnly = await fetch(`${origin}/api/auth/get-access-token`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: accountOnlyCookies,
+        origin,
+      },
+      body: JSON.stringify({ useAccountCookie: true }),
+    });
+    assert.equal(accountOnly.status, 401, "account cookie must not act as a bearer credential");
+
     const unlinked = success(
       await client.unlinkAccount({ accountId: account.id }),
       "unlinkAccount",
@@ -1531,6 +1620,16 @@ async function conformance(origin) {
       remaining.every((candidate) => candidate.id !== account.id),
       "unlinked account must no longer be listed",
     );
+
+    success(
+      await client.signUp.email({
+        name: "Account Cookie Binding",
+        email: "account-cookie-binding@example.com",
+        password: "correct horse battery staple",
+      }),
+      "signUp.email clears a different user's account cookie",
+    );
+    assert.equal(chunkedCookie(transport.cookies, "better-auth.account_data"), "");
   });
 
   await runCase("current-user deletion client", async () => {

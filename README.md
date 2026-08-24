@@ -103,6 +103,24 @@ the current user's email by default, and cannot unlink the final account unless
 session-bound to the account owner; refresh rotation uses an atomic
 compare-and-swap so concurrent requests return the winning token set.
 
+Better Auth's optional encrypted account-data cookie is also supported. It is
+disabled by default when using the database-backed account store. Enable it
+when clients need explicit `useAccountCookie: true` selection:
+
+```rust
+config.account.store_account_cookie = true;
+```
+
+Social sign-in and account linking select the provider account in
+`better-auth.account_data`. `getAccessToken`, `refreshToken`, and `accountInfo`
+accept that cookie only when the request explicitly selects it and an active
+session belongs to the same user; the cookie is never a bearer credential.
+The A256CBC-HS512 JWE uses Better Auth's `better-auth-account` salt, expires at
+`session.cookie_cache.max_age`, refreshes with session/account changes, and is
+cleared on session removal or a cross-user session switch. Oversized values use
+Better Auth's numbered-cookie chunking and stale-chunk cleanup. Override its
+name or scope with `config.cookies.account_data`.
+
 Request rate limiting follows Better Auth's IP-and-path model. Release builds
 enable the production default; debug builds mirror Better Auth development and
 test mode by leaving it disabled unless explicitly enabled. Better Auth's

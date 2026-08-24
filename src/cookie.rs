@@ -41,6 +41,7 @@ pub struct CookieConfig {
     pub default_attributes: CookieAttributes,
     pub session_token: CookieOptions,
     pub session_data: CookieOptions,
+    pub account_data: CookieOptions,
     pub dont_remember: CookieOptions,
     cross_subdomain_enabled: bool,
     cross_subdomain_domain: Option<String>,
@@ -53,6 +54,7 @@ impl Default for CookieConfig {
             default_attributes: CookieAttributes::default(),
             session_token: CookieOptions::default(),
             session_data: CookieOptions::default(),
+            account_data: CookieOptions::default(),
             dont_remember: CookieOptions::default(),
             cross_subdomain_enabled: false,
             cross_subdomain_domain: None,
@@ -99,6 +101,8 @@ impl CookieConfig {
             #[cfg(feature = "axum")]
             CookieKind::SessionData => "session_data",
             #[cfg(feature = "axum")]
+            CookieKind::AccountData => "account_data",
+            #[cfg(feature = "axum")]
             CookieKind::DontRemember => "dont_remember",
             CookieKind::PasskeyChallenge => "better-auth-passkey",
             #[cfg(feature = "axum")]
@@ -109,6 +113,8 @@ impl CookieConfig {
             CookieKind::SessionToken => Some(&self.session_token),
             #[cfg(feature = "axum")]
             CookieKind::SessionData => Some(&self.session_data),
+            #[cfg(feature = "axum")]
+            CookieKind::AccountData => Some(&self.account_data),
             #[cfg(feature = "axum")]
             CookieKind::DontRemember => Some(&self.dont_remember),
             CookieKind::PasskeyChallenge => None,
@@ -162,6 +168,8 @@ pub(crate) enum CookieKind {
     SessionToken,
     #[cfg(feature = "axum")]
     SessionData,
+    #[cfg(feature = "axum")]
+    AccountData,
     #[cfg(feature = "axum")]
     DontRemember,
     PasskeyChallenge,

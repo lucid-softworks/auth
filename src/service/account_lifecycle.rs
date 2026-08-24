@@ -189,6 +189,13 @@ impl AuthService {
     ) -> Result<ProviderTokenResponse, AuthError> {
         require_account_session(actor)?;
         let account = self.account_for_user(actor.user.id, account_id).await?;
+        self.get_provider_access_token_for_account(account).await
+    }
+
+    pub(super) async fn get_provider_access_token_for_account(
+        &self,
+        account: OAuthAccount,
+    ) -> Result<ProviderTokenResponse, AuthError> {
         let expiring = account
             .access_token_expires_at
             .is_some_and(|expires| expires - Utc::now() < Duration::seconds(5));
@@ -209,7 +216,7 @@ impl AuthService {
         self.refresh_provider_account(account).await
     }
 
-    async fn refresh_provider_account(
+    pub(super) async fn refresh_provider_account(
         &self,
         mut account: OAuthAccount,
     ) -> Result<ProviderTokenResponse, AuthError> {
@@ -259,10 +266,19 @@ impl AuthService {
         account_id: Uuid,
     ) -> Result<ProviderAccountInfo, AuthError> {
         let account = self.account_for_user(actor.user.id, account_id).await?;
+        self.provider_account_info_for_account(account).await
+    }
+
+    pub(super) async fn provider_account_info_for_account(
+        &self,
+        account: OAuthAccount,
+    ) -> Result<ProviderAccountInfo, AuthError> {
         let provider = self
             .social_provider(&account.provider_id)
             .ok_or(AuthError::OAuthProviderNotConfigured)?;
-        let tokens = self.get_provider_access_token(actor, account_id).await?;
+        let tokens = self
+            .get_provider_access_token_for_account(account.clone())
+            .await?;
         if tokens.access_token.is_empty() {
             return Err(AuthError::OAuthAccessTokenNotFound);
         }
@@ -375,7 +391,7 @@ fn provider_account_info(account: OAuthAccount, info: OAuthUserInfo) -> Provider
     }
 }
 
-fn require_account_session(actor: &SessionWithUser) -> Result<(), AuthError> {
+pub(super) fn require_account_session(actor: &SessionWithUser) -> Result<(), AuthError> {
     if actor.user.is_anonymous || actor.session.actor_user_id.is_some() {
         Err(AuthError::Unauthorized)
     } else {

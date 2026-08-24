@@ -3,7 +3,7 @@ use crate::{
     AuthError, AuthService, AxumPluginRoute,
     axum::http::{
         PeerAddress, auth_error, client_ip, current_session, serialize_cookie, signed_cookie_token,
-        user_agent, with_cookie, with_session_cookie,
+        user_agent, with_bound_session_cookie, with_cookie,
     },
     protocol::better_auth::BetterAuthSession,
 };
@@ -123,9 +123,15 @@ async fn impersonate_user(
                 .await
             {
                 Ok(response) => {
-                    let response =
-                        with_session_cookie(&service, &result.token, Some(true), Json(response))
-                            .await;
+                    let response = with_bound_session_cookie(
+                        &service,
+                        &headers,
+                        result.session.user.id,
+                        &result.token,
+                        Some(true),
+                        Json(response),
+                    )
+                    .await;
                     with_admin_session_cookie(&service, &actor_token, response)
                 }
                 Err(error) => auth_error(error),
@@ -153,9 +159,15 @@ async fn stop_impersonating(
                 .await
             {
                 Ok(response) => {
-                    let response =
-                        with_session_cookie(&service, &result.token, Some(true), Json(response))
-                            .await;
+                    let response = with_bound_session_cookie(
+                        &service,
+                        &headers,
+                        result.session.user.id,
+                        &result.token,
+                        Some(true),
+                        Json(response),
+                    )
+                    .await;
                     clear_admin_session_cookie(&service, response)
                 }
                 Err(error) => auth_error(error),

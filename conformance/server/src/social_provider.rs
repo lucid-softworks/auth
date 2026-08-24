@@ -113,7 +113,10 @@ impl SocialProvider for ConformanceSocialProvider {
     }
 
     async fn refresh_access_token(&self, refresh_token: &str) -> Result<OAuthTokens, AuthError> {
-        if refresh_token != "official-link-refresh-token" {
+        if !matches!(
+            refresh_token,
+            "official-link-refresh-token" | "official-refreshed-refresh-token"
+        ) {
             return Err(AuthError::OAuthInvalidToken);
         }
         Ok(OAuthTokens {

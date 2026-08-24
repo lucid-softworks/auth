@@ -2,7 +2,7 @@ use super::{
     body::BetterAuthBody,
     http::{
         PeerAddress, auth_error, client_ip, current_session, serialize_cookie, signed_cookie_token,
-        user_agent, with_cookie, with_session_cookie,
+        user_agent, with_account_cookie, with_bound_session_cookie, with_cookie,
     },
 };
 use crate::{AuthError, AuthService, SocialSignInInput, SocialSignInResult};
@@ -52,6 +52,7 @@ async fn sign_in_social(
     headers: HeaderMap,
     BetterAuthBody(input): BetterAuthBody<SocialSignInInput>,
 ) -> Response {
+    let provider_id = input.provider.clone();
     let anonymous = current_session(&service, &headers)
         .await
         .filter(|session| session.user.is_anonymous);
@@ -88,8 +89,10 @@ async fn sign_in_social(
                 Ok(user) => user,
                 Err(error) => return auth_error(error),
             };
-            with_session_cookie(
+            let response = with_bound_session_cookie(
                 &service,
+                &headers,
+                result.session.user.id,
                 &result.token,
                 Some(true),
                 Json(crate::protocol::better_auth::SignInResponse {
@@ -98,6 +101,14 @@ async fn sign_in_social(
                     url: None,
                     user,
                 }),
+            )
+            .await;
+            with_provider_account_cookie(
+                &service,
+                &headers,
+                result.session.user.id,
+                &provider_id,
+                response,
             )
             .await
         }
@@ -158,6 +169,7 @@ async fn oauth_callback(
         Ok(state) => state,
         Err(_) => return redirect_error(&default_error_url, "state_mismatch", None),
     };
+    let account_user_id = state.link.as_ref().map(|link| link.user_id);
     let error_url = state.error_url.clone().unwrap_or(default_error_url);
     let cookie = service.plugin_cookie("state");
     if signed_cookie_token(&service, &headers, &cookie.name).as_deref() != Some(state_token) {
@@ -193,19 +205,68 @@ async fn oauth_callback(
         .await
     {
         Ok(result) => {
-            let response = redirect(&result.redirect_url);
-            let response = match result.session {
-                Some(session) => {
-                    with_session_cookie(&service, &session.token, Some(true), response).await
-                }
-                None => response,
-            };
-            clear_state_cookie(&service, response)
+            oauth_success_response(&service, &headers, &provider_id, account_user_id, result).await
         }
         Err(error) => clear_state_cookie(
             &service,
             redirect_error(&error_url, callback_error_code(&error), None),
         ),
+    }
+}
+
+async fn oauth_success_response(
+    service: &AuthService,
+    headers: &HeaderMap,
+    provider_id: &str,
+    linked_user_id: Option<uuid::Uuid>,
+    result: crate::OAuthCallbackResult,
+) -> Response {
+    let response = redirect(&result.redirect_url);
+    let response = match result.session {
+        Some(ref session) => {
+            with_bound_session_cookie(
+                service,
+                headers,
+                session.session.user.id,
+                &session.token,
+                Some(true),
+                response,
+            )
+            .await
+        }
+        None => response,
+    };
+    let user_id = result
+        .session
+        .as_ref()
+        .map(|session| session.session.user.id)
+        .or(linked_user_id);
+    let response = match user_id {
+        Some(user_id) => {
+            with_provider_account_cookie(service, headers, user_id, provider_id, response).await
+        }
+        None => response,
+    };
+    clear_state_cookie(service, response)
+}
+
+async fn with_provider_account_cookie(
+    service: &AuthService,
+    headers: &HeaderMap,
+    user_id: uuid::Uuid,
+    provider_id: &str,
+    response: Response,
+) -> Response {
+    if !service.account_cookie_enabled() {
+        return response;
+    }
+    match service
+        .account_cookie_for_provider(user_id, provider_id)
+        .await
+    {
+        Ok(Some(account)) => with_account_cookie(service, headers, account, response),
+        Ok(None) => response,
+        Err(error) => auth_error(error),
     }
 }
 

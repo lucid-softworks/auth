@@ -31,6 +31,8 @@ mod session_cache;
 mod session_config;
 mod step_up;
 mod store;
+#[cfg(feature = "axum")]
+mod symmetric_jwe;
 mod two_factor;
 mod user_deletion;
 mod username;

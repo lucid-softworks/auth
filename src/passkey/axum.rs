@@ -3,7 +3,7 @@ use crate::{
     AuthError, AuthService, AxumPluginRoute,
     axum::http::{
         PeerAddress, auth_error, challenge_token, client_ip, current_session, user_agent,
-        with_challenge_cookie, with_session_cookie,
+        with_bound_session_cookie, with_challenge_cookie,
     },
     protocol::better_auth::{
         BetterAuthPasskey, DeletePasskeyRequest, PasskeyRegistrationResponse, StatusResponse,
@@ -179,7 +179,15 @@ async fn verify_registration(
                     ),
                     user: Some(user),
                 });
-                with_session_cookie(&service, &replacement.token, Some(true), body).await
+                with_bound_session_cookie(
+                    &service,
+                    &headers,
+                    replacement.session.user.id,
+                    &replacement.token,
+                    Some(true),
+                    body,
+                )
+                .await
             } else {
                 Json(PasskeyRegistrationResponse {
                     passkey: BetterAuthPasskey::from(&result.passkey),
@@ -265,7 +273,15 @@ async fn verify_authentication(
                 .await
             {
                 Ok(response) => {
-                    with_session_cookie(&service, &result.token, Some(true), Json(response)).await
+                    with_bound_session_cookie(
+                        &service,
+                        &headers,
+                        result.session.user.id,
+                        &result.token,
+                        Some(true),
+                        Json(response),
+                    )
+                    .await
                 }
                 Err(error) => auth_error(error),
             }

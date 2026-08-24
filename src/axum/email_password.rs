@@ -1,6 +1,8 @@
 use super::{
     body::BetterAuthBody,
-    http::{PeerAddress, auth_error, client_ip, current_session, user_agent, with_session_cookie},
+    http::{
+        PeerAddress, auth_error, client_ip, current_session, user_agent, with_bound_session_cookie,
+    },
 };
 use crate::{
     AuthError, AuthService, EmailSignUpInput,
@@ -132,6 +134,7 @@ async fn verify_email(
         .await
     {
         Ok(result) => {
+            let user_id = result.user.id;
             if let (Some(source), Some(token)) = (session.as_ref(), result.session_token.as_ref())
                 && source.user.is_anonymous
             {
@@ -162,7 +165,17 @@ async fn verify_email(
                 }
             };
             match result.session_token {
-                Some(token) => with_session_cookie(&service, &token, Some(true), response).await,
+                Some(token) => {
+                    with_bound_session_cookie(
+                        &service,
+                        &headers,
+                        user_id,
+                        &token,
+                        Some(true),
+                        response,
+                    )
+                    .await
+                }
                 None => response,
             }
         }
@@ -245,6 +258,7 @@ async fn sign_up_email(
         .await
     {
         Ok(result) => {
+            let user_id = result.user.id;
             if let (Some(source), Some(token)) = (anonymous.as_ref(), result.token.as_ref()) {
                 let upgraded = match service.session(token).await {
                     Ok(Some(session)) => crate::SignInResult {
@@ -268,7 +282,17 @@ async fn sign_up_email(
                 user,
             });
             match token {
-                Some(token) => with_session_cookie(&service, &token, remember_me, response).await,
+                Some(token) => {
+                    with_bound_session_cookie(
+                        &service,
+                        &headers,
+                        user_id,
+                        &token,
+                        remember_me,
+                        response,
+                    )
+                    .await
+                }
                 None => response.into_response(),
             }
         }

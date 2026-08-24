@@ -177,6 +177,7 @@ fn conformance_config(
     let mut config = AuthConfig::new([82_u8; 32]).expect("fixture secret");
     config.secondary_storage = Some(secondary);
     config.session.store_session_in_database = true;
+    config.account.store_account_cookie = true;
     cookie_cache::configure(&mut config);
     if std::env::var_os("LUCID_AUTH_DEFER_SESSION_REFRESH").is_some() {
         config.session.cookie_cache.enabled = false;

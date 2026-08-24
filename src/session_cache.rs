@@ -1,20 +1,11 @@
 use crate::{AuthError, CookieCacheStrategy};
-use aes::Aes256;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, block_padding::Pkcs7};
-use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
-use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256, Sha512};
+use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;
-type HmacSha512 = Hmac<Sha512>;
-type Aes256CbcEnc = cbc::Encryptor<Aes256>;
-type Aes256CbcDec = cbc::Decryptor<Aes256>;
-
-const JWE_INFO: &[u8] = b"BetterAuth.js Generated Encryption Key";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,13 +43,6 @@ struct JwtPayload {
     exp: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     jti: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct JweHeader {
-    alg: String,
-    enc: String,
-    kid: String,
 }
 
 pub(crate) fn encode(
@@ -172,91 +156,11 @@ fn encode_jwe(
     secret: &[u8],
     max_age_seconds: i64,
 ) -> Result<String, AuthError> {
-    let key = derive_jwe_key(secret)?;
-    let header = JweHeader {
-        alg: "dir".into(),
-        enc: "A256CBC-HS512".into(),
-        kid: jwk_thumbprint(&key),
-    };
-    let protected = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header)?);
-    let iv: [u8; 16] = rand::rng().random();
-    let now = chrono::Utc::now().timestamp();
-    let plaintext = serde_json::to_vec(&JwtPayload {
-        cache: payload,
-        iat: now,
-        exp: now + max_age_seconds,
-        jti: Some(uuid::Uuid::new_v4().to_string()),
-    })?;
-    let ciphertext = Aes256CbcEnc::new_from_slices(&key[32..], &iv)
-        .map_err(|_| crypto_error("invalid JWE encryption key"))?
-        .encrypt_padded_vec_mut::<Pkcs7>(&plaintext);
-    let tag = authentication_tag(&key[..32], protected.as_bytes(), &iv, &ciphertext)?;
-    Ok(format!(
-        "{protected}..{}.{}.{}",
-        URL_SAFE_NO_PAD.encode(iv),
-        URL_SAFE_NO_PAD.encode(ciphertext),
-        URL_SAFE_NO_PAD.encode(tag)
-    ))
+    crate::symmetric_jwe::encode(payload, secret, b"better-auth-session", max_age_seconds)
 }
 
 fn decode_jwe(value: &str, secret: &[u8]) -> Option<(SessionCachePayload, i64)> {
-    let parts: Vec<_> = value.split('.').collect();
-    if parts.len() != 5 || !parts[1].is_empty() {
-        return None;
-    }
-    let header: JweHeader = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(parts[0]).ok()?).ok()?;
-    if header.alg != "dir" || header.enc != "A256CBC-HS512" {
-        return None;
-    }
-    let key = derive_jwe_key(secret).ok()?;
-    if header.kid != jwk_thumbprint(&key) {
-        return None;
-    }
-    let iv = URL_SAFE_NO_PAD.decode(parts[2]).ok()?;
-    let ciphertext = URL_SAFE_NO_PAD.decode(parts[3]).ok()?;
-    let supplied_tag = URL_SAFE_NO_PAD.decode(parts[4]).ok()?;
-    let expected_tag =
-        authentication_tag(&key[..32], parts[0].as_bytes(), &iv, &ciphertext).ok()?;
-    if supplied_tag != expected_tag {
-        return None;
-    }
-    let plaintext = Aes256CbcDec::new_from_slices(&key[32..], &iv)
-        .ok()?
-        .decrypt_padded_vec_mut::<Pkcs7>(&ciphertext)
-        .ok()?;
-    let payload: JwtPayload = serde_json::from_slice(&plaintext).ok()?;
-    Some((payload.cache, payload.exp.saturating_mul(1_000)))
-}
-
-fn derive_jwe_key(secret: &[u8]) -> Result<[u8; 64], AuthError> {
-    let hkdf = Hkdf::<Sha256>::new(Some(b"better-auth-session"), secret);
-    let mut key = [0_u8; 64];
-    hkdf.expand(JWE_INFO, &mut key)
-        .map_err(|_| crypto_error("could not derive JWE key"))?;
-    Ok(key)
-}
-
-fn jwk_thumbprint(key: &[u8]) -> String {
-    let canonical = format!(
-        "{{\"k\":\"{}\",\"kty\":\"oct\"}}",
-        URL_SAFE_NO_PAD.encode(key)
-    );
-    URL_SAFE_NO_PAD.encode(Sha256::digest(canonical.as_bytes()))
-}
-
-fn authentication_tag(
-    mac_key: &[u8],
-    aad: &[u8],
-    iv: &[u8],
-    ciphertext: &[u8],
-) -> Result<Vec<u8>, AuthError> {
-    let mut mac = HmacSha512::new_from_slice(mac_key)
-        .map_err(|_| crypto_error("invalid JWE authentication key"))?;
-    mac.update(aad);
-    mac.update(iv);
-    mac.update(ciphertext);
-    mac.update(&(u64::try_from(aad.len()).unwrap_or(u64::MAX) * 8).to_be_bytes());
-    Ok(mac.finalize().into_bytes()[..32].to_vec())
+    crate::symmetric_jwe::decode(value, secret, b"better-auth-session")
 }
 
 fn sign(secret: &[u8], message: &[u8]) -> Result<String, AuthError> {

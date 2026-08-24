@@ -2,8 +2,8 @@ use super::{AnonymousPluginConfig, AnonymousSignInContext};
 use crate::{
     AuthError, AuthService, AxumPluginRoute,
     axum::http::{
-        PeerAddress, auth_error, clear_session_cookie, client_ip, current_session, user_agent,
-        with_session_cookie,
+        PeerAddress, auth_error, clear_session_cookie_from_request, client_ip, current_session,
+        user_agent, with_bound_session_cookie,
     },
     protocol::better_auth::AnonymousSignInResponse,
 };
@@ -62,7 +62,15 @@ async fn sign_in(
                 token: result.token.clone(),
                 user,
             };
-            with_session_cookie(&service, &result.token, Some(true), Json(response)).await
+            with_bound_session_cookie(
+                &service,
+                &headers,
+                result.session.user.id,
+                &result.token,
+                Some(true),
+                Json(response),
+            )
+            .await
         }
         Err(error) => auth_error(error),
     }
@@ -77,7 +85,11 @@ async fn delete_user(
         return auth_error(AuthError::Unauthorized);
     };
     match service.delete_anonymous_user_with(&config, &session).await {
-        Ok(()) => clear_session_cookie(&service, Json(DeleteResponse { success: true })),
+        Ok(()) => clear_session_cookie_from_request(
+            &service,
+            &headers,
+            Json(DeleteResponse { success: true }),
+        ),
         Err(error) => auth_error(error),
     }
 }

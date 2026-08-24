@@ -314,6 +314,9 @@ impl AuthConfig {
 pub struct AccountConfig {
     pub account_linking: AccountLinkingConfig,
     pub additional_fields: crate::AdditionalFieldSet,
+    /// Stores the selected provider account in Better Auth's encrypted
+    /// `account_data` cookie. Disabled by default when a database is present.
+    pub store_account_cookie: bool,
 }
 
 #[derive(Debug, Clone)]

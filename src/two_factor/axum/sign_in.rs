@@ -1,7 +1,10 @@
 use super::{expire_plugin_cookie, set_plugin_cookie};
 use crate::{
     AuthService, SessionWithUser,
-    axum::http::{auth_error, clear_session_cookie, signed_cookie_token, with_session_cookie},
+    axum::http::{
+        auth_error, clear_session_cookie_from_request, signed_cookie_token,
+        with_bound_session_cookie,
+    },
     service::TwoFactorSignInOutcome,
 };
 use axum::{
@@ -31,6 +34,7 @@ pub(crate) async fn finish_password_sign_in(
         }) => {
             continue_sign_in(
                 service,
+                headers,
                 *result,
                 remember_me,
                 callback_url,
@@ -45,6 +49,7 @@ pub(crate) async fn finish_password_sign_in(
             max_age_seconds,
         }) => challenge(
             service,
+            headers,
             identifier,
             methods,
             max_age_seconds,
@@ -56,6 +61,7 @@ pub(crate) async fn finish_password_sign_in(
 
 async fn continue_sign_in(
     service: &AuthService,
+    headers: &HeaderMap,
     result: crate::SignInResult,
     remember_me: Option<bool>,
     callback_url: Option<String>,
@@ -68,11 +74,13 @@ async fn continue_sign_in(
         return auth_error(error);
     }
     let token = result.token.clone();
+    let user_id = result.session.user.id;
     let body = match crate::axum::sign_in_response(service, result, callback_url.clone()).await {
         Ok(body) => body,
         Err(error) => return auth_error(error),
     };
-    let mut response = with_session_cookie(service, &token, remember_me, Json(body)).await;
+    let mut response =
+        with_bound_session_cookie(service, headers, user_id, &token, remember_me, Json(body)).await;
     if let Some(rotated) = rotated_trust_cookie {
         let max_age = service
             .two_factor_plugin()
@@ -92,6 +100,7 @@ async fn continue_sign_in(
 
 fn challenge(
     service: &AuthService,
+    headers: &HeaderMap,
     identifier: String,
     methods: Vec<String>,
     max_age_seconds: i64,
@@ -103,8 +112,9 @@ fn challenge(
         two_factor_redirect: bool,
         two_factor_methods: Vec<String>,
     }
-    let response = clear_session_cookie(
+    let response = clear_session_cookie_from_request(
         service,
+        headers,
         Json(ChallengeResponse {
             two_factor_redirect: true,
             two_factor_methods: methods,

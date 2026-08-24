@@ -3,10 +3,10 @@ use crate::{
     AuthService, AxumPluginRoute,
     axum::body::BetterAuthBody,
     axum::http::{
-        PeerAddress, auth_error, client_ip, current_session, user_agent, with_session_cookie,
+        PeerAddress, auth_error, client_ip, current_session, user_agent, with_bound_session_cookie,
     },
     protocol::better_auth::StatusResponse,
-    service::magic_link::{MagicLinkRequest, MagicLinkVerificationError},
+    service::magic_link::{MagicLinkRequest, MagicLinkVerificationError, MagicLinkVerified},
 };
 use axum::{
     Extension, Json,
@@ -134,35 +134,69 @@ async fn verify_magic_link(
                 return auth_error(error);
             }
             let token = verified.result.token.clone();
-            let response = match callback {
-                Some(_) if verified.is_new_user => redirect(&new_user_callback_url),
-                Some(_) => redirect(&callback_url),
-                None => {
-                    let user = match service
-                        .better_auth_user(&verified.result.session.user)
-                        .await
-                    {
-                        Ok(user) => user,
-                        Err(error) => return auth_error(error),
-                    };
-                    Json(json!({
-                        "token": verified.result.token,
-                        "user": user,
-                        "session": service.better_auth_session(
-                            &verified.result.session.session,
-                            &token,
-                        ),
-                    }))
-                    .into_response()
-                }
+            let response = match verified_response(
+                &service,
+                &verified,
+                callback.as_deref(),
+                &callback_url,
+                &new_user_callback_url,
+                &token,
+            )
+            .await
+            {
+                Ok(response) => response,
+                Err(error) => return auth_error(error),
             };
-            with_session_cookie(&service, &token, Some(true), response).await
+            bind_verified_session(
+                &service,
+                &headers,
+                verified.result.session.user.id,
+                &token,
+                response,
+            )
+            .await
         }
         Err(MagicLinkVerificationError::Redirect { code, description }) => {
             redirect_error(&error_callback_url, code, description)
         }
         Err(MagicLinkVerificationError::Auth(error)) => auth_error(error),
     }
+}
+
+async fn verified_response(
+    service: &AuthService,
+    verified: &MagicLinkVerified,
+    callback: Option<&str>,
+    callback_url: &str,
+    new_user_callback_url: &str,
+    token: &str,
+) -> Result<Response, crate::AuthError> {
+    if callback.is_some() {
+        return Ok(redirect(if verified.is_new_user {
+            new_user_callback_url
+        } else {
+            callback_url
+        }));
+    }
+    let user = service
+        .better_auth_user(&verified.result.session.user)
+        .await?;
+    Ok(Json(json!({
+        "token": verified.result.token,
+        "user": user,
+        "session": service.better_auth_session(&verified.result.session.session, token),
+    }))
+    .into_response())
+}
+
+async fn bind_verified_session(
+    service: &AuthService,
+    headers: &HeaderMap,
+    user_id: uuid::Uuid,
+    token: &str,
+    response: Response,
+) -> Response {
+    with_bound_session_cookie(service, headers, user_id, token, Some(true), response).await
 }
 
 fn redirect(location: &str) -> Response {

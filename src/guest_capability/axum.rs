@@ -1,7 +1,7 @@
 use crate::{
     AuthError, AuthService, AxumPluginRoute, GuestGrant, NewGuestGrant,
     axum::http::{
-        PeerAddress, auth_error, client_ip, current_session, user_agent, with_session_cookie,
+        PeerAddress, auth_error, client_ip, current_session, user_agent, with_bound_session_cookie,
     },
 };
 use axum::{
@@ -147,7 +147,15 @@ async fn redeem_guest_grant(
                     Value::String(result.grant_id.to_string()),
                 );
             }
-            with_session_cookie(&service, &result.token, Some(true), Json(response)).await
+            with_bound_session_cookie(
+                &service,
+                &headers,
+                result.session.user.id,
+                &result.token,
+                Some(true),
+                Json(response),
+            )
+            .await
         }
         Err(error) => auth_error(error),
     }

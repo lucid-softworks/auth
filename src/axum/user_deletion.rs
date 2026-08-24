@@ -1,4 +1,4 @@
-use super::http::{auth_error, clear_session_cookie, current_session};
+use super::http::{auth_error, clear_session_cookie_from_request, current_session};
 use crate::{
     AuthError, AuthService, DeleteUserResult,
     protocol::better_auth::{DeleteUserCallbackQuery, DeleteUserRequest, DeleteUserResponse},
@@ -38,8 +38,9 @@ async fn delete_user(
         )
         .await
     {
-        Ok(DeleteUserResult::Deleted) => clear_session_cookie(
+        Ok(DeleteUserResult::Deleted) => clear_session_cookie_from_request(
             &service,
+            &headers,
             Json(DeleteUserResponse {
                 success: true,
                 message: "User deleted",
@@ -75,7 +76,7 @@ async fn delete_user_callback(
                 })
                 .into_response(),
             };
-            clear_session_cookie(&service, response)
+            clear_session_cookie_from_request(&service, &headers, response)
         }
         Err(error) => auth_error(error),
     }

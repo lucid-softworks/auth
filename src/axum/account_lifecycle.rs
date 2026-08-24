@@ -1,5 +1,8 @@
-use super::http::{auth_error, current_session, serialize_cookie, with_cookie};
-use crate::{AuthError, AuthService, SocialSignInInput, SocialSignInResult};
+use super::http::{
+    account_data_cookie, auth_error, clear_account_cookie, current_session, serialize_cookie,
+    with_account_cookie, with_cookie,
+};
+use crate::{AuthError, AuthService, OAuthAccount, SocialSignInInput, SocialSignInResult};
 use axum::{
     Extension, Json, Router,
     extract::Query,
@@ -32,6 +35,7 @@ struct AccountInput {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields)]
 struct AccountSelection {
     account_id: Option<String>,
     use_account_cookie: Option<bool>,
@@ -72,6 +76,7 @@ async fn link_social(
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(AuthError::Unauthorized);
     };
+    let provider_id = input.provider.clone();
     match service.link_social_account(&actor, input).await {
         Ok(SocialSignInResult::Authorization {
             url,
@@ -93,12 +98,22 @@ async fn link_social(
                 serialize_cookie(&cookie, &service.signed_cookie_value(&state), Some(300)),
             )
         }
-        Ok(SocialSignInResult::Linked) => Json(LinkStatus {
-            url: String::new(),
-            status: Some(true),
-            redirect: false,
-        })
-        .into_response(),
+        Ok(SocialSignInResult::Linked) => {
+            let response = Json(LinkStatus {
+                url: String::new(),
+                status: Some(true),
+                redirect: false,
+            })
+            .into_response();
+            match service
+                .account_cookie_for_provider(actor.user.id, &provider_id)
+                .await
+            {
+                Ok(Some(account)) => with_account_cookie(&service, &headers, account, response),
+                Ok(None) => response,
+                Err(error) => auth_error(error),
+            }
+        }
         Ok(SocialSignInResult::Session(_)) => auth_error(AuthError::InvalidRequest(
             "session response is invalid for account linking".into(),
         )),
@@ -149,19 +164,55 @@ async fn account_token_response(
     let Some(actor) = current_session(service, headers).await else {
         return auth_error(AuthError::Unauthorized);
     };
-    let account_id = match selected_account_id(&input) {
-        Ok(id) => id,
-        Err(error) => return auth_error(error),
+    let selected = match selected_account(service, headers, &actor, &input) {
+        Ok(selected) => selected,
+        Err(error) => return account_selection_error(service, headers, &input, error),
     };
-    let result = if refresh {
-        service
-            .refresh_provider_access_token(&actor, account_id)
-            .await
-    } else {
-        service.get_provider_access_token(&actor, account_id).await
+    let from_cookie = matches!(selected, SelectedAccount::Cookie(_));
+    let selected_id = match &selected {
+        SelectedAccount::Database(account_id) => *account_id,
+        SelectedAccount::Cookie(account) => account.id,
+    };
+    let result = match (refresh, selected) {
+        (true, SelectedAccount::Database(account_id)) => {
+            service
+                .refresh_provider_access_token(&actor, account_id)
+                .await
+        }
+        (false, SelectedAccount::Database(account_id)) => {
+            service.get_provider_access_token(&actor, account_id).await
+        }
+        (true, SelectedAccount::Cookie(account)) => {
+            service
+                .refresh_provider_access_token_from_cookie(&actor, *account)
+                .await
+        }
+        (false, SelectedAccount::Cookie(account)) => {
+            service
+                .get_provider_access_token_from_cookie(&actor, *account)
+                .await
+        }
     };
     match result {
-        Ok(tokens) => Json(tokens).into_response(),
+        Ok(tokens) => {
+            let refreshed_id = tokens.account_id;
+            let response = Json(tokens).into_response();
+            let should_update_cookie = refreshed_id.is_some()
+                && (!refresh
+                    || from_cookie
+                    || selected_cookie_matches(service, headers, actor.user.id, selected_id));
+            refresh_selected_account_cookie(
+                service,
+                headers,
+                actor.user.id,
+                should_update_cookie.then_some(selected_id),
+                response,
+            )
+            .await
+        }
+        Err(error) if from_cookie => {
+            clear_account_cookie(service, Some(headers), auth_error(error))
+        }
         Err(error) => auth_error(error),
     }
 }
@@ -174,21 +225,146 @@ async fn account_info(
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(AuthError::Unauthorized);
     };
-    let account_id = match selected_account_id(&input) {
-        Ok(id) => id,
-        Err(error) => return auth_error(error),
+    let selected = match selected_account(&service, &headers, &actor, &input) {
+        Ok(selected) => selected,
+        Err(error) => return account_selection_error(&service, &headers, &input, error),
     };
-    match service.provider_account_info(&actor, account_id).await {
-        Ok(info) => Json(info).into_response(),
+    let from_cookie = matches!(selected, SelectedAccount::Cookie(_));
+    let (account_id, needs_refresh, result) = match selected {
+        SelectedAccount::Database(account_id) => {
+            let needs_refresh = if service.account_cookie_enabled() {
+                match service
+                    .account_cookie_for_id(actor.user.id, account_id)
+                    .await
+                {
+                    Ok(Some(account)) => account_needs_refresh(&account),
+                    Ok(None) => false,
+                    Err(error) => return auth_error(error),
+                }
+            } else {
+                false
+            };
+            (
+                account_id,
+                needs_refresh,
+                service.provider_account_info(&actor, account_id).await,
+            )
+        }
+        SelectedAccount::Cookie(account) => {
+            let needs_refresh = account_needs_refresh(&account);
+            let account_id = account.id;
+            (
+                account_id,
+                needs_refresh,
+                service
+                    .provider_account_info_from_cookie(&actor, *account)
+                    .await,
+            )
+        }
+    };
+    match result {
+        Ok(info) => {
+            let response = Json(info).into_response();
+            refresh_selected_account_cookie(
+                &service,
+                &headers,
+                actor.user.id,
+                needs_refresh.then_some(account_id),
+                response,
+            )
+            .await
+        }
+        Err(error) if from_cookie => {
+            clear_account_cookie(&service, Some(&headers), auth_error(error))
+        }
         Err(error) => auth_error(error),
     }
 }
 
-fn selected_account_id(input: &AccountSelection) -> Result<Uuid, AuthError> {
-    let _ = (&input.use_account_cookie, &input.user_id);
-    input
-        .account_id
-        .as_deref()
-        .and_then(|id| Uuid::parse_str(id).ok())
-        .ok_or(AuthError::AccountNotFound)
+enum SelectedAccount {
+    Database(Uuid),
+    Cookie(Box<OAuthAccount>),
+}
+
+fn selected_account(
+    service: &AuthService,
+    headers: &HeaderMap,
+    actor: &crate::SessionWithUser,
+    input: &AccountSelection,
+) -> Result<SelectedAccount, AuthError> {
+    let _ = &input.user_id;
+    let valid_selection = matches!(
+        (&input.account_id, input.use_account_cookie),
+        (Some(_), None) | (None, Some(true))
+    );
+    if !valid_selection {
+        return Err(AuthError::InvalidRequest(
+            "select exactly one of accountId or useAccountCookie: true".into(),
+        ));
+    }
+    if let Some(account_id) = input.account_id.as_deref()
+        && input.use_account_cookie.is_none()
+        && let Ok(account_id) = Uuid::parse_str(account_id)
+    {
+        return Ok(SelectedAccount::Database(account_id));
+    }
+    if input.account_id.is_none()
+        && input.use_account_cookie == Some(true)
+        && service.account_cookie_enabled()
+        && let Some(account) = account_data_cookie(service, headers)
+            .and_then(|value| service.decode_account_cookie(&value))
+        && account.user_id == actor.user.id
+    {
+        return Ok(SelectedAccount::Cookie(Box::new(account)));
+    }
+    Err(AuthError::AccountNotFound)
+}
+
+fn account_selection_error(
+    service: &AuthService,
+    headers: &HeaderMap,
+    input: &AccountSelection,
+    error: AuthError,
+) -> Response {
+    let response = auth_error(error);
+    if input.use_account_cookie == Some(true) && service.account_cookie_enabled() {
+        clear_account_cookie(service, Some(headers), response)
+    } else {
+        response
+    }
+}
+
+fn selected_cookie_matches(
+    service: &AuthService,
+    headers: &HeaderMap,
+    user_id: Uuid,
+    account_id: Uuid,
+) -> bool {
+    account_data_cookie(service, headers)
+        .and_then(|value| service.decode_account_cookie(&value))
+        .is_some_and(|account| account.user_id == user_id && account.id == account_id)
+}
+
+async fn refresh_selected_account_cookie(
+    service: &AuthService,
+    headers: &HeaderMap,
+    user_id: Uuid,
+    account_id: Option<Uuid>,
+    response: Response,
+) -> Response {
+    let Some(account_id) = account_id else {
+        return response;
+    };
+    match service.account_cookie_for_id(user_id, account_id).await {
+        Ok(Some(account)) => with_account_cookie(service, headers, account, response),
+        Ok(None) => clear_account_cookie(service, Some(headers), response),
+        Err(error) => auth_error(error),
+    }
+}
+
+fn account_needs_refresh(account: &OAuthAccount) -> bool {
+    account.refresh_token.is_some()
+        && account
+            .access_token_expires_at
+            .is_some_and(|expires| expires - chrono::Utc::now() < chrono::Duration::seconds(5))
 }

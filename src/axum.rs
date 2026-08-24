@@ -26,8 +26,8 @@ mod security;
 mod session;
 mod user_deletion;
 
+use self::http::auth_error;
 pub use self::http::session_token;
-use self::http::{auth_error, clear_session_cookie};
 
 pub fn router<S>(service: Arc<AuthService>) -> Router<S>
 where
@@ -88,5 +88,9 @@ async fn sign_out(Extension(service): Extension<Arc<AuthService>>, headers: Head
     {
         return auth_error(error);
     }
-    clear_session_cookie(&service, Json(SuccessResponse { success: true }))
+    http::clear_session_cookie_from_request(
+        &service,
+        &headers,
+        Json(SuccessResponse { success: true }),
+    )
 }

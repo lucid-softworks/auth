@@ -1,4 +1,6 @@
 mod access;
+#[cfg(feature = "axum")]
+mod account_cookie;
 mod account_lifecycle;
 pub(crate) mod account_types;
 mod admin_update;

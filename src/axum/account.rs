@@ -1,6 +1,6 @@
 use super::http::{
-    PeerAddress, auth_error, clear_session_cookie, client_ip, current_session, user_agent,
-    with_session_cookie,
+    PeerAddress, auth_error, clear_session_cookie_from_request, client_ip, current_session,
+    user_agent, with_bound_session_cookie,
 };
 use crate::{AuthError, AuthService, UserProfileUpdate};
 use axum::{
@@ -47,7 +47,15 @@ async fn change_email(
             let body = Json(StatusResponse { status: true });
             match (updated, super::session_token(&service, &headers)) {
                 (Some(_), Some(token)) => {
-                    with_session_cookie(&service, &token, Some(true), body).await
+                    with_bound_session_cookie(
+                        &service,
+                        &headers,
+                        current.user.id,
+                        &token,
+                        Some(true),
+                        body,
+                    )
+                    .await
                 }
                 _ => body.into_response(),
             }
@@ -73,7 +81,15 @@ async fn update_session(
             if token.is_empty() {
                 body.into_response()
             } else {
-                with_session_cookie(&service, &token, Some(true), body).await
+                with_bound_session_cookie(
+                    &service,
+                    &headers,
+                    current.user.id,
+                    &token,
+                    Some(true),
+                    body,
+                )
+                .await
             }
         }
         Err(error) => auth_error(error),
@@ -111,7 +127,17 @@ async fn update_user(
         Ok(_) => {
             let response = Json(StatusResponse { status: true });
             match super::session_token(&service, &headers) {
-                Some(token) => with_session_cookie(&service, &token, Some(true), response).await,
+                Some(token) => {
+                    with_bound_session_cookie(
+                        &service,
+                        &headers,
+                        session.user.id,
+                        &token,
+                        Some(true),
+                        response,
+                    )
+                    .await
+                }
                 None => response.into_response(),
             }
         }
@@ -153,14 +179,17 @@ async fn change_password(
         .await
     {
         Ok(changed) => {
+            let user_id = changed.user.id;
             let user = match service.better_auth_user(&changed.user).await {
                 Ok(user) => user,
                 Err(error) => return auth_error(error),
             };
             if let Some(replacement) = changed.replacement_session {
                 let token = replacement.token;
-                with_session_cookie(
+                with_bound_session_cookie(
                     &service,
+                    &headers,
+                    user_id,
                     &token,
                     Some(true),
                     Json(ChangePasswordResponse {
@@ -234,7 +263,11 @@ async fn revoke_sessions(
         return auth_error(AuthError::InvalidSession);
     };
     match service.revoke_all_current_user_sessions(&session).await {
-        Ok(()) => clear_session_cookie(&service, Json(StatusResponse { status: true })),
+        Ok(()) => clear_session_cookie_from_request(
+            &service,
+            &headers,
+            Json(StatusResponse { status: true }),
+        ),
         Err(error) => auth_error(error),
     }
 }
