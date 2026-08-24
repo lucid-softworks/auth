@@ -9,6 +9,7 @@ mod api_key;
 mod api_key_policy;
 mod audit;
 mod change_email;
+mod cookie_signing;
 mod database;
 mod email_otp;
 mod email_password;
@@ -16,6 +17,8 @@ mod email_verification;
 mod guest;
 #[cfg(feature = "axum")]
 pub(crate) mod magic_link;
+#[cfg(feature = "axum")]
+mod multi_session;
 mod oauth;
 mod oauth_identity;
 mod oauth_sign_in;
@@ -376,20 +379,6 @@ impl AuthService {
 
     pub async fn sign_out(&self, token: &str) -> Result<(), AuthError> {
         self.delete_session_token_with_hooks(token).await
-    }
-
-    pub fn signed_cookie_value(&self, token: &str) -> String {
-        let signature = self.sign(token.as_bytes());
-        format!("{token}.{signature}")
-    }
-
-    pub fn verify_cookie_value(&self, value: &str) -> Option<String> {
-        let (token, signature) = value.rsplit_once('.')?;
-        let decoded = URL_SAFE_NO_PAD.decode(signature).ok()?;
-        let mut mac = HmacSha256::new_from_slice(&self.config.secret).ok()?;
-        mac.update(token.as_bytes());
-        mac.verify_slice(&decoded).ok()?;
-        Some(token.to_owned())
     }
 
     fn sign(&self, value: &[u8]) -> String {

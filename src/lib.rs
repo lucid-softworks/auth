@@ -18,6 +18,7 @@ mod guest_capability;
 mod magic_link;
 mod memory;
 mod model;
+mod multi_session;
 mod oauth;
 mod one_tap;
 mod operator_security;
@@ -117,6 +118,7 @@ pub use model::{
     ApiKey, AuthSession, AuthUser, AuthenticationMethod, IssuedApiKey, NewApiKey, NewPasswordUser,
     OAuthAccount, Principal, SessionWithUser, StoredPasskey, VerificationValue, VerifiedApiKey,
 };
+pub use multi_session::{INVALID_SESSION_TOKEN, MultiSessionConfig, MultiSessionPlugin};
 pub use oauth::{
     AuthorizationRequest, BuiltinProvider, BuiltinProviderKind, OAuthClientAssertion,
     OAuthClientAssertionContext, OAuthGrantType, OAuthProviderConfig, OAuthRefreshContext,

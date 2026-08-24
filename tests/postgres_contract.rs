@@ -1,11 +1,11 @@
 use lucid_auth::{
     AccessStore, AccountDeleteOutcome, AdditionalField, AdditionalFieldType, AdminPlugin,
     AnonymousPlugin, AuditPlugin, AuthConfig, AuthError, AuthService, AuthSession, AuthStore,
-    AuthUser, AuthenticationMethod, EmailSignUpInput, GuestCapabilityPlugin, NewPasswordUser,
-    OAuthAccount, OAuthAccountStore, OAuthTokenUpdateOutcome, OperatorSecurityConfig,
-    OperatorSecurityPlugin, OrganizationDynamicAccessControlConfig, OrganizationPlugin,
-    OrganizationPluginConfig, OrganizationTeamsConfig, OwnerPolicyPlugin, PasskeyConfig,
-    PasskeyPlugin, PluginMigration, PluginMigrationContribution, StepUpPolicyConfig,
+    AuthUser, AuthenticationMethod, EmailSignUpInput, GuestCapabilityPlugin, MultiSessionPlugin,
+    NewPasswordUser, OAuthAccount, OAuthAccountStore, OAuthTokenUpdateOutcome,
+    OperatorSecurityConfig, OperatorSecurityPlugin, OrganizationDynamicAccessControlConfig,
+    OrganizationPlugin, OrganizationPluginConfig, OrganizationTeamsConfig, OwnerPolicyPlugin,
+    PasskeyConfig, PasskeyPlugin, PluginMigration, PluginMigrationContribution, StepUpPolicyConfig,
     StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin, UsernameError, UsernamePlugin,
     postgres::PostgresStore,
 };
@@ -29,6 +29,8 @@ mod email_otp;
 mod guest_capability;
 #[path = "postgres_contract/magic_link.rs"]
 mod magic_link;
+#[path = "postgres_contract/multi_session.rs"]
+mod multi_session;
 #[path = "postgres_contract/oauth.rs"]
 mod oauth;
 #[path = "postgres_contract/operator_security.rs"]
@@ -97,18 +99,11 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     oauth::assert_one_tap_account_and_session_persistence(&store).await?;
 
     let (service, api_keys, phone_numbers) = contract_service(&store)?;
-    let user = service
-        .provision_password_user(NewPasswordUser {
-            username: "owner".into(),
-            name: "Example Owner".into(),
-            email: Some("owner@example.com".into()),
-            password: "correct horse battery staple".into(),
-            role: "owner".into(),
-        })
-        .await?;
+    let user = provision_owner(&service).await?;
     migrate_legacy_extensions(&service, &store, &pool, user.id).await?;
     anonymous::assert_lifecycle(&service, &store).await?;
     let signed_in = authenticate_owner(&service, &user).await?;
+    multi_session::assert_http_round_trip(&service).await?;
     session_refresh::assert_atomic(&service, &store).await?;
     organization::assert_persistence(&service, &store, &signed_in.session).await?;
     admin::assert_query_and_update(&service, &signed_in.session).await?;
@@ -142,6 +137,18 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
         .await?;
     admin.close().await;
     Ok(())
+}
+
+async fn provision_owner(service: &AuthService) -> Result<AuthUser, AuthError> {
+    service
+        .provision_password_user(NewPasswordUser {
+            username: "owner".into(),
+            name: "Example Owner".into(),
+            email: Some("owner@example.com".into()),
+            password: "correct horse battery staple".into(),
+            role: "owner".into(),
+        })
+        .await
 }
 
 async fn migration_checksum_upgrade_is_safe(
@@ -208,6 +215,7 @@ fn register_contract_plugins(
 ) -> Result<phone_number::Fixture, AuthError> {
     config.add_plugin(OwnerPolicyPlugin)?;
     config.add_plugin(UsernamePlugin::default())?;
+    config.add_plugin(MultiSessionPlugin::default())?;
     email_otp::register(config)?;
     siwe::register(config, store)?;
     let phone_numbers = phone_number::register(config, store)?;

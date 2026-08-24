@@ -11,8 +11,10 @@ pub(crate) use super::error::auth_error;
 pub(crate) use account_cookie::{
     account_data_cookie, clear_account_cookie, refresh_account_cookie, with_account_cookie,
 };
+pub(crate) use session_cookie_clear::clear_session_cookie_from_request;
 
 mod account_cookie;
+mod session_cookie_clear;
 
 pub(crate) type PeerAddress = Option<Extension<ConnectInfo<SocketAddr>>>;
 
@@ -25,7 +27,7 @@ pub(crate) async fn current_session(
             return Some(session);
         }
         if let Some(cache) = session_data_cookie(service, headers)
-            && let Some(session) = service.decode_stateless_session(&token, &cache)
+            && let Some(session) = service.decode_cookie_cached_session(&token, &cache)
         {
             return Some(session);
         }
@@ -105,10 +107,14 @@ pub(crate) async fn with_bound_session_cookie(
     body: impl IntoResponse,
 ) -> Response {
     let response = with_session_cookie(service, token, remember_me, body).await;
-    refresh_account_cookie(service, headers, user_id, response)
+    let response = refresh_account_cookie(service, headers, user_id, response);
+    crate::multi_session::axum::attach_new_session_cookie(
+        service, headers, user_id, token, response,
+    )
+    .await
 }
 
-pub(crate) fn with_bound_session_cookie_cache(
+pub(crate) async fn with_bound_session_cookie_cache(
     service: &AuthService,
     headers: &HeaderMap,
     user_id: uuid::Uuid,
@@ -126,7 +132,11 @@ pub(crate) fn with_bound_session_cookie_cache(
         ),
         None => response,
     };
-    refresh_account_cookie(service, headers, user_id, response)
+    let response = refresh_account_cookie(service, headers, user_id, response);
+    crate::multi_session::axum::attach_new_session_cookie(
+        service, headers, user_id, token, response,
+    )
+    .await
 }
 
 pub(crate) async fn with_session_cache_cookie(
@@ -146,38 +156,6 @@ pub(crate) async fn with_session_cache_cookie(
         ),
         Ok(None) => response,
         Err(error) => auth_error(error),
-    }
-}
-
-pub(crate) fn clear_session_cookie_from_request(
-    service: &AuthService,
-    headers: &HeaderMap,
-    body: impl IntoResponse,
-) -> Response {
-    clear_session_cookie_store(service, Some(headers), body)
-}
-
-fn clear_session_cookie_store(
-    service: &AuthService,
-    headers: Option<&HeaderMap>,
-    body: impl IntoResponse,
-) -> Response {
-    let response = with_cookie(
-        body,
-        serialize_cookie(&service.session_cookie(), "", Some(0)),
-    );
-    let response = with_cookie(
-        response,
-        serialize_cookie(&service.session_data_cookie(), "", Some(0)),
-    );
-    let response = with_cookie(
-        response,
-        serialize_cookie(&service.dont_remember_cookie(), "", Some(0)),
-    );
-    if service.account_cookie_enabled() {
-        clear_account_cookie(service, headers, response)
-    } else {
-        response
     }
 }
 

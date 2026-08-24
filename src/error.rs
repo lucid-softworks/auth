@@ -81,6 +81,8 @@ pub enum AuthError {
     AnonymousUserDeletionDisabled,
     #[error("the session is invalid or expired")]
     InvalidSession,
+    #[error("invalid multi-session token")]
+    MultiSessionInvalidToken,
     #[error("authentication is required")]
     Unauthorized,
     #[error("the session is not fresh")]

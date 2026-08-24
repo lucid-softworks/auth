@@ -10,6 +10,7 @@ import {
   anonymousClient,
   emailOTPClient,
   magicLinkClient,
+  multiSessionClient,
   oneTapClient,
   phoneNumberClient,
   siweClient,
@@ -261,6 +262,7 @@ async function conformance(origin) {
       passkeyClient(),
       apiKeyClient(),
       magicLinkClient(),
+      multiSessionClient(),
       phoneNumberClient(),
       oneTapClient({ clientId: "conformance-google-client" }),
       siweClient(),
@@ -291,6 +293,7 @@ async function conformance(origin) {
     const phoneNumber = metadata.find((plugin) => plugin.id === "phone-number");
     const oneTap = metadata.find((plugin) => plugin.id === "one-tap");
     const siwe = metadata.find((plugin) => plugin.id === "siwe");
+    const multiSession = metadata.find((plugin) => plugin.id === "multi-session");
     assert.equal(nativePlugin.client.betterAuthVersion, betterAuthPackage.version);
     assert.equal(nativePlugin.endpoints[0].clientMethod, "nativePlugin.ping");
     assert.equal(magicLink.client.factory, "magicLinkClient");
@@ -301,6 +304,15 @@ async function conformance(origin) {
     assert.equal(phoneNumber.client.factory, "phoneNumberClient");
     assert.equal(oneTap.client.factory, "oneTapClient");
     assert.equal(siwe.client.factory, "siweClient");
+    assert.equal(multiSession.client.factory, "multiSessionClient");
+    assert.deepEqual(
+      multiSession.endpoints.map((endpoint) => [endpoint.path, endpoint.clientMethod]),
+      [
+        ["/multi-session/list-device-sessions", "multiSession.listDeviceSessions"],
+        ["/multi-session/set-active", "multiSession.setActive"],
+        ["/multi-session/revoke", "multiSession.revoke"],
+      ],
+    );
     assert.deepEqual(
       oneTap.endpoints.map((endpoint) => [endpoint.path, endpoint.clientMethod]),
       [["/one-tap/callback", "oneTap"]],
@@ -326,6 +338,73 @@ async function conformance(origin) {
         ["/siwe/verify", "siwe.verify"],
       ],
     );
+  });
+
+  await runCase("multi-session official client", async () => {
+    transport.clearCookies();
+    const first = success(
+      await client.signUp.email({
+        name: "Multi One",
+        email: "multi-one@example.com",
+        password: "correct horse battery staple",
+      }),
+      "multi-session first signup",
+    );
+    const firstSelector = [...transport.cookies.keys()].find((name) =>
+      name.includes("_multi-"),
+    );
+    assert.ok(firstSelector);
+    transport.cookies.delete("better-auth.session_token");
+    for (const name of [...transport.cookies.keys()]) {
+      if (name.startsWith("better-auth.session_data")) transport.cookies.delete(name);
+    }
+
+    const second = success(
+      await client.signUp.email({
+        name: "Multi Two",
+        email: "multi-two@example.com",
+        password: "correct horse battery staple",
+      }),
+      "multi-session second signup",
+    );
+    assert.equal(
+      [...transport.cookies.keys()].filter((name) => name.includes("_multi-")).length,
+      2,
+    );
+    const sessions = success(
+      await client.multiSession.listDeviceSessions(),
+      "multiSession.listDeviceSessions",
+    );
+    assert.deepEqual(
+      new Set(sessions.map((entry) => entry.session.token)),
+      new Set([first.token, second.token]),
+    );
+    success(
+      await client.multiSession.setActive({ sessionToken: first.token }),
+      "multiSession.setActive",
+    );
+    transport.assertRequest("/api/auth/multi-session/set-active", "POST", {
+      sessionToken: first.token,
+    });
+    assert.equal(
+      success(await client.getSession(), "multi-session active session").session.token,
+      first.token,
+    );
+    assert.deepEqual(
+      success(
+        await client.multiSession.revoke({ sessionToken: first.token }),
+        "multiSession.revoke",
+      ),
+      { status: true },
+    );
+    transport.assertRequest("/api/auth/multi-session/revoke", "POST", {
+      sessionToken: first.token,
+    });
+    assert.equal(
+      success(await client.getSession(), "multi-session replacement").session.token,
+      second.token,
+    );
+    success(await client.signOut(), "multi-session cleanup signOut");
   });
 
   await runCase("SIWE official client against native server", async () => {
@@ -1095,6 +1174,7 @@ async function conformance(origin) {
     );
     assert.equal(restoredSession.session.id, administrator.session.id);
 
+    await transport.useFixtureSession("password");
     await transport.useFixtureSession("password");
     const current = success(await client.getSession(), "admin restored fixture session");
     const sessions = success(

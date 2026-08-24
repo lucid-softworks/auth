@@ -220,6 +220,9 @@ async fn oauth_callback(
     }
 }
 
+// Keeping Axum's concrete response here preserves the callback's redirect and
+// cookie headers without adding a boxed error type to this internal hot path.
+#[allow(clippy::result_large_err)]
 async fn validated_callback_state(
     service: &AuthService,
     headers: &HeaderMap,

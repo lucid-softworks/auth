@@ -13,10 +13,10 @@ use super::{
 use lucid_auth::{
     ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, AuthError, EmailOtpConfig,
     EmailOtpPlugin, MagicLinkConfig, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore,
-    OneTapConfig, OneTapPlugin, OtpConfig, PasskeyConfig, PasskeyPlugin, PhoneNumberConfig,
-    PhoneNumberPlugin, PhoneNumberSignUpConfig, SiweConfig, SiweMessageVerifier,
-    SiweNonceGenerator, SiwePlugin, SiweVerificationRequest, TotpConfig, TwoFactorConfig,
-    TwoFactorPlugin,
+    MultiSessionPlugin, OneTapConfig, OneTapPlugin, OtpConfig, PasskeyConfig, PasskeyPlugin,
+    PhoneNumberConfig, PhoneNumberPlugin, PhoneNumberSignUpConfig, SiweConfig,
+    SiweMessageVerifier, SiweNonceGenerator, SiwePlugin, SiweVerificationRequest, TotpConfig,
+    TwoFactorConfig, TwoFactorPlugin,
 };
 use std::{
     collections::BTreeMap,
@@ -99,18 +99,7 @@ pub(super) fn register(
         .add_plugin(EmailOtpPlugin::new(email_otp))
         .expect("unique email-OTP plugin");
     register_phone_number(config, phone_number_messages, store.clone());
-    let one_tap = OneTapConfig::default().with_client_id("conformance-google-client");
-    config
-        .add_plugin(OneTapPlugin::new(one_tap))
-        .expect("unique one-tap plugin");
-    let siwe = SiweConfig::new(
-        origin.trim_start_matches("http://"),
-        Arc::new(ConformanceSiweNonce(AtomicU64::new(1))),
-        Arc::new(ConformanceSiweVerifier),
-    );
-    config
-        .add_plugin(SiwePlugin::new(store.clone(), siwe))
-        .expect("unique SIWE plugin");
+    register_session_plugins(config, origin, store.clone());
     config
         .add_plugin(TwoFactorPlugin::new(
             Arc::new(MemoryTwoFactorStore::default()),
@@ -126,6 +115,24 @@ pub(super) fn register(
             },
         ))
         .expect("unique two-factor plugin");
+}
+
+fn register_session_plugins(config: &mut AuthConfig, origin: &str, store: Arc<MemoryStore>) {
+    let one_tap = OneTapConfig::default().with_client_id("conformance-google-client");
+    config
+        .add_plugin(OneTapPlugin::new(one_tap))
+        .expect("unique one-tap plugin");
+    config
+        .add_plugin(MultiSessionPlugin::default())
+        .expect("unique multi-session plugin");
+    let siwe = SiweConfig::new(
+        origin.trim_start_matches("http://"),
+        Arc::new(ConformanceSiweNonce(AtomicU64::new(1))),
+        Arc::new(ConformanceSiweVerifier),
+    );
+    config
+        .add_plugin(SiwePlugin::new(store, siwe))
+        .expect("unique SIWE plugin");
 }
 
 fn register_phone_number(

@@ -75,6 +75,7 @@ async fn verify(
                     }
                 })),
             )
+            .await
         }
         Err(error) => siwe_error(error),
     }

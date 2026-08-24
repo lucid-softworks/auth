@@ -129,9 +129,10 @@ async fn sign_out(
                 .headers_mut()
                 .insert(axum::http::header::LOCATION, location);
         }
-        return http::clear_session_cookie_from_request(&service, &headers, response);
+        let response = http::clear_session_cookie_from_request(&service, &headers, response);
+        return crate::multi_session::axum::cleanup_sign_out(&service, &headers, response).await;
     }
-    http::clear_session_cookie_from_request(
+    let response = http::clear_session_cookie_from_request(
         &service,
         &headers,
         Json(SignOutResponse {
@@ -139,5 +140,6 @@ async fn sign_out(
             url: None,
             redirect: None,
         }),
-    )
+    );
+    crate::multi_session::axum::cleanup_sign_out(&service, &headers, response).await
 }

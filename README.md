@@ -35,6 +35,7 @@ The currently supported surface covers:
 - the complete official `emailOTPClient` surface as an optional native plugin
 - the complete official `phoneNumberClient` surface as an optional native plugin
 - the official Google `oneTapClient` callback surface as an optional native plugin
+- the complete official `multiSessionClient` surface as an optional native plugin
 - the complete Better Auth username lifecycle as an optional native plugin
 - sign-out
 - the complete official anonymous client lifecycle as an optional native plugin

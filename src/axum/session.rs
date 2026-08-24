@@ -2,8 +2,8 @@ use super::{
     error::dynamic_error,
     http::{
         auth_error, clear_session_cookie_from_request, dont_remember, refresh_account_cookie,
-        serialize_cookie, session_data_cookie, session_token, with_chunked_session_data_cookie,
-        with_cookie, with_session_cache_cookie, with_session_cookie,
+        serialize_cookie, session_data_cookie, session_token, with_bound_session_cookie,
+        with_chunked_session_data_cookie, with_cookie, with_session_cache_cookie,
     },
 };
 use crate::{AuthError, AuthService, SessionWithUser, protocol::better_auth::SessionResponse};
@@ -152,8 +152,15 @@ async fn refreshed_response(
         Ok(response) => response,
         Err(error) => return auth_error(error),
     };
-    let response = with_session_cookie(service, token, Some(true), Json(response)).await;
-    refresh_account_cookie(service, headers, refreshed.user.id, response)
+    with_bound_session_cookie(
+        service,
+        headers,
+        refreshed.user.id,
+        token,
+        Some(true),
+        Json(response),
+    )
+    .await
 }
 
 async fn session_response(

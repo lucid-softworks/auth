@@ -103,14 +103,11 @@ impl AuthService {
         ))
     }
 
-    pub(crate) fn decode_stateless_session(
+    pub(crate) fn decode_cookie_cached_session(
         &self,
         token: &str,
         value: &str,
     ) -> Option<SessionWithUser> {
-        if !self.stateless_sessions() {
-            return None;
-        }
         let (response, _) = self.decode_session_cookie_cache(token, value)?;
         let response: crate::protocol::better_auth::SessionResponse =
             serde_json::from_value(response).ok()?;

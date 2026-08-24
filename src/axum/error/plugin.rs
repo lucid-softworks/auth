@@ -22,6 +22,11 @@ pub(super) fn response(error: &AuthError) -> Option<Response> {
             };
             Some(super::dynamic_error(StatusCode::BAD_REQUEST, code, message))
         }
+        AuthError::MultiSessionInvalidToken => Some(super::dynamic_error(
+            StatusCode::UNAUTHORIZED,
+            "INVALID_SESSION_TOKEN",
+            crate::INVALID_SESSION_TOKEN,
+        )),
         AuthError::TwoFactor(error) => Some(crate::two_factor::axum::two_factor_error(*error)),
         AuthError::StepUp(error) => {
             let details = match error {

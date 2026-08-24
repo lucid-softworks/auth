@@ -113,3 +113,23 @@ fn rejects_modified_session_cookies() {
             .is_none()
     );
 }
+
+#[test]
+fn signed_cookies_match_better_call_wire_format() {
+    let config = AuthConfig::new([b'R'; 32]).unwrap();
+    let service = AuthService::new(Arc::new(MemoryStore::default()), config);
+    let signed = service.signed_cookie_value("Selector.Token-Ab_C");
+    assert_eq!(
+        signed,
+        "Selector.Token-Ab_C.A1VYr58DBN9ckRDV0hiamvziSU5SF7j6G8koBS0EtA0%3D"
+    );
+    assert_eq!(
+        service.verify_cookie_value(&signed).as_deref(),
+        Some("Selector.Token-Ab_C")
+    );
+    assert!(
+        service
+            .verify_cookie_value("Selector.Token-Ab_C.A1VYr58DBN9ckRDV0hiamvziSU5SF7j6G8koBS0EtA0")
+            .is_none()
+    );
+}
