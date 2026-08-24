@@ -16,7 +16,13 @@ use lucid_auth::{
     PluginMigration,
 };
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::{
+    borrow::Cow,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 use tokio::sync::Mutex;
 use tower::ServiceExt;
 
@@ -28,11 +34,11 @@ const ENDPOINTS: &[PluginEndpoint] = &[PluginEndpoint {
 const MIDDLEWARE: &[PluginMiddleware] = &[PluginMiddleware {
     id: "native-test-header",
 }];
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration {
-    id: "create-records",
-    description: "native test records",
-    sql: "CREATE TABLE IF NOT EXISTS lucid_auth_native_test (id TEXT PRIMARY KEY)",
-}];
+const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
+    "create-records",
+    "native test records",
+    "CREATE TABLE IF NOT EXISTS lucid_auth_native_test (id TEXT PRIMARY KEY)",
+)];
 
 struct TestPlugin {
     events: Arc<Mutex<Vec<&'static str>>>,
@@ -44,8 +50,8 @@ impl AuthPlugin for TestPlugin {
         descriptor("native-test", &[], &[], ENDPOINTS)
     }
 
-    fn migrations(&self) -> &'static [PluginMigration] {
-        MIGRATIONS
+    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
+        std::borrow::Cow::Borrowed(MIGRATIONS)
     }
 
     async fn before(&self, event: &BeforeAuthEvent) -> Result<(), AuthError> {
@@ -178,6 +184,52 @@ impl AuthPlugin for MetadataPlugin {
     fn descriptor(&self) -> PluginDescriptor {
         self.0
     }
+}
+
+struct RuntimeMigrationPlugin {
+    migration_calls: Arc<AtomicUsize>,
+    table_name: String,
+}
+
+#[async_trait]
+impl AuthPlugin for RuntimeMigrationPlugin {
+    fn descriptor(&self) -> PluginDescriptor {
+        descriptor("runtime-migration", &[], &[], &[])
+    }
+
+    fn migrations(&self) -> Cow<'_, [PluginMigration]> {
+        let _ = self.migration_calls.fetch_add(1, Ordering::Relaxed);
+        Cow::Owned(vec![PluginMigration::owned(
+            "create-records",
+            "runtime-owned plugin records",
+            format!("CREATE TABLE {} (id TEXT PRIMARY KEY)", self.table_name),
+        )])
+    }
+}
+
+#[test]
+fn registry_preserves_runtime_owned_migrations() {
+    let migration_calls = Arc::new(AtomicUsize::new(0));
+    let mut config = AuthConfig::new([102_u8; 32]).unwrap();
+    config
+        .add_plugin(RuntimeMigrationPlugin {
+            migration_calls: migration_calls.clone(),
+            table_name: "lucid_auth_runtime_records".into(),
+        })
+        .unwrap();
+    let service = AuthService::try_new(Arc::new(MemoryStore::default()), config).unwrap();
+
+    let migrations = service.plugin_migrations();
+    assert_eq!(migrations.len(), 1);
+    assert_eq!(migrations[0].plugin_id, "runtime-migration");
+    assert_eq!(migrations[0].migration.id, "create-records");
+    assert_eq!(
+        migrations[0].migration.sql,
+        "CREATE TABLE lucid_auth_runtime_records (id TEXT PRIMARY KEY)"
+    );
+    assert!(matches!(&migrations[0].migration.sql, Cow::Owned(_)));
+    assert_eq!(service.plugin_migrations(), migrations);
+    assert_eq!(migration_calls.load(Ordering::Relaxed), 1);
 }
 
 struct RejectingPlugin;

@@ -6,6 +6,25 @@ use lucid_auth::{
     },
 };
 
+pub(super) async fn assert_extension_tables_absent(
+    pool: &sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(super::passkey_public_key_column_count(pool).await?, 0);
+    super::api_key::assert_table_absent(pool).await?;
+    super::audit::assert_table_absent(pool).await?;
+    super::two_factor::assert_table_absent(pool).await?;
+    super::step_up::assert_tables_absent(pool).await?;
+    super::operator_security::assert_table_absent(pool).await?;
+    super::organization::assert_table_absent(pool).await?;
+    super::siwe::assert_table_absent(pool).await?;
+    assert!(
+        !sqlx::query_scalar::<_, bool>("SELECT to_regclass('lucid_auth_guest_grants') IS NOT NULL")
+            .fetch_one(pool)
+            .await?
+    );
+    Ok(())
+}
+
 pub(crate) async fn session_token_upgrade_invalidates_incompatible_hashes(
     store: &PostgresStore,
     pool: &sqlx::PgPool,

@@ -569,6 +569,54 @@ the normal Google account linking, signup, session, anonymous-upgrade, and
 email-verification policies. The plugin adds no schema, migration, cookie, or
 plugin-specific rate-limit declaration.
 
+Sign In With Ethereum is an optional native plugin. Supply the shared memory or
+PostgreSQL store, a nonce generator, and the application-specific Ethereum
+signature verifier:
+
+```rust
+let mut siwe = SiweConfig::new(
+    "example.com",
+    Arc::new(MySiweNonceGenerator),
+    Arc::new(MySiweMessageVerifier),
+);
+siwe.email_domain_name = Some("example.com".into());
+siwe.ens_lookup = Some(Arc::new(MyEnsLookup));
+config.add_plugin(SiwePlugin::new(store.clone(), siwe))?;
+```
+
+`SiweNonceGenerator` must return 8–250 ASCII alphanumeric characters.
+`SiweMessageVerifier` receives the original message and signature, EIP-55
+checksummed address, numeric chain ID, and Better Auth's CAIP-122 projection.
+The nonce is stored for 15 minutes and is consumed as soon as a syntactically
+valid nonce is parsed, before domain, address, chain, time, or signature checks.
+This ordering and the deliberately narrow message parser match Better Auth
+1.7.1 exactly.
+
+Use the official client without a Lucid-specific adapter:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { siweClient } from "better-auth/client/plugins";
+
+export const authClient = createAuthClient({
+  baseURL: "https://auth.example.com",
+  plugins: [siweClient()],
+});
+
+const { data: nonce } = await authClient.siwe.nonce();
+const result = await authClient.siwe.verify({ message, signature });
+```
+
+The plugin exposes `POST /siwe/nonce`, its `POST /siwe/get-nonce` alias, and
+`POST /siwe/verify`. Verification returns exactly
+`{ token, success: true, user: { id, walletAddress, chainId } }` and creates a
+normal session. Anonymous mode is enabled by default
+and generates the same wallet-derived email shape as Better Auth; disabling it
+requires a valid `email`. A wallet seen on another chain reuses its existing
+user and adds a non-primary wallet/account identity. PostgreSQL deployments
+must apply the plugin migration for the configured wallet-address model (the
+default table is `lucid_auth_wallet_addresses`).
+
 Organization is an optional native plugin. Its store is independent from the
 core authentication store and can use either memory or PostgreSQL:
 
@@ -761,7 +809,9 @@ behind a reverse proxy must add its exact address or CIDR with
 `config.ip_address.trust_proxy(...)`; forwarding headers are then walked from
 the trusted edge to the first untrusted hop. `ip_address_headers`,
 `ipv6_subnet`, and `disable_ip_tracking` correspond to Better Auth's advanced
-IP-address options.
+IP-address options. Better Auth's separate `trustedProxyHeaders` URL behavior is
+disabled by default; set `config.trusted_proxy_headers = true` only when a
+trusted edge overwrites both `x-forwarded-host` and `x-forwarded-proto`.
 
 Routes mount at `/api/auth` by default. `AuthConfig::set_base_url` and
 `set_base_path` configure HTTPS production origins and custom mounts; an HTTPS

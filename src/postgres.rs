@@ -22,6 +22,7 @@ mod rows;
 mod schema;
 mod security;
 mod session;
+mod siwe;
 mod step_up;
 mod two_factor;
 mod user;

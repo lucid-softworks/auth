@@ -52,7 +52,7 @@ impl VerificationStore for MemoryStore {
         let Some(value) = state.verifications.remove(&key) else {
             return Ok(None);
         };
-        Ok((value.expires_at > now).then_some(value))
+        Ok((value.expires_at >= now).then_some(value))
     }
 
     async fn update_verification(

@@ -62,11 +62,11 @@ const COOKIES: &[PluginCookie] = &[PluginCookie {
     name: "better-auth-passkey",
 }];
 
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration {
-    id: "better-auth-passkey-schema",
-    description: "Better Auth 1.7.1 passkey schema",
-    sql: include_str!("../../migrations/passkey_plugin.sql"),
-}];
+const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
+    "better-auth-passkey-schema",
+    "Better Auth 1.7.1 passkey schema",
+    include_str!("../../migrations/passkey_plugin.sql"),
+)];
 
 /// Better Auth passkey plugin options.
 #[derive(Clone)]
@@ -278,8 +278,8 @@ impl AuthPlugin for PasskeyPlugin {
         Ok(())
     }
 
-    fn migrations(&self) -> &'static [PluginMigration] {
-        MIGRATIONS
+    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
+        std::borrow::Cow::Borrowed(MIGRATIONS)
     }
 
     #[cfg(feature = "axum")]

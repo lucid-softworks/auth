@@ -40,6 +40,40 @@ impl AuthService {
             .await
     }
 
+    pub(super) async fn replace_verification_with_create_hooks(
+        &self,
+        mut value: VerificationValue,
+    ) -> Result<(), AuthError> {
+        value.additional_fields =
+            self.create_additional_fields(DatabaseModel::Verification, value.additional_fields)?;
+        value.identifier = self
+            .processed_verification_identifier(&value.purpose, &value.identifier)
+            .await?;
+        let value = match self
+            .before_database_create(DatabaseRecord::Verification(value))
+            .await?
+        {
+            DatabaseRecord::Verification(value) => value,
+            _ => unreachable!("database hook model was validated"),
+        };
+        if self.verification_uses_database() {
+            loop {
+                if self.store.reserve_verification(value.clone()).await?
+                    || self
+                        .store
+                        .update_verification(value.clone())
+                        .await?
+                        .is_some()
+                {
+                    break;
+                }
+            }
+        }
+        self.cache_verification(&value).await?;
+        self.after_database_create(&DatabaseRecord::Verification(value))
+            .await
+    }
+
     /// Finds a Better Auth verification value through the configured
     /// database/secondary-storage route.
     pub async fn find_verification_value(
@@ -109,7 +143,7 @@ impl AuthService {
                 }
                 let value: VerificationValue =
                     serde_json::from_str(&raw).map_err(|error| verification_json("read", error))?;
-                return Ok((value.expires_at > now).then_some(value));
+                return Ok((value.expires_at >= now).then_some(value));
             }
             return Ok(None);
         }
@@ -255,7 +289,11 @@ impl AuthService {
         purpose: &str,
         identifier: &str,
     ) -> Result<Vec<String>, AuthError> {
-        let plain = format!("{purpose}:{identifier}");
+        let plain = if purpose.is_empty() {
+            identifier.to_owned()
+        } else {
+            format!("{purpose}:{identifier}")
+        };
         let processed = self.process_identifier(&plain).await?;
         if processed == plain {
             Ok(vec![processed])

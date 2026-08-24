@@ -19,6 +19,7 @@ mod operator_security;
 mod phone_number;
 mod security;
 mod session;
+mod siwe;
 mod user;
 mod verification;
 
@@ -28,6 +29,7 @@ struct MemoryState {
     usernames: HashMap<String, Uuid>,
     emails: HashMap<String, Uuid>,
     phone_numbers: HashMap<String, Uuid>,
+    wallet_addresses: HashMap<(String, u64), crate::WalletAddress>,
     passwords: HashMap<Uuid, String>,
     oauth_accounts: HashMap<(String, String), OAuthAccount>,
     sessions: HashMap<String, AuthSession>,

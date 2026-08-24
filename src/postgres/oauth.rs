@@ -193,7 +193,7 @@ pub(super) async fn update_tokens(
     .ok_or(AuthError::NotFound)
 }
 
-async fn insert_user(
+pub(super) async fn insert_user(
     transaction: &mut Transaction<'_, Postgres>,
     user: AuthUser,
 ) -> Result<AuthUser, AuthError> {
@@ -218,7 +218,7 @@ async fn insert_user(
     .map_err(unique_or_storage)
 }
 
-async fn insert_account(
+pub(super) async fn insert_account(
     transaction: &mut Transaction<'_, Postgres>,
     account: OAuthAccount,
 ) -> Result<OAuthAccount, AuthError> {

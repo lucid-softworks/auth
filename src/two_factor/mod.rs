@@ -97,11 +97,11 @@ const fn rate_limit(path: &'static str) -> PluginRateLimit {
     }
 }
 
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration {
-    id: "better-auth-two-factor-schema",
-    description: "Better Auth 1.7.1 two-factor schema",
-    sql: include_str!("../../migrations/two_factor_plugin.sql"),
-}];
+const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
+    "better-auth-two-factor-schema",
+    "Better Auth 1.7.1 two-factor schema",
+    include_str!("../../migrations/two_factor_plugin.sql"),
+)];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TwoFactorRecord {
@@ -325,8 +325,8 @@ impl AuthPlugin for TwoFactorPlugin {
         Ok(())
     }
 
-    fn migrations(&self) -> &'static [PluginMigration] {
-        MIGRATIONS
+    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
+        std::borrow::Cow::Borrowed(MIGRATIONS)
     }
 
     async fn reset_user_security_state(&self, user_id: Uuid) -> Result<(), AuthError> {

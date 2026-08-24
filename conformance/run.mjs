@@ -12,6 +12,7 @@ import {
   magicLinkClient,
   oneTapClient,
   phoneNumberClient,
+  siweClient,
   twoFactorClient,
   usernameClient,
   organizationClient,
@@ -167,6 +168,84 @@ async function runCase(name, callback) {
   }
 }
 
+async function siweClientConformance() {
+  const requests = [];
+  const plugin = siweClient();
+  assert.equal(plugin.id, "siwe");
+  assert.equal(plugin.version, betterAuthPackage.version);
+  assert.deepEqual(plugin.pathMethods, {
+    "/siwe/nonce": "POST",
+    "/siwe/get-nonce": "POST",
+  });
+
+  const client = createAuthClient({
+    baseURL: "https://siwe.example.test",
+    fetchOptions: {
+      customFetchImpl: async (input, init = {}) => {
+        const url = new URL(String(input));
+        requests.push({
+          method: init.method,
+          pathname: url.pathname,
+          body: typeof init.body === "string" ? JSON.parse(init.body) : null,
+        });
+        if (url.pathname.endsWith("/verify")) {
+          return Response.json({
+            token: "siwe-session-token",
+            success: true,
+            user: {
+              id: "siwe-user",
+              walletAddress: "0x0000000000000000000000000000000000000000",
+              chainId: 1,
+            },
+          });
+        }
+        return Response.json({ nonce: "12345678" });
+      },
+    },
+    plugins: [plugin],
+  });
+
+  assert.deepEqual(success(await client.siwe.nonce(), "siwe.nonce"), {
+    nonce: "12345678",
+  });
+  assert.deepEqual(success(await client.siwe.getNonce(), "siwe.getNonce"), {
+    nonce: "12345678",
+  });
+  const message = "siwe.example.test wants you to sign in with your Ethereum account";
+  const signature = "0xsigned-message";
+  const verified = success(
+    await client.siwe.verify({
+      message,
+      signature,
+      email: "Wallet@Example.com",
+    }),
+    "siwe.verify",
+  );
+  assert.equal(verified.success, true);
+  assert.deepEqual(requests, [
+    {
+      method: "POST",
+      pathname: "/api/auth/siwe/nonce",
+      body: {},
+    },
+    {
+      method: "POST",
+      pathname: "/api/auth/siwe/get-nonce",
+      body: {},
+    },
+    {
+      method: "POST",
+      pathname: "/api/auth/siwe/verify",
+      body: {
+        message,
+        signature,
+        email: "Wallet@Example.com",
+      },
+    },
+  ]);
+  console.log("ok - SIWE official client contract");
+}
+
 async function conformance(origin) {
   installVirtualAuthenticator(origin);
   const transport = new BrowserTransport(origin);
@@ -184,6 +263,7 @@ async function conformance(origin) {
       magicLinkClient(),
       phoneNumberClient(),
       oneTapClient({ clientId: "conformance-google-client" }),
+      siweClient(),
       organizationClient({
         teams: { enabled: true },
         dynamicAccessControl: { enabled: true },
@@ -210,6 +290,7 @@ async function conformance(origin) {
     const username = metadata.find((plugin) => plugin.id === "username");
     const phoneNumber = metadata.find((plugin) => plugin.id === "phone-number");
     const oneTap = metadata.find((plugin) => plugin.id === "one-tap");
+    const siwe = metadata.find((plugin) => plugin.id === "siwe");
     assert.equal(nativePlugin.client.betterAuthVersion, betterAuthPackage.version);
     assert.equal(nativePlugin.endpoints[0].clientMethod, "nativePlugin.ping");
     assert.equal(magicLink.client.factory, "magicLinkClient");
@@ -219,6 +300,7 @@ async function conformance(origin) {
     assert.equal(username.client.factory, "usernameClient");
     assert.equal(phoneNumber.client.factory, "phoneNumberClient");
     assert.equal(oneTap.client.factory, "oneTapClient");
+    assert.equal(siwe.client.factory, "siweClient");
     assert.deepEqual(
       oneTap.endpoints.map((endpoint) => [endpoint.path, endpoint.clientMethod]),
       [["/one-tap/callback", "oneTap"]],
@@ -236,6 +318,41 @@ async function conformance(origin) {
         ["/phone-number/reset-password", "phoneNumber.resetPassword"],
       ],
     );
+    assert.deepEqual(
+      siwe.endpoints.map((endpoint) => [endpoint.path, endpoint.clientMethod]),
+      [
+        ["/siwe/nonce", "siwe.nonce"],
+        ["/siwe/get-nonce", "siwe.getNonce"],
+        ["/siwe/verify", "siwe.verify"],
+      ],
+    );
+  });
+
+  await runCase("SIWE official client against native server", async () => {
+    const nonce = success(await client.siwe.nonce(), "siwe.nonce").nonce;
+    assert.match(nonce, /^[A-Za-z0-9]{8,250}$/);
+    const aliasNonce = success(
+      await client.siwe.getNonce(),
+      "siwe.getNonce",
+    ).nonce;
+    assert.match(aliasNonce, /^[A-Za-z0-9]{8,250}$/);
+    const address = "0x52908400098527886E0F7030069857D2E4169EE7";
+    const domain = new URL(origin).host;
+    const message = `${domain} wants you to sign in with your Ethereum account:\n${address}\n\nURI: ${origin}\nVersion: 1\nChain ID: 1\nNonce: ${nonce}\nIssued At: 2026-08-24T12:00:00Z`;
+    const verified = success(
+      await client.siwe.verify({ message, signature: "0xconformance" }),
+      "siwe.verify",
+    );
+    assert.equal(verified.success, true);
+    assert.equal(verified.user.walletAddress, address);
+    assert.equal(verified.user.chainId, 1);
+    assert.equal(typeof verified.token, "string");
+    transport.assertRequest("/api/auth/siwe/nonce", "POST", {});
+    transport.assertRequest("/api/auth/siwe/get-nonce", "POST", {});
+    transport.assertRequest("/api/auth/siwe/verify", "POST", {
+      message,
+      signature: "0xconformance",
+    });
   });
 
   await runCase("one-tap official client callback contract", async () => {
@@ -2085,6 +2202,8 @@ function stopServer(child) {
   if (process.platform === "win32") child.kill("SIGTERM");
   else process.kill(-child.pid, "SIGTERM");
 }
+
+await siweClientConformance();
 
 for (const strategy of ["compact", "jwt", "jwe"]) {
   const { child, origin } = await startServer(strategy);

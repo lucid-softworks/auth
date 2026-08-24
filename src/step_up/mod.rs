@@ -13,11 +13,11 @@ use chrono::{DateTime, Duration, Utc};
 use std::sync::Arc;
 use uuid::Uuid;
 
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration {
-    id: "extract-step-up-policy",
-    description: "Lucid step-up assurance and recovery-code state",
-    sql: include_str!("../../migrations/step_up_policy_plugin.sql"),
-}];
+const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
+    "extract-step-up-policy",
+    "Lucid step-up assurance and recovery-code state",
+    include_str!("../../migrations/step_up_policy_plugin.sql"),
+)];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum StepUpError {
@@ -242,8 +242,8 @@ impl AuthPlugin for StepUpPolicyPlugin {
         Ok(())
     }
 
-    fn migrations(&self) -> &'static [PluginMigration] {
-        MIGRATIONS
+    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
+        std::borrow::Cow::Borrowed(MIGRATIONS)
     }
 
     async fn initialize_session(&self, session: &SessionWithUser) -> Result<(), AuthError> {

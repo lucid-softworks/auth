@@ -37,11 +37,11 @@ pub use store::{
     OrganizationRoleStore, OrganizationStore, OrganizationTeamStore, OrganizationTeamWriteOutcome,
 };
 
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration {
-    id: "better-auth-organization-schema",
-    description: "Better Auth 1.7.1 organization schema",
-    sql: include_str!("../../migrations/organization_plugin.sql"),
-}];
+const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
+    "better-auth-organization-schema",
+    "Better Auth 1.7.1 organization schema",
+    include_str!("../../migrations/organization_plugin.sql"),
+)];
 
 #[derive(Clone)]
 pub struct OrganizationPlugin {
@@ -107,8 +107,8 @@ impl AuthPlugin for OrganizationPlugin {
         Ok(())
     }
 
-    fn migrations(&self) -> &'static [PluginMigration] {
-        MIGRATIONS
+    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
+        std::borrow::Cow::Borrowed(MIGRATIONS)
     }
 
     #[cfg(feature = "axum")]

@@ -21,11 +21,11 @@ const ENDPOINTS: &[PluginEndpoint] = &[PluginEndpoint {
     client_method: "lucidAudit.list",
 }];
 
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration {
-    id: "lucid-security-audit-schema",
-    description: "Optional lucid security-audit event storage",
-    sql: include_str!("../../migrations/audit_plugin.sql"),
-}];
+const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
+    "lucid-security-audit-schema",
+    "Optional lucid security-audit event storage",
+    include_str!("../../migrations/audit_plugin.sql"),
+)];
 
 /// Version of the stable action-name vocabulary emitted by [`AuditPlugin`].
 pub const AUDIT_ACTION_VOCABULARY_VERSION: u16 = 2;
@@ -162,8 +162,8 @@ impl AuthPlugin for AuditPlugin {
         Ok(())
     }
 
-    fn migrations(&self) -> &'static [PluginMigration] {
-        MIGRATIONS
+    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
+        std::borrow::Cow::Borrowed(MIGRATIONS)
     }
 
     async fn after(&self, event: &crate::AfterAuthEvent) {

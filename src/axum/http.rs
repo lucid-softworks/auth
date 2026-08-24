@@ -66,13 +66,23 @@ pub(crate) async fn with_session_cookie(
     remember_me: Option<bool>,
     body: impl IntoResponse,
 ) -> Response {
+    let response = with_primary_session_cookie(service, token, remember_me, body);
+    with_session_cache_cookie(service, token, None, remember_me, response).await
+}
+
+fn with_primary_session_cookie(
+    service: &AuthService,
+    token: &str,
+    remember_me: Option<bool>,
+    body: impl IntoResponse,
+) -> Response {
     let cookie = service.session_cookie();
     let max_age = (remember_me != Some(false)).then(|| service.session_ttl().num_seconds());
     let response = with_cookie(
         body,
         serialize_cookie(&cookie, &service.signed_cookie_value(token), max_age),
     );
-    let response = if remember_me == Some(false) {
+    if remember_me == Some(false) {
         with_cookie(
             response,
             serialize_cookie(
@@ -83,8 +93,7 @@ pub(crate) async fn with_session_cookie(
         )
     } else {
         response
-    };
-    with_session_cache_cookie(service, token, None, remember_me, response).await
+    }
 }
 
 pub(crate) async fn with_bound_session_cookie(
@@ -96,6 +105,27 @@ pub(crate) async fn with_bound_session_cookie(
     body: impl IntoResponse,
 ) -> Response {
     let response = with_session_cookie(service, token, remember_me, body).await;
+    refresh_account_cookie(service, headers, user_id, response)
+}
+
+pub(crate) fn with_bound_session_cookie_cache(
+    service: &AuthService,
+    headers: &HeaderMap,
+    user_id: uuid::Uuid,
+    token: &str,
+    cache: Option<&str>,
+    body: impl IntoResponse,
+) -> Response {
+    let response = with_primary_session_cookie(service, token, Some(true), body);
+    let response = match cache {
+        Some(value) => with_chunked_session_data_cookie(
+            service,
+            value,
+            Some(service.cookie_cache_max_age()),
+            response,
+        ),
+        None => response,
+    };
     refresh_account_cookie(service, headers, user_id, response)
 }
 

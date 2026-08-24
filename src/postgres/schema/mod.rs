@@ -127,11 +127,11 @@ impl PostgresMigrationPlan {
         for contribution in plugin_migrations {
             migrations.push(PostgresMigrationDescriptor::Plugin {
                 plugin_id: contribution.plugin_id.into(),
-                migration_id: contribution.migration.id.into(),
-                description: contribution.migration.description.into(),
-                checksum: migration_checksum(contribution.migration.sql),
+                migration_id: contribution.migration.id.to_string(),
+                description: contribution.migration.description.to_string(),
+                checksum: migration_checksum(contribution.migration.sql.as_ref()),
             });
-            manifest.apply(contribution.migration.sql);
+            manifest.apply(contribution.migration.sql.as_ref());
         }
         manifest.add_bookkeeping(!plugin_migrations.is_empty());
         Ok(Self {
@@ -183,13 +183,15 @@ mod tests {
     fn plans_are_deterministic_and_derive_plugin_schema() {
         let migrations = [PluginMigrationContribution {
             plugin_id: "example",
-            migration: PluginMigration {
-                id: "records",
-                description: "example records",
-                sql: "CREATE TABLE lucid_auth_example_records (id UUID, value TEXT); \
-                      CREATE UNIQUE INDEX lucid_auth_example_records_id_idx \
-                      ON lucid_auth_example_records(id);",
-            },
+            migration: PluginMigration::owned(
+                String::from("records"),
+                String::from("example records"),
+                String::from(
+                    "CREATE TABLE lucid_auth_example_records (id UUID, value TEXT); \
+                     CREATE UNIQUE INDEX lucid_auth_example_records_id_idx \
+                     ON lucid_auth_example_records(id);",
+                ),
+            ),
         }];
         let left = PostgresMigrationPlan::new(&migrations).unwrap();
         let right = PostgresMigrationPlan::new(&migrations).unwrap();

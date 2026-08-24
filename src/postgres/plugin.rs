@@ -59,15 +59,15 @@ async fn apply_migration(
          WHERE plugin_id = $1 AND migration_id = $2",
     )
     .bind(contribution.plugin_id)
-    .bind(contribution.migration.id)
+    .bind(contribution.migration.id.as_ref())
     .fetch_optional(&mut **transaction)
     .await
     .map_err(storage_error)?;
-    let checksum = migration_checksum(contribution.migration.sql);
+    let checksum = migration_checksum(contribution.migration.sql.as_ref());
     if let Some(applied) = applied {
         return validate_applied(transaction, contribution, applied, &checksum).await;
     }
-    sqlx::raw_sql(contribution.migration.sql)
+    sqlx::raw_sql(contribution.migration.sql.as_ref())
         .execute(&mut **transaction)
         .await
         .map_err(storage_error)?;
@@ -81,8 +81,8 @@ async fn apply_migration(
          (plugin_id, migration_id, description, checksum) VALUES ($1, $2, $3, $4)",
     )
     .bind(contribution.plugin_id)
-    .bind(contribution.migration.id)
-    .bind(contribution.migration.description)
+    .bind(contribution.migration.id.as_ref())
+    .bind(contribution.migration.description.as_ref())
     .bind(checksum)
     .execute(&mut **transaction)
     .await
@@ -112,7 +112,7 @@ async fn validate_applied(
                  WHERE plugin_id = $1 AND migration_id = $2",
             )
             .bind(contribution.plugin_id)
-            .bind(contribution.migration.id)
+            .bind(contribution.migration.id.as_ref())
             .bind(expected_checksum)
             .execute(&mut **transaction)
             .await
@@ -137,7 +137,7 @@ pub(super) fn validate_migrations(
                 "plugin migration metadata is incomplete".into(),
             ));
         }
-        if !keys.insert((contribution.plugin_id, contribution.migration.id)) {
+        if !keys.insert((contribution.plugin_id, contribution.migration.id.as_ref())) {
             return Err(AuthError::InvalidConfiguration(format!(
                 "plugin migration '{}:{}' is duplicated",
                 contribution.plugin_id, contribution.migration.id
@@ -153,7 +153,7 @@ async fn reject_unknown_enabled_migrations(
 ) -> Result<(), AuthError> {
     let expected = migrations
         .iter()
-        .map(|migration| (migration.plugin_id, migration.migration.id))
+        .map(|migration| (migration.plugin_id, migration.migration.id.as_ref()))
         .collect::<BTreeSet<_>>();
     let enabled = expected
         .iter()

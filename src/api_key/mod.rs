@@ -47,11 +47,11 @@ const fn endpoint(
     }
 }
 
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration {
-    id: "better-auth-api-key-schema",
-    description: "Better Auth 1.7.1 API-key schema",
-    sql: include_str!("../../migrations/api_key_plugin.sql"),
-}];
+const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
+    "better-auth-api-key-schema",
+    "Better Auth 1.7.1 API-key schema",
+    include_str!("../../migrations/api_key_plugin.sql"),
+)];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApiKeyReference {
@@ -210,8 +210,8 @@ impl AuthPlugin for ApiKeyPlugin {
         validate_configurations(&self.configurations)
     }
 
-    fn migrations(&self) -> &'static [PluginMigration] {
-        MIGRATIONS
+    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
+        std::borrow::Cow::Borrowed(MIGRATIONS)
     }
 
     #[cfg(feature = "axum")]

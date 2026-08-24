@@ -1,5 +1,6 @@
 use super::{
-    AuthPlugin, PluginDescriptor, PluginHttpMethod, PluginMigrationContribution, PluginRateLimit,
+    AuthPlugin, PluginDescriptor, PluginHttpMethod, PluginMigration, PluginMigrationContribution,
+    PluginRateLimit,
 };
 use crate::{
     AdditionalFieldSet, AuthConfig, AuthError, DatabaseModel,
@@ -18,6 +19,7 @@ use schema::{core_schema_fields, merge_schema_fields};
 pub(crate) struct PluginRegistry {
     plugins: Vec<Arc<dyn AuthPlugin>>,
     descriptors: Vec<PluginDescriptor>,
+    migrations: Vec<PluginMigrationContribution>,
     rate_limits: Vec<PluginRateLimit>,
     schema_fields: BTreeMap<DatabaseModel, AdditionalFieldSet>,
 }
@@ -28,11 +30,15 @@ impl PluginRegistry {
         config: &AuthConfig,
     ) -> Result<Self, AuthError> {
         let mut by_id = HashMap::new();
+        let mut migrations_by_plugin = Vec::with_capacity(plugins.len());
         for (index, plugin) in plugins.iter().enumerate() {
             let descriptor = plugin.descriptor();
             validate_descriptor(descriptor)?;
             plugin.validate(config)?;
             validate_runtime_rate_limits(plugin.as_ref(), descriptor)?;
+            let migrations = plugin.migrations().into_owned();
+            validate_migrations(&migrations, descriptor)?;
+            migrations_by_plugin.push(migrations);
             if by_id.insert(descriptor.id, (index, descriptor)).is_some() {
                 return invalid(format!(
                     "plugin '{}' is enabled more than once",
@@ -41,10 +47,11 @@ impl PluginRegistry {
             }
         }
         validate_relationships(&by_id)?;
-        validate_contributions(plugins, &by_id, config)?;
+        validate_contributions(&by_id, config)?;
         let ordered_ids = dependency_order(&by_id)?;
         let mut ordered_plugins = Vec::with_capacity(plugins.len());
         let mut descriptors = Vec::with_capacity(plugins.len());
+        let mut migrations = Vec::new();
         let mut rate_limits = Vec::new();
         let mut schema_fields = core_schema_fields(config);
         for id in ordered_ids {
@@ -55,12 +62,19 @@ impl PluginRegistry {
                 plugins[index].schema_fields(),
                 descriptor.id,
             )?;
+            migrations.extend(migrations_by_plugin[index].drain(..).map(|migration| {
+                PluginMigrationContribution {
+                    plugin_id: descriptor.id,
+                    migration,
+                }
+            }));
             ordered_plugins.push(plugins[index].clone());
             descriptors.push(descriptor);
         }
         Ok(Self {
             plugins: ordered_plugins,
             descriptors,
+            migrations,
             rate_limits,
             schema_fields,
         })
@@ -99,20 +113,7 @@ impl PluginRegistry {
     }
 
     pub(crate) fn migrations(&self) -> Vec<PluginMigrationContribution> {
-        self.plugins
-            .iter()
-            .zip(&self.descriptors)
-            .flat_map(|(plugin, descriptor)| {
-                plugin
-                    .migrations()
-                    .iter()
-                    .copied()
-                    .map(|migration| PluginMigrationContribution {
-                        plugin_id: descriptor.id,
-                        migration,
-                    })
-            })
-            .collect()
+        self.migrations.clone()
     }
 }
 
@@ -171,7 +172,6 @@ fn validate_relationships(
 }
 
 fn validate_contributions(
-    plugins: &[Arc<dyn AuthPlugin>],
     by_id: &HashMap<&'static str, (usize, PluginDescriptor)>,
     config: &AuthConfig,
 ) -> Result<(), AuthError> {
@@ -186,11 +186,10 @@ fn validate_contributions(
         .collect();
     let mut cookies = core_cookie_owners(config);
 
-    for (index, descriptor) in by_id.values().copied() {
+    for (_, descriptor) in by_id.values().copied() {
         validate_endpoints(descriptor, &mut endpoint_methods, &mut endpoint_paths)?;
         validate_cookies(descriptor, &mut cookies)?;
         validate_policy_metadata(descriptor)?;
-        validate_migrations(plugins[index].as_ref(), descriptor)?;
     }
     Ok(())
 }
@@ -308,18 +307,18 @@ fn validate_runtime_rate_limits(
 }
 
 fn validate_migrations(
-    plugin: &dyn AuthPlugin,
+    plugin_migrations: &[PluginMigration],
     descriptor: PluginDescriptor,
 ) -> Result<(), AuthError> {
     let mut migrations = HashMap::new();
-    for migration in plugin.migrations() {
-        if !valid_id(migration.id)
+    for migration in plugin_migrations {
+        if !valid_id(migration.id.as_ref())
             || migration.description.trim().is_empty()
             || migration.sql.trim().is_empty()
         {
             return invalid(format!("plugin '{}' migration is invalid", descriptor.id));
         }
-        if migrations.insert(migration.id, ()).is_some() {
+        if migrations.insert(migration.id.as_ref(), ()).is_some() {
             return invalid(format!(
                 "plugin '{}' migration '{}' is duplicated",
                 descriptor.id, migration.id

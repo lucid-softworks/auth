@@ -32,11 +32,11 @@ const RATE_LIMITS: &[PluginRateLimit] = &[PluginRateLimit {
 const MIDDLEWARE: &[PluginMiddleware] = &[PluginMiddleware {
     id: "example-response-header",
 }];
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration {
-    id: "create-greetings",
-    description: "example greeting records",
-    sql: "CREATE TABLE IF NOT EXISTS lucid_auth_example_greetings (message TEXT PRIMARY KEY)",
-}];
+const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
+    "create-greetings",
+    "example greeting records",
+    "CREATE TABLE IF NOT EXISTS lucid_auth_example_greetings (message TEXT PRIMARY KEY)",
+)];
 
 #[async_trait]
 impl AuthPlugin for GreetingPlugin {
@@ -59,8 +59,8 @@ impl AuthPlugin for GreetingPlugin {
         }
     }
 
-    fn migrations(&self) -> &'static [PluginMigration] {
-        MIGRATIONS
+    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
+        std::borrow::Cow::Borrowed(MIGRATIONS)
     }
 
     fn routes(&self, _service: Arc<AuthService>) -> Vec<AxumPluginRoute> {

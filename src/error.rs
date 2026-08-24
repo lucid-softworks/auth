@@ -14,6 +14,8 @@ pub enum AuthError {
     #[error(transparent)]
     OneTap(#[from] crate::OneTapError),
     #[error(transparent)]
+    Siwe(#[from] crate::SiweError),
+    #[error(transparent)]
     TwoFactor(#[from] crate::TwoFactorError),
     #[error(transparent)]
     StepUp(#[from] crate::StepUpError),

@@ -32,6 +32,7 @@ mod service;
 #[cfg(feature = "axum")]
 mod session_cache;
 mod session_config;
+mod siwe;
 mod step_up;
 mod store;
 #[cfg(feature = "axum")]
@@ -167,6 +168,11 @@ pub use service::{
 };
 pub use session_config::{
     CookieCacheConfig, CookieCacheRefresh, CookieCacheStrategy, SessionConfig, SessionStorageMode,
+};
+pub use siwe::{
+    SiweCacao, SiweConfig, SiweEnsLookup, SiweEnsProfile, SiweError, SiweIdentityWrite,
+    SiweIdentityWriteOutcome, SiweMessageVerifier, SiweNonceGenerator, SiwePlugin, SiweSchema,
+    SiweStore, SiweVerificationRequest, SiweVerificationResult, WalletAddress, WalletAddressOwner,
 };
 pub use step_up::{
     MemoryStepUpStore, RecoveryCodeStatus, StepUpAssurance, StepUpError, StepUpPolicyConfig,

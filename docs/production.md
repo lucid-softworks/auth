@@ -81,6 +81,12 @@ value. Never trust a broad Internet-facing CIDR merely to make rate-limit logs
 look correct. Configure `ip_address_headers` only for headers your edge
 overwrites, not ones it appends from arbitrary clients.
 
+Keep `config.trusted_proxy_headers` false unless the authentication service must
+derive its public URL from `x-forwarded-host` and `x-forwarded-proto` and the
+trusted edge overwrites both headers. Prefer a fixed `set_base_url` in
+production; proxy-header URL derivation is a separate opt-in from client-IP
+proxy trust.
+
 ## Origins, CORS, and redirects
 
 - Add each browser application origin with `trust_origin`; prefer exact

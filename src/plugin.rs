@@ -6,9 +6,9 @@ use crate::{
 };
 use async_trait::async_trait;
 use serde::Serialize;
-use std::any::Any;
 #[cfg(feature = "axum")]
 use std::sync::Arc;
+use std::{any::Any, borrow::Cow};
 use uuid::Uuid;
 
 mod registry;
@@ -100,15 +100,37 @@ pub struct PluginDescriptor {
 }
 
 /// One ordered SQL migration contributed by a plugin.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginMigration {
-    pub id: &'static str,
-    pub description: &'static str,
-    pub sql: &'static str,
+    pub id: Cow<'static, str>,
+    pub description: Cow<'static, str>,
+    pub sql: Cow<'static, str>,
+}
+
+impl PluginMigration {
+    pub const fn borrowed(id: &'static str, description: &'static str, sql: &'static str) -> Self {
+        Self {
+            id: Cow::Borrowed(id),
+            description: Cow::Borrowed(description),
+            sql: Cow::Borrowed(sql),
+        }
+    }
+
+    pub fn owned(
+        id: impl Into<String>,
+        description: impl Into<String>,
+        sql: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: Cow::Owned(id.into()),
+            description: Cow::Owned(description.into()),
+            sql: Cow::Owned(sql.into()),
+        }
+    }
 }
 
 /// Migration paired with the validated plugin that owns it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginMigrationContribution {
     pub plugin_id: &'static str,
     pub migration: PluginMigration,
@@ -248,8 +270,8 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
         Ok(())
     }
 
-    fn migrations(&self) -> &'static [PluginMigration] {
-        &[]
+    fn migrations(&self) -> Cow<'_, [PluginMigration]> {
+        Cow::Borrowed(&[])
     }
 
     /// Runtime rules contributed with the plugin's configured options.

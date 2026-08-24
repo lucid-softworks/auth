@@ -32,11 +32,11 @@ const RATE_LIMITS: &[PluginRateLimit] = &[
     rate_limit("/phone-number/reset-password"),
 ];
 
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration {
-    id: "better-auth-phone-number-schema",
-    description: "Better Auth 1.7.1 phone-number schema",
-    sql: include_str!("../../migrations/phone_number_plugin.sql"),
-}];
+const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
+    "better-auth-phone-number-schema",
+    "Better Auth 1.7.1 phone-number schema",
+    include_str!("../../migrations/phone_number_plugin.sql"),
+)];
 
 const fn endpoint(path: &'static str, client_method: &'static str) -> PluginEndpoint {
     PluginEndpoint {
@@ -259,8 +259,8 @@ impl AuthPlugin for PhoneNumberPlugin {
         }
     }
 
-    fn migrations(&self) -> &'static [PluginMigration] {
-        MIGRATIONS
+    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
+        std::borrow::Cow::Borrowed(MIGRATIONS)
     }
 
     fn schema_fields(&self) -> Vec<PluginSchemaField> {

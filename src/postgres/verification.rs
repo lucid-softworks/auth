@@ -235,7 +235,7 @@ impl VerificationStore for PostgresStore {
         .await
         .map(|row| {
             row.map(VerificationValue::from)
-                .filter(|value| value.expires_at > now)
+                .filter(|value| value.expires_at >= now)
         })
         .map_err(storage_error)
     }

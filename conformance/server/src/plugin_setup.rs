@@ -11,12 +11,41 @@ use super::{
     },
 };
 use lucid_auth::{
-    ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, EmailOtpConfig, EmailOtpPlugin,
-    MagicLinkConfig, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore, OtpConfig, PasskeyConfig,
-    PasskeyPlugin, PhoneNumberConfig, PhoneNumberPlugin, PhoneNumberSignUpConfig, TotpConfig,
-    TwoFactorConfig, TwoFactorPlugin, OneTapConfig, OneTapPlugin,
+    ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, AuthError, EmailOtpConfig,
+    EmailOtpPlugin, MagicLinkConfig, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore,
+    OneTapConfig, OneTapPlugin, OtpConfig, PasskeyConfig, PasskeyPlugin, PhoneNumberConfig,
+    PhoneNumberPlugin, PhoneNumberSignUpConfig, SiweConfig, SiweMessageVerifier,
+    SiweNonceGenerator, SiwePlugin, SiweVerificationRequest, TotpConfig, TwoFactorConfig,
+    TwoFactorPlugin,
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
+
+struct ConformanceSiweNonce(AtomicU64);
+
+#[async_trait::async_trait]
+impl SiweNonceGenerator for ConformanceSiweNonce {
+    async fn generate(&self) -> Result<String, AuthError> {
+        Ok(format!(
+            "nonce{:08}",
+            self.0.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
+}
+
+struct ConformanceSiweVerifier;
+
+#[async_trait::async_trait]
+impl SiweMessageVerifier for ConformanceSiweVerifier {
+    async fn verify(&self, _: SiweVerificationRequest) -> Result<bool, AuthError> {
+        Ok(true)
+    }
+}
 
 pub(super) fn register(
     config: &mut AuthConfig,
@@ -69,11 +98,19 @@ pub(super) fn register(
     config
         .add_plugin(EmailOtpPlugin::new(email_otp))
         .expect("unique email-OTP plugin");
-    register_phone_number(config, phone_number_messages, store);
+    register_phone_number(config, phone_number_messages, store.clone());
     let one_tap = OneTapConfig::default().with_client_id("conformance-google-client");
     config
         .add_plugin(OneTapPlugin::new(one_tap))
         .expect("unique one-tap plugin");
+    let siwe = SiweConfig::new(
+        origin.trim_start_matches("http://"),
+        Arc::new(ConformanceSiweNonce(AtomicU64::new(1))),
+        Arc::new(ConformanceSiweVerifier),
+    );
+    config
+        .add_plugin(SiwePlugin::new(store.clone(), siwe))
+        .expect("unique SIWE plugin");
     config
         .add_plugin(TwoFactorPlugin::new(
             Arc::new(MemoryTwoFactorStore::default()),

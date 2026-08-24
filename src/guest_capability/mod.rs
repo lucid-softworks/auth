@@ -46,11 +46,11 @@ const fn endpoint(
     }
 }
 
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration {
-    id: "lucid-guest-capability-schema",
-    description: "Optional lucid guest-capability grants and session links",
-    sql: include_str!("../../migrations/guest_capability_plugin.sql"),
-}];
+const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
+    "lucid-guest-capability-schema",
+    "Optional lucid guest-capability grants and session links",
+    include_str!("../../migrations/guest_capability_plugin.sql"),
+)];
 
 /// A time-bounded lucid extension grant that can be exchanged for a guest session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -176,8 +176,8 @@ impl AuthPlugin for GuestCapabilityPlugin {
         Ok(())
     }
 
-    fn migrations(&self) -> &'static [PluginMigration] {
-        MIGRATIONS
+    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
+        std::borrow::Cow::Borrowed(MIGRATIONS)
     }
 
     async fn validate_session(&self, session: &SessionWithUser) -> Result<bool, AuthError> {

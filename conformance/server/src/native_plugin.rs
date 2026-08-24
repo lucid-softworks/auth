@@ -37,11 +37,11 @@ const RATE_LIMITS: &[PluginRateLimit] = &[PluginRateLimit {
     window: 60,
     max: 60,
 }];
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration {
-    id: "create-pings",
-    description: "conformance plugin pings",
-    sql: "CREATE TABLE IF NOT EXISTS lucid_auth_conformance_pings (id TEXT PRIMARY KEY)",
-}];
+const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
+    "create-pings",
+    "conformance plugin pings",
+    "CREATE TABLE IF NOT EXISTS lucid_auth_conformance_pings (id TEXT PRIMARY KEY)",
+)];
 
 #[async_trait]
 impl AuthPlugin for ConformancePlugin {
@@ -64,8 +64,8 @@ impl AuthPlugin for ConformancePlugin {
         }
     }
 
-    fn migrations(&self) -> &'static [PluginMigration] {
-        MIGRATIONS
+    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
+        std::borrow::Cow::Borrowed(MIGRATIONS)
     }
 
     fn routes(&self, _service: Arc<AuthService>) -> Vec<AxumPluginRoute> {

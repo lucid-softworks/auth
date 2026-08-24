@@ -38,6 +38,10 @@ mod session_references;
 mod session_refresh;
 mod session_storage;
 mod session_update;
+mod siwe;
+mod siwe_identity;
+#[cfg(test)]
+mod siwe_tests;
 mod two_factor;
 mod types;
 mod user;
@@ -65,6 +69,8 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 pub use api_key::{ApiKeySortDirection, ApiKeyUpdate};
+#[cfg(feature = "axum")]
+pub(crate) use email_password::valid_email;
 pub use email_password::{EmailSignUpInput, EmailSignUpResult};
 pub use email_verification::EmailVerificationResult;
 pub use oauth::{SocialIdTokenInput, SocialSignInInput, SocialSignInResult};
@@ -150,6 +156,12 @@ impl AuthService {
             })
     }
 
+    pub(crate) fn siwe_plugin(&self) -> Result<&crate::SiwePlugin, AuthError> {
+        self.plugins
+            .find::<crate::SiwePlugin>()
+            .ok_or_else(|| AuthError::InvalidConfiguration("the SIWE plugin is not enabled".into()))
+    }
+
     pub(crate) fn social_provider(&self, id: &str) -> Option<&Arc<dyn crate::SocialProvider>> {
         self.config
             .social_providers
@@ -194,6 +206,11 @@ impl AuthService {
                 .as_ref()
                 .is_some_and(|url| url.scheme() == "https")
         })
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn trusted_proxy_headers(&self) -> bool {
+        self.config.trusted_proxy_headers
     }
 
     #[cfg(feature = "axum")]

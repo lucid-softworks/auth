@@ -45,6 +45,8 @@ mod rate_limit;
 mod schema;
 #[path = "postgres_contract/session_refresh.rs"]
 mod session_refresh;
+#[path = "postgres_contract/siwe.rs"]
+mod siwe;
 #[path = "postgres_contract/step_up.rs"]
 mod step_up;
 #[path = "postgres_contract/two_factor.rs"]
@@ -90,7 +92,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     migration_checksum_upgrade_is_safe(&store, &pool).await?;
     store.migrate().await?;
     plugin_migrations_are_idempotent(&store, &pool).await?;
-    assert_extension_tables_absent(&pool).await?;
+    schema::assert_extension_tables_absent(&pool).await?;
     oauth::assert_issuer_qualified_accounts(&store, &pool).await?;
     oauth::assert_one_tap_account_and_session_persistence(&store).await?;
 
@@ -119,6 +121,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     verification::password_reset_is_atomic(&store, &pool, user.id).await?;
     email_otp::assert_redemption_is_atomic(&service, &pool).await?;
     phone_number::assert_atomic_and_persistent(&service, &store, &pool, &phone_numbers).await?;
+    siwe::assert_atomic_and_persistent(&service, &pool).await?;
     magic_link::assert_promotion_is_atomic(&store, &pool).await?;
     email_signup_is_case_insensitive(&service, &pool).await?;
     username_signup_is_atomic(&service, &pool).await?;
@@ -206,6 +209,7 @@ fn register_contract_plugins(
     config.add_plugin(OwnerPolicyPlugin)?;
     config.add_plugin(UsernamePlugin::default())?;
     email_otp::register(config)?;
+    siwe::register(config, store)?;
     let phone_numbers = phone_number::register(config, store)?;
     config.add_plugin(PasskeyPlugin::new(PasskeyConfig::default()))?;
     config.add_plugin(GuestCapabilityPlugin::new(store.clone()))?;
@@ -274,24 +278,6 @@ async fn migrate_legacy_extensions(
     Ok(())
 }
 
-async fn assert_extension_tables_absent(
-    pool: &sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    assert_eq!(passkey_public_key_column_count(pool).await?, 0);
-    api_key::assert_table_absent(pool).await?;
-    audit::assert_table_absent(pool).await?;
-    two_factor::assert_table_absent(pool).await?;
-    step_up::assert_tables_absent(pool).await?;
-    operator_security::assert_table_absent(pool).await?;
-    organization::assert_table_absent(pool).await?;
-    assert!(
-        !sqlx::query_scalar::<_, bool>("SELECT to_regclass('lucid_auth_guest_grants') IS NOT NULL")
-            .fetch_one(pool)
-            .await?
-    );
-    Ok(())
-}
-
 async fn authenticate_owner(
     service: &AuthService,
     user: &AuthUser,
@@ -316,11 +302,11 @@ async fn plugin_migrations_are_idempotent(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let plugin_migrations = [PluginMigrationContribution {
         plugin_id: "postgres-contract",
-        migration: PluginMigration {
-            id: "create-records",
-            description: "PostgreSQL contract plugin records",
-            sql: "CREATE TABLE lucid_auth_contract_plugin_records (id TEXT PRIMARY KEY)",
-        },
+        migration: PluginMigration::borrowed(
+            "create-records",
+            "PostgreSQL contract plugin records",
+            "CREATE TABLE lucid_auth_contract_plugin_records (id TEXT PRIMARY KEY)",
+        ),
     }];
     store.migrate_plugins(&plugin_migrations).await?;
     store.migrate_plugins(&plugin_migrations).await?;

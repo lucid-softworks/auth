@@ -46,6 +46,9 @@ pub struct AuthConfig {
     pub(crate) trusted_social_providers: Vec<String>,
     /// Better Auth-compatible client-IP tracking and trusted proxy settings.
     pub ip_address: IpAddressConfig,
+    /// Trust `x-forwarded-host` and `x-forwarded-proto` when deriving request URLs.
+    /// Better Auth defaults this to false.
+    pub trusted_proxy_headers: bool,
     /// Additional browser origins allowed to call authentication endpoints or
     /// receive absolute callback redirects.
     pub trusted_origins: Vec<TrustedOrigin>,
@@ -115,6 +118,7 @@ impl AuthConfig {
             social_providers: Vec::new(),
             trusted_social_providers: Vec::new(),
             ip_address: IpAddressConfig::default(),
+            trusted_proxy_headers: false,
             trusted_origins: Vec::new(),
             plugins: Vec::new(),
             base_url: None,

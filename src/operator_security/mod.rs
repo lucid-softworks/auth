@@ -12,11 +12,11 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 const PLUGIN_ID: &str = "lucid-operator-security";
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration {
-    id: "extract-managed-password-policy",
-    description: "Lucid operator temporary-password state",
-    sql: include_str!("../../migrations/operator_security_plugin.sql"),
-}];
+const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
+    "extract-managed-password-policy",
+    "Lucid operator temporary-password state",
+    include_str!("../../migrations/operator_security_plugin.sql"),
+)];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum OperatorSecurityError {
@@ -103,8 +103,8 @@ impl AuthPlugin for OperatorSecurityPlugin {
         Ok(())
     }
 
-    fn migrations(&self) -> &'static [PluginMigration] {
-        MIGRATIONS
+    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
+        std::borrow::Cow::Borrowed(MIGRATIONS)
     }
 
     async fn password_credential_changed(
