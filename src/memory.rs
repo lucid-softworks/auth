@@ -333,16 +333,16 @@ impl AuthStore for MemoryStore {
             .write()
             .await
             .sessions
-            .insert(session.token_hash.clone(), session);
+            .insert(session.token.clone(), session);
         Ok(())
     }
 
     async fn find_session(
         &self,
-        token_hash: &str,
+        token: &str,
     ) -> Result<Option<(AuthSession, AuthUser)>, AuthError> {
         let state = self.state.read().await;
-        let Some(session) = state.sessions.get(token_hash).cloned() else {
+        let Some(session) = state.sessions.get(token).cloned() else {
             return Ok(None);
         };
         Ok(state
@@ -381,10 +381,29 @@ impl AuthStore for MemoryStore {
         Ok(Some(session.clone()))
     }
 
-    async fn delete_session(&self, token_hash: &str) -> Result<(), AuthError> {
+    async fn delete_session(&self, token: &str) -> Result<(), AuthError> {
         let mut state = self.state.write().await;
-        if let Some(session) = state.sessions.remove(token_hash) {
+        if let Some(session) = state.sessions.remove(token) {
             state.guest_sessions.remove(&session.id);
+        }
+        Ok(())
+    }
+
+    async fn expire_session(
+        &self,
+        session_id: Uuid,
+        expires_at: DateTime<Utc>,
+    ) -> Result<(), AuthError> {
+        if let Some(session) = self
+            .state
+            .write()
+            .await
+            .sessions
+            .values_mut()
+            .find(|session| session.id == session_id)
+        {
+            session.expires_at = expires_at;
+            session.updated_at = expires_at;
         }
         Ok(())
     }

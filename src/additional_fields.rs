@@ -263,11 +263,6 @@ impl AdditionalField {
 
 pub type AdditionalFieldSet = BTreeMap<String, AdditionalField>;
 
-#[derive(Debug, Clone, Default)]
-pub struct SessionConfig {
-    pub additional_fields: AdditionalFieldSet,
-}
-
 pub(crate) fn parse_update_fields(
     configured: &AdditionalFieldSet,
     supplied: Map<String, Value>,

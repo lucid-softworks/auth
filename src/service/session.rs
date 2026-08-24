@@ -13,7 +13,12 @@ impl AuthService {
         actor: &SessionWithUser,
     ) -> Result<Vec<AuthSession>, AuthError> {
         require_account_session(actor)?;
-        self.store.list_sessions(actor.user.id).await
+        Ok(self
+            .stored_sessions(actor.user.id)
+            .await?
+            .into_iter()
+            .map(|(_, session)| session)
+            .collect())
     }
 
     pub async fn revoke_current_user_session(
@@ -42,10 +47,39 @@ impl AuthService {
         Ok(())
     }
 
+    pub async fn revoke_current_user_session_token(
+        &self,
+        actor: &SessionWithUser,
+        token: &str,
+    ) -> Result<(), AuthError> {
+        require_account_session(actor)?;
+        let owned = self
+            .stored_sessions(actor.user.id)
+            .await?
+            .into_iter()
+            .any(|(candidate, session)| candidate == token && session.expires_at > Utc::now());
+        if owned {
+            let session_id = self
+                .find_stored_session(token)
+                .await?
+                .map(|session| session.session.id);
+            self.delete_session_token_with_hooks(token).await?;
+            self.audit(
+                actor.user.id,
+                Some(actor.user.id),
+                "session.revoked",
+                session_id.map(|id| id.to_string()),
+                json!({ "selfService": true }),
+            )
+            .await;
+        }
+        Ok(())
+    }
+
     pub async fn revoke_other_sessions(&self, actor: &SessionWithUser) -> Result<(), AuthError> {
         require_account_session(actor)?;
-        let sessions = self.store.list_sessions(actor.user.id).await?;
-        for session in sessions {
+        let sessions = self.stored_sessions(actor.user.id).await?;
+        for (_, session) in sessions {
             if session.id != actor.session.id {
                 self.delete_session_id_with_hooks(session.id).await?;
             }

@@ -83,19 +83,21 @@ async fn enable(
         )),
     };
     match result {
-        Ok(result) => enable_response(&service, result),
+        Ok(result) => enable_response(&service, result).await,
         Err(error) => auth_error(error),
     }
 }
 
-fn enable_response(service: &AuthService, result: TwoFactorEnableResult) -> Response {
+async fn enable_response(service: &AuthService, result: TwoFactorEnableResult) -> Response {
     let response = Json(EnableResponse {
         method: result.method,
         totp_uri: result.totp_uri,
         backup_codes: result.backup_codes,
     });
     match result.replacement_session {
-        Some(replacement) => with_session_cookie(service, &replacement.token, Some(true), response),
+        Some(replacement) => {
+            with_session_cookie(service, &replacement.token, Some(true), response).await
+        }
         None => response.into_response(),
     }
 }
@@ -125,7 +127,8 @@ async fn disable(
                 &replacement.token,
                 Some(true),
                 Json(StatusResponse { status: true }),
-            );
+            )
+            .await;
             expire_plugin_cookie(&service, "trust_device", response)
         }
         Err(error) => auth_error(error),
@@ -289,7 +292,7 @@ async fn verification_response(service: &AuthService, result: TwoFactorVerificat
         user,
     });
     let mut response =
-        with_session_cookie(service, &result.result.token, result.remember_me, response);
+        with_session_cookie(service, &result.result.token, result.remember_me, response).await;
     response = expire_plugin_cookie(service, "two_factor", response);
     if let Some(trust_cookie) = result.trust_cookie {
         response = set_plugin_cookie(

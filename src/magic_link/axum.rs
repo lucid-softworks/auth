@@ -156,7 +156,7 @@ async fn verify_magic_link(
                     .into_response()
                 }
             };
-            with_session_cookie(&service, &token, Some(true), response)
+            with_session_cookie(&service, &token, Some(true), response).await
         }
         Err(MagicLinkVerificationError::Redirect { code, description }) => {
             redirect_error(&error_callback_url, code, description)

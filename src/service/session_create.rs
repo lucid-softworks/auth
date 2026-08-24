@@ -1,4 +1,4 @@
-use super::{AuthService, SignInResult, hash_token, random_token};
+use super::{AuthService, SignInResult, random_token};
 use crate::{
     AfterAuthEvent, AuthError, AuthSession, AuthUser, AuthenticationMethod, BeforeAuthEvent,
     DatabaseModel, DatabaseRecord, SessionWithUser,
@@ -49,7 +49,7 @@ impl AuthService {
         let session = AuthSession {
             id: Uuid::new_v4(),
             user_id: user.id,
-            token_hash: hash_token(&token),
+            token: token.clone(),
             actor_user_id,
             authentication_method,
             expires_at: expires_at
@@ -69,8 +69,10 @@ impl AuthService {
             DatabaseRecord::Session(session) => session,
             _ => unreachable!("database hook model was validated"),
         };
-        self.store.delete_expired_sessions(now).await?;
-        self.store.create_session(session.clone()).await?;
+        if self.config.session.storage_mode == crate::SessionStorageMode::Database {
+            self.store.delete_expired_sessions(now).await?;
+        }
+        self.persist_session(&token, &session, &user).await?;
         self.after_database_create(&DatabaseRecord::Session(session.clone()))
             .await?;
         let result = SignInResult {

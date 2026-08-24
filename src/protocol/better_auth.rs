@@ -91,7 +91,7 @@ pub struct UsernameAvailabilityRequest {
     pub username: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct UsernameAvailabilityResponse {
     pub available: bool,
 }
@@ -138,7 +138,7 @@ where
     Option::<T>::deserialize(deserializer).map(Some)
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BetterAuthUser {
     pub id: String,
@@ -168,7 +168,7 @@ pub struct BetterAuthUser {
     pub two_factor_enabled: Option<bool>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BetterAuthSession {
     pub id: String,
@@ -185,7 +185,7 @@ pub struct BetterAuthSession {
     pub impersonated_by: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SessionResponse {
     pub session: BetterAuthSession,
     pub user: BetterAuthUser,

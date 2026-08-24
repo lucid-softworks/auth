@@ -11,7 +11,6 @@ use lucid_auth::{
     MemoryStore, PluginDescriptor, UserDeletionCallback,
 };
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tower::ServiceExt;
@@ -318,7 +317,7 @@ async fn disabled_and_stale_deletion_match_official_errors() {
     let session = lucid_auth::AuthSession {
         id: uuid::Uuid::new_v4(),
         user_id: user.id,
-        token_hash: hex::encode(Sha256::digest(old_token.as_bytes())),
+        token: old_token.into(),
         actor_user_id: None,
         authentication_method: lucid_auth::AuthenticationMethod::Password,
         expires_at: chrono::Utc::now() + chrono::Duration::hours(1),

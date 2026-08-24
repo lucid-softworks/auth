@@ -45,6 +45,7 @@ impl AuthenticationMethod {
 
 /// A user account independent of any HTTP or application framework.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AuthUser {
     pub id: Uuid,
     pub username: Option<String>,
@@ -53,6 +54,7 @@ pub struct AuthUser {
     pub email: String,
     pub email_verified: bool,
     pub image: Option<String>,
+    #[serde(flatten)]
     pub additional_fields: serde_json::Map<String, serde_json::Value>,
     pub role: String,
     pub is_anonymous: bool,
@@ -207,10 +209,11 @@ pub struct VerifiedApiKey {
 
 /// Server-side session metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AuthSession {
     pub id: Uuid,
     pub user_id: Uuid,
-    pub token_hash: String,
+    pub token: String,
     pub actor_user_id: Option<Uuid>,
     pub authentication_method: AuthenticationMethod,
     pub expires_at: DateTime<Utc>,
@@ -218,6 +221,7 @@ pub struct AuthSession {
     pub updated_at: DateTime<Utc>,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
+    #[serde(flatten)]
     pub additional_fields: serde_json::Map<String, serde_json::Value>,
 }
 

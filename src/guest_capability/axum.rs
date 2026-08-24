@@ -147,7 +147,7 @@ async fn redeem_guest_grant(
                     Value::String(result.grant_id.to_string()),
                 );
             }
-            with_session_cookie(&service, &result.token, Some(true), Json(response))
+            with_session_cookie(&service, &result.token, Some(true), Json(response)).await
         }
         Err(error) => auth_error(error),
     }

@@ -19,6 +19,7 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 mod email;
+mod cookie_cache;
 mod metadata;
 mod native_plugin;
 mod organization;
@@ -170,6 +171,7 @@ async fn fixture(origin: &str) -> Fixture {
 
 fn conformance_config(origin: &str, messages: &ConformanceMessages) -> AuthConfig {
     let mut config = AuthConfig::new([82_u8; 32]).expect("fixture secret");
+    cookie_cache::configure(&mut config);
     let mut admin = AdminConfig::default();
     admin.set_role("member", AdminRole::new());
     admin.set_role("viewer", AdminRole::new());

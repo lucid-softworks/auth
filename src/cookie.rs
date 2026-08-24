@@ -40,6 +40,7 @@ pub struct CookieConfig {
     pub prefix: String,
     pub default_attributes: CookieAttributes,
     pub session_token: CookieOptions,
+    pub session_data: CookieOptions,
     cross_subdomain_enabled: bool,
     cross_subdomain_domain: Option<String>,
 }
@@ -50,6 +51,7 @@ impl Default for CookieConfig {
             prefix: "better-auth".into(),
             default_attributes: CookieAttributes::default(),
             session_token: CookieOptions::default(),
+            session_data: CookieOptions::default(),
             cross_subdomain_enabled: false,
             cross_subdomain_domain: None,
         }
@@ -92,6 +94,8 @@ impl CookieConfig {
     ) -> ResolvedCookie {
         let default_suffix = match kind {
             CookieKind::SessionToken => "session_token",
+            #[cfg(feature = "axum")]
+            CookieKind::SessionData => "session_data",
             CookieKind::PasskeyChallenge => "better-auth-passkey",
             #[cfg(feature = "axum")]
             CookieKind::Plugin => "plugin",
@@ -99,6 +103,8 @@ impl CookieConfig {
         let suffix = suffix_override.unwrap_or(default_suffix);
         let options = match kind {
             CookieKind::SessionToken => Some(&self.session_token),
+            #[cfg(feature = "axum")]
+            CookieKind::SessionData => Some(&self.session_data),
             CookieKind::PasskeyChallenge => None,
             #[cfg(feature = "axum")]
             CookieKind::Plugin => None,
@@ -148,6 +154,8 @@ impl CookieConfig {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum CookieKind {
     SessionToken,
+    #[cfg(feature = "axum")]
+    SessionData,
     PasskeyChallenge,
     #[cfg(feature = "axum")]
     Plugin,

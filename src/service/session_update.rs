@@ -23,7 +23,7 @@ impl AuthService {
         };
         if candidate.id != current.session.id
             || candidate.user_id != current.session.user_id
-            || candidate.token_hash != current.session.token_hash
+            || candidate.token != current.session.token
             || candidate.created_at != current.session.created_at
         {
             return Err(AuthError::InvalidConfiguration(

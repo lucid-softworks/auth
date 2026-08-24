@@ -38,7 +38,7 @@ pub(super) async fn assert_promotion_is_atomic(
         .create_session(AuthSession {
             id: Uuid::new_v4(),
             user_id: user.id,
-            token_hash: "unproven-magic-session".into(),
+            token: "unproven-magic-session".into(),
             actor_user_id: None,
             authentication_method: AuthenticationMethod::Password,
             expires_at: now + Duration::hours(1),

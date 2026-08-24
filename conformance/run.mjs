@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { createAuthClient } from "better-auth/client";
+import { getCookieCache } from "better-auth/cookies";
 import {
   adminClient,
   anonymousClient,
@@ -1547,7 +1548,45 @@ async function conformance(origin) {
   });
 }
 
-async function startServer() {
+async function cookieCacheConformance(origin, strategy) {
+  const transport = new BrowserTransport(origin);
+  const client = createAuthClient({
+    baseURL: origin,
+    fetchOptions: { customFetchImpl: transport.fetch.bind(transport) },
+  });
+  const email = `cookie-cache-${strategy}@example.com`;
+  success(
+    await client.signUp.email({
+      name: "Cookie Cache User",
+      email,
+      password: "correct horse battery staple",
+    }),
+    `cookieCache.${strategy}.signUp`,
+  );
+  assert.equal(
+    transport.cookies.has("better-auth.session_data"),
+    true,
+    `${strategy} session_data cookie was not set`,
+  );
+  const headers = new Headers({
+    cookie: [...transport.cookies]
+      .map(([name, value]) => `${name}=${value}`)
+      .join("; "),
+  });
+  const decoded = await getCookieCache(headers, {
+    strategy,
+    secret: "R".repeat(32),
+    isSecure: false,
+  });
+  assert.equal(decoded?.user.email, email);
+  assert.equal(
+    decoded?.session.token,
+    transport.cookies.get("better-auth.session_token")?.split(".")[0],
+  );
+  console.log(`ok - Better Auth ${strategy} cookie-cache decoder`);
+}
+
+async function startServer(strategy) {
   const child = spawn(
     "cargo",
     [
@@ -1558,6 +1597,10 @@ async function startServer() {
     ],
     {
       cwd: repository,
+      env: {
+        ...process.env,
+        LUCID_AUTH_COOKIE_CACHE_STRATEGY: strategy,
+      },
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -1597,9 +1640,12 @@ function stopServer(child) {
   else process.kill(-child.pid, "SIGTERM");
 }
 
-const { child, origin } = await startServer();
-try {
-  await conformance(origin);
-} finally {
-  stopServer(child);
+for (const strategy of ["compact", "jwt", "jwe"]) {
+  const { child, origin } = await startServer(strategy);
+  try {
+    if (strategy === "compact") await conformance(origin);
+    await cookieCacheConformance(origin, strategy);
+  } finally {
+    stopServer(child);
+  }
 }

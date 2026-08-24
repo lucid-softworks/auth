@@ -81,6 +81,11 @@ const MIGRATIONS: &[CoreMigration] = &[
         description: "migration schema diagnostics",
         sql: include_str!("../../migrations/0018_migration_diagnostics.sql"),
     },
+    CoreMigration {
+        version: 19,
+        description: "Better Auth opaque session tokens",
+        sql: include_str!("../../migrations/0019_better_auth_session_tokens.sql"),
+    },
 ];
 
 pub fn core_migrations() -> &'static [CoreMigration] {

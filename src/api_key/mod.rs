@@ -258,7 +258,7 @@ impl AuthPlugin for ApiKeyPlugin {
             session: AuthSession {
                 id: verified.api_key.id,
                 user_id: user.id,
-                token_hash: String::new(),
+                token: String::new(),
                 actor_user_id: None,
                 authentication_method: AuthenticationMethod::Password,
                 expires_at: verified

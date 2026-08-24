@@ -120,6 +120,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     audit::assert_retention_is_atomic(&store, &pool, user.id).await?;
     operator_security::assert_atomic(&service, &store, &signed_in, user.id).await?;
     schema::assert_clean_and_detects_drift(&store, &pool, &service.plugin_migrations()).await?;
+    schema::session_token_upgrade_invalidates_incompatible_hashes(&store, &pool).await?;
 
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))

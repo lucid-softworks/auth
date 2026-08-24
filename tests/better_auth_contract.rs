@@ -11,7 +11,6 @@ use lucid_auth::{
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
-use uuid::Uuid;
 
 async fn application() -> Router {
     let mut config = AuthConfig::new([19_u8; 32]).unwrap();
@@ -187,7 +186,7 @@ async fn two_factor_routes_are_absent_without_the_plugin() {
 async fn official_account_security_contract_manages_sessions() {
     let app = application().await;
     let (current_cookie, _) = sign_in(&app, "luna").await;
-    let (other_cookie, _) = sign_in(&app, "luna").await;
+    let (other_cookie, other_sign_in) = sign_in(&app, "luna").await;
 
     let response = app
         .clone()
@@ -201,7 +200,9 @@ async fn official_account_security_contract_manages_sessions() {
         .unwrap();
     let sessions = response_json(response).await;
     assert_eq!(sessions.as_array().unwrap().len(), 2);
-    assert!(Uuid::parse_str(sessions[0]["token"].as_str().unwrap()).is_ok());
+    assert!(sessions.as_array().unwrap().iter().any(|session| {
+        session["token"] == other_sign_in["token"] && session["token"] != session["id"]
+    }));
 
     let response = app
         .clone()

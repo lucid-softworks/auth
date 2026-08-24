@@ -26,6 +26,9 @@ mod plugin_session;
 mod recovery;
 mod session;
 mod session_create;
+#[cfg(feature = "axum")]
+mod session_http_cache;
+mod session_storage;
 mod session_update;
 mod two_factor;
 mod types;
@@ -47,7 +50,9 @@ use chrono::{Duration, Utc};
 use hmac::{Hmac, Mac};
 use session::{hash_token, random_token};
 use sha2::Sha256;
+use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 pub use api_key::{ApiKeySortDirection, ApiKeyUpdate};
@@ -74,6 +79,7 @@ pub struct AuthService {
     config: Arc<AuthConfig>,
     plugins: Arc<PluginRegistry>,
     rate_limiter: Arc<RateLimiter>,
+    pending_stateless_sessions: Arc<Mutex<HashMap<String, SessionWithUser>>>,
 }
 
 impl AuthService {
@@ -85,13 +91,18 @@ impl AuthService {
     pub fn try_new(store: Arc<dyn AuthStore>, config: AuthConfig) -> Result<Self, AuthError> {
         config.validate()?;
         let plugins = PluginRegistry::build(&config.plugins, &config)?;
-        let rate_limiter =
-            RateLimiter::new(&config.rate_limit, store.clone(), plugins.rate_limits());
+        let rate_limiter = RateLimiter::new(
+            &config.rate_limit,
+            store.clone(),
+            plugins.rate_limits(),
+            config.secondary_storage.clone(),
+        );
         Ok(Self {
             store,
             config: Arc::new(config),
             plugins: Arc::new(plugins),
             rate_limiter: Arc::new(rate_limiter),
+            pending_stateless_sessions: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -264,7 +275,7 @@ impl AuthService {
             session: AuthSession {
                 id,
                 user_id: id,
-                token_hash: String::new(),
+                token: String::new(),
                 actor_user_id: None,
                 authentication_method: AuthenticationMethod::Password,
                 expires_at: now + Duration::days(1),
@@ -295,12 +306,12 @@ impl AuthService {
     }
 
     pub async fn session(&self, token: &str) -> Result<Option<SessionWithUser>, AuthError> {
-        let token_hash = hash_token(token);
-        let Some((session, user)) = self.store.find_session(&token_hash).await? else {
+        let Some(session) = self.find_stored_session(token).await? else {
             return Ok(None);
         };
+        let SessionWithUser { session, user } = session;
         if session.expires_at <= Utc::now() {
-            self.delete_session_token_with_hooks(&token_hash).await?;
+            self.delete_session_token_with_hooks(token).await?;
             return Ok(None);
         }
         if self.plugins.find::<crate::AdminPlugin>().is_some()
@@ -329,8 +340,7 @@ impl AuthService {
     }
 
     pub async fn sign_out(&self, token: &str) -> Result<(), AuthError> {
-        self.delete_session_token_with_hooks(&hash_token(token))
-            .await
+        self.delete_session_token_with_hooks(token).await
     }
 
     pub fn signed_cookie_value(&self, token: &str) -> String {

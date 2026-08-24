@@ -329,9 +329,9 @@ impl AuthStore for PostgresStore {
 
     async fn find_session(
         &self,
-        token_hash: &str,
+        token: &str,
     ) -> Result<Option<(AuthSession, AuthUser)>, AuthError> {
-        session::find(&self.pool, token_hash).await
+        session::find(&self.pool, token).await
     }
 
     async fn find_session_by_id(&self, session_id: Uuid) -> Result<Option<AuthSession>, AuthError> {
@@ -346,8 +346,24 @@ impl AuthStore for PostgresStore {
         session::update_fields(&self.pool, session_id, fields).await
     }
 
-    async fn delete_session(&self, token_hash: &str) -> Result<(), AuthError> {
-        session::delete(&self.pool, token_hash).await
+    async fn delete_session(&self, token: &str) -> Result<(), AuthError> {
+        session::delete(&self.pool, token).await
+    }
+
+    async fn expire_session(
+        &self,
+        session_id: Uuid,
+        expires_at: DateTime<Utc>,
+    ) -> Result<(), AuthError> {
+        sqlx::query(
+            "UPDATE lucid_auth_sessions SET expires_at = $2, updated_at = $2 WHERE id = $1",
+        )
+        .bind(session_id)
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await
+        .map_err(storage_error)?;
+        Ok(())
     }
 
     async fn delete_expired_sessions(&self, now: DateTime<Utc>) -> Result<(), AuthError> {

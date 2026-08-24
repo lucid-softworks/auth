@@ -10,7 +10,6 @@ use lucid_auth::{
     NewPasswordUser, PasskeyConfig, PasskeyPlugin, StoredPasskey, UsernamePlugin,
 };
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -213,7 +212,7 @@ async fn stale_registration_does_not_consume_the_challenge() {
     let fresh_session = AuthSession {
         id: Uuid::new_v4(),
         user_id: user.id,
-        token_hash: hex::encode(Sha256::digest(token.as_bytes())),
+        token: token.clone(),
         actor_user_id: None,
         authentication_method: AuthenticationMethod::Password,
         expires_at: now + Duration::hours(1),
@@ -309,7 +308,7 @@ async fn persisted_session_cookie(
         .create_session(AuthSession {
             id: Uuid::new_v4(),
             user_id,
-            token_hash: hex::encode(Sha256::digest(token.as_bytes())),
+            token: token.clone(),
             actor_user_id: None,
             authentication_method: AuthenticationMethod::Password,
             expires_at: now + Duration::hours(1),

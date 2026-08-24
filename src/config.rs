@@ -1,7 +1,8 @@
 use crate::{
     AuthError, AuthPlugin, CookieConfig, DatabaseHooks, EmailVerificationConfig,
-    PasswordBreachChecker, PasswordResetCallback, PasswordResetEmailSender, SessionConfig,
-    TrustedOrigin, UserConfig, client_ip::IpAddressConfig, rate_limit::RateLimitConfig,
+    PasswordBreachChecker, PasswordResetCallback, PasswordResetEmailSender, SecondaryStorage,
+    SessionConfig, TrustedOrigin, UserConfig, client_ip::IpAddressConfig,
+    rate_limit::RateLimitConfig,
 };
 use chrono::Duration;
 use std::sync::Arc;
@@ -31,6 +32,9 @@ pub struct AuthConfig {
     pub account: AccountConfig,
     pub verification: VerificationConfig,
     pub database_hooks: Option<Arc<dyn DatabaseHooks>>,
+    /// Better Auth-compatible secondary storage for live sessions and, by
+    /// default, request rate limits.
+    pub secondary_storage: Option<Arc<dyn SecondaryStorage>>,
     /// Better Auth-compatible built-in or custom social providers.
     pub(crate) social_providers: Vec<Arc<dyn crate::SocialProvider>>,
     pub(crate) trusted_social_providers: Vec<String>,
@@ -101,6 +105,7 @@ impl AuthConfig {
             account: AccountConfig::default(),
             verification: VerificationConfig::default(),
             database_hooks: None,
+            secondary_storage: None,
             social_providers: Vec::new(),
             trusted_social_providers: Vec::new(),
             ip_address: IpAddressConfig::default(),
@@ -223,6 +228,7 @@ impl AuthConfig {
 
     pub(crate) fn validate(&self) -> Result<(), AuthError> {
         self.rate_limit.validate()?;
+        self.session.validate()?;
         if self.session_fresh_age < Duration::zero() {
             return Err(AuthError::InvalidConfiguration(
                 "session fresh age must not be negative".into(),

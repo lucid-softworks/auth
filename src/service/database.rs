@@ -273,17 +273,16 @@ impl AuthService {
 
     pub(super) async fn delete_session_token_with_hooks(
         &self,
-        token_hash: &str,
+        token: &str,
     ) -> Result<(), AuthError> {
         let record = self
-            .store
-            .find_session(token_hash)
+            .find_stored_session(token)
             .await?
-            .map(|(session, _)| DatabaseRecord::Session(session));
+            .map(|session| DatabaseRecord::Session(session.session));
         if let Some(record) = &record {
             self.before_database_delete(record).await?;
         }
-        self.store.delete_session(token_hash).await?;
+        self.delete_stored_session_token(token).await?;
         if let Some(record) = &record {
             self.after_database_delete(record).await?;
         }
@@ -305,14 +304,13 @@ impl AuthService {
         session_id: uuid::Uuid,
     ) -> Result<(), AuthError> {
         let record = self
-            .store
-            .find_session_by_id(session_id)
+            .find_stored_session_by_id(session_id)
             .await?
-            .map(DatabaseRecord::Session);
+            .map(|(_, session)| DatabaseRecord::Session(session));
         if let Some(record) = &record {
             self.before_database_delete(record).await?;
         }
-        self.store.delete_session_by_id(session_id).await?;
+        self.delete_stored_session_id(session_id).await?;
         if let Some(record) = &record {
             self.after_database_delete(record).await?;
         }
@@ -324,16 +322,15 @@ impl AuthService {
         user_id: uuid::Uuid,
     ) -> Result<(), AuthError> {
         let records: Vec<_> = self
-            .store
-            .list_sessions(user_id)
+            .stored_sessions(user_id)
             .await?
             .into_iter()
-            .map(DatabaseRecord::Session)
+            .map(|(_, session)| DatabaseRecord::Session(session))
             .collect();
         for record in &records {
             self.before_database_delete(record).await?;
         }
-        self.store.delete_user_sessions(user_id).await?;
+        self.delete_stored_user_sessions(user_id).await?;
         for record in &records {
             self.after_database_delete(record).await?;
         }

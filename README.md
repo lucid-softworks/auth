@@ -647,6 +647,33 @@ cross-subdomain scope. Call `AuthConfig::enable_cors` to answer credentialed
 preflights for trusted origins; untrusted origins remain blocked by the same
 CSRF policy.
 
+Session storage and cookie caching follow Better Auth's separate primary-token
+and `session_data` design. The default remains database-backed with cookie cache
+disabled. To enable the default compact cache:
+
+```rust
+config.session.cookie_cache.enabled = true;
+```
+
+Set `CookieCacheStrategy::Jwt` for HS256 or `CookieCacheStrategy::Jwe` for
+Better Auth's HKDF-derived A256CBC-HS512 encrypted profile. `max_age`,
+`refresh_cache`, and `version` correspond to Better Auth's `cookieCache`
+settings; changing `version` invalidates existing caches. Large cache values are
+split into Better Auth-compatible numbered cookies.
+
+Set `config.secondary_storage` to an `Arc<dyn SecondaryStorage>` to make it the
+authoritative live-session store. `store_session_in_database` mirrors sessions
+to the primary store and `preserve_session_in_database` expires instead of
+deleting that audit row on revocation. The default rate-limit storage mode also
+selects configured secondary storage. Use `SessionStorageMode::Stateless` only
+with cookie cache enabled; pure stateless sessions cannot be individually
+revoked, so use short cache lifetimes and version invalidation for incidents.
+
+Migration `0019_better_auth_session_tokens.sql` intentionally invalidates old
+hashed session rows and stores Better Auth's opaque token so `listSessions` and
+`revokeSession` use the same value. Existing sessions must sign in again after
+that upgrade.
+
 ## Conformance tests
 
 The black-box suite installs the exact official Better Auth client versions in

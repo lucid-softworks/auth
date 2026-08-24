@@ -24,7 +24,11 @@ mod owner_policy;
 mod passkey;
 mod plugin;
 mod rate_limit;
+mod secondary_storage;
 mod service;
+#[cfg(feature = "axum")]
+mod session_cache;
+mod session_config;
 mod step_up;
 mod store;
 mod two_factor;
@@ -40,7 +44,6 @@ pub mod protocol;
 pub use additional_fields::{
     AdditionalField, AdditionalFieldDefault, AdditionalFieldOnDelete, AdditionalFieldReference,
     AdditionalFieldSet, AdditionalFieldTransform, AdditionalFieldType, AdditionalFieldValidator,
-    SessionConfig,
 };
 pub use admin::{
     AdminConfig, AdminCreateUser, AdminError, AdminListCondition, AdminListOperator,
@@ -130,6 +133,7 @@ pub use rate_limit::{
     RateLimitConfig, RateLimitCustomRule, RateLimitOutcome, RateLimitRequest, RateLimitRule,
     RateLimitRuleResolver, RateLimitStorage, RateLimitStorageMode,
 };
+pub use secondary_storage::{MemorySecondaryStorage, SecondaryStorage};
 pub use service::account_types::{
     LinkedAccount, ProviderAccountIdentity, ProviderAccountInfo, ProviderAccountUser,
     ProviderTokenResponse,
@@ -139,6 +143,9 @@ pub use service::{
     EmailSignUpResult, EmailVerificationResult, HashedPasswordUser, OAuthCallbackResult,
     PasskeyRegistrationRequest, PasskeyRegistrationResult, PasskeyRegistrationVerification,
     PasswordChangeResult, SignInResult, SocialIdTokenInput, SocialSignInInput, SocialSignInResult,
+};
+pub use session_config::{
+    CookieCacheConfig, CookieCacheRefresh, CookieCacheStrategy, SessionConfig, SessionStorageMode,
 };
 pub use step_up::{
     MemoryStepUpStore, RecoveryCodeStatus, StepUpAssurance, StepUpError, StepUpPolicyConfig,

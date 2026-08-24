@@ -106,6 +106,15 @@ overwrites, not ones it appends from arbitrary clients.
   bound the pool rather than allowing unbounded connections per instance.
 - Use database rate-limit storage when more than one service instance accepts
   requests. The memory limiter is not shared across instances.
+- A configured `SecondaryStorage` becomes authoritative for sessions and the
+  default rate limiter. Enable `store_session_in_database` only when a DB mirror
+  is required; enable `preserve_session_in_database` when ended rows must remain
+  as expired audit records.
+- Pure `SessionStorageMode::Stateless` deployments cannot centrally revoke one
+  issued cache. Keep `cookie_cache.max_age` short and rotate
+  `cookie_cache.version` for deterministic fleet-wide invalidation.
+- Migration `0019` invalidates the previous incompatible hashed session rows;
+  plan for users to sign in again after deployment.
 
 ## Runtime defaults to review
 

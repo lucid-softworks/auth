@@ -162,7 +162,7 @@ async fn verify_email(
                 }
             };
             match result.session_token {
-                Some(token) => with_session_cookie(&service, &token, Some(true), response),
+                Some(token) => with_session_cookie(&service, &token, Some(true), response).await,
                 None => response,
             }
         }
@@ -268,7 +268,7 @@ async fn sign_up_email(
                 user,
             });
             match token {
-                Some(token) => with_session_cookie(&service, &token, remember_me, response),
+                Some(token) => with_session_cookie(&service, &token, remember_me, response).await,
                 None => response.into_response(),
             }
         }

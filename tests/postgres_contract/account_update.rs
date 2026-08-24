@@ -31,10 +31,7 @@ pub(super) async fn assert_persistence(
         .update_current_session(session, Map::from_iter([("theme".into(), json!("dark"))]))
         .await?;
     assert_eq!(updated_session.additional_fields["theme"], "dark");
-    let persisted = store
-        .find_session(&session.session.token_hash)
-        .await?
-        .unwrap();
+    let persisted = store.find_session(&session.session.token).await?.unwrap();
     assert_eq!(persisted.0.additional_fields["theme"], "dark");
 
     let other = service

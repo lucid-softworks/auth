@@ -37,7 +37,7 @@ pub async fn insert_legacy_shape(
     let now = Utc::now();
     sqlx::query(
         "INSERT INTO lucid_auth_sessions \
-         (id, user_id, token_hash, actor_user_id, authentication_method, expires_at, created_at, \
+         (id, user_id, token, actor_user_id, authentication_method, expires_at, created_at, \
           updated_at, ip_address, user_agent) \
          VALUES ($1,$2,$3,NULL,'passkey',$4,$5,$5,NULL,NULL)",
     )

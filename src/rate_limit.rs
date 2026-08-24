@@ -109,6 +109,7 @@ pub trait RateLimitStorage: Send + Sync {
 #[derive(Clone, Default)]
 pub enum RateLimitStorageMode {
     #[default]
+    Auto,
     Memory,
     Database,
     SecondaryStorage(Arc<dyn RateLimitStorage>),
@@ -134,7 +135,7 @@ impl Default for RateLimitConfig {
             enabled: !cfg!(debug_assertions),
             window: 10,
             max: 100,
-            storage: RateLimitStorageMode::Memory,
+            storage: RateLimitStorageMode::Auto,
             custom_rules: Vec::new(),
         }
     }

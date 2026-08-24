@@ -1,7 +1,7 @@
 use super::{
     RateLimitConfig, RateLimitOutcome, RateLimitRule, RateLimitStorage, RateLimitStorageMode,
 };
-use crate::{AuthError, AuthStore, PluginRateLimit};
+use crate::{AuthError, AuthStore, PluginRateLimit, SecondaryStorage};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use std::{
@@ -27,8 +27,13 @@ impl RateLimiter {
         config: &RateLimitConfig,
         store: Arc<dyn AuthStore>,
         plugin_rules: &[PluginRateLimit],
+        secondary_storage: Option<Arc<dyn SecondaryStorage>>,
     ) -> Self {
         match &config.storage {
+            RateLimitStorageMode::Auto => secondary_storage.map_or_else(
+                || Self::Memory(MemoryRateLimitStorage::default()),
+                |storage| Self::External(Arc::new(SecondaryRateLimitStorage { storage })),
+            ),
             RateLimitStorageMode::Memory => Self::Memory(MemoryRateLimitStorage::default()),
             RateLimitStorageMode::Database => Self::Database {
                 store,
@@ -61,6 +66,42 @@ impl RateLimiter {
                     .await
             }
             Self::External(storage) => storage.consume(key, rule).await,
+        }
+    }
+}
+
+struct SecondaryRateLimitStorage {
+    storage: Arc<dyn SecondaryStorage>,
+}
+
+#[async_trait]
+impl RateLimitStorage for SecondaryRateLimitStorage {
+    async fn consume(&self, key: &str, rule: RateLimitRule) -> Result<RateLimitOutcome, AuthError> {
+        let count_key = format!("rate-limit:{key}:count");
+        let started_key = format!("rate-limit:{key}:started");
+        let count = self
+            .storage
+            .increment(&count_key, Some(rule.window))
+            .await?;
+        let now = Utc::now().timestamp();
+        if count == 1 {
+            self.storage
+                .set(&started_key, now.to_string(), Some(rule.window))
+                .await?;
+        }
+        if count <= u64::from(rule.max) {
+            Ok(RateLimitOutcome::allowed())
+        } else {
+            let elapsed = self
+                .storage
+                .get(&started_key)
+                .await?
+                .and_then(|value| value.parse::<i64>().ok())
+                .and_then(|started| u64::try_from(now.saturating_sub(started)).ok())
+                .unwrap_or(0);
+            Ok(RateLimitOutcome::denied(
+                rule.window.saturating_sub(elapsed).max(1),
+            ))
         }
     }
 }

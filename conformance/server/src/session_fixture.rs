@@ -8,7 +8,6 @@ use axum::{
 use chrono::{Duration, Utc};
 use lucid_auth::{AuthSession, AuthStore, AuthenticationMethod, StoredPasskey};
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 pub(crate) async fn create(
@@ -28,7 +27,7 @@ pub(crate) async fn create(
         .create_session(AuthSession {
             id: Uuid::new_v4(),
             user_id: fixture.owner_id,
-            token_hash: hex::encode(Sha256::digest(token.as_bytes())),
+            token: token.clone(),
             actor_user_id: None,
             authentication_method,
             expires_at: now + Duration::hours(1),

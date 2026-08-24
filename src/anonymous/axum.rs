@@ -62,7 +62,7 @@ async fn sign_in(
                 token: result.token.clone(),
                 user,
             };
-            with_session_cookie(&service, &result.token, Some(true), Json(response))
+            with_session_cookie(&service, &result.token, Some(true), Json(response)).await
         }
         Err(error) => auth_error(error),
     }

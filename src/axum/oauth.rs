@@ -99,6 +99,7 @@ async fn sign_in_social(
                     user,
                 }),
             )
+            .await
         }
         Ok(SocialSignInResult::Linked) => auth_error(AuthError::InvalidRequest(
             "linked-account response is invalid for social sign-in".into(),
@@ -195,7 +196,7 @@ async fn oauth_callback(
             let response = redirect(&result.redirect_url);
             let response = match result.session {
                 Some(session) => {
-                    with_session_cookie(&service, &session.token, Some(true), response)
+                    with_session_cookie(&service, &session.token, Some(true), response).await
                 }
                 None => response,
             };

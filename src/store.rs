@@ -174,10 +174,8 @@ pub trait AuthStore:
 
     async fn create_session(&self, session: AuthSession) -> Result<(), AuthError>;
 
-    async fn find_session(
-        &self,
-        token_hash: &str,
-    ) -> Result<Option<(AuthSession, AuthUser)>, AuthError>;
+    async fn find_session(&self, token: &str)
+    -> Result<Option<(AuthSession, AuthUser)>, AuthError>;
 
     async fn find_session_by_id(&self, session_id: Uuid) -> Result<Option<AuthSession>, AuthError>;
 
@@ -187,7 +185,13 @@ pub trait AuthStore:
         fields: serde_json::Map<String, serde_json::Value>,
     ) -> Result<Option<AuthSession>, AuthError>;
 
-    async fn delete_session(&self, token_hash: &str) -> Result<(), AuthError>;
+    async fn delete_session(&self, token: &str) -> Result<(), AuthError>;
+
+    async fn expire_session(
+        &self,
+        session_id: Uuid,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), AuthError>;
 
     async fn delete_expired_sessions(
         &self,

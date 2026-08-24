@@ -179,7 +179,7 @@ async fn verify_registration(
                     ),
                     user: Some(user),
                 });
-                with_session_cookie(&service, &replacement.token, Some(true), body)
+                with_session_cookie(&service, &replacement.token, Some(true), body).await
             } else {
                 Json(PasskeyRegistrationResponse {
                     passkey: BetterAuthPasskey::from(&result.passkey),
@@ -265,7 +265,7 @@ async fn verify_authentication(
                 .await
             {
                 Ok(response) => {
-                    with_session_cookie(&service, &result.token, Some(true), Json(response))
+                    with_session_cookie(&service, &result.token, Some(true), Json(response)).await
                 }
                 Err(error) => auth_error(error),
             }

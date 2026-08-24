@@ -4,6 +4,7 @@ use crate::{
 };
 use axum::{
     Extension, Json, Router,
+    extract::Query,
     http::{HeaderMap, HeaderValue, header},
     middleware,
     response::{IntoResponse, Response},
@@ -26,7 +27,11 @@ mod security;
 mod user_deletion;
 
 pub use self::http::session_token;
-use self::http::{auth_error, clear_session_cookie};
+use self::http::{
+    auth_error, clear_session_cookie, serialize_cookie, session_data_cookie,
+    with_chunked_session_data_cookie, with_cookie, with_session_cookie,
+};
+use serde::Deserialize;
 
 pub fn router<S>(service: Arc<AuthService>) -> Router<S>
 where
@@ -78,24 +83,42 @@ pub(crate) async fn sign_in_response(
     })
 }
 
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GetSessionQuery {
+    disable_cookie_cache: Option<bool>,
+    #[allow(dead_code)]
+    disable_refresh: Option<bool>,
+}
+
 async fn get_session(
     Extension(service): Extension<Arc<AuthService>>,
     headers: HeaderMap,
+    Query(query): Query<GetSessionQuery>,
 ) -> Response {
-    let mut response = match session_token(&service, &headers) {
+    let token = session_token(&service, &headers);
+    if let Some(response) = cached_session_response(
+        &service,
+        &headers,
+        token.as_deref(),
+        query.disable_cookie_cache == Some(true),
+    ) {
+        return response;
+    }
+    let mut response = match token {
         Some(token) => match service.session(&token).await {
             Ok(Some(session)) => {
                 let user = match service.better_auth_user(&session.user).await {
                     Ok(user) => user,
                     Err(error) => return auth_error(error),
                 };
-                Json(Some(SessionResponse {
-                    session: service.better_auth_session(&session.session, token),
+                let response = Json(Some(SessionResponse {
+                    session: service.better_auth_session(&session.session, &token),
                     user,
-                }))
-                .into_response()
+                }));
+                with_session_cookie(&service, &token, Some(true), response).await
             }
-            Ok(None) => Json::<Option<SessionResponse>>(None).into_response(),
+            Ok(None) => clear_session_cookie(&service, Json::<Option<SessionResponse>>(None)),
             Err(error) => return auth_error(error),
         },
         None => match service.plugin_session(&headers).await {
@@ -129,13 +152,52 @@ async fn get_session(
             Err(error) => return auth_error(error),
         },
     };
+    set_session_cache_headers(&mut response);
+    response
+}
+
+fn cached_session_response(
+    service: &AuthService,
+    headers: &HeaderMap,
+    token: Option<&str>,
+    disabled: bool,
+) -> Option<Response> {
+    if disabled {
+        return None;
+    }
+    let token = token?;
+    let cache = session_data_cookie(service, headers)?;
+    let (value, expires_at) = service.decode_session_cookie_cache(token, &cache)?;
+    let mut response = Json(value).into_response();
+    if service.should_refresh_cookie_cache(expires_at)
+        && let Some(refreshed) = service.refresh_session_cookie_cache(&cache)
+    {
+        response = with_chunked_session_data_cookie(
+            service,
+            &refreshed,
+            Some(service.cookie_cache_max_age()),
+            response,
+        );
+        response = with_cookie(
+            response,
+            serialize_cookie(
+                &service.session_cookie(),
+                &service.signed_cookie_value(token),
+                Some(service.session_ttl().num_seconds()),
+            ),
+        );
+    }
+    set_session_cache_headers(&mut response);
+    Some(response)
+}
+
+fn set_session_cache_headers(response: &mut Response) {
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
         .headers_mut()
         .insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
-    response
 }
 
 async fn sign_out(Extension(service): Extension<Arc<AuthService>>, headers: HeaderMap) -> Response {

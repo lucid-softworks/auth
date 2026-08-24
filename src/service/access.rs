@@ -224,22 +224,31 @@ impl AuthService {
     ) -> Result<Vec<AuthSession>, AuthError> {
         self.require_admin_permission(actor, "session", &["list"])
             .await?;
-        self.store.list_sessions(user_id).await
+        Ok(self
+            .stored_sessions(user_id)
+            .await?
+            .into_iter()
+            .map(|(_, session)| session)
+            .collect())
     }
 
     pub async fn revoke_user_session(
         &self,
         actor: &SessionWithUser,
-        session_id: Uuid,
+        session_token: &str,
     ) -> Result<(), AuthError> {
         self.require_admin_permission(actor, "session", &["revoke"])
             .await?;
-        self.delete_session_id_with_hooks(session_id).await?;
+        let session_id = self
+            .find_stored_session(session_token)
+            .await?
+            .map(|session| session.session.id);
+        self.delete_session_token_with_hooks(session_token).await?;
         self.audit(
             actor.user.id,
             None,
             "session.revoked",
-            Some(session_id.to_string()),
+            session_id.map(|id| id.to_string()),
             json!({}),
         )
         .await;

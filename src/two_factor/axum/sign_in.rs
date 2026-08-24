@@ -72,7 +72,7 @@ async fn continue_sign_in(
         Ok(body) => body,
         Err(error) => return auth_error(error),
     };
-    let mut response = with_session_cookie(service, &token, remember_me, Json(body));
+    let mut response = with_session_cookie(service, &token, remember_me, Json(body)).await;
     if let Some(rotated) = rotated_trust_cookie {
         let max_age = service
             .two_factor_plugin()

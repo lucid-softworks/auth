@@ -10,7 +10,6 @@ use axum::{
     routing::{get, post},
 };
 use std::sync::Arc;
-use uuid::Uuid;
 
 use crate::protocol::better_auth::{
     ChangeEmailRequest, ChangePasswordRequest, ChangePasswordResponse, RevokeSessionRequest,
@@ -47,7 +46,9 @@ async fn change_email(
         Ok(updated) => {
             let body = Json(StatusResponse { status: true });
             match (updated, super::session_token(&service, &headers)) {
-                (Some(_), Some(token)) => with_session_cookie(&service, &token, Some(true), body),
+                (Some(_), Some(token)) => {
+                    with_session_cookie(&service, &token, Some(true), body).await
+                }
                 _ => body.into_response(),
             }
         }
@@ -72,7 +73,7 @@ async fn update_session(
             if token.is_empty() {
                 body.into_response()
             } else {
-                with_session_cookie(&service, &token, Some(true), body)
+                with_session_cookie(&service, &token, Some(true), body).await
             }
         }
         Err(error) => auth_error(error),
@@ -110,7 +111,7 @@ async fn update_user(
         Ok(_) => {
             let response = Json(StatusResponse { status: true });
             match super::session_token(&service, &headers) {
-                Some(token) => with_session_cookie(&service, &token, Some(true), response),
+                Some(token) => with_session_cookie(&service, &token, Some(true), response).await,
                 None => response.into_response(),
             }
         }
@@ -167,6 +168,7 @@ async fn change_password(
                         user,
                     }),
                 )
+                .await
             } else {
                 Json(ChangePasswordResponse { token: None, user }).into_response()
             }
@@ -186,7 +188,7 @@ async fn list_sessions(
         Ok(sessions) => Json(
             sessions
                 .iter()
-                .map(|session| service.better_auth_session(session, session.id.to_string()))
+                .map(|session| service.better_auth_session(session, session.token.clone()))
                 .collect::<Vec<_>>(),
         )
         .into_response(),
@@ -202,11 +204,8 @@ async fn revoke_session(
     let Some(session) = current_session(&service, &headers).await else {
         return auth_error(AuthError::InvalidSession);
     };
-    let Ok(session_id) = Uuid::parse_str(&input.token) else {
-        return Json(StatusResponse { status: true }).into_response();
-    };
     match service
-        .revoke_current_user_session(&session, session_id)
+        .revoke_current_user_session_token(&session, &input.token)
         .await
     {
         Ok(()) => Json(StatusResponse { status: true }).into_response(),

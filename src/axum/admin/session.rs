@@ -54,7 +54,7 @@ async fn list_user_sessions(
         Ok(sessions) => Json(SessionsResponse {
             sessions: sessions
                 .iter()
-                .map(|session| service.better_auth_session(session, session.id.to_string()))
+                .map(|session| service.better_auth_session(session, session.token.clone()))
                 .collect(),
         })
         .into_response(),
@@ -70,10 +70,9 @@ async fn revoke_user_session(
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(AuthError::InvalidSession);
     };
-    let result = match parse_uuid(&input.session_token) {
-        Ok(session_id) => service.revoke_user_session(&actor, session_id).await,
-        Err(error) => Err(error),
-    };
+    let result = service
+        .revoke_user_session(&actor, &input.session_token)
+        .await;
     success_response(result)
 }
 
@@ -125,7 +124,8 @@ async fn impersonate_user(
             {
                 Ok(response) => {
                     let response =
-                        with_session_cookie(&service, &result.token, Some(true), Json(response));
+                        with_session_cookie(&service, &result.token, Some(true), Json(response))
+                            .await;
                     with_admin_session_cookie(&service, &actor_token, response)
                 }
                 Err(error) => auth_error(error),
@@ -154,7 +154,8 @@ async fn stop_impersonating(
             {
                 Ok(response) => {
                     let response =
-                        with_session_cookie(&service, &result.token, Some(true), Json(response));
+                        with_session_cookie(&service, &result.token, Some(true), Json(response))
+                            .await;
                     clear_admin_session_cookie(&service, response)
                 }
                 Err(error) => auth_error(error),

@@ -6,6 +6,42 @@ use lucid_auth::{
     },
 };
 
+pub(crate) async fn session_token_upgrade_invalidates_incompatible_hashes(
+    store: &PostgresStore,
+    pool: &sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM lucid_auth_sessions")
+            .fetch_one(pool)
+            .await?
+            > 0
+    );
+    sqlx::query("ALTER TABLE lucid_auth_sessions RENAME COLUMN token TO token_hash")
+        .execute(pool)
+        .await?;
+    sqlx::query("DELETE FROM lucid_auth_migrations WHERE version = 19")
+        .execute(pool)
+        .await?;
+    store.migrate().await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM lucid_auth_sessions")
+            .fetch_one(pool)
+            .await?,
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM information_schema.columns \
+             WHERE table_schema = current_schema() AND table_name = 'lucid_auth_sessions' \
+               AND column_name = 'token'",
+        )
+        .fetch_one(pool)
+        .await?,
+        1
+    );
+    Ok(())
+}
+
 pub async fn assert_clean_and_detects_drift(
     store: &PostgresStore,
     pool: &sqlx::PgPool,

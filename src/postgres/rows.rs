@@ -89,7 +89,7 @@ impl From<UserRow> for AuthUser {
 pub(super) struct SessionRow {
     id: Uuid,
     user_id: Uuid,
-    token_hash: String,
+    token: String,
     actor_user_id: Option<Uuid>,
     authentication_method: String,
     expires_at: DateTime<Utc>,
@@ -105,7 +105,7 @@ impl From<SessionRow> for AuthSession {
         Self {
             id: row.id,
             user_id: row.user_id,
-            token_hash: row.token_hash,
+            token: row.token,
             actor_user_id: row.actor_user_id,
             authentication_method: AuthenticationMethod::parse(&row.authentication_method),
             expires_at: row.expires_at,
