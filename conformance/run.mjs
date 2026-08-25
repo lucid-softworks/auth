@@ -44,6 +44,7 @@ import {
 import { mcpConformance, mcpNativeConformance } from "./mcp.mjs";
 import { agentAuthConformance } from "./agent-auth.mjs";
 import { agentAuthNativeConformance } from "./agent-auth-native.mjs";
+import { captchaConformance } from "./captcha.mjs";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
 const betterAuthPackage = JSON.parse(
@@ -2797,6 +2798,7 @@ await oauthProviderConformance();
 await deviceAuthorizationConformance();
 await mcpConformance();
 await agentAuthConformance();
+await captchaConformance();
 
 for (const strategy of ["compact", "jwt", "jwe"]) {
   const { child, origin } = await startServer(strategy);

@@ -6,6 +6,20 @@ use axum::{
 };
 use std::{collections::BTreeMap, sync::Arc};
 
+pub(super) async fn before_request(
+    State(service): State<Arc<AuthService>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    for plugin in service.plugins().plugins() {
+        request = match plugin.on_request(&service, request).await {
+            Ok(request) => request,
+            Err(response) => return response,
+        };
+    }
+    next.run(request).await
+}
+
 pub(super) async fn after_response(
     State(service): State<Arc<AuthService>>,
     request: Request,

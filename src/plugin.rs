@@ -425,6 +425,17 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
         Ok(None)
     }
 
+    /// Runs before route dispatch and may replace the request or short-circuit
+    /// with a direct response. Hooks run in plugin registration order.
+    #[cfg(feature = "axum")]
+    async fn on_request(
+        &self,
+        _service: &AuthService,
+        request: axum::extract::Request,
+    ) -> Result<axum::extract::Request, axum::response::Response> {
+        Ok(request)
+    }
+
     #[cfg(feature = "axum")]
     fn middleware(
         &self,

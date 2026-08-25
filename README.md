@@ -209,6 +209,43 @@ increment, matching Better Auth's storage hook. A rejected request returns only
 in-process `AuthService` calls are outside the HTTP limiter, matching Better
 Auth server-side API behavior.
 
+Captcha protection is an optional native server plugin. Choose one of the four
+closed Better Auth 1.7.1 provider variants and register it normally:
+
+```rust
+use lucid_auth::{CaptchaConfig, CaptchaPlugin, CloudflareTurnstileOptions};
+
+config.add_plugin(CaptchaPlugin::new(CaptchaConfig::CloudflareTurnstile(
+    CloudflareTurnstileOptions::new(std::env::var("TURNSTILE_SECRET_KEY")?),
+)))?;
+```
+
+This protects `/sign-up/email`, `/sign-in/email`, and
+`/request-password-reset` by default. Set a non-empty `endpoints` list to
+replace those paths; `*` matches one path segment and `**` matches nested
+segments. An empty list restores the defaults. Provider verification always
+times out after ten seconds and fails closed. Client code needs no Captcha
+client plugin—pass the provider token through the ordinary request options:
+
+```ts
+await authClient.signIn.email({
+  email,
+  password,
+  fetchOptions: {
+    headers: { "x-captcha-response": captchaToken },
+  },
+});
+```
+
+Google reCAPTCHA supports `min_score`, `expected_action`, and
+`allowed_hostnames`; Turnstile supports the latter two; hCaptcha and CaptchaFox
+support `site_key`. All providers support replacement endpoints and a non-empty
+`site_verify_url_override`. Client IPs come only from the shared
+`config.ip_address` headers and trusted-proxy rules; the legacy
+`x-captcha-user-remote-ip` header is ignored. See the
+[compatibility matrix](COMPATIBILITY.md#security-utility-and-developer-plugins)
+for the exact supported boundary and pinned upstream evidence.
+
 Username is an optional native plugin. Register it explicitly to add username
 fields to email signup and current-user updates and to mount the official
 username sign-in and availability routes:

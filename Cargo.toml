@@ -206,6 +206,10 @@ name = "bearer_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "captcha_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "jwt_contract"
 required-features = ["axum"]
 

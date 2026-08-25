@@ -416,7 +416,7 @@ aliases or permissive alternate request/response shapes:
 | Plugin | Status | Tracking and limitations |
 | --- | --- | --- |
 | Have I Been Pwned | Partial | Native k-anonymity checker exists for current password flows. Endpoint/configuration parity is [#45](https://github.com/lucid-softworks/auth/issues/45). |
-| Captcha | Planned | [#41](https://github.com/lucid-softworks/auth/issues/41). |
+| Captcha | Supported | Optional `CaptchaPlugin` matches Better Auth 1.7.1's global `captcha()` server plugin for Cloudflare Turnstile, Google reCAPTCHA, hCaptcha, and CaptchaFox. It protects the exact default or replacement paths before route dispatch, uses the shared trusted client-IP policy, preserves wildcard and all-method interception, runs after the global limiter, sends the exact provider wire fields with a fixed 10-second timeout, and fails closed with the three compatible direct-middleware errors. There is no Captcha client plugin, route, schema, migration, cookie, rate rule, local replay store, custom provider, or fail-open mode; ordinary Better Auth clients supply `x-captcha-response` through `fetchOptions.headers`. Pinned evidence: [server source](https://github.com/better-auth/better-auth/tree/v1.7.1/packages/better-auth/src/plugins/captcha), [documentation](https://github.com/better-auth/better-auth/blob/v1.7.1/docs/content/docs/plugins/captcha.mdx), and [#41](https://github.com/lucid-softworks/auth/issues/41). |
 | i18n | Planned | [#42](https://github.com/lucid-softworks/auth/issues/42). |
 | Open API | Planned | Schema generation from enabled endpoint metadata: [#43](https://github.com/lucid-softworks/auth/issues/43). |
 | Test Utils | Planned | Native development-only fixtures: [#44](https://github.com/lucid-softworks/auth/issues/44). |

@@ -61,16 +61,17 @@ where
             root_routes = root_routes.route_service(&path, route);
         }
     }
-    let routes = with_auth_layers(routes, service.clone());
+    let routes = with_route_layers(routes, service.clone());
     let app = Router::new().nest(service.base_path(), routes);
-    if has_root_routes {
-        app.merge(with_auth_layers(root_routes, service))
+    let app = if has_root_routes {
+        app.merge(with_route_layers(root_routes, service.clone()))
     } else {
         app
-    }
+    };
+    with_request_layers(app, service)
 }
 
-fn with_auth_layers<S>(routes: Router<S>, service: Arc<AuthService>) -> Router<S>
+fn with_route_layers<S>(routes: Router<S>, service: Arc<AuthService>) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
@@ -81,13 +82,24 @@ where
         ))
         .layer(middleware::from_fn_with_state(
             service.clone(),
-            rate_limit::enforce,
-        ))
-        .layer(middleware::from_fn_with_state(
-            service.clone(),
             cors::credentialed_trusted_origins,
         ))
         .layer(middleware::from_fn(database_hooks::request_context))
+}
+
+fn with_request_layers<S>(routes: Router<S>, service: Arc<AuthService>) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    routes
+        .layer(middleware::from_fn_with_state(
+            service.clone(),
+            plugin_hooks::before_request,
+        ))
+        .layer(middleware::from_fn_with_state(
+            service.clone(),
+            rate_limit::enforce,
+        ))
         .layer(middleware::from_fn_with_state(
             service.clone(),
             plugin_hooks::after_response,

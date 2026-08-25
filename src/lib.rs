@@ -8,6 +8,7 @@ mod api_key;
 mod audit;
 mod bearer;
 mod breached_password;
+mod captcha;
 mod client_ip;
 mod config;
 mod cookie;
