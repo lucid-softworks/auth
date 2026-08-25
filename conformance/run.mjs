@@ -51,6 +51,8 @@ import { i18nConformance, i18nNativeConformance } from "./i18n.mjs";
 import { openApiConformance } from "./open-api.mjs";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
+// Clean CI runners compile and link the separate native server before it can report readiness.
+const SERVER_STARTUP_TIMEOUT_MS = 300_000;
 const betterAuthPackage = JSON.parse(
   await readFile(new URL("node_modules/better-auth/package.json", import.meta.url)),
 );
@@ -3024,7 +3026,7 @@ async function startServer(strategy, deferred = false, deviceMode = "oauth") {
   const origin = await new Promise((resolve, reject) => {
     const timeout = setTimeout(
       () => reject(new Error(`server startup timed out\n${output}`)),
-      120_000,
+      SERVER_STARTUP_TIMEOUT_MS,
     );
     child.stdout.on("data", (chunk) => {
       output += chunk;
