@@ -121,9 +121,10 @@ fn map_model(
 }
 
 async fn provision_user(service: &AuthService) -> Result<Uuid, lucid_auth::AuthError> {
+    let suffix = Uuid::new_v4().simple().to_string();
     service
         .provision_password_user(NewPasswordUser {
-            username: format!("oauth_storage_{}", Uuid::new_v4().simple()),
+            username: format!("oauth_storage_{}", &suffix[..12]),
             name: "OAuth storage owner".into(),
             email: Some(format!(
                 "oauth-storage-{}@example.com",
