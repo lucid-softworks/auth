@@ -103,7 +103,10 @@ async fn assert_outcome(
 ) -> Result<(), lucid_auth::AuthError> {
     assert_eq!(outcome.host.status, AgentHostStatus::Rejected);
     assert_eq!(
-        outcome.host.activated_at.map(|value| value.timestamp_micros()),
+        outcome
+            .host
+            .activated_at
+            .map(|value| value.timestamp_micros()),
         Some(activated_at.timestamp_micros())
     );
     assert_eq!(outcome.claimed_agents.len(), 1);
