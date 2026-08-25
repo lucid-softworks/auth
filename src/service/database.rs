@@ -2,7 +2,10 @@ use super::AuthService;
 use crate::store::{
     DatabaseCreate, DatabaseIdInput, DatabaseIdPlan, DatabaseWrite, PreparedDatabaseId,
 };
-use crate::{AuthError, DatabaseCreateRecord, DatabaseModel, DatabaseRecord, DatabaseUpdateRecord};
+use crate::{
+    AuthError, DatabaseCreateRecord, DatabaseModel, DatabaseRecord, DatabaseUpdateRecord,
+    instrumentation::{DatabaseHookOperation, HookSource, with_span_result_async},
+};
 use chrono::{DateTime, Utc};
 
 mod create;
@@ -86,7 +89,15 @@ impl AuthService {
             .before_database_create(record, &context)
             .await?;
         if let Some(hooks) = &self.config.database_hooks {
-            apply_create_before(hooks.before_create(&record, &context).await?, &mut record)?;
+            let (name, attributes) = DatabaseHookOperation::CreateBefore
+                .span(record.model().as_str(), HookSource::User);
+            let result = with_span_result_async(
+                name,
+                attributes,
+                hooks.before_create(&record, &context),
+            )
+            .await?;
+            apply_create_before(result, &mut record)?;
         }
         Ok(record)
     }
@@ -118,7 +129,9 @@ impl AuthService {
             .after_database_create(self, record, &context)
             .await?;
         if let Some(hooks) = &self.config.database_hooks {
-            hooks.after_create(record, &context).await?;
+            let (name, attributes) =
+                DatabaseHookOperation::CreateAfter.span(record.model().as_str(), HookSource::User);
+            with_span_result_async(name, attributes, hooks.after_create(record, &context)).await?;
         }
         Ok(())
     }
@@ -133,7 +146,15 @@ impl AuthService {
             .before_database_update(DatabaseUpdateRecord::new(record)?, &context)
             .await?;
         if let Some(hooks) = &self.config.database_hooks {
-            apply_before(hooks.before_update(&record, &context).await?, &mut record)?;
+            let (name, attributes) = DatabaseHookOperation::UpdateBefore
+                .span(record.model().as_str(), HookSource::User);
+            let result = with_span_result_async(
+                name,
+                attributes,
+                hooks.before_update(&record, &context),
+            )
+            .await?;
+            apply_before(result, &mut record)?;
         }
         record.apply_additional_fields(self.database_schema_fields(record.model()))?;
         record.into_record()
@@ -148,7 +169,9 @@ impl AuthService {
             .after_database_update(self, record, &context)
             .await?;
         if let Some(hooks) = &self.config.database_hooks {
-            hooks.after_update(record, &context).await?;
+            let (name, attributes) =
+                DatabaseHookOperation::UpdateAfter.span(record.model().as_str(), HookSource::User);
+            with_span_result_async(name, attributes, hooks.after_update(record, &context)).await?;
         }
         if let DatabaseRecord::User(user) = record {
             self.refresh_secondary_user_sessions(user).await?;
@@ -165,7 +188,12 @@ impl AuthService {
             .before_database_delete(self, record, &context)
             .await?;
         if let Some(hooks) = &self.config.database_hooks
-            && !hooks.before_delete(record, &context).await?
+            && {
+                let (name, attributes) = DatabaseHookOperation::DeleteBefore
+                    .span(record.model().as_str(), HookSource::User);
+                !with_span_result_async(name, attributes, hooks.before_delete(record, &context))
+                    .await?
+            }
         {
             return Err(cancelled(record, "delete"));
         }
@@ -181,7 +209,9 @@ impl AuthService {
             .after_database_delete(self, record, &context)
             .await?;
         if let Some(hooks) = &self.config.database_hooks {
-            hooks.after_delete(record, &context).await?;
+            let (name, attributes) =
+                DatabaseHookOperation::DeleteAfter.span(record.model().as_str(), HookSource::User);
+            with_span_result_async(name, attributes, hooks.after_delete(record, &context)).await?;
         }
         Ok(())
     }

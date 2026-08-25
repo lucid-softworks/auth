@@ -45,4 +45,8 @@ impl AuthPlugin for ResponseHeadersPlugin {
         }
         response
     }
+
+    fn contributes_on_response(&self) -> bool {
+        true
+    }
 }

@@ -155,6 +155,8 @@ impl AuthService {
                 config.trust_origin(origin)?;
             }
         }
+        let store: Arc<dyn AuthStore> =
+            Arc::new(crate::instrumentation::InstrumentedAuthStore::new(store));
         config.validate()?;
         let plugins = PluginRegistry::build(&config.plugins, &config)?;
         if let Some(provider) = plugins.oauth_provider() {

@@ -151,6 +151,11 @@ impl AuthPlugin for JwtPlugin {
     ) -> ::axum::response::Response {
         axum::after_response(service, &self.config, request, response).await
     }
+
+    #[cfg(feature = "axum")]
+    fn contributes_on_response(&self) -> bool {
+        true
+    }
 }
 
 fn jwk_schema(schema: &JwtSchema) -> PluginSchemaTable {

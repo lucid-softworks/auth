@@ -2532,6 +2532,37 @@ PostgreSQL stores Better Auth's opaque session token directly so `listSessions`
 and `revokeSession` use the same value. Historical hashed-session layouts are
 not a supported compatibility mode.
 
+## OpenTelemetry instrumentation
+
+Lucid-auth automatically emits Better Auth 1.7.1-compatible OpenTelemetry
+spans through the application's global provider. There is no auth option or
+instrumentation plugin to install. Applications own provider, exporter,
+sampler, and propagation configuration; with the default no-op provider, auth
+behavior and return values are unchanged.
+
+```rust
+use opentelemetry::global;
+use opentelemetry_sdk::trace::SdkTracerProvider;
+
+let provider = SdkTracerProvider::builder().build();
+global::set_tracer_provider(provider);
+// Construct AuthService normally after application telemetry is configured.
+```
+
+The instrumentation scope is `better-auth` version `1.7.1`. It emits only the
+pinned low-cardinality endpoint, contributed plugin lifecycle, logical adapter,
+and database-hook families. It does not record request bodies, queries,
+cookies, tokens, credentials, email addresses, database statements, provider
+HTTP calls, business events, or an anonymous telemetry signal. No route,
+client, schema, migration, persistence, sampling control, or background span is
+added by instrumentation.
+
+Custom `AuthPlugin` implementations that override `on_request`,
+`after_response`, or `middleware` must also return `true` from the matching
+`contributes_on_request`, `contributes_on_response`, or
+`contributes_middleware` method. The defaults remain `false` so inherited
+no-op callbacks do not emit lifecycle spans.
+
 ## Conformance tests
 
 The black-box suite installs the exact official Better Auth client versions in

@@ -53,6 +53,11 @@ impl AuthPlugin for BearerPlugin {
     ) -> ::axum::response::Response {
         response::expose_session_cookie(service, response)
     }
+
+    #[cfg(feature = "axum")]
+    fn contributes_on_response(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(feature = "axum")]

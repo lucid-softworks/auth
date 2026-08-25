@@ -16,7 +16,7 @@ use crate::{
 use axum::{
     Extension, Json, Router,
     extract::{Path, Query},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue},
     response::{IntoResponse, Response},
     routing::post,
 };
@@ -192,7 +192,7 @@ async fn verify_email(
 
 fn redirect(callback_url: &str) -> Response {
     match HeaderValue::from_str(callback_url) {
-        Ok(location) => (StatusCode::FOUND, [(header::LOCATION, location)]).into_response(),
+        Ok(location) => super::api_redirect(location),
         Err(_) => auth_error(AuthError::InvalidCallbackUrl),
     }
 }

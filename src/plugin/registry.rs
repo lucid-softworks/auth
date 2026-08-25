@@ -2,6 +2,8 @@ use super::{AuthPlugin, PluginDescriptor, PluginMigrationContribution, PluginRat
 use crate::{
     AdditionalFieldSet, AuthConfig, AuthError, AuthSchemaCatalog, DatabaseModel, PluginSchemaTable,
 };
+#[cfg(feature = "axum")]
+use crate::PluginHttpMethod;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
@@ -27,6 +29,8 @@ pub(crate) struct PluginRegistry {
     rate_limits: Vec<PluginRateLimit>,
     schema_fields: BTreeMap<DatabaseModel, AdditionalFieldSet>,
     schema_catalog: Arc<AuthSchemaCatalog>,
+    #[cfg(feature = "axum")]
+    endpoint_operation_ids: HashMap<(PluginHttpMethod, String), String>,
 }
 
 impl PluginRegistry {
@@ -82,6 +86,8 @@ impl PluginRegistry {
             ordered_plugins.push(plugins[*index].clone());
             descriptors.push(descriptor.clone());
         }
+        #[cfg(feature = "axum")]
+        let endpoint_operation_ids = endpoint_operation_ids(&ordered_plugins, &descriptors);
         Ok(Self {
             plugins: ordered_plugins,
             descriptors,
@@ -89,6 +95,8 @@ impl PluginRegistry {
             rate_limits,
             schema_fields,
             schema_catalog,
+            #[cfg(feature = "axum")]
+            endpoint_operation_ids,
         })
     }
 
@@ -153,6 +161,44 @@ impl PluginRegistry {
             .flat_map(|plugin| plugin.social_providers())
             .collect()
     }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn endpoint_operation_id(&self, method: PluginHttpMethod, route: &str) -> String {
+        self.endpoint_operation_ids
+            .get(&(method, route.to_owned()))
+            .cloned()
+            .unwrap_or_else(|| route.to_owned())
+    }
+}
+
+#[cfg(feature = "axum")]
+fn endpoint_operation_ids(
+    plugins: &[Arc<dyn AuthPlugin>],
+    descriptors: &[PluginDescriptor],
+) -> HashMap<(PluginHttpMethod, String), String> {
+    let mut operation_ids = CORE_ENDPOINTS
+        .iter()
+        .map(|(method, path, operation_id)| {
+            ((*method, (*path).to_owned()), (*operation_id).to_owned())
+        })
+        .collect::<HashMap<_, _>>();
+    for (plugin, descriptor) in plugins.iter().zip(descriptors) {
+        for endpoint in descriptor.endpoints.iter() {
+            operation_ids.insert(
+                (endpoint.method, endpoint.path.to_string()),
+                endpoint.client_method.to_owned(),
+            );
+        }
+        for endpoint in plugin.open_api_endpoints() {
+            let Some(operation_id) = endpoint.operation_id else {
+                continue;
+            };
+            for method in endpoint.methods {
+                operation_ids.insert((method, endpoint.path.clone()), operation_id.clone());
+            }
+        }
+    }
+    operation_ids
 }
 
 #[cfg(test)]

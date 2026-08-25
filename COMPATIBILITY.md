@@ -474,7 +474,7 @@ aliases or permissive alternate request/response shapes:
 | i18n | Supported | Optional `I18nPlugin` matches `@better-auth/i18n@1.7.1`: one catch-all after hook translates only marked Better Auth API errors by their exact string code, preserves status/code/headers/extensions, emits `originalMessage`, and leaves missing or empty entries untouched without a second default-catalog lookup. Header, cookie, session-user-field, and sync/async callback detection retain configured order and exact 1.7.1 matching quirks; default locale/cookie/field values and the empty-catalog error are compatible. `I18nLocales` ships the exact 22 published catalogs and 34 keys per locale. The official `i18nClient()` remains type-inference-only. There are no routes, locale input/API, locale persistence or cookie writer, models, migrations, owned cookies, rate rules, general response translation, regional negotiation, catalog loader, or global registry. Pinned evidence: [package source](https://github.com/better-auth/better-auth/tree/v1.7.1/packages/i18n), [documentation](https://github.com/better-auth/better-auth/blob/v1.7.1/docs/content/docs/plugins/i18n.mdx), and [#42](https://github.com/lucid-softworks/auth/issues/42). |
 | Open API | Supported | Optional server-only `OpenApiPlugin` matches Better Auth 1.7.1's `openAPI()`: `GET /open-api/generate-schema`, the Scalar page at `/reference` or an exact custom path, all 12 themes, nonce placement, disabled-reference behavior, and empty 404s for unsupported methods. The OpenAPI 3.1.1 generator documents the pinned 30 core paths/32 operations plus installed plugin endpoint/model metadata, resolved additional fields, exact disabled paths, schema composition and required-body semantics, standard responses, unique operation IDs, and configured or request-derived auth base URL. `generate_open_api_schema(&AuthService)` provides the same document natively. The two Open API routes exclude themselves; there is no browser `openAPIClient`, generated client, persistence, migration, cookie, middleware, rate rule, or configurable schema path. Pinned evidence: [server source](https://github.com/better-auth/better-auth/tree/v1.7.1/packages/better-auth/src/plugins/open-api), [documentation](https://github.com/better-auth/better-auth/blob/v1.7.1/docs/content/docs/plugins/open-api.mdx), and [#43](https://github.com/lucid-softworks/auth/issues/43). |
 | Test Utils | Supported | Optional server-only `TestUtilsPlugin` matches Better Auth 1.7.1's documented `testUtils()`: inert plugin metadata, non-persisting user and Organization factories, privileged core user save/delete, direct persistent sessions, raw `token.<base64-HMAC>` request/browser cookies, Organization-dependent raw save/member/delete helpers, and option-dependent passive OTP capture with instance isolation and the four exact identifier prefixes. `AuthService::test()` is absent unless the plugin is installed, and its Organization/OTP views are explicitly optional. Factory IDs use the configured context generator first; literal `Defer` uses the upstream 24-character `a-zA-Z0-9` fallback, while default generation remains 32 characters, UUID remains UUID, and an empty callback string remains empty. Use a separate test-only auth configuration: the helper has no HTTP route, client, schema, migration, owned cookie, middleware, or rate rule, but its native methods deliberately bypass route authorization. The separate `better-auth/test` exports are Node/Vitest harness utilities and are not Rust/server compatibility claims. See [database ID generation](#database-id-generation). Pinned evidence: [plugin source](https://github.com/better-auth/better-auth/tree/v1.7.1/packages/better-auth/src/plugins/test-utils), [JavaScript harness source](https://github.com/better-auth/better-auth/tree/v1.7.1/packages/better-auth/src/test-utils), [documentation](https://github.com/better-auth/better-auth/blob/v1.7.1/docs/content/docs/plugins/test-utils.mdx), and [#44](https://github.com/lucid-softworks/auth/issues/44). |
-| Tracing / instrumentation | Planned | [#66](https://github.com/lucid-softworks/auth/issues/66). |
+| Experimental OpenTelemetry instrumentation | Supported | Automatic `better-auth`/`1.7.1` endpoint, contributed plugin lifecycle, adapter-operation, and database-hook spans use the application-owned global provider. There is no auth option, plugin, route, client, schema, migration, persistence, provider HTTP span, sampling control, or anonymous telemetry; [#66](https://github.com/lucid-softworks/auth/issues/66). |
 
 ## Payments, analytics, and Better Auth Infrastructure
 
@@ -935,6 +935,30 @@ timeout precedence, import-time URL equivalence, exact URL suffix/query/fragment
 resolution, headers and bodies, optional client IP, missing keys, compressed,
 malformed, HTTP, and transport responses, warning boundaries, unvalidated
 message IDs, and the single-attempt contract.
+
+### Experimental OpenTelemetry instrumentation
+
+Core instrumentation matches Better Auth 1.7.1 through the `better-auth`
+scope at version `1.7.1`. Dispatch emits `{METHOD} {route}` with child
+`handler {route}` spans using route templates and operation IDs. Only actual
+plugin contributions emit `middleware {route} {pluginId}`, `onRequest
+{pluginId}`, and `onResponse {pluginId}`. Logical storage calls emit `db
+{operation} {model}` for `create`, `findOne`, `findMany`, `update`,
+`updateMany`, `delete`, `deleteMany`, `consumeOne`, `incrementOne`, and
+`count`. User and plugin database callbacks use the eight pinned `db
+create.before/after`, `update.before/after`, `updateMany.before/after`, and
+`delete.before/after` families and retain trace context when deferred until
+post-transaction processing.
+
+Successful spans retain unset status. Ordinary errors record an exception and
+ERROR status; only 300–399 `APIError` redirects use OK plus
+`http.response.status_code`. Attributes are restricted to `http.route`,
+`http.response.status_code`, `db.operation.name`, `db.collection.name`,
+`better_auth.operation_id`, `better_auth.hook.type`, and
+`better_auth.context`. The application configures the global OpenTelemetry
+provider/exporter externally. Missing instrumentation is a pure no-op, and no
+auth option, plugin, route, client, persistence, sampler, provider-network
+span, payload attribute, or anonymous telemetry behavior is introduced.
 
 ## Storage and deployment
 

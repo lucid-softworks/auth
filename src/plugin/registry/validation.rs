@@ -52,11 +52,11 @@ pub(super) fn validate_contributions(
 ) -> Result<(), AuthError> {
     let mut endpoint_methods: HashMap<(PluginHttpMethod, String), &'static str> = CORE_ENDPOINTS
         .iter()
-        .map(|(method, path)| ((*method, (*path).to_owned()), "core"))
+        .map(|(method, path, _)| ((*method, (*path).to_owned()), "core"))
         .collect();
     let mut endpoint_paths: HashMap<String, &'static str> = CORE_ENDPOINTS
         .iter()
-        .map(|(_, path)| ((*path).to_owned(), "core"))
+        .map(|(_, path, _)| ((*path).to_owned(), "core"))
         .collect();
     let mut cookies = core_cookie_owners(config);
 

@@ -6,7 +6,7 @@ use crate::{
 use axum::{
     Extension, Json, Router,
     extract::Query,
-    http::{HeaderMap, HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -84,7 +84,7 @@ async fn delete_user_callback(
 
 fn redirect(callback_url: &str) -> Response {
     match HeaderValue::from_str(callback_url) {
-        Ok(location) => (StatusCode::FOUND, [(header::LOCATION, location)]).into_response(),
+        Ok(location) => super::api_redirect(location),
         Err(_) => auth_error(AuthError::InvalidCallbackUrl),
     }
 }
