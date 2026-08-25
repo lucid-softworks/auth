@@ -13,6 +13,7 @@ pub(crate) async fn assert_persistence(
     config.add_plugin(OrganizationPlugin::new(store.clone()))?;
     config.add_plugin(TestUtilsPlugin::default())?;
     let service = AuthService::new(store.clone(), config);
+    store.migrate_plugins(&service.plugin_migrations()).await?;
     let test = service.test().expect("Test Utils is installed");
 
     let user = test
