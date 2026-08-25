@@ -5,7 +5,8 @@ pub(super) async fn all_fields_and_unique_codes(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let owner = Uuid::new_v4();
     let mut expected = code("round-trip", Some(owner));
-    expected.last_polled_at = Some(Utc::now());
+    expected.expires_at = postgres_timestamp(expected.expires_at);
+    expected.last_polled_at = Some(postgres_timestamp(Utc::now()));
     expected.status = DeviceCodeStatus::Approved;
     let stored = insert(store, expected.clone()).await?;
     assert_eq!(stored, expected);
@@ -33,7 +34,7 @@ pub(super) async fn all_fields_and_unique_codes(
         DeviceCodeCreateOutcome::UniqueConflict
     );
 
-    let polled_at = Utc::now() + Duration::seconds(1);
+    let polled_at = postgres_timestamp(Utc::now() + Duration::seconds(1));
     let polled = store
         .update_last_polled_at(expected.id, polled_at)
         .await?
@@ -52,4 +53,9 @@ pub(super) async fn all_fields_and_unique_codes(
             .is_none()
     );
     Ok(())
+}
+
+fn postgres_timestamp(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
+    chrono::DateTime::from_timestamp_micros(value.timestamp_micros())
+        .expect("current timestamps are representable")
 }

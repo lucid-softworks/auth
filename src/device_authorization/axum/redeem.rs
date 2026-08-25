@@ -19,26 +19,7 @@ pub(super) async fn standalone(
         .await
         .map_err(|_| Box::new(error::internal("Unable to look up device code", true)))?
         .ok_or_else(|| Box::new(invalid_device_code()))?;
-    if record
-        .client_id
-        .as_deref()
-        .is_some_and(|owner| owner != client_id)
-    {
-        return Err(Box::new(error::protocol(
-            StatusCode::BAD_REQUEST,
-            "invalid_grant",
-            "Client ID mismatch",
-            true,
-        )));
-    }
-    if record.oauth_client_id.is_some() {
-        return Err(Box::new(error::protocol(
-            StatusCode::BAD_REQUEST,
-            "invalid_grant",
-            "This device code must be exchanged at the OAuth token endpoint (/oauth2/token).",
-            true,
-        )));
-    }
+    validate_standalone_owner(&record, client_id)?;
     let now = Utc::now();
     advance_poll(state, &record, now).await?;
     match record.status {
@@ -67,6 +48,42 @@ pub(super) async fn standalone(
         }
         DeviceCodeStatus::Approved => {}
     }
+    load_and_consume(service, state, record, client_id).await
+}
+
+fn validate_standalone_owner(
+    record: &DeviceCode,
+    client_id: &str,
+) -> Result<(), Box<axum::response::Response>> {
+    if record
+        .client_id
+        .as_deref()
+        .is_some_and(|owner| owner != client_id)
+    {
+        return Err(Box::new(error::protocol(
+            StatusCode::BAD_REQUEST,
+            "invalid_grant",
+            "Client ID mismatch",
+            true,
+        )));
+    }
+    if record.oauth_client_id.is_some() {
+        return Err(Box::new(error::protocol(
+            StatusCode::BAD_REQUEST,
+            "invalid_grant",
+            "This device code must be exchanged at the OAuth token endpoint (/oauth2/token).",
+            true,
+        )));
+    }
+    Ok(())
+}
+
+async fn load_and_consume(
+    service: &AuthService,
+    state: &DeviceAuthorizationState,
+    record: DeviceCode,
+    client_id: &str,
+) -> Result<(DeviceCode, crate::AuthUser), Box<axum::response::Response>> {
     let Some(user_id) = record.user_id else {
         return Err(Box::new(error::internal(
             "Invalid device code status",
