@@ -101,7 +101,7 @@ impl AuthService {
                 .await?;
             return Ok(SocialSignInResult::Linked);
         }
-        self.start_social_authorization(provider.as_ref(), input, Some(link), None)
+        self.start_social_authorization(provider.as_ref(), input, Some(link), None, None)
             .await
     }
 

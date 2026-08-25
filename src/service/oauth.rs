@@ -3,10 +3,10 @@ use super::oauth_state::OAuthCallbackResult;
 use super::{
     AuthService, SignInResult,
     oauth_state::{OAuthLinkState, OAuthState},
-    random_token,
 };
 use crate::{AuthError, VerificationValue, oauth::AuthorizationRequest};
 use chrono::{Duration, Utc};
+use rand::RngExt;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -86,7 +86,7 @@ impl AuthService {
             additional_data: serde_json::Map::new(),
         };
         match self
-            .start_social_authorization(provider.as_ref(), input, None, None)
+            .start_social_authorization(provider.as_ref(), input, None, None, None)
             .await?
         {
             SocialSignInResult::Authorization {
@@ -111,16 +111,18 @@ impl AuthService {
         input: SocialSignInInput,
         link: Option<OAuthLinkState>,
         anonymous_user_id: Option<Uuid>,
+        redirect_uri: Option<String>,
     ) -> Result<SocialSignInResult, AuthError> {
         let base_url = self.oauth_base_url()?;
         let callback_url = input
             .callback_url
             .filter(|url| !url.is_empty())
             .unwrap_or_else(|| base_url.clone());
-        let state = random_token();
-        let mut code_verifier = format!("{}{}{}", random_token(), random_token(), random_token());
-        code_verifier.truncate(128);
-        let id_token_nonce = provider.requires_id_token_nonce().then(random_token);
+        let state = random_oauth_string(32);
+        let code_verifier = random_oauth_string(128);
+        let id_token_nonce = provider
+            .requires_id_token_nonce()
+            .then(|| random_oauth_string(32));
         let mut additional_data = input.additional_data;
         for reserved in [
             "oauthState",
@@ -155,7 +157,7 @@ impl AuthService {
             state: state.clone(),
             code_verifier,
             id_token_nonce,
-            redirect_uri: self.oauth_callback_url(provider.id())?,
+            redirect_uri: redirect_uri.unwrap_or(self.oauth_callback_url(provider.id())?),
             scopes: input.scopes,
             login_hint: input.login_hint,
             additional_params: input.additional_params,
@@ -179,8 +181,12 @@ impl AuthService {
             #[cfg(feature = "axum")]
             {
                 let data = serde_json::to_vec(value).map_err(|_| AuthError::OAuthStateMismatch)?;
-                let encoded = crate::symmetric_crypto::encrypt(&self.config.secret, &data)
-                    .map_err(|_| AuthError::Worker)?;
+                let encoded = crate::symmetric_crypto::encrypt_versioned(
+                    &self.config.secret,
+                    self.config.versioned_secrets(),
+                    &data,
+                )
+                .map_err(|_| AuthError::Worker)?;
                 return Ok(("oauth_state", encoded, 600));
             }
             #[cfg(not(feature = "axum"))]
@@ -210,8 +216,13 @@ impl AuthService {
     ) -> Result<OAuthState, AuthError> {
         if self.config.account.store_state_strategy == crate::OAuthStateStrategy::Cookie {
             let value = cookie_value.ok_or(AuthError::OAuthStateMismatch)?;
-            let plaintext = crate::symmetric_crypto::decrypt(&self.config.secret, value)
-                .map_err(|_| AuthError::OAuthStateInvalid)?;
+            let plaintext = crate::symmetric_crypto::decrypt_versioned(
+                &self.config.secret,
+                self.config.versioned_secrets(),
+                self.config.legacy_secret(),
+                value,
+            )
+            .map_err(|_| AuthError::OAuthStateInvalid)?;
             let state_data: OAuthState =
                 serde_json::from_slice(&plaintext).map_err(|_| AuthError::OAuthStateInvalid)?;
             return Ok(state_data);
@@ -332,4 +343,12 @@ impl AuthService {
     pub(crate) fn oauth_callback_url(&self, provider_id: &str) -> Result<String, AuthError> {
         Ok(format!("{}/callback/{provider_id}", self.oauth_base_url()?))
     }
+}
+
+fn random_oauth_string(length: usize) -> String {
+    const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-_";
+    let mut rng = rand::rng();
+    (0..length)
+        .map(|_| ALPHABET[rng.random_range(0..ALPHABET.len())] as char)
+        .collect()
 }

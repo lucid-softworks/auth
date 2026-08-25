@@ -22,6 +22,20 @@ impl AuthService {
         user_agent: Option<String>,
         source: Option<crate::SessionWithUser>,
     ) -> Result<SocialSignInResult, AuthError> {
+        self.sign_in_social_with_source_and_redirect_uri(
+            input, ip_address, user_agent, source, None,
+        )
+        .await
+    }
+
+    pub(crate) async fn sign_in_social_with_source_and_redirect_uri(
+        &self,
+        input: SocialSignInInput,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+        source: Option<crate::SessionWithUser>,
+        redirect_uri: Option<String>,
+    ) -> Result<SocialSignInResult, AuthError> {
         let provider = self
             .social_provider(&input.provider)
             .ok_or(AuthError::OAuthProviderNotFound)?;
@@ -46,8 +60,14 @@ impl AuthService {
         let anonymous_user_id = source
             .filter(|source| source.user.is_anonymous)
             .map(|source| source.user.id);
-        self.start_social_authorization(provider.as_ref(), input, None, anonymous_user_id)
-            .await
+        self.start_social_authorization(
+            provider.as_ref(),
+            input,
+            None,
+            anonymous_user_id,
+            redirect_uri,
+        )
+        .await
     }
 
     async fn sign_in_social_id_token(

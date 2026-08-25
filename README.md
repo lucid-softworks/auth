@@ -51,6 +51,8 @@ The currently supported surface covers:
 - password, fresh-session, and email-confirmed current-user deletion
 - native social OAuth/OIDC sign-in and callbacks for every Better Auth 1.7.1
   built-in provider, with issuer-qualified accounts and optional provider-token encryption
+- preview/development OAuth through the production callback deployment with the
+  optional OAuth Proxy server plugin and ordinary `signIn.social` client
 - the complete linked-account lifecycle: `listAccounts`, `linkSocial`,
   `unlinkAccount`, `accountInfo`, `getAccessToken`, and `refreshToken`
 - passkey rename and removal
@@ -277,6 +279,64 @@ behavior. Per-cookie naming and attributes can be set with
 Better Call's merge and serialization rules. Generated official-client popup
 failures currently return their error code as the `message`, while the exported
 error-code metadata still contains the descriptive text.
+
+OAuth Proxy is an independent optional server plugin for preview and
+development deployments whose OAuth provider is configured to call only the
+production deployment:
+
+```rust
+use chrono::Duration;
+use lucid_auth::{OAuthProxyConfig, OAuthProxyPlugin, OAuthProxySecret};
+use url::Url;
+
+config.add_plugin(OAuthProxyPlugin::new(OAuthProxyConfig {
+    current_url: Some(Url::parse("https://preview.example.com")?),
+    production_url: Some(Url::parse("https://auth.example.com")?),
+    max_age: Duration::seconds(60),
+    secret: Some(OAuthProxySecret::Plain(
+        std::env::var("OAUTH_PROXY_SECRET")?.into_bytes(),
+    )),
+}))?;
+```
+
+Register the same proxy secret in every participating deployment. It can be
+separate from the global Better Auth secret; versioned proxy secrets are also
+supported for rotation. The production deployment may use its production URL
+as `current_url`, in which case the plugin detects matching origins and leaves
+the ordinary flow unchanged. A non-empty `x-skip-oauth-proxy` request header
+also opts one social sign-in out of proxying.
+
+There is no `oauthProxyClient`. Applications keep using the ordinary official
+client:
+
+```ts
+await authClient.signIn.social({
+  provider: "github",
+  callbackURL: "https://app.example.com/signed-in",
+});
+```
+
+On preview sign-in, the plugin keeps the original callback and OAuth state,
+uses the production `/callback/:provider` URI for the provider, and replaces
+the provider's state parameter with a shared-secret encrypted proxy package.
+Production exchanges the authorization code and relays an encrypted user,
+account, token, and callback profile to the preview deployment's
+`GET /oauth-proxy-callback`. Preview validates the trusted callback, rejects a
+payload older than `max_age` or over ten seconds in the future, consumes the
+original OAuth state, creates the ordinary account/session, and redirects to
+the state-bound callback or new-user URL.
+
+Database-backed OAuth state is atomically consumed. Better Auth 1.7.1's cookie
+state strategy only expires its response cookie and does not add a separate
+server-side replay record. Request-derived preview origins are accepted only
+when trusted; explicit `current_url`, supported hosting-platform URLs, and the
+configured base URL provide the remaining upstream resolution order.
+
+Matching Better Auth 1.7.1, OAuth Proxy forwards neither an OIDC nonce,
+callback `iss`, OAuth `device_id`, nor a provider `error_description` across
+the proxy hop. It adds no dedicated client factory, plugin-owned cookie,
+schema, migration, rate limit, or error-code table; its only route is
+`GET /oauth-proxy-callback`.
 
 Bearer session authentication is a separate, optional server plugin:
 

@@ -22,6 +22,8 @@ pub(crate) mod magic_link;
 mod multi_session;
 mod oauth;
 mod oauth_identity;
+#[cfg(feature = "axum")]
+mod oauth_proxy;
 mod oauth_sign_in;
 mod oauth_state;
 mod oauth_tokens;
@@ -146,7 +148,6 @@ impl AuthService {
         self.plugins.migrations()
     }
 
-    /// The effective Better Auth schema after core and plugin fields are merged.
     pub fn database_schema_fields(
         &self,
         model: crate::DatabaseModel,

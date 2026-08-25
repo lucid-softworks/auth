@@ -31,6 +31,7 @@ import { bearerConformance } from "./bearer.mjs";
 import { jwtConformance } from "./jwt.mjs";
 import { oneTimeTokenConformance } from "./one-time-token.mjs";
 import { oauthPopupConformance } from "./oauth-popup.mjs";
+import { oauthProxyConformance } from "./oauth-proxy.mjs";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
 const betterAuthPackage = JSON.parse(
@@ -2778,6 +2779,7 @@ await bearerConformance();
 await jwtConformance();
 await oneTimeTokenConformance();
 await oauthPopupConformance();
+await oauthProxyConformance();
 
 for (const strategy of ["compact", "jwt", "jwe"]) {
   const { child, origin } = await startServer(strategy);

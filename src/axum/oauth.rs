@@ -1,14 +1,13 @@
 use super::{
-    body::{BetterAuthBody, OptionalBetterAuthBody},
+    body::OptionalBetterAuthBody,
     http::{
-        PeerAddress, auth_error, client_ip, cookie_value, current_session, serialize_cookie,
-        signed_cookie_token, user_agent, with_account_cookie, with_bound_session_cookie,
-        with_cookie,
+        PeerAddress, auth_error, client_ip, cookie_value, serialize_cookie, signed_cookie_token,
+        user_agent, with_account_cookie, with_bound_session_cookie, with_cookie,
     },
 };
-use crate::{AuthError, AuthService, SocialSignInInput, SocialSignInResult};
+use crate::{AuthError, AuthService};
 use axum::{
-    Extension, Json, Router,
+    Extension, Router,
     extract::{Path, Query},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
@@ -23,104 +22,25 @@ where
     S: Clone + Send + Sync + 'static,
 {
     Router::new()
-        .route("/sign-in/social", post(sign_in_social))
+        .route(
+            "/sign-in/social",
+            post(super::oauth_sign_in::sign_in_social),
+        )
         .route(
             "/callback/{provider}",
             axum::routing::get(oauth_callback).post(oauth_callback_post),
         )
 }
 
-#[derive(Serialize)]
-struct AuthorizationResponse {
-    url: String,
-    redirect: bool,
-}
-
 #[derive(Deserialize, Serialize, Default)]
-pub(super) struct OAuthCallbackQuery {
+pub(crate) struct OAuthCallbackQuery {
     pub(super) code: Option<String>,
-    error: Option<String>,
+    pub(crate) error: Option<String>,
     device_id: Option<String>,
     error_description: Option<String>,
     pub(super) state: Option<String>,
-    user: Option<String>,
+    pub(crate) user: Option<String>,
     iss: Option<String>,
-}
-
-async fn sign_in_social(
-    Extension(service): Extension<Arc<AuthService>>,
-    peer: PeerAddress,
-    headers: HeaderMap,
-    BetterAuthBody(input): BetterAuthBody<SocialSignInInput>,
-) -> Response {
-    let provider_id = input.provider.clone();
-    let anonymous = current_session(&service, &headers)
-        .await
-        .filter(|session| session.user.is_anonymous);
-    match service
-        .sign_in_social_with_source(
-            input,
-            client_ip(&service, &headers, peer),
-            user_agent(&headers),
-            anonymous,
-        )
-        .await
-    {
-        Ok(SocialSignInResult::Authorization {
-            url,
-            redirect,
-            state_cookie_name,
-            state_cookie_value,
-            state_cookie_max_age,
-            ..
-        }) => {
-            let mut response = Json(AuthorizationResponse {
-                url: url.clone(),
-                redirect,
-            })
-            .into_response();
-            if redirect && let Ok(location) = HeaderValue::from_str(&url) {
-                response.headers_mut().insert(header::LOCATION, location);
-            }
-            let cookie = service.plugin_cookie(state_cookie_name);
-            with_cookie(
-                response,
-                serialize_cookie(&cookie, &state_cookie_value, Some(state_cookie_max_age)),
-            )
-        }
-        Ok(SocialSignInResult::Session(result)) => {
-            let user = match service.better_auth_user(&result.session.user).await {
-                Ok(user) => user,
-                Err(error) => return auth_error(error),
-            };
-            let response = with_bound_session_cookie(
-                &service,
-                &headers,
-                result.session.user.id,
-                &result.token,
-                Some(true),
-                Json(crate::protocol::better_auth::SignInResponse {
-                    redirect: false,
-                    token: result.token.clone(),
-                    url: None,
-                    user,
-                }),
-            )
-            .await;
-            with_provider_account_cookie(
-                &service,
-                &headers,
-                result.session.user.id,
-                &provider_id,
-                response,
-            )
-            .await
-        }
-        Ok(SocialSignInResult::Linked) => auth_error(AuthError::InvalidRequest(
-            "linked-account response is invalid for social sign-in".into(),
-        )),
-        Err(error) => auth_error(error),
-    }
 }
 
 async fn oauth_callback_post(
@@ -142,6 +62,11 @@ async fn oauth_callback_post(
         user: query.user.or(input.user),
         iss: query.iss.or(input.iss),
     };
+    if let Some(response) =
+        super::oauth_proxy::provider_callback(&service, &provider, &merged).await
+    {
+        return response;
+    }
     let query = match serde_urlencoded::to_string(merged) {
         Ok(query) => query,
         Err(_) => {
@@ -166,6 +91,11 @@ async fn oauth_callback(
         .oauth_base_url()
         .map(|base| format!("{base}/error"))
         .unwrap_or_else(|_| "/api/auth/error".into());
+    if let Some(response) =
+        super::oauth_proxy::provider_callback(&service, &provider_id, &query).await
+    {
+        return response;
+    }
     if let Some(response) = super::oauth_state::idp_initiated_response(
         &service,
         &provider_id,
@@ -352,7 +282,7 @@ pub(crate) async fn with_provider_account_cookie(
     }
 }
 
-fn callback_error_code(error: &AuthError) -> &'static str {
+pub(crate) fn callback_error_code(error: &AuthError) -> &'static str {
     match error {
         AuthError::OAuthInvalidCode => "invalid_code",
         AuthError::OAuthProviderNotFound => "oauth_provider_not_found",
@@ -377,7 +307,7 @@ fn callback_error_code(error: &AuthError) -> &'static str {
     }
 }
 
-pub(super) fn redirect_error(base: &str, error: &str, description: Option<&str>) -> Response {
+pub(crate) fn redirect_error(base: &str, error: &str, description: Option<&str>) -> Response {
     let mut suffix = url::form_urlencoded::Serializer::new(String::new());
     suffix.append_pair("error", error);
     if let Some(description) = description {
@@ -387,7 +317,7 @@ pub(super) fn redirect_error(base: &str, error: &str, description: Option<&str>)
     redirect(&format!("{base}{separator}{}", suffix.finish()))
 }
 
-pub(super) fn redirect(location: &str) -> Response {
+pub(crate) fn redirect(location: &str) -> Response {
     match HeaderValue::from_str(location) {
         Ok(location) => (StatusCode::FOUND, [(header::LOCATION, location)]).into_response(),
         Err(_) => auth_error(AuthError::InvalidCallbackUrl),

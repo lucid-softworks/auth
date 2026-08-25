@@ -19,6 +19,8 @@ mod email_password;
 mod error;
 pub(crate) mod http;
 mod oauth;
+pub(crate) mod oauth_proxy;
+mod oauth_sign_in;
 mod oauth_state;
 mod plugin_hooks;
 mod rate_limit;

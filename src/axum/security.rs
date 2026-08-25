@@ -24,12 +24,21 @@ pub(super) async fn validate_browser_request(
     let is_oauth_popup_start = request.method() == Method::GET
         && (path == "/oauth-popup/start"
             || path == format!("{}/oauth-popup/start", service.base_path()));
+    let is_oauth_proxy_callback = path == "/oauth-proxy-callback"
+        || path == format!("{}/oauth-proxy-callback", service.base_path());
     if is_oauth_popup_start {
         return next.run(request).await;
     }
     if is_safe_method(request.method()) {
         return match validate_redirect_fields(&service, request).await {
             Ok(request) => next.run(request).await,
+            Err(AuthError::InvalidCallbackUrl) if is_oauth_proxy_callback => {
+                super::error::dynamic_error(
+                    axum::http::StatusCode::FORBIDDEN,
+                    "INVALID_CALLBACK_URL",
+                    "Invalid callbackURL",
+                )
+            }
             Err(error) => auth_error(error),
         };
     }
