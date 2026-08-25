@@ -16,6 +16,7 @@ use tokio::sync::Mutex;
 mod autumn;
 mod cookie_cache;
 mod config;
+mod creem;
 mod email;
 mod metadata;
 mod mcp;

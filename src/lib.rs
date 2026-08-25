@@ -12,6 +12,7 @@ mod captcha;
 mod client_ip;
 mod config;
 mod cookie;
+mod creem;
 mod database_hooks;
 pub mod device_authorization;
 mod email;

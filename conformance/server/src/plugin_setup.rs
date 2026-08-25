@@ -91,8 +91,15 @@ pub(super) fn register(
     store: Arc<MemoryStore>,
 ) -> Option<Arc<dyn OAuthProviderStore>> {
     register_agent_auth(config);
-    let oauth = register_core_plugins(config, origin, messages, phone_number_messages, store);
+    let oauth = register_core_plugins(
+        config,
+        origin,
+        messages,
+        phone_number_messages,
+        store.clone(),
+    );
     super::autumn::register(config);
+    super::creem::register(config, store.clone());
     super::polar::register(config);
     register_i18n(config);
     config

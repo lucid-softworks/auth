@@ -23,6 +23,7 @@ import {
 } from "better-auth/client/plugins";
 import { passkeyClient } from "@better-auth/passkey/client";
 import { apiKeyClient } from "@better-auth/api-key/client";
+import { creemClient } from "@creem_io/better-auth/client";
 import { polarClient } from "@polar-sh/better-auth/client";
 import { createAutumnClient } from "autumn-js/react";
 import { base32 } from "@better-auth/utils/base32";
@@ -2932,6 +2933,57 @@ async function nativeAutumnConformance(origin) {
   console.log("ok - Autumn official client against native server");
 }
 
+async function nativeCreemConformance(origin) {
+  const transport = new BrowserTransport(origin);
+  const client = createAuthClient({
+    baseURL: origin,
+    fetchOptions: { customFetchImpl: transport.fetch.bind(transport) },
+    plugins: [creemClient()],
+  });
+
+  const checkout = success(
+    await client.creem.createCheckout({ productId: "product_native" }),
+    "native Creem createCheckout",
+  );
+  assert.deepEqual(checkout, {
+    redirect: true,
+    url: "https://creem.example.test/checkout/product_native",
+  });
+
+  const cases = [
+    ["createPortal", await client.creem.createPortal()],
+    ["cancelSubscription", await client.creem.cancelSubscription({ id: "subscription_native" })],
+    ["retrieveSubscription", await client.creem.retrieveSubscription({ id: "subscription_native" })],
+    ["searchTransactions", await client.creem.searchTransactions()],
+    ["hasAccessGranted", await client.creem.hasAccessGranted()],
+  ];
+  for (const [method, result] of cases) {
+    assert.equal(result.error, null, `${method}: ${JSON.stringify(result.error)}`);
+    assert.equal(
+      method === "hasAccessGranted" ? result.data.message : result.data.error,
+      method === "hasAccessGranted"
+        ? "User must be logged in to check subscription status"
+        : "User must be logged in",
+    );
+  }
+
+  transport.assertRequest(
+    "/api/auth/creem/create-checkout",
+    "POST",
+    { productId: "product_native" },
+  );
+  transport.assertRequest("/api/auth/creem/create-portal", "POST", {});
+  transport.assertRequest("/api/auth/creem/cancel-subscription", "POST", {
+    id: "subscription_native",
+  });
+  transport.assertRequest("/api/auth/creem/retrieve-subscription", "POST", {
+    id: "subscription_native",
+  });
+  transport.assertRequest("/api/auth/creem/search-transactions", "POST", {});
+  transport.assertRequest("/api/auth/creem/has-access-granted", "GET");
+  console.log("ok - Creem official client against native server");
+}
+
 async function cookieCacheConformance(origin, strategy) {
   const transport = new BrowserTransport(origin);
   const client = createAuthClient({
@@ -3078,6 +3130,7 @@ for (const strategy of ["compact", "jwt", "jwe"]) {
       await nativeOneTimeTokenConformance(origin);
       await nativePolarConformance(origin);
       await nativeAutumnConformance(origin);
+      await nativeCreemConformance(origin);
       const oauthProviderTransport = new BrowserTransport(origin);
       await oauthProviderNativeConformance(
         origin,

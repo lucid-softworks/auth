@@ -265,6 +265,81 @@ errors remain HTTP 400. See the
 [Autumn compatibility row](COMPATIBILITY.md#payments-analytics-and-better-auth-infrastructure)
 for the complete transport, identity, fail-open, and exclusion boundary.
 
+### Creem billing
+
+Creem support is opt-in and pins Better Auth `1.7.1`,
+`@creem_io/better-auth@1.1.4`, `creem@1.6.0`,
+`@creem_io/webhook-types@1.0.0`, and the conformance oracle's `zod@4.4.3`.
+Keep the API key and webhook secret in server-only environment variables. The
+same core memory store must back both authentication and the Creem plugin:
+
+```rust
+use lucid_auth::{CreemOptions, CreemPlugin, MemoryStore};
+use std::sync::Arc;
+
+let store = Arc::new(MemoryStore::default());
+let mut creem = CreemOptions::new(std::env::var("CREEM_API_KEY")?);
+creem.webhook_secret = Some(std::env::var("CREEM_WEBHOOK_SECRET")?);
+creem.default_success_url = Some("https://app.example.com/billing/success".into());
+config.add_plugin(CreemPlugin::in_memory(creem, store.clone()))?;
+```
+
+For PostgreSQL, construct the plugin store from the same `PostgresStore` and
+the exact options used by the plugin. Add the plugin before applying migrations
+so its remapped user fields and `creem_subscription` model are included:
+
+```rust
+use lucid_auth::{CreemOptions, CreemPlugin, PostgresCreemStore, PostgresStore};
+use std::sync::Arc;
+
+let store = PostgresStore::new(pool);
+let mut creem = CreemOptions::new(std::env::var("CREEM_API_KEY")?);
+creem.webhook_secret = Some(std::env::var("CREEM_WEBHOOK_SECRET")?);
+let creem_store = Arc::new(PostgresCreemStore::new(
+    store.clone(),
+    &creem.schema,
+    creem.persist_subscriptions,
+)?);
+config.add_plugin(CreemPlugin::new(creem, creem_store))?;
+```
+
+Set `test_mode = true` for Creem's test API. Setting
+`persist_subscriptions = false` removes the plugin table, user fields, and
+migration; access checks then report that database persistence is disabled.
+The official browser client works unchanged:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { creemClient } from "@creem_io/better-auth/client";
+
+export const authClient = createAuthClient({
+  plugins: [creemClient()],
+});
+```
+
+With the default auth base path, configure Creem to send webhooks to
+`POST /api/auth/creem/webhook`. The route exists only when a non-empty webhook
+secret is configured. Delivery is deliberately sequential, best-effort, and
+non-transactional, matching the adapter: a customer link or trial flag can
+remain written if a later subscription operation fails. There is no event
+ledger, replay rejection, reordering, or retry queue, so every callback must be
+idempotent and deployments need their own reconciliation process.
+
+Applications that do not need HTTP routes can use `CreemServerConfig` with the
+native direct helpers. Provider operations are `create_creem_checkout`,
+`create_creem_portal`, `cancel_creem_subscription`,
+`retrieve_creem_subscription`, and `search_creem_transactions`, with
+`create_creem_client` exposing the narrow transport. The other helper
+equivalents are `is_active_creem_subscription`, `format_creem_date`,
+`get_creem_days_until_renewal`, `validate_creem_server_webhook_signature`,
+`check_creem_subscription_access`, and `get_active_creem_subscriptions`. Only
+the five provider operations require the API key.
+
+See the
+[Creem compatibility row](COMPATIBILITY.md#payments-analytics-and-better-auth-infrastructure)
+for the exact endpoint, provider, persistence, webhook, callback, and helper
+boundary, including the intentional per-plugin schema-isolation improvement.
+
 Social providers use the same `signIn.social` and `/callback/:provider` wire
 contract as Better Auth. Register a built-in after setting the public base URL:
 
