@@ -246,6 +246,36 @@ support `site_key`. All providers support replacement endpoints and a non-empty
 [compatibility matrix](COMPATIBILITY.md#security-utility-and-developer-plugins)
 for the exact supported boundary and pinned upstream evidence.
 
+i18n error messages are an optional native plugin matching
+`@better-auth/i18n@1.7.1`. Select any built-in catalogs (or supply exact custom
+locale/error-code maps), configure the ordered detection strategies, and
+register it normally:
+
+```rust
+use lucid_auth::{
+    I18nConfig, I18nLocaleDetection, I18nLocales, I18nPlugin,
+};
+
+let translations = I18nLocales::selected(["en", "fr"]);
+let mut i18n = I18nConfig::new(translations)?;
+i18n.detection = vec![
+    I18nLocaleDetection::Cookie,
+    I18nLocaleDetection::Header,
+];
+i18n.locale_cookie = "locale".into();
+config.add_plugin(I18nPlugin::new(i18n)?)?;
+```
+
+The bundled `I18nLocales` contains the exact 22 published 1.7.1 catalogs. The
+plugin translates only marked Better Auth API errors, preserving their status
+and code while adding `originalMessage`; it does not translate arbitrary JSON,
+successful responses, or OAuth protocol errors. Locale keys are matched
+exactly, strategies run in order, and a selected locale missing an error-code
+entry does not retry the default catalog. The official `i18nClient()` is
+type-inference-only and needs no locale endpoint. See the
+[compatibility matrix](COMPATIBILITY.md#security-utility-and-developer-plugins)
+for the exact no-storage/no-locale-management boundary.
+
 Username is an optional native plugin. Register it explicitly to add username
 fields to email signup and current-user updates and to mount the official
 username sign-in and availability routes:

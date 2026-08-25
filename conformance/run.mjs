@@ -45,6 +45,7 @@ import { mcpConformance, mcpNativeConformance } from "./mcp.mjs";
 import { agentAuthConformance } from "./agent-auth.mjs";
 import { agentAuthNativeConformance } from "./agent-auth-native.mjs";
 import { captchaConformance } from "./captcha.mjs";
+import { i18nConformance, i18nNativeConformance } from "./i18n.mjs";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
 const betterAuthPackage = JSON.parse(
@@ -2799,6 +2800,7 @@ await deviceAuthorizationConformance();
 await mcpConformance();
 await agentAuthConformance();
 await captchaConformance();
+await i18nConformance();
 
 for (const strategy of ["compact", "jwt", "jwe"]) {
   const { child, origin } = await startServer(strategy);
@@ -2820,6 +2822,7 @@ for (const strategy of ["compact", "jwt", "jwe"]) {
       );
       await mcpNativeConformance(origin);
       await agentAuthNativeConformance(origin);
+      await i18nNativeConformance(origin);
     }
     await cookieCacheConformance(origin, strategy);
   } finally {

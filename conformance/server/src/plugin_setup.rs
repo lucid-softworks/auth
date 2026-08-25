@@ -15,14 +15,14 @@ use lucid_auth::{
     AgentCapability, AgentExecuteContext, AgentExecuteError, AgentExecuteHandler,
     AgentExecuteResult, AgentSessionUser, ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference,
     AuthConfig, AuthError, BearerPlugin, DeviceAuthorizationConfig, DeviceAuthorizationPlugin,
-    EmailOtpConfig, EmailOtpPlugin, JwtPlugin, LastLoginMethodConfig, LastLoginMethodPlugin,
-    MagicLinkConfig, MagicLinkPlugin, McpPlugin, McpPluginConfig, MemoryOAuthProviderStore,
-    MemoryStore, MemoryTwoFactorStore, MultiSessionPlugin, OAuthDeviceAuthorizationPlugin,
-    OAuthProviderPluginConfig, OAuthProviderStore, OneTapConfig, OneTapPlugin, OneTimeTokenConfig,
-    OneTimeTokenPlugin, OtpConfig, PasskeyConfig, PasskeyPlugin, PhoneNumberConfig,
-    PhoneNumberPlugin, PhoneNumberSignUpConfig, SiweConfig, SiweMessageVerifier,
-    SiweNonceGenerator, SiwePlugin, SiweVerificationRequest, TotpConfig, TwoFactorConfig,
-    TwoFactorPlugin,
+    EmailOtpConfig, EmailOtpPlugin, I18nConfig, I18nPlugin, JwtPlugin, LastLoginMethodConfig,
+    LastLoginMethodPlugin, MagicLinkConfig, MagicLinkPlugin, McpPlugin, McpPluginConfig,
+    MemoryOAuthProviderStore, MemoryStore, MemoryTwoFactorStore, MultiSessionPlugin,
+    OAuthDeviceAuthorizationPlugin, OAuthProviderPluginConfig, OAuthProviderStore, OneTapConfig,
+    OneTapPlugin, OneTimeTokenConfig, OneTimeTokenPlugin, OtpConfig, PasskeyConfig,
+    PasskeyPlugin, PhoneNumberConfig, PhoneNumberPlugin, PhoneNumberSignUpConfig, SiweConfig,
+    SiweMessageVerifier, SiweNonceGenerator, SiwePlugin, SiweVerificationRequest, TotpConfig,
+    TwoFactorConfig, TwoFactorPlugin,
 };
 use std::{
     collections::BTreeMap,
@@ -91,7 +91,24 @@ pub(super) fn register(
     store: Arc<MemoryStore>,
 ) -> Option<Arc<dyn OAuthProviderStore>> {
     register_agent_auth(config);
-    register_core_plugins(config, origin, messages, phone_number_messages, store)
+    let oauth = register_core_plugins(config, origin, messages, phone_number_messages, store);
+    register_i18n(config);
+    oauth
+}
+
+fn register_i18n(config: &mut AuthConfig) {
+    let translations = BTreeMap::from([(
+        "fr".into(),
+        BTreeMap::from([(
+            "INVALID_EMAIL_OR_PASSWORD".into(),
+            "Email ou mot de passe invalide".into(),
+        )]),
+    )]);
+    let mut i18n = I18nConfig::new(translations).expect("non-empty i18n translations");
+    i18n.default_locale = "unavailable".into();
+    config
+        .add_plugin(I18nPlugin::new(i18n).expect("valid i18n configuration"))
+        .expect("unique i18n plugin");
 }
 
 fn register_agent_auth(config: &mut AuthConfig) {

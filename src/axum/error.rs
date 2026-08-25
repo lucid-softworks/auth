@@ -12,7 +12,49 @@ mod credential;
 mod oauth;
 mod plugin;
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ApiErrorResponse;
+
 pub(crate) fn auth_error(error: AuthError) -> Response {
+    marked(auth_error_inner(error))
+}
+
+/// Builds a Better Auth `APIError` response for a native plugin endpoint.
+///
+/// The internal marker lets compatible after hooks distinguish API errors
+/// from arbitrary JSON responses with `code` and `message` fields.
+pub fn api_error(
+    status: StatusCode,
+    code: impl Into<String>,
+    message: impl Into<String>,
+) -> Response {
+    marked(
+        (
+            status,
+            Json(OwnedErrorResponse {
+                code: code.into(),
+                message: message.into(),
+            }),
+        )
+            .into_response(),
+    )
+}
+
+/// Builds a marked Better Auth `APIError` response with a caller-owned body.
+///
+/// This is useful for plugin errors that carry fields in addition to `code`
+/// and `message`; compatible after hooks can recognize the response without
+/// mistaking ordinary JSON for an API error.
+pub fn api_error_with_body(status: StatusCode, body: serde_json::Value) -> Response {
+    marked((status, Json(body)).into_response())
+}
+
+fn marked(mut response: Response) -> Response {
+    response.extensions_mut().insert(ApiErrorResponse);
+    response
+}
+
+fn auth_error_inner(error: AuthError) -> Response {
     if let Some(response) = plugin::response(&error) {
         return response;
     }
@@ -97,6 +139,12 @@ pub(super) fn dynamic_error(status: StatusCode, code: &'static str, message: &st
 struct DynamicErrorResponse<'a> {
     code: &'static str,
     message: &'a str,
+}
+
+#[derive(Serialize)]
+struct OwnedErrorResponse {
+    code: String,
+    message: String,
 }
 
 fn is_passkey_error(error: &AuthError) -> bool {

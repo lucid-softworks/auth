@@ -20,6 +20,7 @@ mod error;
 mod exports;
 mod generic_oauth;
 mod guest_capability;
+mod i18n;
 mod jwt;
 mod last_login_method;
 mod magic_link;
@@ -198,11 +199,11 @@ pub use plugin::{
     AfterAuthEvent, AuthPlugin, BeforeAuthEvent, PasswordCredentialChanged,
     PasswordCredentialSource, PluginClientMetadata, PluginCookie, PluginDescriptor, PluginEndpoint,
     PluginHttpMethod, PluginMiddleware, PluginMigration, PluginMigrationContribution,
-    PluginRateLimit, PluginSchemaField, SensitiveOperation, UserManagementAction,
-    UserManagementDecision, UserManagementOperation,
+    PluginRateLimit, PluginRequestContext, PluginSchemaField, SensitiveOperation,
+    UserManagementAction, UserManagementDecision, UserManagementOperation,
 };
 #[cfg(feature = "axum")]
-pub use plugin::{AxumPluginRoute, PluginRequestContext, PluginSession};
+pub use plugin::{AxumPluginRoute, PluginSession};
 pub use rate_limit::{
     RateLimitConfig, RateLimitCustomRule, RateLimitOutcome, RateLimitRequest, RateLimitRule,
     RateLimitRuleResolver, RateLimitStorage, RateLimitStorageMode,

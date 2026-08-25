@@ -10,7 +10,6 @@ use std::sync::Arc;
 use std::{any::Any, borrow::Cow};
 use uuid::Uuid;
 
-#[cfg(feature = "axum")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginRequestContext {
     pub method: String,
