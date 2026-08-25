@@ -99,6 +99,7 @@ pub(super) fn register(
         store.clone(),
     );
     super::autumn::register(config);
+    super::commet::register(config);
     super::creem::register(config, store.clone());
     super::dodo_payments::register(config, store.clone());
     super::polar::register(config);

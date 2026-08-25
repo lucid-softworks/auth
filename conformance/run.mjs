@@ -24,6 +24,7 @@ import {
 } from "better-auth/client/plugins";
 import { passkeyClient } from "@better-auth/passkey/client";
 import { apiKeyClient } from "@better-auth/api-key/client";
+import { commetClient } from "@commet/better-auth/client";
 import { creemClient } from "@creem_io/better-auth/client";
 import { dodopaymentsClient } from "@dodopayments/better-auth/client";
 import { polarClient } from "@polar-sh/better-auth/client";
@@ -3227,6 +3228,171 @@ async function nativeDodoPaymentsConformance(origin) {
   console.log("ok - Dodo Payments official client against native server");
 }
 
+async function nativeCommetConformance(origin) {
+  const transport = new BrowserTransport(origin);
+  const client = createAuthClient({
+    baseURL: origin,
+    fetchOptions: { customFetchImpl: transport.fetch.bind(transport) },
+    plugins: [commetClient()],
+  });
+
+  await transport.useFixtureSession("password");
+  const portal = await client.customer.portal();
+  assert.deepEqual(portal, {
+    redirect: true,
+    url: "https://commet.example.test/portal?keep=native&return_url=https%3A%2F%2Fapp.example.test%2Fbilling%3Ftab%3Dplans",
+  });
+  transport.assertRequest("/api/auth/commet/portal", "GET");
+
+  const subscription = success(
+    await client.subscription.get(),
+    "native Commet subscription.get",
+  );
+  assert.deepEqual(subscription, { id: "subscription_native", status: "active" });
+  transport.assertRequest("/api/auth/commet/subscription", "GET");
+
+  const canceled = success(
+    await client.subscription.cancel({
+      immediate: true,
+      reason: "native cancellation",
+    }),
+    "native Commet subscription.cancel",
+  );
+  assert.deepEqual(canceled, {
+    id: "subscription_native",
+    immediate: true,
+    reason: "native cancellation",
+    status: "canceled",
+  });
+  transport.assertRequest("/api/auth/commet/subscription/cancel", "POST", {
+    immediate: true,
+    reason: "native cancellation",
+  });
+
+  const featureList = success(
+    await client.features.list(),
+    "native Commet features.list",
+  );
+  assert.deepEqual(featureList, [{ code: "reports", enabled: true }]);
+  transport.assertRequest("/api/auth/commet/features", "GET");
+
+  const feature = success(
+    await client.features.get("reports"),
+    "native Commet features.get",
+  );
+  assert.deepEqual(feature, { code: "reports", enabled: true, limit: 100 });
+  transport.assertRequest("/api/auth/commet/features/reports", "GET");
+
+  const checked = success(
+    await client.features.check("reports"),
+    "native Commet features.check",
+  );
+  assert.deepEqual(checked, { allowed: true, remaining: 98 });
+  transport.assertRequest("/api/auth/commet/features/reports/check", "GET");
+
+  const canUse = success(
+    await client.features.canUse("reports"),
+    "native Commet features.canUse",
+  );
+  assert.deepEqual(canUse, { allowed: true, remaining: 98 });
+  transport.assertRequest("/api/auth/commet/features/reports/can-use", "GET");
+
+  const usage = success(
+    await client.usage.track({
+      feature: "reports",
+      idempotencyKey: "usage-native",
+      properties: { source: "native", tier: "pro" },
+      value: 2,
+    }),
+    "native Commet usage.track",
+  );
+  assert.deepEqual(usage, { featureCode: "reports", id: "usage_native" });
+  transport.assertRequest("/api/auth/commet/usage/track", "POST", {
+    feature: "reports",
+    idempotencyKey: "usage-native",
+    properties: { source: "native", tier: "pro" },
+    value: 2,
+  });
+
+  const seats = success(await client.seats.list(), "native Commet seats.list");
+  assert.deepEqual(seats, { admins: 1, members: 4 });
+  transport.assertRequest("/api/auth/commet/seats", "GET");
+
+  const add = success(
+    await client.seats.add({ count: 2, featureCode: "members" }),
+    "native Commet seats.add",
+  );
+  assert.deepEqual(add, { count: 2, operation: "add" });
+  transport.assertRequest("/api/auth/commet/seats/add", "POST", {
+    count: 2,
+    featureCode: "members",
+  });
+
+  const remove = success(
+    await client.seats.remove({ count: 1, featureCode: "members" }),
+    "native Commet seats.remove",
+  );
+  assert.deepEqual(remove, { count: 1, operation: "remove" });
+  transport.assertRequest("/api/auth/commet/seats/remove", "POST", {
+    count: 1,
+    featureCode: "members",
+  });
+
+  const set = success(
+    await client.seats.set({ count: 4, featureCode: "members" }),
+    "native Commet seats.set",
+  );
+  assert.deepEqual(set, { count: 4, operation: "set" });
+  transport.assertRequest("/api/auth/commet/seats/set", "POST", {
+    count: 4,
+    featureCode: "members",
+  });
+
+  const setAll = success(
+    await client.seats.setAll({ admins: 1, members: 4 }),
+    "native Commet seats.setAll",
+  );
+  assert.deepEqual(setAll, [
+    { count: 1, featureCode: "admins" },
+    { count: 4, featureCode: "members" },
+  ]);
+  transport.assertRequest("/api/auth/commet/seats/set-all", "POST", {
+    seats: { admins: 1, members: 4 },
+  });
+
+  const webhookBody = JSON.stringify({
+    event: "subscription.created",
+    id: "webhook_native",
+    subscription: { id: "subscription_native" },
+  });
+  const webhookSignature = createHmac("sha256", "commet-native-conformance")
+    .update(webhookBody)
+    .digest("hex");
+  for (let delivery = 0; delivery < 2; delivery += 1) {
+    const webhook = await transport.fetch(`${origin}/api/auth/commet/webhooks`, {
+      body: webhookBody,
+      headers: {
+        "content-type": "application/json",
+        "x-commet-signature": webhookSignature,
+      },
+      method: "POST",
+    });
+    assert.equal(webhook.status, 200);
+    assert.deepEqual(await webhook.json(), { received: true });
+  }
+  const invalidWebhook = await transport.fetch(`${origin}/api/auth/commet/webhooks`, {
+    body: webhookBody,
+    headers: {
+      "content-type": "application/json",
+      "x-commet-signature": "00".repeat(32),
+    },
+    method: "POST",
+  });
+  assert.equal(invalidWebhook.status, 401);
+  assert.deepEqual(await invalidWebhook.json(), { message: "Invalid webhook signature" });
+  console.log("ok - Commet official client against native server");
+}
+
 async function cookieCacheConformance(origin, strategy) {
   const transport = new BrowserTransport(origin);
   const client = createAuthClient({
@@ -3375,6 +3541,7 @@ for (const strategy of ["compact", "jwt", "jwe"]) {
       await nativeAutumnConformance(origin);
       await nativeCreemConformance(origin);
       await nativeDodoPaymentsConformance(origin);
+      await nativeCommetConformance(origin);
       const oauthProviderTransport = new BrowserTransport(origin);
       await oauthProviderNativeConformance(
         origin,

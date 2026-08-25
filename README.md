@@ -422,6 +422,70 @@ behavior because they are part of version 1.6.5, not as lucid-auth aliases. See
 the [Dodo Payments compatibility row](COMPATIBILITY.md#payments-analytics-and-better-auth-infrastructure)
 for the exact checkout, lifecycle, provider, webhook, and exclusion boundary.
 
+### Commet billing
+
+Commet support is opt-in and pins Better Auth `1.7.1`,
+`@commet/better-auth@8.1.0`, and `@commet/node@9.1.0`. It requires a server-only
+Commet API key beginning with `ck_` and exposes only the endpoint groups
+selected by the application. `CommetProviderConfig::new` validates that key and
+returns a `Result`:
+
+```rust
+use lucid_auth::{
+    CommetFeature, CommetHttpClient, CommetOptions, CommetPlugin,
+    CommetPortalOptions, CommetProviderConfig, CommetSubscriptionsOptions,
+    CommetWebhooksOptions,
+};
+use std::sync::Arc;
+
+let provider = CommetProviderConfig::new(std::env::var("COMMET_API_KEY")?)?;
+let client = Arc::new(CommetHttpClient::new(provider));
+let mut options = CommetOptions::new(
+    client,
+    vec![
+        CommetFeature::Portal(CommetPortalOptions {
+            return_url: Some("https://app.example.com/billing".into()),
+        }),
+        CommetFeature::Subscriptions(CommetSubscriptionsOptions::default()),
+        CommetFeature::Features,
+        CommetFeature::Usage,
+        CommetFeature::Seats,
+        CommetFeature::Webhooks(CommetWebhooksOptions::new(
+            std::env::var("COMMET_WEBHOOK_SECRET")?,
+        )),
+    ],
+);
+options.create_customer_on_sign_up = true;
+config.add_plugin(CommetPlugin::new(options))?;
+```
+
+Set `options.get_customer_create_params` to a `CommetCustomerParamsProvider`
+when signup should add a full name or arbitrary JSON metadata. The upstream
+`domain` callback field is exposed but intentionally not forwarded by adapter
+8.1.0. Commet owns all customer and billing state; the plugin adds no database
+field, table, migration, organization mapping, or webhook-delivery ledger.
+
+Install the official client and use its exact namespaces:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { commetClient } from "@commet/better-auth/client";
+
+export const authClient = createAuthClient({ plugins: [commetClient()] });
+
+await authClient.customer.portal();
+await authClient.subscription.get();
+await authClient.features.list();
+await authClient.features.check("api-requests");
+await authClient.usage.track({ feature: "api-requests", value: 1 });
+await authClient.seats.list();
+```
+
+Configure signed deliveries at `POST /api/auth/commet/webhooks`. See the
+[Commet compatibility row](COMPATIBILITY.md#payments-analytics-and-better-auth-infrastructure)
+for the exact 13 client actions, lifecycle, provider, retry, signature,
+callback, and exclusion boundary.
+
 Social providers use the same `signIn.social` and `/callback/:provider` wire
 contract as Better Auth. Register a built-in after setting the public base URL:
 

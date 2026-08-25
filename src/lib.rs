@@ -10,6 +10,7 @@ mod autumn;
 mod bearer;
 mod captcha;
 mod client_ip;
+mod commet;
 mod config;
 mod cookie;
 mod creem;
@@ -87,7 +88,6 @@ pub use api_key::{
     ApiKeyConfiguration, ApiKeyError, ApiKeyExpirationConfig, ApiKeyGenerator, ApiKeyPlugin,
     ApiKeyRateLimitConfig, ApiKeyReference, ApiKeyStartingCharactersConfig,
 };
-pub use bearer::{BearerConfig, BearerPlugin};
 pub use client_ip::IpAddressConfig;
 pub use config::{
     AccountConfig, AccountLinkingConfig, AuthConfig, AuthIdGenerator, EmailPasswordConfig,
