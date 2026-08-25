@@ -27,6 +27,8 @@ mod api_key;
 mod audit;
 #[path = "postgres_contract/device_authorization_schema.rs"]
 mod device_authorization_schema;
+#[path = "postgres_contract/dodo_payments.rs"]
+mod dodo_payments;
 #[path = "postgres_contract/email_otp.rs"]
 mod email_otp;
 #[path = "postgres_contract/guest_capability.rs"]
@@ -115,6 +117,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     let (service, api_keys, phone_numbers) = contract_service(&store)?;
     test_utils::assert_persistence(&store, &pool).await?;
     let user = provision_owner(&service).await?;
+    dodo_payments::assert_schema_and_persistence(&service, &store, user.id).await?;
     migrate_legacy_extensions(&service, &store, &pool, user.id).await?;
     agent_auth::assert_switch_contract(&pool, user.id).await?;
     anonymous::assert_lifecycle(&service, &store).await?;
@@ -274,6 +277,7 @@ fn register_contract_plugins(
             ..OrganizationPluginConfig::default()
         },
     ))?;
+    dodo_payments::register(config, store.clone())?;
     Ok(phone_numbers)
 }
 

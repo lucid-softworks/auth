@@ -15,6 +15,7 @@ mod cookie;
 mod creem;
 mod database_hooks;
 pub mod device_authorization;
+mod dodo_payments;
 mod email;
 mod email_otp;
 mod error;
@@ -108,7 +109,6 @@ pub use email_otp::{
     EmailOtpResendStrategy, EmailOtpSender, EmailOtpSignInInput, EmailOtpStorage, EmailOtpType,
     EmailOtpVerification,
 };
-pub use error::AuthError;
 pub use exports::*;
 pub use generic_oauth::{
     Auth0Options, BaseOAuthProviderOptions, GenericOAuthAccountIssuer,

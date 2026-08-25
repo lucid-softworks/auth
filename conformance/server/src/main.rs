@@ -17,6 +17,7 @@ mod autumn;
 mod cookie_cache;
 mod config;
 mod creem;
+mod dodo_payments;
 mod email;
 mod metadata;
 mod mcp;

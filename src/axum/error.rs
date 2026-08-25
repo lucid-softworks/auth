@@ -1,7 +1,8 @@
 use crate::{AuthError, protocol::better_auth::ErrorResponse};
 use axum::{
     Json,
-    http::StatusCode,
+    body::Body,
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
@@ -48,6 +49,17 @@ pub fn api_error(
 /// mistaking ordinary JSON for an API error.
 pub fn api_error_with_body(status: StatusCode, body: serde_json::Value) -> Response {
     marked((status, Json(body)).into_response())
+}
+
+/// Builds a marked Better Auth `APIError` response with an empty JSON body.
+pub(crate) fn api_error_empty(status: StatusCode) -> Response {
+    let mut response = Response::new(Body::empty());
+    *response.status_mut() = status;
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("application/json"),
+    );
+    marked(response)
 }
 
 fn marked(mut response: Response) -> Response {

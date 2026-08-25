@@ -340,6 +340,88 @@ See the
 for the exact endpoint, provider, persistence, webhook, callback, and helper
 boundary, including the intentional per-plugin schema-isolation improvement.
 
+### Dodo Payments billing
+
+Dodo Payments support is opt-in and pins Better Auth `1.7.1`,
+`@dodopayments/better-auth@1.6.5`, `@dodopayments/core@0.3.14`, and
+`dodopayments@2.47.0`. It requires a Dodo Payments account and a server-only
+live or test API key; enable only the endpoint groups the application uses:
+
+```rust
+use lucid_auth::{
+    DodoCheckoutOptions, DodoPaymentsFeature, DodoPaymentsHttpClient,
+    DodoPaymentsOptions, DodoPaymentsPlugin, DodoPaymentsProviderConfig,
+    DodoProduct, DodoProducts, DodoWebhooksOptions,
+};
+use std::sync::Arc;
+
+let client = Arc::new(DodoPaymentsHttpClient::new(
+    DodoPaymentsProviderConfig::live(std::env::var("DODO_PAYMENTS_API_KEY")?),
+));
+let checkout = DodoCheckoutOptions {
+    products: Some(DodoProducts::static_products(vec![DodoProduct::new(
+        "pdt_pro",
+        "pro",
+    )])),
+    success_url: Some("https://app.example.com/billing/success".into()),
+    authenticated_users_only: true,
+};
+let webhooks = DodoWebhooksOptions::new(
+    std::env::var("DODO_PAYMENTS_WEBHOOK_KEY")?,
+);
+let mut options = DodoPaymentsOptions::new(
+    client,
+    vec![
+        DodoPaymentsFeature::Checkout(checkout),
+        DodoPaymentsFeature::Portal,
+        DodoPaymentsFeature::Usage,
+        DodoPaymentsFeature::Webhooks(webhooks),
+    ],
+);
+options.create_customer_on_sign_up = true;
+config.add_plugin(DodoPaymentsPlugin::new(options, store.clone()))?;
+```
+
+Use `DodoPaymentsProviderConfig::test` with a Dodo test-mode key. The native
+`create_customer_on_sign_up` and `get_customer_params` options correspond to
+upstream `createCustomerOnSignUp` and `getCustomerParams`; implement
+`DodoCustomerParamsProvider` and assign it to `options.get_customer_params` to
+add string metadata or an optional phone number during customer creation and
+updates. The plugin stores only the optional, non-input `dodoCustomerId` user
+field. Dodo remains authoritative for billing, and lucid-auth adds no payment,
+subscription, usage, or webhook-delivery ledger.
+
+Configure Dodo to deliver signed webhooks to
+`POST /api/auth/dodopayments/webhooks`, and install the official browser client:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { dodopaymentsClient } from "@dodopayments/better-auth/client";
+
+export const authClient = createAuthClient({
+  plugins: [dodopaymentsClient()],
+});
+
+await authClient.dodopayments.checkoutSession({
+  product_cart: [{ product_id: "pdt_pro", quantity: 1 }],
+});
+await authClient.dodopayments.customer.portal();
+await authClient.dodopayments.customer.subscriptions.list();
+await authClient.dodopayments.customer.payments.list();
+await authClient.dodopayments.usage.ingest({
+  event_id: "request_123",
+  event_name: "api_request",
+});
+await authClient.dodopayments.usage.meters.list();
+```
+
+`dodopayments.checkoutSession` is the preferred checkout API. The pinned
+adapter also exposes the upstream-deprecated `dodopayments.checkout` method and
+`POST /dodopayments/checkout`; they remain supported with their exact legacy
+behavior because they are part of version 1.6.5, not as lucid-auth aliases. See
+the [Dodo Payments compatibility row](COMPATIBILITY.md#payments-analytics-and-better-auth-infrastructure)
+for the exact checkout, lifecycle, provider, webhook, and exclusion boundary.
+
 Social providers use the same `signIn.social` and `/callback/:provider` wire
 contract as Better Auth. Register a built-in after setting the public base URL:
 

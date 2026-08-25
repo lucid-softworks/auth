@@ -100,6 +100,7 @@ pub(super) fn register(
     );
     super::autumn::register(config);
     super::creem::register(config, store.clone());
+    super::dodo_payments::register(config, store.clone());
     super::polar::register(config);
     register_i18n(config);
     config

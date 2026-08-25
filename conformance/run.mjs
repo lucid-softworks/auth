@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { createAuthClient } from "better-auth/client";
@@ -24,6 +25,7 @@ import {
 import { passkeyClient } from "@better-auth/passkey/client";
 import { apiKeyClient } from "@better-auth/api-key/client";
 import { creemClient } from "@creem_io/better-auth/client";
+import { dodopaymentsClient } from "@dodopayments/better-auth/client";
 import { polarClient } from "@polar-sh/better-auth/client";
 import { createAutumnClient } from "autumn-js/react";
 import { base32 } from "@better-auth/utils/base32";
@@ -2984,6 +2986,247 @@ async function nativeCreemConformance(origin) {
   console.log("ok - Creem official client against native server");
 }
 
+async function nativeDodoPaymentsConformance(origin) {
+  const transport = new BrowserTransport(origin);
+  const client = createAuthClient({
+    baseURL: origin,
+    fetchOptions: { customFetchImpl: transport.fetch.bind(transport) },
+    plugins: [dodopaymentsClient()],
+  });
+
+  const checkout = success(
+    await client.dodopayments.checkout({
+      billing: {
+        city: "London",
+        country: "GB",
+        state: "London",
+        street: "1 Native Street",
+        zipcode: "N1 1AA",
+      },
+      customer: {
+        email: "dodo-checkout@example.com",
+        name: "Dodo Checkout",
+      },
+      metadata: { referenceId: "metadata-wins", seats: 3 },
+      referenceId: "native-reference",
+      slug: "native",
+    }),
+    "native Dodo Payments checkout",
+  );
+  assert.deepEqual(checkout, {
+    redirect: true,
+    url: "https://dodo.example.test/checkout/payment-native",
+  });
+  transport.assertRequest("/api/auth/dodopayments/checkout", "POST", {
+    billing: {
+      city: "London",
+      country: "GB",
+      state: "London",
+      street: "1 Native Street",
+      zipcode: "N1 1AA",
+    },
+    customer: {
+      email: "dodo-checkout@example.com",
+      name: "Dodo Checkout",
+    },
+    metadata: { referenceId: "metadata-wins", seats: 3 },
+    referenceId: "native-reference",
+    slug: "native",
+  });
+
+  const checkoutSession = success(
+    await client.dodopayments.checkoutSession({
+      metadata: { campaign: "native" },
+      product_cart: [{ product_id: "product_native", quantity: 2 }],
+      referenceId: "session-reference",
+    }),
+    "native Dodo Payments checkoutSession",
+  );
+  assert.deepEqual(checkoutSession, {
+    redirect: true,
+    url: "https://dodo.example.test/checkout/session-native",
+  });
+  transport.assertRequest("/api/auth/dodopayments/checkout-session", "POST", {
+    metadata: { campaign: "native" },
+    product_cart: [{ product_id: "product_native", quantity: 2 }],
+    referenceId: "session-reference",
+  });
+
+  await transport.useFixtureSession("password");
+  const portal = success(
+    await client.dodopayments.customer.portal(),
+    "native Dodo Payments customer.portal",
+  );
+  assert.deepEqual(portal, {
+    redirect: true,
+    url: "https://dodo.example.test/portal/customer_native",
+  });
+  transport.assertRequest("/api/auth/dodopayments/customer/portal", "GET");
+
+  const subscriptions = success(
+    await client.dodopayments.customer.subscriptions.list({
+      query: { limit: 3, page: 2, status: "active" },
+    }),
+    "native Dodo Payments customer.subscriptions.list",
+  );
+  assert.deepEqual(subscriptions, {
+    items: [{ status: "active", subscription_id: "subscription_native" }],
+  });
+  assert.equal(
+    transport.assertRequest(
+      "/api/auth/dodopayments/customer/subscriptions/list",
+      "GET",
+    ).search,
+    "?limit=3&page=2&status=active",
+  );
+
+  const payments = success(
+    await client.dodopayments.customer.payments.list({
+      query: { limit: 5, page: 1, status: "succeeded" },
+    }),
+    "native Dodo Payments customer.payments.list",
+  );
+  assert.deepEqual(payments, {
+    items: [{ payment_id: "payment_native", status: "succeeded" }],
+  });
+  assert.equal(
+    transport.assertRequest(
+      "/api/auth/dodopayments/customer/payments/list",
+      "GET",
+    ).search,
+    "?limit=5&page=1&status=succeeded",
+  );
+
+  const ingest = success(
+    await client.dodopayments.usage.ingest({
+      event_id: "event_native",
+      event_name: "tokens",
+      metadata: { cached: false, count: 7 },
+      timestamp: "2026-08-01T12:34:56+02:00",
+    }),
+    "native Dodo Payments usage.ingest",
+  );
+  assert.deepEqual(ingest, { ingested_count: 1 });
+  transport.assertRequest("/api/auth/dodopayments/usage/ingest", "POST", {
+    event_id: "event_native",
+    event_name: "tokens",
+    metadata: { cached: false, count: 7 },
+    timestamp: "2026-08-01T12:34:56+02:00",
+  });
+
+  const meters = success(
+    await client.dodopayments.usage.meters.list({
+      query: {
+        end: "2026-08-02",
+        event_name: "tokens",
+        meter_id: "meter_native",
+        page_number: 4,
+        page_size: 6,
+        start: "2026-08-01",
+      },
+    }),
+    "native Dodo Payments usage.meters.list",
+  );
+  assert.deepEqual(meters, {
+    items: [{ event_name: "tokens", meter_id: "meter_native" }],
+  });
+  assert.equal(
+    transport.assertRequest("/api/auth/dodopayments/usage/meters/list", "GET")
+      .search,
+    "?end=2026-08-02&event_name=tokens&meter_id=meter_native&page_number=4&page_size=6&start=2026-08-01",
+  );
+
+  const webhookBody = JSON.stringify({
+    business_id: "business_native",
+    type: "subscription.active",
+    timestamp: "2026-08-25T12:00:00.000Z",
+    data: {
+      payload_type: "Subscription",
+      addons: [],
+      billing: {
+        city: null,
+        country: "GB",
+        state: null,
+        street: null,
+        zipcode: null,
+      },
+      brand_id: "brand_native",
+      cancel_at_next_billing_date: false,
+      created_at: "2026-08-25T12:00:00.000Z",
+      credit_entitlement_cart: [],
+      currency: "GBP",
+      customer: {
+        customer_id: "customer_native",
+        email: "luna@example.com",
+        name: "Luna",
+      },
+      metadata: {},
+      meter_credit_entitlement_cart: [],
+      meters: [],
+      next_billing_date: "2026-09-25T12:00:00.000Z",
+      on_demand: false,
+      payment_frequency_count: 1,
+      payment_frequency_interval: "Month",
+      previous_billing_date: "2026-08-25T12:00:00.000Z",
+      product_id: "product_native",
+      quantity: 1,
+      recurring_pre_tax_amount: 1000,
+      status: "active",
+      subscription_id: "subscription_native",
+      subscription_period_count: 1,
+      subscription_period_interval: "Month",
+      tax_inclusive: false,
+      trial_period_days: 0,
+    },
+  });
+  const webhookTimestamp = Math.floor(Date.now() / 1000).toString();
+  const webhookId = "webhook_native";
+  const webhookSignature = `v1,${createHmac("sha256", "dodo-native-conformance")
+    .update(`${webhookId}.${webhookTimestamp}.${webhookBody}`)
+    .digest("base64")}`;
+  const missingWebhookBody = await transport.fetch(
+    `${origin}/api/auth/dodopayments/webhooks`,
+    { method: "POST" },
+  );
+  assert.equal(missingWebhookBody.status, 500);
+  assert.equal(await missingWebhookBody.text(), "");
+  for (let delivery = 0; delivery < 2; delivery += 1) {
+    const webhook = await transport.fetch(
+      `${origin}/api/auth/dodopayments/webhooks`,
+      {
+        body: webhookBody,
+        headers: {
+          "content-type": "application/json",
+          "webhook-id": webhookId,
+          "webhook-signature": webhookSignature,
+          "webhook-timestamp": webhookTimestamp,
+        },
+        method: "POST",
+      },
+    );
+    assert.equal(webhook.status, 200);
+    assert.deepEqual(await webhook.json(), { received: true });
+  }
+  const invalidWebhook = await transport.fetch(
+    `${origin}/api/auth/dodopayments/webhooks`,
+    {
+      body: webhookBody,
+      headers: {
+        "content-type": "application/json",
+        "webhook-id": webhookId,
+        "webhook-signature": "v1,invalid",
+        "webhook-timestamp": webhookTimestamp,
+      },
+      method: "POST",
+    },
+  );
+  assert.equal(invalidWebhook.status, 400);
+  assert.deepEqual(await invalidWebhook.json(), {
+    message: "Webhook Error: No matching signature found",
+  });
+  console.log("ok - Dodo Payments official client against native server");
+}
+
 async function cookieCacheConformance(origin, strategy) {
   const transport = new BrowserTransport(origin);
   const client = createAuthClient({
@@ -3131,6 +3374,7 @@ for (const strategy of ["compact", "jwt", "jwe"]) {
       await nativePolarConformance(origin);
       await nativeAutumnConformance(origin);
       await nativeCreemConformance(origin);
+      await nativeDodoPaymentsConformance(origin);
       const oauthProviderTransport = new BrowserTransport(origin);
       await oauthProviderNativeConformance(
         origin,
