@@ -25,6 +25,13 @@ impl AuthService {
         self.store.find_user_by_id(user_id).await
     }
 
+    pub(crate) async fn auth_user_by_email(
+        &self,
+        email: &str,
+    ) -> Result<Option<AuthUser>, AuthError> {
+        self.store.find_user_by_email(email).await
+    }
+
     pub(crate) async fn oauth_provider_session_by_id(
         &self,
         session_id: Uuid,

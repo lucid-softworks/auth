@@ -42,6 +42,8 @@ import {
   deviceAuthorizationNativeStandaloneConformance,
 } from "./device-authorization.mjs";
 import { mcpConformance, mcpNativeConformance } from "./mcp.mjs";
+import { agentAuthConformance } from "./agent-auth.mjs";
+import { agentAuthNativeConformance } from "./agent-auth-native.mjs";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
 const betterAuthPackage = JSON.parse(
@@ -2794,6 +2796,7 @@ await oauthProxyConformance();
 await oauthProviderConformance();
 await deviceAuthorizationConformance();
 await mcpConformance();
+await agentAuthConformance();
 
 for (const strategy of ["compact", "jwt", "jwe"]) {
   const { child, origin } = await startServer(strategy);
@@ -2814,6 +2817,7 @@ for (const strategy of ["compact", "jwt", "jwe"]) {
         oauthDeviceTransport.fetch.bind(oauthDeviceTransport),
       );
       await mcpNativeConformance(origin);
+      await agentAuthNativeConformance(origin);
     }
     await cookieCacheConformance(origin, strategy);
   } finally {

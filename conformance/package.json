@@ -6,6 +6,8 @@
     "test": "node run.mjs"
   },
   "dependencies": {
+    "@auth/agent": "0.6.2",
+    "@better-auth/agent-auth": "0.6.2",
     "@better-auth/api-key": "1.7.1",
     "@better-auth/mcp": "1.7.1",
     "@better-auth/oauth-provider": "1.7.1",

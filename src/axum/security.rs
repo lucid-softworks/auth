@@ -56,9 +56,10 @@ pub(super) async fn validate_browser_request(
     }
 
     let supplied_origin = request_origin(headers);
-    let server_to_server_oauth = is_server_to_server_oauth_path(path, service.base_path());
+    let server_to_server = is_server_to_server_oauth_path(path, service.base_path())
+        || is_agent_auth_machine_path(&service, path);
     let browser_metadata_present = supplied_origin.is_some()
-        || (!server_to_server_oauth
+        || (!server_to_server
             && (fetch_site.is_some() || fetch_mode.is_some() || fetch_dest.is_some()));
     let uses_cookies = headers.contains_key(header::COOKIE);
     if !is_oauth_callback && !uses_accepted_bearer && (browser_metadata_present || uses_cookies) {
@@ -73,6 +74,25 @@ pub(super) async fn validate_browser_request(
         Ok(request) => next.run(request).await,
         Err(error) => auth_error(error),
     }
+}
+
+fn is_agent_auth_machine_path(service: &AuthService, path: &str) -> bool {
+    if !service
+        .plugins()
+        .plugins()
+        .iter()
+        .any(|plugin| plugin.descriptor().id == "agent-auth")
+    {
+        return false;
+    }
+    let relative = if service.base_path() == "/" {
+        path
+    } else {
+        path.strip_prefix(service.base_path()).unwrap_or(path)
+    };
+    ["/agent/", "/capability/", "/host/"]
+        .iter()
+        .any(|prefix| relative.starts_with(prefix))
 }
 
 fn is_server_to_server_oauth_path(path: &str, base_path: &str) -> bool {

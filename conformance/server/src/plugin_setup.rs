@@ -11,15 +11,18 @@ use super::{
     },
 };
 use lucid_auth::{
-    ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, AuthError, BearerPlugin,
-    DeviceAuthorizationConfig, DeviceAuthorizationPlugin, EmailOtpConfig, EmailOtpPlugin,
-    JwtPlugin, LastLoginMethodConfig, LastLoginMethodPlugin, MagicLinkConfig, MagicLinkPlugin,
-    McpPlugin, McpPluginConfig, MemoryOAuthProviderStore, MemoryStore, MemoryTwoFactorStore,
-    MultiSessionPlugin, OAuthDeviceAuthorizationPlugin, OAuthProviderPluginConfig,
-    OAuthProviderStore, OneTapConfig, OneTapPlugin, OneTimeTokenConfig, OneTimeTokenPlugin,
-    OtpConfig, PasskeyConfig, PasskeyPlugin, PhoneNumberConfig, PhoneNumberPlugin,
-    PhoneNumberSignUpConfig, SiweConfig, SiweMessageVerifier, SiweNonceGenerator, SiwePlugin,
-    SiweVerificationRequest, TotpConfig, TwoFactorConfig, TwoFactorPlugin,
+    AgentAuthConfig, AgentAuthPlugin, AgentAutonomousUserContext, AgentAutonomousUserResolver,
+    AgentCapability, AgentExecuteContext, AgentExecuteError, AgentExecuteHandler,
+    AgentExecuteResult, AgentSessionUser, ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference,
+    AuthConfig, AuthError, BearerPlugin, DeviceAuthorizationConfig, DeviceAuthorizationPlugin,
+    EmailOtpConfig, EmailOtpPlugin, JwtPlugin, LastLoginMethodConfig, LastLoginMethodPlugin,
+    MagicLinkConfig, MagicLinkPlugin, McpPlugin, McpPluginConfig, MemoryOAuthProviderStore,
+    MemoryStore, MemoryTwoFactorStore, MultiSessionPlugin, OAuthDeviceAuthorizationPlugin,
+    OAuthProviderPluginConfig, OAuthProviderStore, OneTapConfig, OneTapPlugin, OneTimeTokenConfig,
+    OneTimeTokenPlugin, OtpConfig, PasskeyConfig, PasskeyPlugin, PhoneNumberConfig,
+    PhoneNumberPlugin, PhoneNumberSignUpConfig, SiweConfig, SiweMessageVerifier,
+    SiweNonceGenerator, SiwePlugin, SiweVerificationRequest, TotpConfig, TwoFactorConfig,
+    TwoFactorPlugin,
 };
 use std::{
     collections::BTreeMap,
@@ -43,6 +46,36 @@ impl SiweNonceGenerator for ConformanceSiweNonce {
 
 struct ConformanceSiweVerifier;
 
+struct ConformanceAgentExecutor;
+
+struct ConformanceAutonomousUser;
+
+#[async_trait::async_trait]
+impl AgentAutonomousUserResolver for ConformanceAutonomousUser {
+    async fn resolve(&self, context: AgentAutonomousUserContext) -> Option<AgentSessionUser> {
+        Some(AgentSessionUser {
+            id: format!("autonomous:{}", context.agent_id),
+            name: "Conformance autonomous agent".into(),
+            email: "autonomous-agent@example.test".into(),
+            attributes: serde_json::Map::new(),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl AgentExecuteHandler for ConformanceAgentExecutor {
+    async fn execute(
+        &self,
+        context: AgentExecuteContext,
+    ) -> Result<AgentExecuteResult, AgentExecuteError> {
+        Ok(AgentExecuteResult::Data(serde_json::json!({
+            "capability": context.capability,
+            "arguments": context.arguments,
+            "agent_id": context.agent_session.agent_id,
+        })))
+    }
+}
+
 #[async_trait::async_trait]
 impl SiweMessageVerifier for ConformanceSiweVerifier {
     async fn verify(&self, _: SiweVerificationRequest) -> Result<bool, AuthError> {
@@ -51,6 +84,33 @@ impl SiweMessageVerifier for ConformanceSiweVerifier {
 }
 
 pub(super) fn register(
+    config: &mut AuthConfig,
+    origin: &str,
+    messages: &ConformanceMessages,
+    phone_number_messages: &ConformancePhoneNumberMessages,
+    store: Arc<MemoryStore>,
+) -> Option<Arc<dyn OAuthProviderStore>> {
+    register_agent_auth(config);
+    register_core_plugins(config, origin, messages, phone_number_messages, store)
+}
+
+fn register_agent_auth(config: &mut AuthConfig) {
+    let mut agent_auth = AgentAuthConfig::default();
+    agent_auth.provider_name = Some("Lucid Agent Conformance".into());
+    agent_auth.allow_dynamic_host_registration = true;
+    agent_auth.capabilities = vec![
+        AgentCapability::new("notes.read", "Read notes"),
+        AgentCapability::new("notes.write", "Write notes"),
+    ];
+    agent_auth.default_host_capabilities = vec!["notes.read".into()];
+    agent_auth.on_execute = Some(Arc::new(ConformanceAgentExecutor));
+    agent_auth.resolve_autonomous_user = Some(Arc::new(ConformanceAutonomousUser));
+    config
+        .add_plugin(AgentAuthPlugin::in_memory(agent_auth).expect("valid Agent Auth schema"))
+        .expect("unique Agent Auth plugin");
+}
+
+fn register_core_plugins(
     config: &mut AuthConfig,
     origin: &str,
     messages: &ConformanceMessages,

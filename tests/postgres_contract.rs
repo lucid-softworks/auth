@@ -17,6 +17,8 @@ use uuid::Uuid;
 mod account_update;
 #[path = "postgres_contract/admin.rs"]
 mod admin;
+#[path = "postgres_contract/agent_auth.rs"]
+mod agent_auth;
 #[path = "postgres_contract/anonymous.rs"]
 mod anonymous;
 #[path = "postgres_contract/api_key.rs"]
@@ -111,6 +113,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     let (service, api_keys, phone_numbers) = contract_service(&store)?;
     let user = provision_owner(&service).await?;
     migrate_legacy_extensions(&service, &store, &pool, user.id).await?;
+    agent_auth::assert_switch_contract(&pool, user.id).await?;
     anonymous::assert_lifecycle(&service, &store).await?;
     let signed_in = authenticate_owner(&service, &user).await?;
     multi_session::assert_http_round_trip(&service).await?;

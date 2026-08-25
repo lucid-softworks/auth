@@ -119,8 +119,297 @@ removed rather than supported as a legacy identity fallback.
 | OAuth 2.1 / OIDC Provider | Supported | Optional `OAuthProviderPlugin` matches `@better-auth/oauth-provider@1.7.1`: issuer/root discovery, authorization/consent/continue, authorization-code/client-credentials/refresh grants, public/confidential/private-key client authentication, S256 PKCE, OIDC UserInfo/ID tokens/logout, opaque or JWT access tokens, rotation/replay handling, introspection/revocation, resource indicators/policy, DPoP, dynamic and owner client management, consent management, exact defaults/rate limits, and the official `oauthProviderClient`. Its seven models have dedicated atomic memory/PostgreSQL stores; authorization codes use core verification storage and signing keys stay with `JwtPlugin`. Upstream `SERVER_ONLY` admin routes remain HTTP 404, self-contained JWTs cannot be recalled after issuance, and this is contract compatibility rather than OAuth/OIDC certification. Device authorization is installed separately through its companion plugin; [#37](https://github.com/lucid-softworks/auth/issues/37). |
 | Device Authorization | Supported | Optional `DeviceAuthorizationPlugin` and OAuth Provider companion `OAuthDeviceAuthorizationPlugin`; exact standalone session exchange and OAuth device-code grant, official `deviceAuthorizationClient` and `oauthDeviceAuthorizationClient` methods, five public routes, discovery contribution, dedicated remappable storage, atomic bind/consume, exact polling order, duration/code generation, owner redaction, cache headers, and memory/PostgreSQL contracts match Better Auth 1.7.1. OAuth-owned codes intentionally fail at `/device/token` and exchange through `/oauth2/token`; [#38](https://github.com/lucid-softworks/auth/issues/38). |
 | MCP | Supported | Optional MCP OAuth preset and framework-neutral protected-request verifier match `@better-auth/mcp@1.7.1`: inherited OAuth Provider identity/surface, one canonical resource and default client binding, 30-second refresh retry overlap, both RFC 9728 discovery aliases, exact cache/method behavior, filtered resource scopes, local JWT or remote introspection, Bearer/DPoP sender binding, scope challenges, JSON-RPC error envelopes, and durable replay reservations. There is no MCP-specific Better Auth client factory, transport, protocol session/SSE bridge, model, migration, cookie, or extra rate limit; applications use `oauthProviderClient()` for management and the official `@modelcontextprotocol/client` v2 for protocol traffic. The convenience verifier's default audience is the auth base URL, so a differing MCP resource must be supplied explicitly; [#39](https://github.com/lucid-softworks/auth/issues/39). |
-| Agent Auth | Planned | [#40](https://github.com/lucid-softworks/auth/issues/40). |
+| Agent Auth | Supported | Optional `AgentAuthPlugin` matches Better Auth `1.7.1`, `@better-auth/agent-auth@0.6.2`, and the compatible portions of `@auth/agent@0.6.2`: all 32 server routes, four remappable models, discovery, lifecycle and approval flows, request verification, events, and documented OpenAPI helpers. See [Agent Auth](#agent-auth) and [#40](https://github.com/lucid-softworks/auth/issues/40). |
 | Client ID Metadata Document | Planned | [#69](https://github.com/lucid-softworks/auth/issues/69). |
+
+## Agent Auth
+
+Agent Auth is an opt-in plugin. The compatibility target is exactly Better Auth
+`1.7.1`, `@better-auth/agent-auth@0.6.2`, and the official protocol client
+`@auth/agent@0.6.2`. Enabling it adds only its own routes, root discovery,
+schema, rate limits, and hooks; disabling it leaves core authentication and
+other plugins unchanged.
+
+### Setup
+
+The smallest in-process setup uses the public `MemoryAgentAuthStore` through
+`AgentAuthPlugin::in_memory`:
+
+```rust
+use lucid_auth::{AgentAuthConfig, AgentAuthPlugin, AgentCapability, AuthConfig};
+
+let mut auth = AuthConfig::new(std::env::var("BETTER_AUTH_SECRET")?.into_bytes())?;
+auth.set_base_url("https://auth.example.com")?;
+
+let mut agent_auth = AgentAuthConfig::default();
+agent_auth.capabilities = vec![
+    AgentCapability::new("notes.read", "Read notes"),
+    AgentCapability::new("notes.write", "Write notes"),
+];
+agent_auth.default_host_capabilities = vec!["notes.read".into()];
+
+auth.add_plugin(AgentAuthPlugin::in_memory(agent_auth)?)?;
+```
+
+`MemoryAgentAuthStore` is process-local and is intended for development,
+testing, and a single service process. With the `postgres` feature, production
+deployments can construct
+`PostgresAgentAuthStore::new(pool, &agent_auth.schema)` and pass it to
+`AgentAuthPlugin::new(agent_auth, store)`. The plugin contributes its ordered
+migration for the four remappable models `agentHost`, `agent`,
+`agentCapabilityGrant`, and `approvalRequest`.
+
+The JavaScript Better Auth client uses the pinned external client plugin:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { agentAuthClient } from "@better-auth/agent-auth/client";
+
+export const authClient = createAuthClient({
+  baseURL: "https://auth.example.com",
+  plugins: [agentAuthClient()],
+});
+```
+
+Do not install the JavaScript `agentAuth()` server plugin into the Rust
+service. `AgentAuthPlugin` is its native server equivalent.
+
+### Configuration and defaults
+
+These are the exact public `AgentAuthConfig` fields. Durations are seconds.
+`None` means the corresponding optional upstream value or callback is absent.
+
+| Rust field | Default | Behavior |
+| --- | --- | --- |
+| `schema` | `AgentAuthSchema::default()` | Default names for the four plugin models; every model and field can be remapped. |
+| `provider_name` | `None` | Discovery falls back to `agent-auth`. |
+| `provider_description` | `None` | Discovery falls back to `Agent Auth enabled service`. |
+| `modes` | delegated and autonomous | Advertised and accepted agent modes. |
+| `device_authorization_page` | `/device/capabilities` | Verification page returned by device approval responses. |
+| `approval_methods` | CIBA and device authorization | Supported approval transports. |
+| `jwks_uri` | `None` | Optional provider JWKS URI in discovery. |
+| `capabilities` | empty | Configured capability catalog. |
+| `require_auth_for_capabilities` | `false` | Makes capability list and description require a host or agent JWT. |
+| `allowed_key_algorithms` | `Ed25519` | Accepted JWK curve names; these are not JWA algorithm identifiers. |
+| `jwt_format` | `AgentJwtFormat::Simple` | Upstream JWT-format selection; the other public value is `AgentJwtFormat::Aap`. |
+| `jwt_max_age` | 60 | Maximum JWT age. |
+| `agent_session_ttl` | 3,600 | Sliding active session lifetime. |
+| `max_agents_per_user` | 25 | Maximum active agents owned by one user. |
+| `agent_max_lifetime` | 86,400 | Maximum active lifetime before reactivation. |
+| `absolute_lifetime` | 0 | Disabled; a positive value is a non-renewable lifetime. |
+| `fresh_session_window` | 300 | User-session freshness required by `session` approval strength. |
+| `allow_dynamic_host_registration` | `false` | Unregistered hosts cannot bootstrap unless explicitly allowed. |
+| `default_host_capabilities` | empty | Automatic-grant budget for hosts. |
+| `blocked_capabilities` | empty | Capability patterns which can never be granted. |
+| `jti_cache_storage` | `AgentCacheStorage::Memory` | Process-local replay reservations. |
+| `jwks_cache_storage` | `AgentCacheStorage::Memory` | Process-local remote JWKS cache. |
+| `dangerously_skip_jti_check` | `false` | Replay protection remains enabled. This should not be enabled in production. |
+| `trust_proxy` | `false` | Forwarded protocol/host data is ignored while deriving JWT audiences. |
+| `proof_of_presence` | disabled, no RP ID, no origins | Optional WebAuthn proof for `webauthn` approval strength. |
+| `rate_limits` | empty override map | Uses the upstream per-route defaults described below. |
+
+All callback fields default to `None`:
+
+| Rust field and trait | Purpose |
+| --- | --- |
+| `resolve_fresh_session_window`: `AgentFreshSessionWindowResolver` | Resolve the freshness window for a capability request. |
+| `resolve_dynamic_host_registration`: `AgentDynamicHostRegistrationResolver` | Override the static dynamic-registration decision for one request. |
+| `resolve_default_host_capabilities`: `AgentDefaultHostCapabilitiesResolver` | Resolve a host's automatic-grant budget from mode, user, host, name, and endpoint context. |
+| `resolve_approval_method`: `AgentApprovalMethodResolver` | Choose the approval method from the request and supported methods. |
+| `validate_capabilities`: `AgentCapabilityValidator` | Apply an application validation decision to requested capability names. |
+| `resolve_autonomous_user`: `AgentAutonomousUserResolver` | Supply the user projection for an autonomous agent session. |
+| `on_host_claimed`: `AgentHostClaimedCallback` | Observe host ownership claims and account switches. |
+| `resolve_grant_ttl`: `AgentGrantTtlResolver` | Resolve an optional grant expiry when no positive request TTL is supplied; the capability's `grant_ttl` is the fallback when no resolver is installed. |
+| `on_event`: `AgentEventCallback` | Receive exact audit and `capability.executed` events. Delivery is asynchronous and callback errors never fail the originating request. |
+| `resolve_capabilities`: `AgentCapabilitiesResolver` | Replace the visible capability list using query and optional agent/host sessions. |
+| `resolve_query`: `AgentCapabilityQueryResolver` | Replace the built-in capability search result. |
+| `on_execute`: `AgentExecuteHandler` | Execute default-location capabilities and return data, async, stream, or an exact API error. |
+| `on_autonomous_agent_claimed`: `AgentAutonomousClaimedCallback` | Observe an autonomous agent being claimed by a user. |
+
+The built-in plugin rate limits are 60-second windows: registration is 10,
+agent key rotation and cleanup are 5, approval and CIBA authorization are 5,
+status and CIBA polling are 300, and the remaining limited routes are 60.
+`rate_limits` overrides these values by exact route path. Host routes have no
+Agent Auth-specific limits, matching the pinned server runtime; the core global
+limiter can still apply.
+
+### Discovery and route ownership
+
+The plugin mounts all 32 authoritative server routes under the configured auth
+base path:
+
+```text
+GET  /agent-configuration
+GET  /capability/list                 GET  /capability/describe
+POST /capability/execute              POST /capability/batch-execute
+POST /agent/register                  GET  /agent/list
+GET  /agent/get                       POST /agent/update
+POST /agent/revoke                    POST /agent/revoke-capability
+POST /agent/rotate-key                POST /agent/reactivate
+GET  /agent/session                   POST /agent/cleanup
+POST /agent/request-capability        POST /agent/approve-capability
+GET  /agent/status                    POST /agent/introspect
+POST /agent/grant-capability          POST /agent/claim
+POST /agent/ciba/authorize            GET  /agent/ciba/pending
+POST /agent/device/code               POST /host/create
+POST /host/enroll                     GET  /host/list
+GET  /host/get                        POST /host/revoke
+POST /host/switch-account             POST /host/update
+POST /host/rotate-key
+```
+
+It also mounts origin-root `/.well-known/agent-configuration`, which is the
+discovery URL advertised in `WWW-Authenticate`. The plugin-owned
+`GET /agent-configuration` and the root route return the same
+`version: "1.0-draft"` document with `Cache-Control: public, max-age=3600`, an
+issuer without a trailing slash, `default_location` at the absolute execute
+endpoint, curve-name algorithms, modes, approval methods, and absolute
+`register`, `capabilities`, `describe_capability`, `execute`,
+`request_capability`, `status`, `reactivate`, `revoke`, `revoke_host`,
+`rotate_key`, `rotate_host_key`, and `introspect` endpoints. `jwks_uri` is
+omitted unless configured.
+
+There is deliberately no `/api/auth/agent/agent-configuration` alias. The
+Agent Auth before hook is scoped to plugin-owned `/agent/*`, `/capability/*`,
+and `/host/*` routes and does not consume Bearer credentials for core or other
+plugins. Bootstrap verification for `/agent/register` and `/agent/claim` stays
+inside those routes.
+
+### Capabilities, constraints, and application routes
+
+`AgentCapability` contains `name`, `description`, and optional absolute
+`location`, input/output JSON Schema maps, `approval_strength`,
+`required_constraints`, `grant_ttl`, and flattened metadata. A relative or
+otherwise non-absolute `location` is rejected during plugin construction.
+Capabilities without `location` execute through `/capability/execute` and
+`on_execute`; the pinned runtime reports a missing handler as
+`500 execute_not_configured`.
+
+Requests accept either a capability name or `AgentCapabilityRequest::Constrained`.
+Constraints support only `eq`, `min`, `max`, `in`, and `not_in`; a primitive is
+an `eq` constraint. Matching supports exact names, global `*`, trailing
+wildcards such as `github.*`, and provider-prefix stripping. Host defaults are
+the automatic-grant budget. Requests inside that budget become active;
+out-of-budget requests remain pending for approval. Constraints may only be
+narrowed, and blocked capabilities, required constraints, TTL, status,
+ownership, and expiry are enforced at the same boundaries as upstream.
+
+A custom capability `location` does not call `on_execute`. The application
+route owns delivery and constraint enforcement. Use `AgentRequestVerifier` or
+`verify_agent_request(base_url, headers)` to resolve the Agent JWT through the
+plugin's `/agent/session` endpoint, then require the expected active grant and
+enforce its returned constraints before performing the operation. These
+helpers return `None` for a missing or rejected credential; they do not turn a
+custom route into an authorization policy automatically.
+
+`AgentExecuteHandler` receives `AgentExecuteContext`, including the resolved
+session, active grant, arguments, capability definition, endpoint context, and
+an `AgentGrantRevoker` for one-use grants. `AgentExecuteResult::Data` produces
+the normal `200` data envelope, `Async` produces the upstream `202` pending
+shape and optional retry interval, and `Stream` produces SSE with supplied
+headers. `AgentExecuteError::Api` preserves an intentional Agent Auth error;
+other execution failures remain internal errors.
+
+### Approval and lifecycle flows
+
+Both upstream approval methods are implemented. Device authorization issues a
+hashed, ambiguity-free eight-character user code displayed as `XXXX-XXXX`,
+expires after 300 seconds, and polls at a five-second interval. CIBA uses host
+authentication, preserves an indistinguishable successful authorization shape
+for unknown login hints, and implements pending listing, expiry, interval, and
+slow-down behavior. Approval strength `none` can auto-grant, `session` applies
+the fresh-session policy, and `webauthn` applies proof of presence.
+
+Lifecycle support includes delegated and autonomous registration, autonomous
+claiming, host pre-enrollment and one-time enrollment, dynamic host
+registration when explicitly enabled, agent and host key rotation, host account
+switching, transparent and explicit reactivation, capability decay to host
+defaults, cascading host/agent/grant revocation, and cleanup of expired agents
+and approvals. Enrollment tokens are 32 random bytes returned once and stored
+only as SHA-256 base64url hashes; device user codes are hash-only too. Agent and
+host private keys remain client-held—the server stores only public JWK data or
+JWKS URLs.
+
+When `proof_of_presence.enabled` is true, install `PasskeyPlugin` in the same
+`AuthConfig`. Agent Auth uses Better Auth passkey rows for user-verifying
+WebAuthn assertions. `proof_of_presence.rp_id` may be omitted to use the request
+host; configure `origins` when requests must be restricted to known origins.
+Service initialization warns when proof of presence is enabled without the
+passkey plugin because WebAuthn-gated approval cannot then succeed.
+
+### Persistence and multi-instance security
+
+The memory and PostgreSQL stores implement the same atomic registration,
+approval, grant, enrollment, rotation, reactivation, account-switch, cleanup,
+and cascading-revocation transitions. PostgreSQL uses transactions and
+advisory/row locking for cross-instance state changes. Schema remapping applies
+to all four plugin models and their relationships; it is not a second wire
+contract.
+
+The Agent Auth data store and its JWT caches are separate choices. In a
+multi-instance deployment, use `PostgresAgentAuthStore` for durable plugin data,
+set `AuthConfig.secondary_storage`, and select
+`AgentCacheStorage::SecondaryStorage` for both `jti_cache_storage` and
+`jwks_cache_storage`. This shares replay reservations and remote-JWKS cache
+entries across instances. Selecting secondary cache storage without configuring
+`AuthConfig.secondary_storage` falls back to process-local behavior, which is
+not sufficient for cluster-wide replay protection. Leave
+`dangerously_skip_jti_check` false.
+
+JWT verification requires the official `host+jwt` or `agent+jwt` type, issuer
+or subject identity, audience, short lifetime, signature, and the route's
+ownership rules. Agent JWTs require `jti`; optional `capabilities`, `htm`,
+`htu`, and `ath` claims narrow authority and bind a request. Replay reservations
+are partitioned by authenticated identity. Remote JWKS URLs must be HTTPS and
+pass SSRF, redirect, response-size, timeout, and key-selection controls; the
+cache lasts five minutes and refreshes once for a missing `kid`.
+
+### OpenAPI helpers
+
+The public Rust equivalents of the documented `/openapi` exports are
+`from_openapi`, `create_openapi_handler`, and `create_from_openapi`.
+`from_openapi` converts operations with an `operationId` into capabilities.
+It merges path, query, and header parameters with JSON request-body fields and
+uses JSON response schemas from status 200 or 201 as capability output.
+`create_openapi_handler` builds an `AgentExecuteHandler` which combines path,
+query, header, and JSON-body arguments, can resolve additional headers, and
+maps JSON, text, async, and SSE upstream responses. `create_from_openapi`
+returns an `AgentOpenApiPreset`; call `apply_to(&mut config)` to install its
+capabilities and handler, plus static or dynamic default host capabilities and
+method-based or dynamic approval strength. A common absolute capability
+location can also be assigned.
+
+These helpers are scoped to Agent Auth. They are not a generic core proxy or a
+replacement for a complete OpenAPI client.
+
+### External clients and pinned upstream inconsistencies
+
+The native server boundary is `@better-auth/agent-auth@0.6.2`. Its public
+JavaScript root exports are `agentAuth`, `verifyAgentRequest`, `agentError`,
+`AGENT_AUTH_ERROR_CODES`, `asyncResult`, `streamResult`, and types; `/client`
+exports `agentAuthClient`, `agentError`, `agentAuthChallenge`,
+`AGENT_AUTH_ERROR_CODES`, and types; `/openapi` exports `fromOpenAPI`,
+`createOpenAPIHandler`, and `createFromOpenAPI`. Rust exposes native equivalents
+where those operations belong on the server. Unpublished upstream `src/server/*`
+modules are not compatibility surface.
+
+`@auth/agent@0.6.2` and `@auth/agent-cli` remain external protocol clients.
+Lucid-auth does not reimplement their credential storage, provider directory,
+tools, model-provider adapters, CLI, or MCP transport. MCP support remains the
+separate optional MCP/OAuth Provider integration.
+
+The pinned official SDK and server disagree in the following places. The
+server runtime is authoritative, and lucid-auth intentionally provides no
+aliases or permissive alternate request/response shapes:
+
+- `@auth/agent@0.6.2.rotateAgentKey()` sends only `public_key` under an agent JWT, while the server requires `agent_id`, `public_key`, and host-JWT ownership.
+- The SDK host-key rotation lookup can disagree with dynamically registered thumbprint-based hosts.
+- The published `AgentAuthPath` type omits `/agent/device/code`, although the runtime server route and client method table contain it.
+- `agentAuthClient.pathMethods` omits `/agent/claim`, although the runtime server route and SDK contain it.
+- SDK typing calls successful request-capability state `granted`, while the server runtime returns `active`.
+- `@auth/agent@0.6.2.requestCapability()` replaces its complete locally stored grant list with the server's correctly request-scoped `agent_capability_grants`, so capabilities granted by earlier requests disappear from SDK-local state. Lucid-auth does not broaden the server response; clients must preserve or refresh their full grant view.
+- `@auth/agent@0.6.2.claimAgent()` stores a newly generated agent keypair after a successful claim but does not send that public key to the server, replacing any matching local connection key with credentials the server cannot verify. Lucid-auth preserves the authoritative claim request and does not accept that unregistered key.
+- SDK discovery probes deprecated `/api/auth/agent/agent-configuration`; lucid-auth exposes only the authoritative plugin route and origin-root well-known document.
 
 ## Security, utility, and developer plugins
 

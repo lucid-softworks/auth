@@ -2,6 +2,7 @@
 
 mod additional_fields;
 mod admin;
+mod agent_auth;
 mod anonymous;
 mod api_key;
 mod audit;
@@ -15,6 +16,7 @@ pub mod device_authorization;
 mod email;
 mod email_otp;
 mod error;
+mod exports;
 mod generic_oauth;
 mod guest_capability;
 mod jwt;
@@ -76,10 +78,6 @@ pub use api_key::{
     ApiKeyConfiguration, ApiKeyError, ApiKeyExpirationConfig, ApiKeyGenerator, ApiKeyPlugin,
     ApiKeyRateLimitConfig, ApiKeyReference, ApiKeyStartingCharactersConfig,
 };
-pub use audit::{
-    AUDIT_ACTION_VOCABULARY_VERSION, AuditEvent, AuditMetadata, AuditOutcome, AuditPlugin,
-    AuditStore, MemoryAuditStore,
-};
 pub use bearer::{BearerConfig, BearerPlugin};
 pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use client_ip::IpAddressConfig;
@@ -105,6 +103,7 @@ pub use email_otp::{
     EmailOtpVerification,
 };
 pub use error::AuthError;
+pub use exports::*;
 pub use generic_oauth::{
     Auth0Options, BaseOAuthProviderOptions, GenericOAuthAccountIssuer,
     GenericOAuthAccountKeyContext, GenericOAuthAccountSubject, GenericOAuthConfig,
@@ -250,4 +249,3 @@ pub use username::{
     UsernameConfig, UsernameError, UsernameNormalizer, UsernamePlugin, UsernameValidationOrder,
     UsernameValidationTiming, UsernameValidator,
 };
-pub use {mcp::*, memory::MemoryStore};

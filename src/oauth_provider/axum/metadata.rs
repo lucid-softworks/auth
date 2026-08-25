@@ -107,7 +107,7 @@ async fn openid_metadata(
     ))
 }
 
-pub(super) fn issuer(service: &AuthService, headers: &HeaderMap) -> String {
+pub(crate) fn issuer(service: &AuthService, headers: &HeaderMap) -> String {
     if let Some(configured) = service.configured_base_url() {
         let mut resolved = configured.clone();
         if resolved.path() == "/" {

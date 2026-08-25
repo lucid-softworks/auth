@@ -161,6 +161,11 @@ impl AuthService {
         self.plugins.schema_fields(model)
     }
 
+    #[cfg(feature = "axum")]
+    pub(crate) fn secondary_storage(&self) -> Option<Arc<dyn crate::SecondaryStorage>> {
+        self.config.secondary_storage.clone()
+    }
+
     pub(crate) fn admin_plugin(&self) -> Result<&crate::AdminPlugin, AuthError> {
         self.plugins.find::<crate::AdminPlugin>().ok_or_else(|| {
             AuthError::InvalidConfiguration("the admin plugin is not enabled".into())

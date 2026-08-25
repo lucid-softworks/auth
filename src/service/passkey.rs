@@ -1,8 +1,12 @@
 use super::{AuthService, SignInResult, random_token};
+#[cfg(feature = "axum")]
+use crate::VerificationValue;
 use crate::{
     AuthError, AuthenticationMethod, PasskeyAuthenticationVerified, PasskeyConfig,
     PasskeyDeleteOutcome, SessionWithUser, StoredPasskey,
 };
+#[cfg(feature = "axum")]
+use chrono::Duration;
 use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
@@ -131,6 +135,79 @@ impl AuthService {
         Ok((token, options))
     }
 
+    #[cfg(feature = "axum")]
+    pub(crate) async fn start_agent_presence_verification(
+        &self,
+        config: &PasskeyConfig,
+        user_id: Uuid,
+        agent_id: &str,
+    ) -> Result<RequestChallengeResponse, AuthError> {
+        let passkeys = self.store.list_passkeys(user_id).await?;
+        if passkeys.is_empty() {
+            return Err(AuthError::PasskeyNotFound);
+        }
+        let builder = webauthn::challenge(self, config)?
+            .new_challenge_authenticate_builder(
+                deserialize_credentials(&passkeys)?,
+                Some(UserVerificationPolicy::Required),
+            )
+            .map_err(|_| AuthError::PasskeyVerificationFailed)?;
+        let (options, state) = webauthn::challenge(self, config)?
+            .generate_challenge_authenticate(builder)
+            .map_err(|_| AuthError::PasskeyVerificationFailed)?;
+        let now = Utc::now();
+        self.replace_verification_with_create_hooks(VerificationValue {
+            purpose: AGENT_PRESENCE_PURPOSE.into(),
+            identifier: presence_identifier(user_id, agent_id),
+            payload: serde_json::to_value(PasskeyCeremony::Authentication { passkeys, state })
+                .map_err(|error| AuthError::Storage(error.to_string()))?,
+            additional_fields: serde_json::Map::new(),
+            expires_at: now + Duration::seconds(120),
+            created_at: now,
+        })
+        .await?;
+        Ok(options)
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) async fn finish_agent_presence_verification(
+        &self,
+        config: &PasskeyConfig,
+        user_id: Uuid,
+        agent_id: &str,
+        response: PublicKeyCredential,
+    ) -> Result<(), AuthError> {
+        let value = self
+            .consume_verification_record(
+                AGENT_PRESENCE_PURPOSE,
+                &presence_identifier(user_id, agent_id),
+                Utc::now(),
+            )
+            .await?
+            .ok_or(AuthError::PasskeyChallengeExpired)?;
+        let PasskeyCeremony::Authentication {
+            passkeys,
+            mut state,
+        } = serde_json::from_value(value.payload)
+            .map_err(|_| AuthError::PasskeyChallengeExpired)?
+        else {
+            return Err(AuthError::PasskeyChallengeExpired);
+        };
+        let id = credential_response_id(&response)?;
+        let stored = passkeys
+            .into_iter()
+            .find(|passkey| passkey.credential_id == id && passkey.user_id == user_id)
+            .ok_or(AuthError::PasskeyAuthenticationNotFound)?;
+        let credential = deserialize_credential(&stored)?;
+        state.set_allowed_credentials(vec![credential.clone()]);
+        let result = webauthn::verification(self, config, None)?
+            .authenticate_credential(&response, &state)
+            .map_err(|_| AuthError::PasskeyVerificationFailed)?;
+        self.persist_authentication_result(stored, credential, &result)
+            .await?;
+        Ok(())
+    }
+
     pub async fn finish_passkey_authentication(
         &self,
         config: &PasskeyConfig,
@@ -237,6 +314,14 @@ impl AuthService {
         }
         Ok(stored)
     }
+}
+
+#[cfg(feature = "axum")]
+const AGENT_PRESENCE_PURPOSE: &str = "agent-auth-presence";
+
+#[cfg(feature = "axum")]
+fn presence_identifier(user_id: Uuid, agent_id: &str) -> String {
+    format!("{user_id}:{agent_id}")
 }
 
 fn require_account_session(session: &SessionWithUser) -> Result<(), AuthError> {

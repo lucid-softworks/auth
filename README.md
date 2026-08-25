@@ -15,6 +15,7 @@ limitations, upgrade audit, and links to every tracked gap.
 - [Connect React, Vue, Svelte, Solid, vanilla, SSR, and extension clients](docs/frameworks.md)
 - [Review the production proxy, TLS, cookie, CORS, secret, and migration checklist](docs/production.md)
 - [Choose only supported core methods and plugins](COMPATIBILITY.md)
+- [Enable Agent Auth and review its exact server/client boundary](COMPATIBILITY.md#agent-auth)
 
 The crate targets Rust 1.90 and Axum 0.8. The official client must be pinned to
 Better Auth 1.7.1. From a checkout, this starts the CI-compiled memory example:
