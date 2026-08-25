@@ -138,5 +138,7 @@ async fn provision_user(service: &AuthService) -> Result<Uuid, lucid_auth::AuthE
 }
 
 fn now() -> chrono::DateTime<Utc> {
-    Utc::now() + Duration::seconds(1)
+    chrono::DateTime::from_timestamp_micros(Utc::now().timestamp_micros())
+        .expect("current timestamp is representable")
+        + Duration::seconds(1)
 }
