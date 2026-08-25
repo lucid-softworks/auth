@@ -25,7 +25,6 @@ pub(crate) fn encode_cookie_component(value: &str) -> String {
 }
 
 impl SameSite {
-    #[cfg(feature = "axum")]
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Strict => "Strict",
@@ -105,7 +104,6 @@ impl CookieConfig {
         self.cross_subdomain_domain.as_deref()
     }
 
-    #[cfg(any(feature = "axum", test))]
     pub(crate) fn resolve(
         &self,
         kind: CookieKind,
@@ -115,7 +113,6 @@ impl CookieConfig {
         self.resolve_with_suffix(kind, None, secure_name, base_url_host)
     }
 
-    #[cfg(any(feature = "axum", test))]
     pub(crate) fn resolve_with_suffix(
         &self,
         kind: CookieKind,
@@ -131,6 +128,7 @@ impl CookieConfig {
             CookieKind::AccountData => "account_data",
             #[cfg(feature = "axum")]
             CookieKind::DontRemember => "dont_remember",
+            #[cfg(any(feature = "axum", test))]
             CookieKind::PasskeyChallenge => "better-auth-passkey",
             #[cfg(any(feature = "axum", test))]
             CookieKind::Plugin => "plugin",
@@ -144,6 +142,7 @@ impl CookieConfig {
             CookieKind::AccountData => Some(&self.account_data),
             #[cfg(feature = "axum")]
             CookieKind::DontRemember => Some(&self.dont_remember),
+            #[cfg(any(feature = "axum", test))]
             CookieKind::PasskeyChallenge => None,
             #[cfg(any(feature = "axum", test))]
             CookieKind::Plugin => self.plugin.get(suffix),
@@ -160,13 +159,15 @@ impl CookieConfig {
         ResolvedCookie { name, attributes }
     }
 
-    #[cfg(any(feature = "axum", test))]
     fn resolve_attributes(
         &self,
         options: Option<&CookieOptions>,
         secure_name: bool,
         base_url_host: Option<&str>,
     ) -> ResolvedCookieAttributes {
+        #[cfg(not(any(feature = "axum", test)))]
+        let _ = base_url_host;
+        #[cfg(any(feature = "axum", test))]
         let cross_subdomain = self.cross_subdomain_enabled.then(|| {
             self.cross_subdomain_domain
                 .as_deref()
@@ -179,6 +180,7 @@ impl CookieConfig {
                 .clone()
                 .or_else(|| self.default_attributes.path.clone())
                 .unwrap_or_else(|| "/".into()),
+            #[cfg(any(feature = "axum", test))]
             domain: options
                 .and_then(|options| options.attributes.domain.clone())
                 .or_else(|| self.default_attributes.domain.clone())
@@ -195,12 +197,14 @@ impl CookieConfig {
                 .and_then(|options| options.attributes.http_only)
                 .or(self.default_attributes.http_only)
                 .unwrap_or(true),
+            #[cfg(any(feature = "axum", test))]
             expires: options
                 .and_then(|options| options.attributes.expires)
                 .or(self.default_attributes.expires),
             max_age: options
                 .and_then(|options| options.attributes.max_age)
                 .or(self.default_attributes.max_age),
+            #[cfg(any(feature = "axum", test))]
             partitioned: options
                 .and_then(|options| options.attributes.partitioned)
                 .or(self.default_attributes.partitioned)
@@ -209,7 +213,6 @@ impl CookieConfig {
     }
 }
 
-#[cfg(any(feature = "axum", test))]
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum CookieKind {
     SessionToken,
@@ -219,28 +222,30 @@ pub(crate) enum CookieKind {
     AccountData,
     #[cfg(feature = "axum")]
     DontRemember,
+    #[cfg(any(feature = "axum", test))]
     PasskeyChallenge,
     #[cfg(any(feature = "axum", test))]
     Plugin,
 }
 
-#[cfg(any(feature = "axum", test))]
 #[derive(Debug, Clone)]
 pub(crate) struct ResolvedCookie {
     pub name: String,
     pub attributes: ResolvedCookieAttributes,
 }
 
-#[cfg(any(feature = "axum", test))]
 #[derive(Debug, Clone)]
 pub(crate) struct ResolvedCookieAttributes {
     pub path: String,
+    #[cfg(any(feature = "axum", test))]
     pub domain: Option<String>,
     pub same_site: SameSite,
     pub secure: bool,
     pub http_only: bool,
+    #[cfg(any(feature = "axum", test))]
     pub expires: Option<chrono::DateTime<chrono::Utc>>,
     pub max_age: Option<f64>,
+    #[cfg(any(feature = "axum", test))]
     pub partitioned: bool,
 }
 

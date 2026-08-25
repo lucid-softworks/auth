@@ -54,6 +54,7 @@ mod store;
 mod symmetric_crypto;
 #[cfg(feature = "axum")]
 mod symmetric_jwe;
+mod test_utils;
 mod two_factor;
 mod user_deletion;
 mod username;
@@ -85,11 +86,10 @@ pub use bearer::{BearerConfig, BearerPlugin};
 pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use client_ip::IpAddressConfig;
 pub use config::{
-    AccountConfig, AccountLinkingConfig, AuthConfig, EmailPasswordConfig, OAuthStateStrategy,
-    VerificationConfig, VerificationIdentifierConfig, VerificationIdentifierHasher,
-    VerificationIdentifierStorage, VersionedSecret,
+    AccountConfig, AccountLinkingConfig, AuthConfig, AuthIdGenerator, EmailPasswordConfig,
+    OAuthStateStrategy, VerificationConfig, VerificationIdentifierConfig,
+    VerificationIdentifierHasher, VerificationIdentifierStorage, VersionedSecret,
 };
-pub use cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
 pub use database_hooks::{
     BeforeDatabaseHook, DatabaseHookContext, DatabaseHookRequest, DatabaseHooks, DatabaseModel,
     DatabaseRecord,

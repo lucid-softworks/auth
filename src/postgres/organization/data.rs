@@ -10,6 +10,43 @@ const COLUMNS: &str = "id, name, slug, logo, metadata, created_at";
 
 #[async_trait]
 impl OrganizationDataStore for PostgresStore {
+    async fn raw_insert_organization(
+        &self,
+        organization: Organization,
+    ) -> Result<Organization, AuthError> {
+        sqlx::query("INSERT INTO lucid_auth_organizations (id, name, slug, logo, metadata, created_at) VALUES ($1,$2,$3,$4,$5,$6)")
+            .bind(organization.id)
+            .bind(&organization.name)
+            .bind(&organization.slug)
+            .bind(&organization.logo)
+            .bind(&organization.metadata)
+            .bind(organization.created_at)
+            .execute(&self.pool)
+            .await
+            .map_err(storage_error)?;
+        Ok(organization)
+    }
+
+    async fn raw_delete_organization(&self, id: Uuid) -> Result<(), AuthError> {
+        let mut tx = self.pool.begin().await.map_err(storage_error)?;
+        sqlx::query("DELETE FROM lucid_auth_organization_members WHERE organization_id=$1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(storage_error)?;
+        sqlx::query("DELETE FROM lucid_auth_organization_invitations WHERE organization_id=$1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(storage_error)?;
+        sqlx::query("DELETE FROM lucid_auth_organizations WHERE id=$1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(storage_error)?;
+        tx.commit().await.map_err(storage_error)
+    }
+
     async fn create_organization(
         &self,
         organization: Organization,

@@ -138,6 +138,30 @@ pub struct VerificationValue {
     pub created_at: DateTime<Utc>,
 }
 
+impl VerificationValue {
+    /// Projects the native structured payload to Better Auth's stored
+    /// verification `value` string for database-hook observers.
+    pub fn payload_string(&self) -> Option<String> {
+        match &self.payload {
+            serde_json::Value::Null => None,
+            serde_json::Value::String(value) => Some(value.clone()),
+            serde_json::Value::Object(value) => {
+                let code = value
+                    .get("otp")
+                    .or_else(|| value.get("code"))
+                    .and_then(serde_json::Value::as_str);
+                let attempts = value.get("attempts").and_then(serde_json::Value::as_u64);
+                match (code, attempts) {
+                    (Some(code), Some(attempts)) => Some(format!("{code}:{attempts}")),
+                    (Some(code), None) => Some(code.to_owned()),
+                    _ => serde_json::to_string(&self.payload).ok(),
+                }
+            }
+            _ => serde_json::to_string(&self.payload).ok(),
+        }
+    }
+}
+
 /// A Better Auth-compatible API-key record without its one-time secret.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

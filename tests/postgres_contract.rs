@@ -63,6 +63,8 @@ mod signup;
 mod siwe;
 #[path = "postgres_contract/step_up.rs"]
 mod step_up;
+#[path = "postgres_contract/test_utils.rs"]
+mod test_utils;
 #[path = "postgres_contract/two_factor.rs"]
 mod two_factor;
 #[path = "postgres_contract/user_deletion.rs"]
@@ -111,6 +113,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     oauth::assert_one_tap_account_and_session_persistence(&store).await?;
 
     let (service, api_keys, phone_numbers) = contract_service(&store)?;
+    test_utils::assert_persistence(&store, &pool).await?;
     let user = provision_owner(&service).await?;
     migrate_legacy_extensions(&service, &store, &pool, user.id).await?;
     agent_auth::assert_switch_contract(&pool, user.id).await?;

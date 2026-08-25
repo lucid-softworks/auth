@@ -66,6 +66,14 @@ impl<T> OrganizationStore for T where
 
 #[async_trait]
 pub trait OrganizationDataStore: Send + Sync {
+    /// Raw insert used only by Better Auth's privileged Test Utils plugin.
+    async fn raw_insert_organization(
+        &self,
+        organization: Organization,
+    ) -> Result<Organization, AuthError>;
+    /// Ordered raw deletion used only by Better Auth's privileged Test Utils plugin.
+    async fn raw_delete_organization(&self, id: Uuid) -> Result<(), AuthError>;
+
     async fn create_organization(
         &self,
         organization: Organization,
@@ -88,6 +96,12 @@ pub trait OrganizationDataStore: Send + Sync {
 
 #[async_trait]
 pub trait OrganizationMemberStore: Send + Sync {
+    /// Raw insert used only by Better Auth's privileged Test Utils plugin.
+    async fn raw_insert_member(
+        &self,
+        member: OrganizationMember,
+    ) -> Result<OrganizationMember, AuthError>;
+
     async fn find_member_by_id(&self, id: Uuid) -> Result<Option<OrganizationMember>, AuthError>;
     async fn find_member(
         &self,

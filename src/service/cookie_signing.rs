@@ -5,11 +5,15 @@ use hmac::Mac as _;
 
 impl AuthService {
     pub fn signed_cookie_value(&self, token: &str) -> String {
+        encode_cookie_component(&self.raw_signed_cookie_value(token))
+    }
+
+    pub(crate) fn raw_signed_cookie_value(&self, token: &str) -> String {
         let mut mac = HmacSha256::new_from_slice(&self.config.secret)
             .expect("HMAC accepts arbitrary key lengths");
         mac.update(token.as_bytes());
         let signature = STANDARD.encode(mac.finalize().into_bytes());
-        encode_cookie_component(&format!("{token}.{signature}"))
+        format!("{token}.{signature}")
     }
 
     pub fn verify_cookie_value(&self, value: &str) -> Option<String> {

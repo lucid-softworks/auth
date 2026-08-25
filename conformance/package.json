@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node run.mjs"
+    "test": "node run.mjs && npm run test:test-utils",
+    "test:test-utils": "vitest run test-utils.test.mjs"
   },
   "dependencies": {
     "@auth/agent": "0.6.2",
@@ -15,5 +16,8 @@
     "@better-auth/passkey": "1.7.1",
     "@modelcontextprotocol/client": "2.0.0",
     "better-auth": "1.7.1"
+  },
+  "devDependencies": {
+    "vitest": "4.0.18"
   }
 }

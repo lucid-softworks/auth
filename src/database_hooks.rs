@@ -55,6 +55,8 @@ pub struct DatabaseHookRequest {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DatabaseHookContext {
     pub request: Option<DatabaseHookRequest>,
+    /// Internal-adapter creation source, such as Test Utils' `test` method.
+    pub creation_method: Option<&'static str>,
 }
 
 impl DatabaseHookContext {
@@ -136,12 +138,21 @@ pub trait DatabaseHooks: Send + Sync {
 
 tokio::task_local! {
     static REQUEST_CONTEXT: DatabaseHookRequest;
+    static CREATION_METHOD: &'static str;
 }
 
 pub(crate) fn current_context() -> DatabaseHookContext {
     DatabaseHookContext {
         request: REQUEST_CONTEXT.try_with(Clone::clone).ok(),
+        creation_method: CREATION_METHOD.try_with(|method| *method).ok(),
     }
+}
+
+pub(crate) async fn scope_creation_method<F>(method: &'static str, future: F) -> F::Output
+where
+    F: Future,
+{
+    CREATION_METHOD.scope(method, future).await
 }
 
 #[cfg(feature = "axum")]

@@ -214,6 +214,10 @@ name = "i18n_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "test_utils_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "jwt_contract"
 required-features = ["axum"]
 

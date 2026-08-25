@@ -92,7 +92,7 @@ impl AuthService {
         let token = random_token();
         let now = Utc::now();
         let session = AuthSession {
-            id: Uuid::new_v4(),
+            id: self.generate_id("session"),
             user_id: user.id,
             token: token.clone(),
             actor_user_id,

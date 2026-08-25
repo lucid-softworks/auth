@@ -9,9 +9,12 @@ use std::sync::Arc;
 use url::Url;
 
 mod account;
+mod id;
+mod path;
 mod secret;
 mod verification;
 pub use account::{AccountConfig, AccountLinkingConfig, OAuthStateStrategy};
+pub use id::AuthIdGenerator;
 pub use secret::VersionedSecret;
 pub use verification::{
     VerificationConfig, VerificationIdentifierConfig, VerificationIdentifierHasher,
@@ -43,6 +46,8 @@ pub struct AuthConfig {
     pub session: SessionConfig,
     pub account: AccountConfig,
     pub verification: VerificationConfig,
+    /// Optional Better Auth model-aware ID generator.
+    pub id_generator: Option<Arc<dyn AuthIdGenerator>>,
     pub database_hooks: Option<Arc<dyn DatabaseHooks>>,
     /// Better Auth-compatible secondary storage for live sessions,
     /// verification values, and, by default, request rate limits.
@@ -126,6 +131,7 @@ impl AuthConfig {
             session: SessionConfig::default(),
             account: AccountConfig::default(),
             verification: VerificationConfig::default(),
+            id_generator: None,
             database_hooks: None,
             secondary_storage: None,
             social_providers: Vec::new(),
@@ -159,7 +165,7 @@ impl AuthConfig {
             ));
         }
         if url.path() != "/" {
-            self.base_path = normalize_base_path(url.path())?;
+            self.base_path = path::normalize(url.path())?;
         }
         self.base_url = Some(url);
         Ok(())
@@ -170,7 +176,7 @@ impl AuthConfig {
     }
 
     pub fn set_base_path(&mut self, value: &str) -> Result<(), AuthError> {
-        self.base_path = normalize_base_path(value)?;
+        self.base_path = path::normalize(value)?;
         Ok(())
     }
 
@@ -367,26 +373,6 @@ fn validate_additional_field_config(config: &AuthConfig) -> Result<(), AuthError
         )?;
     }
     Ok(())
-}
-
-fn normalize_base_path(value: &str) -> Result<String, AuthError> {
-    let value = value.trim();
-    if value.is_empty() || value.contains(['?', '#', '\\']) || value.chars().any(char::is_control) {
-        return Err(AuthError::InvalidConfiguration(
-            "base path must be a non-empty URL path without a query or fragment".into(),
-        ));
-    }
-    let with_slash = if value.starts_with('/') {
-        value.to_owned()
-    } else {
-        format!("/{value}")
-    };
-    let normalized = with_slash.trim_end_matches('/');
-    Ok(if normalized.is_empty() {
-        "/".into()
-    } else {
-        normalized.into()
-    })
 }
 
 #[cfg(test)]

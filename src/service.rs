@@ -60,6 +60,7 @@ mod siwe;
 mod siwe_identity;
 #[cfg(test)]
 mod siwe_tests;
+mod test_utils;
 mod two_factor;
 mod types;
 mod user;

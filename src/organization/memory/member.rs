@@ -7,6 +7,24 @@ use uuid::Uuid;
 
 #[async_trait]
 impl OrganizationMemberStore for MemoryOrganizationStore {
+    async fn raw_insert_member(
+        &self,
+        member: OrganizationMember,
+    ) -> Result<OrganizationMember, AuthError> {
+        let mut state = self.state.write().await;
+        if state.members.values().any(|existing| {
+            existing.id == member.id
+                || (existing.organization_id == member.organization_id
+                    && existing.user_id == member.user_id)
+        }) {
+            return Err(AuthError::Storage(
+                "test organization member already exists".into(),
+            ));
+        }
+        state.members.insert(member.id, member.clone());
+        Ok(member)
+    }
+
     async fn find_member_by_id(&self, id: Uuid) -> Result<Option<OrganizationMember>, AuthError> {
         Ok(self.state.read().await.members.get(&id).cloned())
     }

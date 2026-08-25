@@ -6,8 +6,8 @@ use crate::{
 };
 use async_trait::async_trait;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::sync::Arc;
-use std::{any::Any, borrow::Cow};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,8 +18,10 @@ pub struct PluginRequestContext {
     pub headers: std::collections::BTreeMap<String, String>,
 }
 
+mod any;
 mod registry;
 
+use any::PluginAny;
 pub(crate) use registry::PluginRegistry;
 
 /// HTTP method owned by a native authentication plugin.
@@ -260,18 +262,6 @@ pub enum PasswordCredentialSource {
 pub struct PasswordCredentialChanged {
     pub user_id: Uuid,
     pub source: PasswordCredentialSource,
-}
-
-/// Native, in-process extension boundary for Better Auth-compatible plugins.
-#[doc(hidden)]
-pub trait PluginAny: Any {
-    fn as_any(&self) -> &dyn Any;
-}
-
-impl<T: Any> PluginAny for T {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
 }
 
 #[async_trait]

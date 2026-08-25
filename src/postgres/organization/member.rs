@@ -10,6 +10,22 @@ const COLUMNS: &str = "id, organization_id, user_id, role, created_at";
 
 #[async_trait]
 impl OrganizationMemberStore for PostgresStore {
+    async fn raw_insert_member(
+        &self,
+        member: OrganizationMember,
+    ) -> Result<OrganizationMember, AuthError> {
+        sqlx::query("INSERT INTO lucid_auth_organization_members (id,organization_id,user_id,role,created_at) VALUES ($1,$2,$3,$4,$5)")
+            .bind(member.id)
+            .bind(member.organization_id)
+            .bind(member.user_id)
+            .bind(&member.role)
+            .bind(member.created_at)
+            .execute(&self.pool)
+            .await
+            .map_err(storage_error)?;
+        Ok(member)
+    }
+
     async fn find_member_by_id(&self, id: Uuid) -> Result<Option<OrganizationMember>, AuthError> {
         find(&self.pool, "id", id).await
     }

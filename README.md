@@ -322,6 +322,48 @@ and Better Auth 1.7.1 provides no `openAPIClient` browser plugin. See the
 [compatibility matrix](COMPATIBILITY.md#security-utility-and-developer-plugins)
 for the exact generation boundary.
 
+### Test-only helpers
+
+Create a separate auth service for integration tests and install the privileged
+server-only Test Utils plugin there. Do not add it to the production service:
+
+```rust
+use lucid_auth::{AuthConfig, AuthService, MemoryStore, TestUtilsPlugin};
+use std::sync::Arc;
+
+let store = Arc::new(MemoryStore::default());
+let mut test_config = AuthConfig::new([7_u8; 32])?;
+test_config.add_plugin(TestUtilsPlugin::default())?;
+let test_auth = AuthService::new(store, test_config);
+```
+
+The helper factory does not write until `save_user`, and login creates an
+ordinary persistent session with a Better Auth-compatible signed cookie:
+
+```rust
+use lucid_auth::TestUserOverrides;
+
+let test = test_auth.test().expect("Test Utils is installed");
+let user = test.create_user(TestUserOverrides {
+    email: Some("integration@example.com".into()),
+    ..TestUserOverrides::default()
+});
+let user = test.save_user(user).await?;
+let login = test.login(user.id).await?;
+
+// Pass login.headers["cookie"] to an ordinary auth request.
+assert_eq!(login.cookies[0].domain, "localhost");
+```
+
+Register `TestUtilsPlugin::new(TestUtilsOptions { capture_otp: true })` to expose
+the optional passive OTP view. Register the Organization plugin on the same
+test service to expose the optional raw Organization fixture view. Test Utils
+adds no route or remotely callable bypass by itself. It is the native equivalent
+of `testUtils()` only; Better Auth's separate `better-auth/test` Node/Vitest
+harness is outside the Rust server compatibility boundary. See the
+[compatibility matrix](COMPATIBILITY.md#security-utility-and-developer-plugins)
+for the exact surface.
+
 Username is an optional native plugin. Register it explicitly to add username
 fields to email signup and current-user updates and to mount the official
 username sign-in and availability routes:

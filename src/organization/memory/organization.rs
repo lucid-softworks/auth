@@ -8,6 +8,40 @@ use uuid::Uuid;
 
 #[async_trait]
 impl OrganizationDataStore for MemoryOrganizationStore {
+    async fn raw_insert_organization(
+        &self,
+        organization: Organization,
+    ) -> Result<Organization, AuthError> {
+        let mut state = self.state.write().await;
+        if state
+            .organizations
+            .values()
+            .any(|existing| existing.id == organization.id || existing.slug == organization.slug)
+        {
+            return Err(AuthError::Storage(
+                "test organization id or slug already exists".into(),
+            ));
+        }
+        state
+            .organizations
+            .insert(organization.id, organization.clone());
+        Ok(organization)
+    }
+
+    async fn raw_delete_organization(&self, id: Uuid) -> Result<(), AuthError> {
+        let mut state = self.state.write().await;
+        state
+            .members
+            .retain(|_, member| member.organization_id != id);
+        state
+            .invitations
+            .retain(|_, invitation| invitation.organization_id != id);
+        if state.organizations.remove(&id).is_some() {
+            cascade_delete(&mut state, id);
+        }
+        Ok(())
+    }
+
     async fn create_organization(
         &self,
         organization: Organization,
