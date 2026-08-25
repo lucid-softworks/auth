@@ -13,6 +13,7 @@ import {
   jwtClient,
   lastLoginMethodClient,
   multiSessionClient,
+  oneTimeTokenClient,
   oneTapClient,
   phoneNumberClient,
   siweClient,
@@ -28,6 +29,7 @@ import { decodeJwt, decodeProtectedHeader, importJWK, jwtVerify } from "jose";
 import { installVirtualAuthenticator } from "./virtual-authenticator.mjs";
 import { bearerConformance } from "./bearer.mjs";
 import { jwtConformance } from "./jwt.mjs";
+import { oneTimeTokenConformance } from "./one-time-token.mjs";
 import { oauthPopupConformance } from "./oauth-popup.mjs";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
@@ -341,6 +343,7 @@ async function conformance(origin) {
       magicLinkClient(),
       lastLoginMethodClient(),
       multiSessionClient(),
+      oneTimeTokenClient(),
       phoneNumberClient(),
       oneTapClient({ clientId: "conformance-google-client" }),
       siweClient(),
@@ -375,6 +378,7 @@ async function conformance(origin) {
     const lastLoginMethod = metadata.find(
       (plugin) => plugin.id === "last-login-method",
     );
+    const oneTimeToken = metadata.find((plugin) => plugin.id === "one-time-token");
     const bearer = metadata.find((plugin) => plugin.id === "bearer");
     const jwt = metadata.find((plugin) => plugin.id === "jwt");
     assert.equal(nativePlugin.client.betterAuthVersion, betterAuthPackage.version);
@@ -390,6 +394,21 @@ async function conformance(origin) {
     assert.equal(multiSession.client.factory, "multiSessionClient");
     assert.equal(lastLoginMethod.client.factory, "lastLoginMethodClient");
     assert.deepEqual(lastLoginMethod.endpoints, []);
+    assert.ok(oneTimeToken, "one-time-token plugin metadata is missing");
+    assert.equal(oneTimeToken.client.factory, "oneTimeTokenClient");
+    assert.deepEqual(
+      oneTimeToken.endpoints.map((endpoint) => [
+        endpoint.method,
+        endpoint.path,
+        endpoint.clientMethod,
+      ]),
+      [
+        ["GET", "/one-time-token/generate", "oneTimeToken.generate"],
+        ["POST", "/one-time-token/verify", "oneTimeToken.verify"],
+      ],
+    );
+    assert.deepEqual(oneTimeToken.cookies, []);
+    assert.deepEqual(oneTimeToken.rateLimits, []);
     assert.ok(bearer, "bearer plugin metadata is missing");
     assert.equal(bearer.client, null);
     assert.deepEqual(bearer.endpoints, []);
@@ -2354,10 +2373,11 @@ async function nativeBearerConformance(origin) {
       signedToken,
       decodeURIComponent(cookie.slice(cookie.indexOf("=") + 1)),
     );
-    assert.equal(
-      response.headers.get("access-control-expose-headers"),
-      "set-auth-token",
-    );
+    const exposedHeaders = response.headers
+      .get("access-control-expose-headers")
+      .split(",")
+      .map((header) => header.trim().toLowerCase());
+    assert.ok(exposedHeaders.includes("set-auth-token"));
     return {
       cookie,
       email: body.user.email,
@@ -2542,6 +2562,95 @@ async function nativeJwtConformance(origin) {
   console.log("ok - JWT official client and JOSE against native server");
 }
 
+async function nativeOneTimeTokenConformance(origin) {
+  const transport = new BrowserTransport(origin);
+  const unauthorized = await transport.fetch(
+    `${origin}/api/auth/one-time-token/generate`,
+  );
+  assert.equal(unauthorized.status, 401);
+  assert.deepEqual(await unauthorized.json(), {
+    code: "UNAUTHORIZED",
+    message: "Unauthorized",
+  });
+
+  const client = createAuthClient({
+    baseURL: origin,
+    fetchOptions: { customFetchImpl: transport.fetch.bind(transport) },
+    plugins: [oneTimeTokenClient()],
+  });
+  const signedUp = success(
+    await client.signUp.email({
+      name: "Native One-Time Token User",
+      email: "native-one-time-token@example.com",
+      password: "correct horse battery staple",
+    }),
+    "native oneTimeToken signUp.email",
+  );
+  const signupRequest = transport.requests.at(-1);
+  const headerToken = signupRequest.responseHeaders.get("set-ott");
+  assert.match(headerToken, /^[A-Za-z0-9_-]{32}$/);
+  const exposedHeaders = signupRequest.responseHeaders
+    .get("access-control-expose-headers")
+    .split(",")
+    .map((header) => header.trim().toLowerCase());
+  assert.ok(exposedHeaders.includes("set-ott"));
+
+  const generated = success(
+    await client.oneTimeToken.generate(),
+    "native oneTimeToken.generate",
+  );
+  assert.match(generated.token, /^[A-Za-z0-9_-]{32}$/);
+  transport.assertRequest("/api/auth/one-time-token/generate", "GET");
+
+  const handoffTransport = new BrowserTransport(origin);
+  const handoffClient = createAuthClient({
+    baseURL: origin,
+    fetchOptions: {
+      customFetchImpl: handoffTransport.fetch.bind(handoffTransport),
+    },
+    plugins: [oneTimeTokenClient()],
+  });
+  const verified = success(
+    await handoffClient.oneTimeToken.verify({ token: generated.token }),
+    "native oneTimeToken.verify",
+  );
+  assert.equal(verified.user.id, signedUp.user.id);
+  assert.equal(verified.session.token, signedUp.token);
+  const verifyRequest = handoffTransport.assertRequest(
+    "/api/auth/one-time-token/verify",
+    "POST",
+    { token: generated.token },
+  );
+  assert.ok(
+    verifyRequest.responseHeaders
+      .getSetCookie()
+      .some((cookie) => cookie.startsWith("better-auth.session_token=")),
+    "one-time-token verification did not bind a session cookie",
+  );
+  assert.equal(
+    success(await handoffClient.getSession(), "one-time-token handoff session").user.id,
+    signedUp.user.id,
+  );
+
+  const replay = await handoffClient.oneTimeToken.verify({ token: generated.token });
+  assert.equal(replay.data, null);
+  assert.equal(replay.error?.status, 400);
+  assert.equal(replay.error?.message, "Invalid token");
+
+  const headerTransport = new BrowserTransport(origin);
+  const headerClient = createAuthClient({
+    baseURL: origin,
+    fetchOptions: { customFetchImpl: headerTransport.fetch.bind(headerTransport) },
+    plugins: [oneTimeTokenClient()],
+  });
+  const headerVerified = success(
+    await headerClient.oneTimeToken.verify({ token: headerToken }),
+    "native set-ott token verify",
+  );
+  assert.equal(headerVerified.user.id, signedUp.user.id);
+  console.log("ok - one-time-token official client against native server");
+}
+
 async function cookieCacheConformance(origin, strategy) {
   const transport = new BrowserTransport(origin);
   const client = createAuthClient({
@@ -2667,6 +2776,7 @@ await siweClientConformance();
 await lastLoginMethodClientConformance();
 await bearerConformance();
 await jwtConformance();
+await oneTimeTokenConformance();
 await oauthPopupConformance();
 
 for (const strategy of ["compact", "jwt", "jwe"]) {
@@ -2676,6 +2786,7 @@ for (const strategy of ["compact", "jwt", "jwe"]) {
       await conformance(origin);
       await nativeBearerConformance(origin);
       await nativeJwtConformance(origin);
+      await nativeOneTimeTokenConformance(origin);
     }
     await cookieCacheConformance(origin, strategy);
   } finally {

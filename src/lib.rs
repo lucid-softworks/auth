@@ -25,6 +25,7 @@ mod multi_session;
 mod oauth;
 mod oauth_popup;
 mod one_tap;
+mod one_time_token;
 mod operator_security;
 mod organization;
 mod origin;
@@ -147,6 +148,10 @@ pub use oauth_popup::{
     OAuthPopupPlugin, POPUP_MARKER_COOKIE, POPUP_TOKEN_STORAGE_KEY,
 };
 pub use one_tap::{OneTapConfig, OneTapError, OneTapPlugin};
+pub use one_time_token::{
+    OneTimeTokenConfig, OneTimeTokenError, OneTimeTokenGenerator, OneTimeTokenHasher,
+    OneTimeTokenPlugin, OneTimeTokenRequestContext, OneTimeTokenStorage,
+};
 pub use operator_security::{
     OperatorSecurityConfig, OperatorSecurityError, OperatorSecurityPlugin, OperatorSecurityService,
     OperatorSecurityStatus, OperatorSecurityStore,

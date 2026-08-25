@@ -26,6 +26,7 @@ mod oauth_sign_in;
 mod oauth_state;
 mod oauth_tokens;
 mod one_tap;
+mod one_time_token;
 mod operator_security;
 mod organization;
 mod passkey;

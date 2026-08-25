@@ -18,6 +18,9 @@ mod account_cookie;
 mod session_cookie_clear;
 mod session_lookup;
 
+#[derive(Clone)]
+pub(crate) struct BoundSession(pub SessionWithUser);
+
 pub(crate) type PeerAddress = Option<Extension<ConnectInfo<SocketAddr>>>;
 
 pub(crate) fn challenge_token(
@@ -87,12 +90,20 @@ pub(crate) async fn with_bound_session_cookie(
     remember_me: Option<bool>,
     body: impl IntoResponse,
 ) -> Response {
+    // Capture the full session before cookie-cache encoding consumes a pending
+    // stateless session. Plugin after-hooks use this as Better Auth's
+    // `context.newSession` equivalent.
+    let bound_session = service.session_being_bound(token).await;
     let response = with_session_cookie(service, headers, token, remember_me, body).await;
     let response = refresh_account_cookie(service, headers, user_id, response);
-    crate::multi_session::axum::attach_new_session_cookie(
+    let mut response = crate::multi_session::axum::attach_new_session_cookie(
         service, headers, user_id, token, response,
     )
-    .await
+    .await;
+    if let Some(session) = bound_session.filter(|session| session.user.id == user_id) {
+        response.extensions_mut().insert(BoundSession(session));
+    }
+    response
 }
 
 pub(crate) async fn with_bound_session_cookie_cache(
@@ -103,6 +114,7 @@ pub(crate) async fn with_bound_session_cookie_cache(
     cache: Option<&str>,
     body: impl IntoResponse,
 ) -> Response {
+    let bound_session = service.session_being_bound(token).await;
     let response = with_primary_session_cookie(service, token, Some(true), body);
     let response = match cache {
         Some(value) => with_chunked_session_data_cookie(
@@ -115,10 +127,14 @@ pub(crate) async fn with_bound_session_cookie_cache(
         None => response,
     };
     let response = refresh_account_cookie(service, headers, user_id, response);
-    crate::multi_session::axum::attach_new_session_cookie(
+    let mut response = crate::multi_session::axum::attach_new_session_cookie(
         service, headers, user_id, token, response,
     )
-    .await
+    .await;
+    if let Some(session) = bound_session.filter(|session| session.user.id == user_id) {
+        response.extensions_mut().insert(BoundSession(session));
+    }
+    response
 }
 
 pub(crate) async fn with_session_cache_cookie(

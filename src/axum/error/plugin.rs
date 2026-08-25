@@ -27,6 +27,7 @@ pub(super) fn response(error: &AuthError) -> Option<Response> {
             "INVALID_SESSION_TOKEN",
             crate::INVALID_SESSION_TOKEN,
         )),
+        AuthError::OneTimeToken(error) => Some(one_time_token_error(*error)),
         AuthError::TwoFactor(error) => Some(crate::two_factor::axum::two_factor_error(*error)),
         AuthError::StepUp(error) => {
             let details = match error {
@@ -78,6 +79,16 @@ pub(super) fn response(error: &AuthError) -> Option<Response> {
         }
         _ => None,
     }
+}
+
+fn one_time_token_error(error: crate::OneTimeTokenError) -> Response {
+    let message = match error {
+        crate::OneTimeTokenError::ClientRequestsDisabled => "Client requests are disabled",
+        crate::OneTimeTokenError::InvalidToken => "Invalid token",
+        crate::OneTimeTokenError::SessionNotFound => "Session not found",
+        crate::OneTimeTokenError::SessionExpired => "Session expired",
+    };
+    super::dynamic_error(StatusCode::BAD_REQUEST, "BAD_REQUEST", message)
 }
 
 fn phone_number_error(error: crate::PhoneNumberError) -> Response {

@@ -14,6 +14,8 @@ pub enum AuthError {
     #[error(transparent)]
     OneTap(#[from] crate::OneTapError),
     #[error(transparent)]
+    OneTimeToken(#[from] crate::OneTimeTokenError),
+    #[error(transparent)]
     Siwe(#[from] crate::SiweError),
     #[error(transparent)]
     GenericOAuth(#[from] crate::GenericOAuthError),

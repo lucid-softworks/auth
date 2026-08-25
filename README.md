@@ -38,6 +38,7 @@ The currently supported surface covers:
 - the complete official `multiSessionClient` surface as an optional native plugin
 - the complete official `lastLoginMethodClient` surface as an optional native plugin
 - the official `jwtClient` token/JWKS surface as an optional native plugin
+- the complete official `oneTimeTokenClient` surface as an optional native plugin
 - the complete Better Auth username lifecycle as an optional native plugin
 - sign-out
 - the complete official anonymous client lifecycle as an optional native plugin
@@ -350,6 +351,46 @@ session-cache profile. Remote `jwt.sign` cannot be combined with this mode.
 `jwks.remote_url` makes the local JWKS route return 404 and requires an explicit
 primary algorithm for discovery metadata. JWT responses are `no-store`, and
 only public JWK fields are returned over HTTP.
+
+One-Time Token is an independent optional plugin for transferring an existing
+session to another browser, device, or domain:
+
+```rust
+config.add_plugin(OneTimeTokenPlugin::default())?;
+```
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { oneTimeTokenClient } from "better-auth/client/plugins";
+
+export const authClient = createAuthClient({
+  baseURL: "https://auth.example.com",
+  plugins: [oneTimeTokenClient()],
+});
+
+const { data: generated } = await authClient.oneTimeToken.generate();
+await authClient.oneTimeToken.verify({ token: generated.token });
+```
+
+Generation requires an ordinary session. Tokens default to 32 random
+characters, expire after three minutes, and are consumed atomically before the
+referenced session is checked. Storage is plaintext by Better Auth default;
+select `OneTimeTokenStorage::Hashed` or provide a custom async hasher when the
+adapter must not contain the raw transfer token. A custom async generator,
+server-only HTTP generation, verification without setting a session cookie,
+and automatic `set-ott` headers on responses that bind a session are available
+through `OneTimeTokenConfig`.
+
+The token is a portable bearer credential, not a purpose- or user-bound proof.
+Redemption returns and optionally binds the originating session even when the
+browser already has a different session. It has no payload, origin, IP, or
+freshness policy. Matching Better Auth 1.7.1 exactly, redemption burns the token
+before session lookup; missing and expired sessions therefore cannot be retried.
+The pinned implementation also queues the referenced session cookie before its
+expired-session rejection and can issue a successor `set-ott` header when that
+hook is enabled. Applications should use short expiries, hashed storage, secure
+transport, and avoid enabling the response header unless that exchange flow is
+required.
 
 Lucid deliberately does not reproduce five pinned 1.7.1 bugs: an expired/null
 session cannot receive `set-auth-jwt`; schema remapping is instance-local;

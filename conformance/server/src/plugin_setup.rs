@@ -14,10 +14,10 @@ use lucid_auth::{
     ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, AuthError, BearerPlugin,
     EmailOtpConfig, EmailOtpPlugin, JwtPlugin, LastLoginMethodConfig, LastLoginMethodPlugin,
     MagicLinkConfig, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore, MultiSessionPlugin,
-    OneTapConfig, OneTapPlugin, OtpConfig, PasskeyConfig, PasskeyPlugin, PhoneNumberConfig,
-    PhoneNumberPlugin,
-    PhoneNumberSignUpConfig, SiweConfig, SiweMessageVerifier, SiweNonceGenerator, SiwePlugin,
-    SiweVerificationRequest, TotpConfig, TwoFactorConfig, TwoFactorPlugin,
+    OneTapConfig, OneTapPlugin, OneTimeTokenConfig, OneTimeTokenPlugin, OtpConfig, PasskeyConfig,
+    PasskeyPlugin, PhoneNumberConfig, PhoneNumberPlugin, PhoneNumberSignUpConfig, SiweConfig,
+    SiweMessageVerifier, SiweNonceGenerator, SiwePlugin, SiweVerificationRequest, TotpConfig,
+    TwoFactorConfig, TwoFactorPlugin,
 };
 use std::{
     collections::BTreeMap,
@@ -125,6 +125,12 @@ fn register_session_plugins(config: &mut AuthConfig, origin: &str, store: Arc<Me
     config
         .add_plugin(BearerPlugin::default())
         .expect("unique bearer plugin");
+    config
+        .add_plugin(OneTimeTokenPlugin::new(OneTimeTokenConfig {
+            set_ott_header_on_new_session: true,
+            ..OneTimeTokenConfig::default()
+        }))
+        .expect("unique one-time-token plugin");
     let one_tap = OneTapConfig::default().with_client_id("conformance-google-client");
     config
         .add_plugin(OneTapPlugin::new(one_tap))
