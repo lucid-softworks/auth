@@ -61,7 +61,8 @@ pub(crate) fn safe_relative_callback(value: &str) -> bool {
 #[cfg(any(feature = "axum", test))]
 fn valid_relative_path(value: &str) -> bool {
     value.bytes().all(|byte| {
-        byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b'+' | b'/' | b'@')
+        byte.is_ascii_alphanumeric()
+            || matches!(byte, b'_' | b'-' | b'.' | b'+' | b'/' | b'@' | b'{' | b'}')
     })
 }
 
@@ -71,7 +72,7 @@ fn valid_relative_query(value: &str) -> bool {
         byte.is_ascii_alphanumeric()
             || matches!(
                 byte,
-                b'_' | b'-' | b'.' | b'+' | b'/' | b'=' | b'&' | b'%' | b'@'
+                b'_' | b'-' | b'.' | b'+' | b'/' | b'=' | b'&' | b'%' | b'@' | b'{' | b'}'
             )
     })
 }
@@ -312,7 +313,11 @@ mod tests {
 
     #[test]
     fn relative_callbacks_follow_better_auths_exact_grammar() {
-        for value in ["/dashboard", "/a/b?next=%2Fhome"] {
+        for value in [
+            "/dashboard",
+            "/a/b?next=%2Fhome",
+            "/done/{CHECKOUT_SESSION_ID}",
+        ] {
             assert!(safe_relative_callback(value), "rejected {value}");
         }
         for value in [

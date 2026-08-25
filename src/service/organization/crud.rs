@@ -56,6 +56,11 @@ impl AuthService {
             hooks
                 .after_add_member(&member, &session.user, &organization)
                 .await?;
+            if let Some(stripe) = self.organization_stripe_plugin() {
+                stripe
+                    .after_organization_member_change(&organization, plugin.store.as_ref())
+                    .await;
+            }
             if let Some(team_id) = default_team_id
                 && let Some(team) = plugin.store.find_team(team_id).await?
             {
@@ -66,6 +71,10 @@ impl AuthService {
             hooks
                 .after_create(&organization, &member, &session.user)
                 .await?;
+        } else if let Some(stripe) = self.organization_stripe_plugin() {
+            stripe
+                .after_organization_member_change(&organization, plugin.store.as_ref())
+                .await;
         }
         if !keep_current {
             self.set_active_organization(session, Some(organization.id))
@@ -137,6 +146,9 @@ impl AuthService {
                 .after_update(&organization, &member, &session.user)
                 .await?;
         }
+        if let Some(stripe) = self.organization_stripe_plugin() {
+            stripe.after_organization_update(&organization).await;
+        }
         Ok(organization)
     }
 
@@ -170,6 +182,9 @@ impl AuthService {
             .ok_or_else(organization_not_found)?;
         if let Some(hooks) = &plugin.config.hooks {
             hooks.before_delete(&organization, &session.user).await?;
+        }
+        if let Some(stripe) = self.organization_stripe_plugin() {
+            stripe.before_organization_delete(&organization).await?;
         }
         let deleted = plugin
             .store

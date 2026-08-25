@@ -426,7 +426,7 @@ aliases or permissive alternate request/response shapes:
 
 | Integration | Status | Tracking |
 | --- | --- | --- |
-| Stripe | Planned | [#46](https://github.com/lucid-softworks/auth/issues/46). |
+| Stripe | Supported | Optional `StripePlugin` matches `@better-auth/stripe@1.7.1`: exact server/client metadata, conditional route inventory, request casing/defaults, complete error dictionary, conditional/remappable schema, native memory/PostgreSQL stores, narrow in-process Stripe HTTP and raw-body webhook transport, subscription checkout/upgrade/cancel/restore/list/success/portal flows, four webhook lifecycle handlers, customer synchronization, and Organization reference/seat lifecycle hooks. The official `{CHECKOUT_SESSION_ID}` callback placeholder is accepted literally, while incorrect aliases such as `callbackUrl` are deliberately unsupported; [#46](https://github.com/lucid-softworks/auth/issues/46). |
 | Polar | Planned | [#47](https://github.com/lucid-softworks/auth/issues/47). |
 | Autumn | Planned | [#48](https://github.com/lucid-softworks/auth/issues/48). |
 | Creem | Planned | [#49](https://github.com/lucid-softworks/auth/issues/49). |

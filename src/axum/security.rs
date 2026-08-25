@@ -26,6 +26,9 @@ pub(super) async fn validate_browser_request(
             || path == format!("{}/oauth-popup/start", service.base_path()));
     let is_oauth_proxy_callback = path == "/oauth-proxy-callback"
         || path == format!("{}/oauth-proxy-callback", service.base_path());
+    if is_stripe_webhook(&service, path, request.method()) {
+        return next.run(request).await;
+    }
     if is_oauth_popup_start {
         return next.run(request).await;
     }
@@ -74,6 +77,24 @@ pub(super) async fn validate_browser_request(
         Ok(request) => next.run(request).await,
         Err(error) => auth_error(error),
     }
+}
+
+fn is_stripe_webhook(service: &AuthService, path: &str, method: &Method) -> bool {
+    if *method != Method::POST
+        || !service
+            .plugins()
+            .plugins()
+            .iter()
+            .any(|plugin| plugin.descriptor().id == "stripe")
+    {
+        return false;
+    }
+    let relative = if service.base_path() == "/" {
+        path
+    } else {
+        path.strip_prefix(service.base_path()).unwrap_or(path)
+    };
+    relative == "/stripe/webhook"
 }
 
 fn is_agent_auth_machine_path(service: &AuthService, path: &str) -> bool {
@@ -152,11 +173,50 @@ async fn validate_redirect_fields(
 
     if let Some(fields) = query_fields {
         validate_redirect_map(service, request.headers(), &fields)?;
+        validate_stripe_redirect_map(service, request.uri().path(), request.headers(), &fields)?;
     }
     if let Some(fields) = body_fields {
         validate_redirect_map(service, request.headers(), &fields)?;
+        validate_stripe_redirect_map(service, request.uri().path(), request.headers(), &fields)?;
     }
     Ok(request)
+}
+
+fn validate_stripe_redirect_map(
+    service: &AuthService,
+    path: &str,
+    headers: &HeaderMap,
+    fields: &Map<String, Value>,
+) -> Result<(), AuthError> {
+    if !service
+        .plugins()
+        .plugins()
+        .iter()
+        .any(|plugin| plugin.descriptor().id == "stripe")
+    {
+        return Ok(());
+    }
+    let relative = if service.base_path() == "/" {
+        path
+    } else {
+        path.strip_prefix(service.base_path()).unwrap_or(path)
+    };
+    let names: &[&str] = match relative {
+        "/subscription/upgrade" => &["successUrl", "cancelUrl", "returnUrl"],
+        "/subscription/cancel" | "/subscription/billing-portal" => &["returnUrl"],
+        _ => &[],
+    };
+    for name in names {
+        validate_body_redirect(
+            service,
+            headers,
+            fields,
+            name,
+            "callbackURL",
+            AuthError::InvalidCallbackUrl,
+        )?;
+    }
+    Ok(())
 }
 
 fn validate_redirect_map(

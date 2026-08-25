@@ -116,7 +116,9 @@ impl AuthService {
         record: &DatabaseRecord,
     ) -> Result<(), AuthError> {
         let context = crate::database_hooks::current_context();
-        self.plugins.after_database_update(record, &context).await?;
+        self.plugins
+            .after_database_update(self, record, &context)
+            .await?;
         if let Some(hooks) = &self.config.database_hooks {
             hooks.after_update(record, &context).await?;
         }

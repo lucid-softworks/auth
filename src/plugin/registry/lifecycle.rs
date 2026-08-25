@@ -63,15 +63,17 @@ impl PluginRegistry {
 
     pub(crate) async fn after_database_update(
         &self,
+        service: &crate::AuthService,
         record: &DatabaseRecord,
         context: &DatabaseHookContext,
     ) -> Result<(), AuthError> {
-        for hooks in self
-            .plugins
-            .iter()
-            .filter_map(|plugin| plugin.database_hooks())
-        {
-            hooks.after_update(record, context).await?;
+        for plugin in &self.plugins {
+            plugin
+                .after_database_update(service, record, context)
+                .await?;
+            if let Some(hooks) = plugin.database_hooks() {
+                hooks.after_update(record, context).await?;
+            }
         }
         Ok(())
     }

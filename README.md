@@ -84,6 +84,66 @@ authorization. Core principals contain actor, subject, session, and credential
 provenance only. An explicitly enabled host-policy plugin may project a role;
 core-only principals leave it unset.
 
+### Stripe billing
+
+Stripe support is opt-in and uses a narrow native HTTP client; no Node process,
+JavaScript sidecar, Stripe CLI, or general-purpose billing model is required.
+Keep both the Stripe API key and webhook secret in server-only environment
+variables:
+
+```rust
+use lucid_auth::{
+    MemoryStripeStore, StaticPlans, StripeHttpClient, StripeOptions, StripePlan,
+    StripePlugin, SubscriptionConfiguration, SubscriptionOptions,
+};
+use std::sync::Arc;
+
+let stripe = Arc::new(StripeHttpClient::new(std::env::var("STRIPE_SECRET_KEY")?));
+let mut stripe_options = StripeOptions::new(
+    stripe,
+    std::env::var("STRIPE_WEBHOOK_SECRET")?,
+);
+stripe_options.subscription = SubscriptionConfiguration::Enabled(
+    SubscriptionOptions::new(Arc::new(StaticPlans(vec![StripePlan {
+        name: "pro".into(),
+        price_id: Some("price_monthly".into()),
+        lookup_key: None,
+        annual_discount_price_id: None,
+        annual_discount_lookup_key: None,
+        limits: None,
+        group: None,
+        seat_price_id: None,
+        proration_behavior: Default::default(),
+        line_items: vec![],
+        free_trial: None,
+    }]))),
+);
+config.add_plugin(StripePlugin::new(
+    stripe_options,
+    Arc::new(MemoryStripeStore::new()),
+))?;
+```
+
+Use `PostgresStripeStore` in a PostgreSQL deployment and apply the plugin-owned
+migrations alongside the core migrations. The browser client must use the same
+pinned package and enable subscription inference explicitly:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { stripeClient } from "@better-auth/stripe/client";
+
+export const authClient = createAuthClient({
+  plugins: [stripeClient({ subscription: true })],
+});
+```
+
+The webhook is `POST /api/auth/stripe/webhook` with the default auth base path.
+Configure Stripe to send the untouched raw request body and `stripe-signature`
+header there. Callback inputs use Better Auth's exact casing—most notably
+`callbackURL`; aliases such as `callbackUrl` are deliberately unsupported. See
+the [Stripe compatibility row](COMPATIBILITY.md#payments-analytics-and-better-auth-infrastructure)
+for the audited boundary and issue link.
+
 Social providers use the same `signIn.social` and `/callback/:provider` wire
 contract as Better Auth. Register a built-in after setting the public base URL:
 

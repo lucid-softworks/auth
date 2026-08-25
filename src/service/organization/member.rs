@@ -196,6 +196,11 @@ impl AuthService {
                         .after_remove_member(&target, &target_user, &organization)
                         .await?;
                 }
+                if let Some(stripe) = self.organization_stripe_plugin() {
+                    stripe
+                        .after_organization_member_change(&organization, plugin.store.as_ref())
+                        .await;
+                }
                 Ok(target)
             }
             OrganizationMemberWriteOutcome::LastOwner => Err(last_owner()),
@@ -237,6 +242,11 @@ impl AuthService {
                     hooks
                         .after_remove_member(&member, &session.user, &organization)
                         .await?;
+                }
+                if let Some(stripe) = self.organization_stripe_plugin() {
+                    stripe
+                        .after_organization_member_change(&organization, plugin.store.as_ref())
+                        .await;
                 }
                 Ok(member)
             }

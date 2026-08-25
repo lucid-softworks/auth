@@ -130,6 +130,10 @@ impl AuthService {
     pub fn try_new(store: Arc<dyn AuthStore>, config: AuthConfig) -> Result<Self, AuthError> {
         config.validate()?;
         let plugins = PluginRegistry::build(&config.plugins, &config)?;
+        if let Some(stripe) = plugins.find::<crate::StripePlugin>() {
+            stripe
+                .initialize_soft_composition(plugins.find::<crate::OrganizationPlugin>().is_some());
+        }
         let mut social_providers = plugins.social_providers();
         social_providers.extend(config.social_providers.iter().cloned());
         let rate_limiter = RateLimiter::new(

@@ -52,6 +52,10 @@ impl PostgresStore {
         Self { pool }
     }
 
+    pub(crate) fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     async fn load_user_by_id(&self, id: Uuid) -> Result<Option<AuthUser>, AuthError> {
         user::load_by_id(&self.pool, id).await
     }

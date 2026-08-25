@@ -2,15 +2,13 @@ use super::{
     AuthPlugin, PluginDescriptor, PluginHttpMethod, PluginMigration, PluginMigrationContribution,
     PluginRateLimit,
 };
-use crate::{
-    AdditionalFieldSet, AuthConfig, AuthError, DatabaseModel,
-    protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
-};
+use crate::{AdditionalFieldSet, AuthConfig, AuthError, DatabaseModel};
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
 };
 
+mod client_metadata;
 mod core_endpoints;
 mod lifecycle;
 mod oauth_provider;
@@ -150,27 +148,14 @@ fn validate_descriptor(descriptor: &PluginDescriptor) -> Result<(), AuthError> {
         return invalid(format!("plugin id '{}' is invalid", descriptor.id));
     }
     if descriptor.display_name.trim().is_empty() || descriptor.version.trim().is_empty() {
-        let plugin_id = descriptor.id;
         return invalid(format!(
-            "plugin '{plugin_id}' requires a display name and version"
+            "plugin '{}' requires a display name and version",
+            descriptor.id
         ));
     }
     if let Some(client) = descriptor.client {
-        if [client.package, client.import_path, client.factory]
-            .iter()
-            .any(|value| value.trim().is_empty())
-        {
-            return invalid(format!(
-                "plugin '{}' client metadata is incomplete",
-                descriptor.id
-            ));
-        }
-        if client.better_auth_version != COMPATIBLE_BETTER_AUTH_VERSION {
-            return invalid(format!(
-                "plugin '{}' targets Better Auth {}, expected {}",
-                descriptor.id, client.better_auth_version, COMPATIBLE_BETTER_AUTH_VERSION
-            ));
-        }
+        client_metadata::validate(client, descriptor.id)
+            .map_err(AuthError::InvalidConfiguration)?;
     }
     Ok(())
 }

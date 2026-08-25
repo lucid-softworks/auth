@@ -51,6 +51,7 @@ mod session_config;
 mod siwe;
 mod step_up;
 mod store;
+mod stripe;
 mod symmetric_crypto;
 #[cfg(feature = "axum")]
 mod symmetric_jwe;

@@ -64,6 +64,11 @@ impl AuthService {
                 .after_accept_invitation(&invitation, &member, &session.user, &organization)
                 .await?;
         }
+        if let Some(stripe) = self.organization_stripe_plugin() {
+            stripe
+                .after_organization_member_change(&organization, plugin.store.as_ref())
+                .await;
+        }
         Ok(OrganizationInvitationAcceptance { invitation, member })
     }
 
