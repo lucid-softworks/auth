@@ -168,7 +168,7 @@ impl OAuthProviderResourceStore for PostgresOAuthProviderStore {
     ) -> Result<OAuthClientResourceLinkOutcome, AuthError> {
         let mut transaction = self.pool().begin().await.map_err(storage_error)?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
-            .bind(format!("{}\0{}", link.client_id, link.resource_id))
+            .bind(serde_json::json!([&link.client_id, &link.resource_id]).to_string())
             .execute(&mut *transaction)
             .await
             .map_err(storage_error)?;

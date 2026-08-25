@@ -80,12 +80,10 @@ impl OAuthProviderConsentStore for PostgresOAuthProviderStore {
     ) -> Result<OAuthProviderConsent, AuthError> {
         let mut transaction = self.pool().begin().await.map_err(storage_error)?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
-            .bind(format!(
-                "{}\0{}\0{}",
-                consent.client_id,
-                consent.user_id.map(|id| id.to_string()).unwrap_or_default(),
-                consent.reference_id.as_deref().unwrap_or_default()
-            ))
+            .bind(
+                serde_json::json!([&consent.client_id, consent.user_id, &consent.reference_id])
+                    .to_string(),
+            )
             .execute(&mut *transaction)
             .await
             .map_err(storage_error)?;
