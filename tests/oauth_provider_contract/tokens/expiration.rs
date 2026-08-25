@@ -29,5 +29,11 @@ async fn numeric_scope_expiration_is_an_absolute_epoch_timestamp() {
     assert_eq!(status, StatusCode::OK, "{tokens}");
     assert_eq!(tokens["expires_at"], expected_expiration);
     let expires_in = tokens["expires_in"].as_i64().unwrap();
-    assert!((118..=120).contains(&expires_in), "{tokens}");
+    let remaining_after_response = expected_expiration - Utc::now().timestamp();
+    assert!((1..=120).contains(&expires_in), "{tokens}");
+    assert!(
+        (remaining_after_response.saturating_sub(1)..=remaining_after_response + 2)
+            .contains(&expires_in),
+        "remaining_after_response={remaining_after_response}, tokens={tokens}"
+    );
 }
