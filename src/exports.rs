@@ -3,6 +3,16 @@ pub use crate::audit::{
     AuditStore, MemoryAuditStore,
 };
 pub use crate::cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
+pub use crate::infra::email::{
+    ApplicationInviteVariables, BulkEmailRecipient, ChangeEmailVariables, DeleteAccountVariables,
+    EMAIL_TEMPLATES, EmailApiOptions, EmailConfig, EmailFailure, EmailSender, EmailTemplate,
+    EmailTemplateDefinition, EmailTemplateId, EmailTemplateVariables, EmptyEmailTemplateVariables,
+    InvitationVariables, MagicLinkVariables, ResetPasswordOtpVariables, ResetPasswordVariables,
+    SendBulkEmailsOptions, SendBulkEmailsResult, SendEmailOptions, SendEmailResult,
+    SignInOtpVariables, StaleAccountAdminVariables, StaleAccountUserVariables, TwoFactorVariables,
+    VerifyEmailOtpVariables, VerifyEmailVariables, create_email_sender, send_bulk_emails,
+    send_email,
+};
 pub use crate::secondary_storage::{MemorySecondaryStorage, SecondaryStorage};
 pub use crate::username::{
     UsernameConfig, UsernameError, UsernameNormalizer, UsernamePlugin, UsernameValidationOrder,

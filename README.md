@@ -80,6 +80,7 @@ The currently supported surface covers:
   optional server-only native plugin
 - Dub signup lead attribution as an optional native plugin matching
   `@dub/better-auth@0.0.6`
+- the standalone managed email client from `@better-auth/infra@0.4.3`
 
 The library keeps authentication protocol details separate from host-product
 authorization. Core principals contain actor, subject, session, and credential
@@ -616,6 +617,71 @@ configuration it reaches an upstream missing-endpoint error and returns an
 empty 500. Lucid-auth reproduces those observable outcomes and does not invent
 a callback route or repaired client contract. See the
 [Dub compatibility details](COMPATIBILITY.md#dub-006).
+
+### Better Auth Infrastructure managed email
+
+Managed email support pins `@better-auth/infra@0.4.3` and is a standalone
+outbound client, not a Better Auth plugin. Create an `EmailSender` once and call
+its `send`, `send_bulk`, or `get_templates` method from the application-owned
+callback that already handles verification, password reset, Email OTP,
+organization invitations, or another email-producing lifecycle. The one-shot
+`send_email` and `send_bulk_emails` functions are available when reusing a
+sender is unnecessary. Nothing is registered with `AuthConfig`, and installing
+this crate does not automatically redirect existing delivery callbacks to the
+managed service.
+
+```rust
+use lucid_auth::{
+    EmailConfig, EmailSender, ResetPasswordVariables, SendEmailOptions,
+};
+
+let sender = EmailSender::new(Some(EmailConfig {
+    api_key: Some(std::env::var("BETTER_AUTH_API_KEY")?),
+    ..EmailConfig::default()
+}));
+let result = sender
+    .send(SendEmailOptions::new(
+        "person@example.com",
+        ResetPasswordVariables::new(
+            "https://app.example.com/reset?token=...",
+            "person@example.com",
+        ),
+    ))
+    .await;
+if !result.success {
+    // Apply the application's delivery-failure policy here.
+}
+```
+
+For core password resets, wrap the call above in the application's
+`PasswordResetEmailSender` implementation and assign it to
+`config.email_and_password.send_reset_password`; verification and the optional
+plugins have their own typed sender callbacks. That adapter performs the field
+mapping explicitly, so installing managed email never changes an existing
+delivery path.
+
+The exact template IDs are `verify-email`, `reset-password`, `change-email`,
+`sign-in-otp`, `verify-email-otp`, `reset-password-otp`, `magic-link`,
+`two-factor`, `invitation`, `application-invite`, `delete-account`,
+`stale-account-user`, and `stale-account-admin`. Each has a typed native
+variable structure matching the published required and optional string fields.
+The client exposes no arbitrary body, attachment, locale, request ID, provider,
+callback URL, or idempotency option.
+
+By default, configuration reads `BETTER_AUTH_API_KEY`, uses
+`BETTER_AUTH_API_URL` or `https://dash.better-auth.com/api`, and applies the
+package's three-second timeout.
+An explicit API URL receives both the bearer credential and the complete
+message payload. Recipient addresses, subjects, links, OTPs, invitation data,
+IP addresses, and other template variables therefore cross that remote trust
+boundary; keep the key server-side and configure only an origin you trust.
+
+Each call performs exactly one managed-service request. Bulk send remains one
+remote bulk operation, and the managed backend—not this client—combines shared
+variables with per-recipient overrides. There is no automatic retry, backoff,
+queue, delivery ledger, local provider fallback, or reconciliation. See the
+[managed email compatibility details](COMPATIBILITY.md#managed-email-043) for
+the precise request, configuration, result, and failure contract.
 
 Social providers use the same `signIn.social` and `/callback/:provider` wire
 contract as Better Auth. Register a built-in after setting the public base URL:

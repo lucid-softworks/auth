@@ -436,7 +436,7 @@ aliases or permissive alternate request/response shapes:
 | Dub | Supported | Optional `DubPlugin` matches Better Auth `1.7.1`, `@dub/better-auth@0.0.6`, and `dub@0.66.5` for its actual published surface: one post-commit user-create lead hook, exact `dub_id` parsing and pathless deletion, default/custom/disabled tracking behavior, and `POST /dub/link` validation/security/failure outcomes. The package exports no installable client, and its configured OAuth flow is broken with Better Auth 1.7.1; the native plugin preserves the empty 500 and adds no callback or fabricated repair. There is no schema, migration, local attribution state, webhook, sale/update tracking, job, retry, or idempotency layer; see [Dub 0.0.6](#dub-006) and [#53](https://github.com/lucid-softworks/auth/issues/53). |
 | Dashboard and audit logs | Planned | [#54](https://github.com/lucid-softworks/auth/issues/54). |
 | Sentinel security | Planned | [#55](https://github.com/lucid-softworks/auth/issues/55). |
-| Managed email service | Planned | [#56](https://github.com/lucid-softworks/auth/issues/56). |
+| Managed email service | Supported | Standalone `infra::email` client matching `@better-auth/infra@0.4.3`: exact reusable and one-shot send operations, bulk send, remote template listing, all 13 published templates and their typed variables, configuration/environment/timeout precedence, URL and header construction, result normalization, and one-request failure behavior. This is not an auth plugin: it adds no route, client plugin, schema, migration, lifecycle mapping, queue, retry, idempotency, locale, or provider transport. Recipients and template payloads leave the process for the configured API origin; see [Managed email 0.4.3](#managed-email-043) and [#56](https://github.com/lucid-softworks/auth/issues/56). |
 | Managed SMS service | Planned | [#57](https://github.com/lucid-softworks/auth/issues/57). |
 
 Provider integrations are opt-in native Rust configurations. An unregistered or
@@ -622,6 +622,52 @@ and validation matrix, authenticated and anonymous OAuth failures, cookie
 parsing/deletion, payload mapping, disabled/custom/rejected lifecycle paths,
 post-commit persistence and response-cookie loss, and composition without
 additional storage or surface.
+
+### Managed email 0.4.3
+
+`infra::email` is the native equivalent of the standalone email client exported
+from both `@better-auth/infra@0.4.3` and `@better-auth/infra/email`. It is not an
+`AuthPlugin` and does not install an auth route, browser client, callback,
+schema, migration, or automatic Better Auth lifecycle mapping. Applications
+explicitly call the reusable `EmailSender` or one-shot `send_email` and
+`send_bulk_emails` functions from their own verification, password-reset,
+email-OTP, organization-invitation, or other lifecycle callbacks.
+
+The public template inventory is exactly `verify-email`, `reset-password`,
+`change-email`, `sign-in-otp`, `verify-email-otp`, `reset-password-otp`,
+`magic-link`, `two-factor`, `invitation`, `application-invite`,
+`delete-account`, `stale-account-user`, and `stale-account-admin`. Typed native
+variables retain the required and optional string fields published for each
+template; there is no locale, request ID, callback URL, free-form body,
+attachment, provider selector, or idempotency key. The three provider operations
+are exactly `POST /v1/email/send`, `POST /v1/email/send-bulk`, and
+`GET /v1/email/templates` under the resolved `/api` prefix. Bulk delivery is
+one provider request rather than local fan-out, with per-recipient variables
+overriding shared variables on the managed backend.
+
+`EmailConfig` preserves the artifact's `apiUrl`, API-key, `apiOptions.timeout`,
+deprecated `apiTimeout`, environment fallback, exact `/api` suffix behavior,
+three-second default, bearer header, and `@better-auth/infra v0.4.3` user agent.
+A missing key short-circuits without a request. Success and failure bodies are
+normalized exactly as the package does, including per-address bulk failures and
+an empty template list on errors. Each operation makes at most one request:
+there is no retry, backoff, queue, delivery ledger, reconciliation, or generic
+email-provider transport.
+
+The configured origin receives the bearer credential plus recipient addresses,
+subjects, template IDs, and variables. Variables can contain verification and
+deletion links, OTPs, invitation details, IP addresses, and other account
+metadata. Upstream does not require HTTPS or allowlist a custom origin, so the
+application must trust and secure that destination; lucid-auth does not log or
+expose credentials or message payloads in diagnostics.
+
+Verification pins the published package artifact and effective Better Fetch
+transport, checks the root/`./email` export identities and declarations, and
+compares native requests and outcomes with an immutable JavaScript oracle.
+Recording-server coverage includes configuration and timeout precedence, URL
+suffix edges, all operation bodies, missing keys, malformed and HTTP responses,
+timeouts, duplicate bulk recipients, template listing, and the single-attempt
+boundary.
 
 ## Storage and deployment
 
