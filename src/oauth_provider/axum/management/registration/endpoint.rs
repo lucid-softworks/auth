@@ -54,7 +54,7 @@ pub(in crate::oauth_provider::axum::management) async fn register(
     .await
     {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     if let Some(response) = anonymous_registration_error(
         &state.config,
@@ -67,7 +67,7 @@ pub(in crate::oauth_provider::axum::management) async fn register(
     let (user_id, reference_id) =
         match registration_owner(&state, session.as_ref(), token_authorization, &context).await {
             Ok(owner) => owner,
-            Err(response) => return response,
+            Err(response) => return *response,
         };
     match persist_new_client(
         &service,
@@ -91,7 +91,7 @@ async fn registration_token_authorization(
     metadata: &Value,
     context: &OAuthCallbackContext,
     has_session: bool,
-) -> Result<Option<OAuthInitialAccessTokenAuthorization>, Response> {
+) -> Result<Option<OAuthInitialAccessTokenAuthorization>, Box<Response>> {
     if has_session {
         Ok(None)
     } else {
@@ -138,7 +138,7 @@ async fn registration_owner(
     session: Option<&crate::SessionWithUser>,
     token_authorization: Option<OAuthInitialAccessTokenAuthorization>,
     context: &OAuthCallbackContext,
-) -> Result<(Option<Uuid>, Option<String>), Response> {
+) -> Result<(Option<Uuid>, Option<String>), Box<Response>> {
     if session.is_some() {
         authorize_client_action(&state.config, OAuthClientAction::Create, context).await?;
     }
@@ -161,16 +161,16 @@ async fn authorize_initial_access_token(
     headers: &HeaderMap,
     metadata: &Value,
     context: &OAuthCallbackContext,
-) -> Result<Option<OAuthInitialAccessTokenAuthorization>, Response> {
+) -> Result<Option<OAuthInitialAccessTokenAuthorization>, Box<Response>> {
     let Some(value) = headers.get(header::AUTHORIZATION) else {
         return Ok(None);
     };
     let Ok(value) = value.to_str() else {
-        return Err(registration_bearer_error(
+        return Err(Box::new(registration_bearer_error(
             StatusCode::BAD_REQUEST,
             "invalid_request",
             "Malformed initial access token Authorization header",
-        ));
+        )));
     };
     let mut parts = value.split_whitespace();
     let Some(scheme) = parts.next() else {
@@ -180,30 +180,30 @@ async fn authorize_initial_access_token(
         return Ok(None);
     }
     let Some(token) = parts.next().filter(|_| parts.next().is_none()) else {
-        return Err(registration_bearer_error(
+        return Err(Box::new(registration_bearer_error(
             StatusCode::BAD_REQUEST,
             "invalid_request",
             "Malformed initial access token Authorization header",
-        ));
+        )));
     };
     let Some(validator) = &config.callbacks.validate_initial_access_token else {
-        return Err(registration_bearer_error(
+        return Err(Box::new(registration_bearer_error(
             StatusCode::UNAUTHORIZED,
             "invalid_token",
             "Invalid initial access token",
-        ));
+        )));
     };
     match validator.validate(token, metadata, context).await {
         Ok(Some(authorization)) => Ok(Some(authorization)),
-        Ok(None) => Err(registration_bearer_error(
+        Ok(None) => Err(Box::new(registration_bearer_error(
             StatusCode::UNAUTHORIZED,
             "invalid_token",
             "Invalid initial access token",
-        )),
-        Err(_) => Err(registration_error(
+        ))),
+        Err(_) => Err(Box::new(registration_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "server_error",
             "Initial access token validation failed",
-        )),
+        ))),
     }
 }

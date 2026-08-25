@@ -41,11 +41,11 @@ pub(super) async fn create_client(
     if let Err(response) =
         authorize_client_action(&state.config, OAuthClientAction::Create, &context).await
     {
-        return response;
+        return *response;
     }
     let reference_id = match resolve_client_reference(&state.config, &context).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let user_id = reference_id.is_none().then_some(session.user.id);
     match persist_new_client(
@@ -76,7 +76,7 @@ pub(super) async fn get_client(
     if let Err(response) =
         authorize_client_action(&state.config, OAuthClientAction::Read, &context).await
     {
-        return response;
+        return *response;
     }
     let client = match resolve_provider_client(&state, &headers, &input.client_id).await {
         Ok(Some(client)) => client,
@@ -148,11 +148,11 @@ pub(super) async fn list_clients(
     if let Err(response) =
         authorize_client_action(&state.config, OAuthClientAction::List, &context).await
     {
-        return response;
+        return *response;
     }
     let reference_id = match resolve_client_reference(&state.config, &context).await {
         Ok(value) => value,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let user_id = reference_id.is_none().then_some(session.user.id);
     match state
@@ -189,7 +189,7 @@ pub(super) async fn update_client(
     if let Err(response) =
         authorize_client_action(&state.config, OAuthClientAction::Update, &context).await
     {
-        return response;
+        return *response;
     }
     if state
         .config
@@ -248,7 +248,7 @@ pub(super) async fn rotate_secret(
     if let Err(response) =
         authorize_client_action(&state.config, OAuthClientAction::Rotate, &context).await
     {
-        return response;
+        return *response;
     }
     if state
         .config
@@ -320,7 +320,7 @@ pub(super) async fn delete_client(
     if let Err(response) =
         authorize_client_action(&state.config, OAuthClientAction::Delete, &context).await
     {
-        return response;
+        return *response;
     }
     if state
         .config

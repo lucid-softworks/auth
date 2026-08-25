@@ -244,23 +244,27 @@ async fn authorize_client_action(
     config: &OAuthProviderConfig,
     action: OAuthClientAction,
     context: &OAuthCallbackContext,
-) -> Result<(), Response> {
+) -> Result<(), Box<Response>> {
     let Some(callback) = &config.callbacks.client_privileges else {
         return Ok(());
     };
     match callback.authorize(action, context).await {
         Ok(Some(true)) => Ok(()),
-        Ok(_) => Err(auth_error(AuthError::Unauthorized)),
-        Err(error) => Err(auth_error(error)),
+        Ok(_) => Err(Box::new(auth_error(AuthError::Unauthorized))),
+        Err(error) => Err(Box::new(auth_error(error))),
     }
 }
 
 async fn resolve_client_reference(
     config: &OAuthProviderConfig,
     context: &OAuthCallbackContext,
-) -> Result<Option<String>, Response> {
+) -> Result<Option<String>, Box<Response>> {
     match &config.callbacks.client_reference {
-        Some(callback) => callback.resolve(context).await.map_err(auth_error),
+        Some(callback) => callback
+            .resolve(context)
+            .await
+            .map_err(auth_error)
+            .map_err(Box::new),
         None => Ok(None),
     }
 }
