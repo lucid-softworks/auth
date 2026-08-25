@@ -102,7 +102,10 @@ async fn assert_outcome(
     activated_at: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), lucid_auth::AuthError> {
     assert_eq!(outcome.host.status, AgentHostStatus::Rejected);
-    assert_eq!(outcome.host.activated_at, Some(activated_at));
+    assert_eq!(
+        outcome.host.activated_at.map(|value| value.timestamp_micros()),
+        Some(activated_at.timestamp_micros())
+    );
     assert_eq!(outcome.claimed_agents.len(), 1);
     assert_eq!(outcome.claimed_agents[0].agent.id, "pg-autonomous");
     assert_eq!(outcome.claimed_agents[0].agent.status, AgentStatus::Claimed);
