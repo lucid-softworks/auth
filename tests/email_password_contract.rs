@@ -1,13 +1,26 @@
+use async_trait::async_trait;
 use axum::{
     Router,
     body::Body,
     http::{Request, StatusCode, header},
 };
 use http_body_util::BodyExt;
-use lucid_auth::{AccessStore, AuthConfig, AuthError, AuthService, EmailSignUpInput, MemoryStore};
+use lucid_auth::{
+    AccessStore, AuthConfig, AuthError, AuthService, EmailSignUpInput, HaveIBeenPwnedOptions,
+    HaveIBeenPwnedPlugin, MemoryStore, PasswordBreachCheckError, PasswordBreachChecker,
+};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
+
+struct RejectCompromised;
+
+#[async_trait]
+impl PasswordBreachChecker for RejectCompromised {
+    async fn is_compromised(&self, password: &str) -> Result<bool, PasswordBreachCheckError> {
+        Ok(password == "compromised password")
+    }
+}
 
 fn application(
     configure: impl FnOnce(&mut AuthConfig),
@@ -275,6 +288,47 @@ async fn disabled_auto_signin_uses_generic_duplicate_responses() {
         post(&no_auto_signin, "/api/auth/sign-up/email", no_auto_body).await;
     assert_eq!(status, StatusCode::OK);
     assert!(duplicate["token"].is_null());
+}
+
+#[tokio::test]
+async fn hibp_prevents_new_signup_and_preempts_the_generic_duplicate_response() {
+    let (app, _, store) = application(|config| {
+        config.email_and_password.enabled = true;
+        config.email_and_password.auto_sign_in = false;
+        config
+            .add_plugin(HaveIBeenPwnedPlugin::with_checker(
+                HaveIBeenPwnedOptions::default(),
+                Arc::new(RejectCompromised),
+            ))
+            .unwrap();
+    });
+    let compromised = json!({
+        "name": "Rejected",
+        "email": "rejected@example.com",
+        "password": "compromised password"
+    });
+    let (status, _, error) = post(&app, "/api/auth/sign-up/email", compromised.clone()).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(error["code"], "PASSWORD_COMPROMISED");
+    assert_eq!(store.count_users(&[]).await.unwrap(), 0);
+
+    let (status, _, created) = post(
+        &app,
+        "/api/auth/sign-up/email",
+        json!({
+            "name": "Existing",
+            "email": "rejected@example.com",
+            "password": "safe original password"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    assert_eq!(store.count_users(&[]).await.unwrap(), 1);
+
+    let (status, _, error) = post(&app, "/api/auth/sign-up/email", compromised).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(error["code"], "PASSWORD_COMPROMISED");
+    assert_eq!(store.count_users(&[]).await.unwrap(), 1);
 }
 
 #[tokio::test]

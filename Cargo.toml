@@ -158,11 +158,23 @@ name = "email_verification_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "have_i_been_pwned_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "have_i_been_pwned_route_order_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "plugin_contract"
 required-features = ["axum"]
 
 [[test]]
 name = "password_reset_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "phone_number_contract"
 required-features = ["axum"]
 
 [[test]]

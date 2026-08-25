@@ -230,10 +230,7 @@ impl AuthService {
             .ok_or(PhoneNumberError::UnexpectedError)?;
         self.validate_new_password(&new_password).await?;
         self.store
-            .set_password_hash(
-                user.id,
-                super::super::password::hash_password(new_password).await?,
-            )
+            .set_password_hash(user.id, self.hash_password(new_password).await?)
             .await?;
         let user = self
             .store

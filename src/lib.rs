@@ -7,7 +7,6 @@ mod anonymous;
 mod api_key;
 mod audit;
 mod bearer;
-mod breached_password;
 mod captcha;
 mod client_ip;
 mod config;
@@ -20,6 +19,7 @@ mod error;
 mod exports;
 mod generic_oauth;
 mod guest_capability;
+mod have_i_been_pwned;
 mod i18n;
 mod jwt;
 mod last_login_method;
@@ -83,7 +83,6 @@ pub use api_key::{
     ApiKeyRateLimitConfig, ApiKeyReference, ApiKeyStartingCharactersConfig,
 };
 pub use bearer::{BearerConfig, BearerPlugin};
-pub use breached_password::{PasswordBreachChecker, PwnedPasswordsChecker};
 pub use client_ip::IpAddressConfig;
 pub use config::{
     AccountConfig, AccountLinkingConfig, AuthConfig, AuthIdGenerator, EmailPasswordConfig,

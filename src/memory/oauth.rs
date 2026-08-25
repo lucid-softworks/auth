@@ -110,6 +110,11 @@ pub(super) async fn link(
     if state.oauth_accounts.contains_key(&key) {
         return Err(AuthError::UserAlreadyExists);
     }
+    if account.provider_id == "credential"
+        && let Some(password) = &account.password
+    {
+        state.passwords.insert(account.user_id, password.clone());
+    }
     state.oauth_accounts.insert(key, account.clone());
     Ok(account)
 }

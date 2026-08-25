@@ -9,6 +9,7 @@ use serde::Serialize;
 mod admin;
 mod anonymous;
 mod credential;
+mod have_i_been_pwned;
 mod oauth;
 mod plugin;
 
@@ -61,6 +62,9 @@ fn auth_error_inner(error: AuthError) -> Response {
     if let Some(response) = oauth::response(&error) {
         return response;
     }
+    if let Some(response) = have_i_been_pwned::response(&error) {
+        return response;
+    }
     if let AuthError::AccountDisabled(message) = &error {
         return (
             StatusCode::FORBIDDEN,
@@ -93,8 +97,7 @@ fn auth_error_inner(error: AuthError) -> Response {
         AuthError::CredentialAccountNotFound
         | AuthError::InvalidPassword
         | AuthError::PasswordTooShort
-        | AuthError::PasswordTooLong
-        | AuthError::PasswordCompromised => password_error_details(&error),
+        | AuthError::PasswordTooLong => password_error_details(&error),
         error if is_passkey_error(error) => passkey_error_details(error),
         AuthError::Username(_) => {
             return crate::username::error::http_error(error, StatusCode::BAD_REQUEST);
@@ -114,10 +117,7 @@ fn auth_error_inner(error: AuthError) -> Response {
         | AuthError::InvalidNewUserCallbackUrl
         | AuthError::CrossSiteNavigationLogin => request_security_error_details(&error),
         error if oauth::is_error(error) => oauth::details(error),
-        AuthError::InvalidConfiguration(_)
-        | AuthError::Storage(_)
-        | AuthError::Worker
-        | AuthError::PasswordCheckUnavailable => (
+        AuthError::InvalidConfiguration(_) | AuthError::Storage(_) | AuthError::Worker => (
             StatusCode::INTERNAL_SERVER_ERROR,
             "INTERNAL_SERVER_ERROR",
             "Authentication failed",
@@ -300,11 +300,6 @@ fn password_error_details(error: &AuthError) -> ErrorDetails {
             StatusCode::BAD_REQUEST,
             "PASSWORD_TOO_SHORT",
             "Password too short",
-        ),
-        AuthError::PasswordCompromised => (
-            StatusCode::BAD_REQUEST,
-            "PASSWORD_COMPROMISED",
-            "The password has been compromised. Choose a different password",
         ),
         _ => (
             StatusCode::BAD_REQUEST,

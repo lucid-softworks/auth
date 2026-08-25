@@ -12,6 +12,8 @@ use tokio::sync::Mutex;
 
 #[path = "phone_number_contract/attempts.rs"]
 mod attempts;
+#[path = "phone_number_contract/hibp_order.rs"]
+mod hibp_order;
 
 #[derive(Default)]
 struct Sender {

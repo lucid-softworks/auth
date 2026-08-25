@@ -1,7 +1,4 @@
-use super::{
-    AuthService,
-    password::{hash_password, normalize_username},
-};
+use super::{AuthService, password::normalize_username};
 use crate::{
     AdminCreateUser, AuthError, AuthUser, NewPasswordUser, PasswordCredentialChanged,
     PasswordCredentialSource, SessionWithUser, UsernameError,
@@ -100,28 +97,17 @@ impl AuthService {
         password: Option<String>,
     ) -> Result<AuthUser, AuthError> {
         let user = self.prepare_user_create(user).await?;
-        let (user, credential) = match password {
-            Some(password) => {
-                let credential = self
-                    .prepare_credential_account(
-                        user.id,
-                        hash_password(password).await?,
-                        user.created_at,
-                        false,
-                    )
-                    .await?;
-                let user = self
-                    .store
-                    .create_password_user(user, credential.clone())
-                    .await?;
-                (user, Some(credential))
-            }
-            None => (self.store.create_user_without_account(user).await?, None),
-        };
+        let user = self.store.create_user_without_account(user).await?;
         self.finish_user_create(&user).await?;
-        if let Some(credential) = credential {
-            self.finish_account_create(&credential).await?;
-        }
+        let Some(password) = password else {
+            return Ok(user);
+        };
+        let password_hash = self.hash_password(password).await?;
+        let credential = self
+            .prepare_credential_account(user.id, password_hash, user.created_at, false)
+            .await?;
+        let credential = self.store.link_oauth_account(credential).await?;
+        self.finish_account_create(&credential).await?;
         Ok(user)
     }
 
@@ -143,7 +129,7 @@ impl AuthService {
             return Err(AuthError::Forbidden);
         }
         self.store
-            .set_password_hash(user_id, hash_password(password).await?)
+            .set_password_hash(user_id, self.hash_password(password).await?)
             .await?;
         self.plugins
             .password_credential_changed(&PasswordCredentialChanged {

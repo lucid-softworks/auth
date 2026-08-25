@@ -115,8 +115,10 @@ pub enum AuthError {
     PasswordTooShort,
     #[error("the new password is too long")]
     PasswordTooLong,
-    #[error("the password has appeared in a known data breach")]
-    PasswordCompromised,
+    #[error("{0}")]
+    PasswordCompromised(String),
+    #[error("Failed to check password. Status: {0}")]
+    PasswordCheckStatus(u16),
     #[error("the breached-password check is temporarily unavailable")]
     PasswordCheckUnavailable,
     #[error("the passkey was not found")]

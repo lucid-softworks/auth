@@ -7,8 +7,9 @@ use axum::{
 use chrono::Duration;
 use http_body_util::BodyExt;
 use lucid_auth::{
-    AuthConfig, AuthError, AuthService, MemoryStore, PasswordBreachChecker, PasswordResetCallback,
-    PasswordResetEmail, PasswordResetEmailSender,
+    AuthConfig, AuthError, AuthService, HaveIBeenPwnedOptions, HaveIBeenPwnedPlugin, MemoryStore,
+    PasswordBreachCheckError, PasswordBreachChecker, PasswordResetCallback, PasswordResetEmail,
+    PasswordResetEmailSender,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -41,7 +42,7 @@ struct RejectCompromised;
 
 #[async_trait]
 impl PasswordBreachChecker for RejectCompromised {
-    async fn is_compromised(&self, password: &str) -> Result<bool, AuthError> {
+    async fn is_compromised(&self, password: &str) -> Result<bool, PasswordBreachCheckError> {
         Ok(password == "compromised password")
     }
 }
@@ -244,10 +245,15 @@ async fn body_and_query_tokens_reset_once_and_run_the_callback() {
 }
 
 #[tokio::test]
-async fn password_rules_run_before_single_use_redemption() {
+async fn password_length_precedes_redemption_but_hibp_runs_after_it() {
     let (app, service, fixture) = application(|config| {
         config.email_and_password.min_password_length = 12;
-        config.password_breach_checker = Some(Arc::new(RejectCompromised));
+        config
+            .add_plugin(HaveIBeenPwnedPlugin::with_checker(
+                HaveIBeenPwnedOptions::default(),
+                Arc::new(RejectCompromised),
+            ))
+            .unwrap();
     });
     signup(&app, "rules@example.com").await;
     request_reset(&app, "rules@example.com", None).await;
@@ -271,23 +277,43 @@ async fn password_rules_run_before_single_use_redemption() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(error["code"], "PASSWORD_COMPROMISED");
 
-    let (status, body) = post(
+    let (status, replay) = post(
         &app,
         "/api/auth/reset-password",
         json!({ "newPassword": "valid replacement password", "token": token }),
     )
     .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(replay["code"], "INVALID_TOKEN");
+    assert!(fixture.completed.lock().await.is_empty());
+    assert_password_sign_in(&service, "correct horse battery staple").await;
+    replace_password_after_rejection(&app, &service, &fixture).await;
+}
+
+async fn replace_password_after_rejection(
+    app: &Router,
+    service: &AuthService,
+    fixture: &ResetFixture,
+) {
+    request_reset(app, "rules@example.com", None).await;
+    let replacement_token = fixture.sent.lock().await[1].token.clone();
+    let (status, body) = post(
+        app,
+        "/api/auth/reset-password",
+        json!({
+            "newPassword": "valid replacement password",
+            "token": replacement_token
+        }),
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{body}");
+    assert_password_sign_in(service, "valid replacement password").await;
+}
+
+async fn assert_password_sign_in(service: &AuthService, password: &str) {
     assert!(
         service
-            .sign_in_email(
-                "rules@example.com",
-                "valid replacement password".into(),
-                None,
-                None,
-                None,
-                None,
-            )
+            .sign_in_email("rules@example.com", password.into(), None, None, None, None,)
             .await
             .is_ok()
     );

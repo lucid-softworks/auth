@@ -12,6 +12,9 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
 
+#[path = "admin_lifecycle_contract/hibp_order.rs"]
+mod hibp_order;
+
 async fn application() -> Router {
     application_with_config(
         AuthConfig::new([43_u8; 32]).unwrap(),

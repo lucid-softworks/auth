@@ -1,4 +1,4 @@
-use super::{AuthService, SignInResult, password::hash_password, password::verify_password};
+use super::{AuthService, SignInResult, password::verify_password};
 use crate::{
     AuthError, AuthUser, AuthenticationMethod, DatabaseModel, DatabaseRecord, SessionWithUser,
 };
@@ -62,7 +62,7 @@ impl AuthService {
             self.create_additional_fields(DatabaseModel::User, input.additional_fields)?;
         let generic_duplicates = config.require_email_verification || !config.auto_sign_in;
         if self.store.find_user_by_email(&email).await?.is_some() {
-            let _ = hash_password(input.password).await?;
+            let _ = self.hash_password(input.password).await?;
             let default_role = self.default_user_role();
             return if generic_duplicates {
                 Ok(synthetic_signup(
@@ -77,7 +77,7 @@ impl AuthService {
             };
         }
 
-        let password_hash = hash_password(input.password).await?;
+        let password_hash = self.hash_password(input.password).await?;
         let user = new_signup_user(
             username,
             display_username,

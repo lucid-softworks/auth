@@ -1,11 +1,20 @@
 use async_trait::async_trait;
+use axum::{
+    body::Body,
+    http::{Request, StatusCode, header},
+};
+use http_body_util::BodyExt;
 use lucid_auth::{
     AuthConfig, AuthError, AuthService, EmailOtpConfig, EmailOtpError, EmailOtpMessage,
     EmailOtpPlugin, EmailOtpRequestContext, EmailOtpResendStrategy, EmailOtpSender,
-    EmailOtpSignInInput, EmailOtpStorage, EmailOtpType, MemoryStore, NewPasswordUser,
+    EmailOtpSignInInput, EmailOtpStorage, EmailOtpType, HaveIBeenPwnedOptions,
+    HaveIBeenPwnedPlugin, MemoryStore, NewPasswordUser, PasswordBreachCheckError,
+    PasswordBreachChecker,
 };
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tower::ServiceExt;
 
 #[derive(Default)]
 struct Sender {
@@ -21,6 +30,15 @@ impl EmailOtpSender for Sender {
     ) -> Result<(), AuthError> {
         self.messages.lock().await.push(message);
         Ok(())
+    }
+}
+
+struct RejectCompromised;
+
+#[async_trait]
+impl PasswordBreachChecker for RejectCompromised {
+    async fn is_compromised(&self, password: &str) -> Result<bool, PasswordBreachCheckError> {
+        Ok(password == "compromised password")
     }
 }
 
@@ -187,6 +205,76 @@ async fn attempt_budget_and_successful_redemption_are_single_use() {
         exhausted,
         AuthError::EmailOtp(EmailOtpError::TooManyAttempts)
     ));
+}
+
+#[tokio::test]
+async fn hibp_failure_happens_after_email_reset_otp_consumption() {
+    let sender = Arc::new(Sender::default());
+    let mut config = AuthConfig::new([131_u8; 32]).unwrap();
+    config.email_and_password.enabled = true;
+    config.trust_origin("http://localhost").unwrap();
+    config
+        .add_plugin(EmailOtpPlugin::new(EmailOtpConfig::new(sender)))
+        .unwrap();
+    config
+        .add_plugin(HaveIBeenPwnedPlugin::with_checker(
+            HaveIBeenPwnedOptions::default(),
+            Arc::new(RejectCompromised),
+        ))
+        .unwrap();
+    let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
+    provision(&service, "reset_user", "reset@example.com").await;
+    let otp = service
+        .create_email_otp("reset@example.com", EmailOtpType::ForgetPassword)
+        .await
+        .unwrap();
+    let app = lucid_auth::axum::router(service.clone());
+    let response = app
+        .oneshot(
+            Request::post("/api/auth/email-otp/reset-password")
+                .header(header::ORIGIN, "http://localhost")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "email": "RESET@example.com",
+                        "otp": otp,
+                        "password": "compromised password"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(body["code"], "PASSWORD_COMPROMISED");
+
+    let replay = service
+        .reset_password_email_otp(
+            "reset@example.com",
+            &otp,
+            "safe replacement password".into(),
+        )
+        .await;
+    assert!(matches!(
+        replay,
+        Err(AuthError::EmailOtp(EmailOtpError::InvalidOtp))
+    ));
+    assert!(
+        service
+            .sign_in_email(
+                "reset@example.com",
+                "correct horse battery staple".into(),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .is_ok()
+    );
 }
 
 fn sign_in_input(email: &str, otp: &str) -> EmailOtpSignInInput {

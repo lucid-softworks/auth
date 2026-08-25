@@ -278,6 +278,31 @@ type-inference-only and needs no locale endpoint. See the
 [compatibility matrix](COMPATIBILITY.md#security-utility-and-developer-plugins)
 for the exact no-storage/no-locale-management boundary.
 
+### Have I Been Pwned
+
+Register the server-only plugin to screen password hashes on Better Auth's seven
+official password-setting paths through the HIBP k-anonymity API:
+
+```rust
+use lucid_auth::{HaveIBeenPwnedOptions, HaveIBeenPwnedPlugin};
+
+config.add_plugin(HaveIBeenPwnedPlugin::new(HaveIBeenPwnedOptions {
+    enabled: None,
+    paths: None,
+    custom_password_compromised_message: None,
+}))?;
+```
+
+Those are the complete Better Auth 1.7.1 options. `Some(false)` disables checks;
+an explicitly supplied `paths` list replaces the defaults exactly, so an empty
+list screens no paths; and an empty custom message falls back to Better Auth's
+official message. Matching is exact and request-path scoped. Direct native hash
+operations with no auth request path bypass the plugin, and sign-in/password
+verification is never screened. The plugin adds no route, client, cookie,
+schema, migration, middleware, or rate-limit rule. See the
+[compatibility matrix](COMPATIBILITY.md#security-utility-and-developer-plugins)
+for the exact request, parser, error, and route-side-effect contract.
+
 ### Open API reference
 
 Enable the crate's `axum` feature and register the server-only Open API plugin:

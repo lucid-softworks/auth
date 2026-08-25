@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use lucid_auth::{
-    AuthConfig, AuthError, AuthService, MemoryStore, NewPasswordUser, PasswordBreachChecker,
+    AuthConfig, AuthService, HaveIBeenPwnedOptions, HaveIBeenPwnedPlugin, MemoryStore,
+    NewPasswordUser, PasswordBreachCheckError, PasswordBreachChecker,
 };
 use std::sync::Arc;
 
@@ -8,17 +9,22 @@ struct Compromised;
 
 #[async_trait]
 impl PasswordBreachChecker for Compromised {
-    async fn is_compromised(&self, _: &str) -> Result<bool, AuthError> {
+    async fn is_compromised(&self, _: &str) -> Result<bool, PasswordBreachCheckError> {
         Ok(true)
     }
 }
 
 #[tokio::test]
-async fn rejects_a_compromised_password_before_hashing() {
+async fn native_password_hash_without_a_request_path_bypasses_the_plugin() {
     let mut config = AuthConfig::new([51_u8; 32]).unwrap();
-    config.password_breach_checker = Some(Arc::new(Compromised));
+    config
+        .add_plugin(HaveIBeenPwnedPlugin::with_checker(
+            HaveIBeenPwnedOptions::default(),
+            Arc::new(Compromised),
+        ))
+        .unwrap();
     let service = AuthService::new(Arc::new(MemoryStore::default()), config);
-    let error = service
+    service
         .provision_password_user(NewPasswordUser {
             username: "luna".into(),
             name: "Luna".into(),
@@ -27,8 +33,13 @@ async fn rejects_a_compromised_password_before_hashing() {
             role: "owner".into(),
         })
         .await
-        .unwrap_err();
-    assert!(matches!(error, AuthError::PasswordCompromised));
+        .unwrap();
+    assert!(
+        service
+            .sign_in_username("luna", "compromised-password".into(), None, None)
+            .await
+            .is_ok()
+    );
 }
 
 #[tokio::test]

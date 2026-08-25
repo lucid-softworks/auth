@@ -1,8 +1,7 @@
 use crate::{
     AuthError, AuthPlugin, CookieConfig, DatabaseHooks, EmailVerificationConfig,
-    PasswordBreachChecker, PasswordResetCallback, PasswordResetEmailSender, SecondaryStorage,
-    SessionConfig, TrustedOrigin, UserConfig, client_ip::IpAddressConfig,
-    rate_limit::RateLimitConfig,
+    PasswordResetCallback, PasswordResetEmailSender, SecondaryStorage, SessionConfig,
+    TrustedOrigin, UserConfig, client_ip::IpAddressConfig, rate_limit::RateLimitConfig,
 };
 use chrono::Duration;
 use std::sync::Arc;
@@ -37,7 +36,6 @@ pub struct AuthConfig {
     pub development_bypass: bool,
     /// Better Auth-compatible global, special-route, plugin, and custom rate limiting.
     pub rate_limit: RateLimitConfig,
-    pub password_breach_checker: Option<Arc<dyn PasswordBreachChecker>>,
     /// Better Auth-compatible email/password behavior. The flow is disabled
     /// by default, matching Better Auth.
     pub email_and_password: EmailPasswordConfig,
@@ -124,7 +122,6 @@ impl AuthConfig {
             cookies: CookieConfig::default(),
             development_bypass: false,
             rate_limit: RateLimitConfig::default(),
-            password_breach_checker: None,
             email_and_password: EmailPasswordConfig::default(),
             email_verification: EmailVerificationConfig::default(),
             user: UserConfig::default(),

@@ -4,6 +4,6 @@ pub use crate::audit::{
 };
 pub use crate::cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
 pub use crate::{
-    agent_auth::*, captcha::*, i18n::*, mcp::*, memory::MemoryStore, open_api::*,
-    origin::TrustedOrigin, test_utils::*,
+    agent_auth::*, captcha::*, have_i_been_pwned::*, i18n::*, mcp::*, memory::MemoryStore,
+    open_api::*, origin::TrustedOrigin, test_utils::*,
 };

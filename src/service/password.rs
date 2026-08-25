@@ -23,7 +23,7 @@ impl AuthService {
     ) -> Result<AuthUser, AuthError> {
         normalize_username(&input.username)?;
         self.validate_new_password(&input.password).await?;
-        let password_hash = hash_password(input.password).await?;
+        let password_hash = self.hash_password(input.password).await?;
         self.provision_password_hash_user(HashedPasswordUser {
             username: input.username,
             name: input.name,
@@ -156,10 +156,10 @@ impl AuthService {
             .find_password_hash(session.user.id)
             .await?
             .ok_or(AuthError::CredentialAccountNotFound)?;
+        let password_hash = self.hash_password(new_password).await?;
         if !verify_password(current_password, Some(current_hash)).await? {
             return Err(AuthError::InvalidPassword);
         }
-        let password_hash = hash_password(new_password).await?;
         self.store
             .update_password_hash(session.user.id, password_hash)
             .await?;
@@ -209,13 +209,23 @@ impl AuthService {
             password,
             self.config.email_and_password.min_password_length,
             self.config.email_and_password.max_password_length,
-        )?;
-        if let Some(checker) = &self.config.password_breach_checker
-            && checker.is_compromised(password).await?
-        {
-            return Err(AuthError::PasswordCompromised);
+        )
+    }
+
+    /// Runs the configured password hasher through Better Auth's path-aware
+    /// Have I Been Pwned wrapper, when that plugin is installed.
+    pub(super) async fn hash_password(&self, password: String) -> Result<String, AuthError> {
+        if let Some(plugin) = self.plugins.find::<crate::HaveIBeenPwnedPlugin>() {
+            let path = self.current_auth_request_path();
+            plugin.check(path.as_deref(), &password).await?;
         }
-        Ok(())
+        hash_password(password).await
+    }
+
+    fn current_auth_request_path(&self) -> Option<String> {
+        crate::database_hooks::current_context()
+            .request
+            .map(|request| request.path)
     }
 }
 

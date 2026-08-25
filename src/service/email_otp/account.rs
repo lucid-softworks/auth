@@ -128,8 +128,8 @@ impl AuthService {
         otp: &str,
         password: String,
     ) -> Result<(), AuthError> {
-        self.validate_new_password(&password).await?;
         let email = super::super::email_password::normalize_email(email)?;
+        self.validate_new_password(&password).await?;
         token::consume(
             self,
             self.email_otp_config()?,
@@ -142,7 +142,7 @@ impl AuthService {
             .find_user_by_email(&email)
             .await?
             .ok_or(EmailOtpError::UserNotFound)?;
-        let password_hash = super::super::password::hash_password(password).await?;
+        let password_hash = self.hash_password(password).await?;
         self.store.set_password_hash(user.id, password_hash).await?;
         if !user.email_verified {
             user = self.mark_email_verified(user).await?;
