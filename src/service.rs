@@ -35,6 +35,7 @@ mod oauth_state;
 mod oauth_tokens;
 mod one_tap;
 mod one_time_token;
+mod open_api;
 mod operator_security;
 mod organization;
 mod passkey;

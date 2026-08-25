@@ -34,6 +34,7 @@ mod oauth_provider;
 mod oauth_proxy;
 mod one_tap;
 mod one_time_token;
+mod open_api;
 mod operator_security;
 mod organization;
 mod origin;
@@ -178,7 +179,6 @@ pub use organization::{
     OrganizationStore, OrganizationTeam, OrganizationTeamMember, OrganizationTeamStore,
     OrganizationTeamWriteOutcome, OrganizationTeamsConfig, OrganizationUpdate,
 };
-pub use origin::TrustedOrigin;
 pub use owner_policy::OwnerPolicyPlugin;
 pub use passkey::{
     PasskeyAuthenticationCallback, PasskeyAuthenticationConfig, PasskeyAuthenticationVerified,

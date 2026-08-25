@@ -7,7 +7,7 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 mod account;
 mod account_lifecycle;
@@ -48,20 +48,27 @@ where
         .merge(email_password::router())
         .merge(account::router())
         .merge(user_deletion::router());
-    let mut root_routes = Router::new();
-    let mut has_root_routes = false;
+    let mut plugin_routes = BTreeMap::new();
+    let mut root_plugin_routes = BTreeMap::new();
     for plugin in service.plugins().plugins() {
         for route in plugin.routes(service.clone()) {
             let (path, route) = route.into_parts();
             let route = plugin.middleware(route, service.clone());
-            routes = routes.route_service(&path, route);
+            merge_method_route(&mut plugin_routes, path, route);
         }
         for route in plugin.root_routes(service.clone()) {
-            has_root_routes = true;
             let (path, route) = route.into_parts();
             let route = plugin.middleware(route, service.clone());
-            root_routes = root_routes.route_service(&path, route);
+            merge_method_route(&mut root_plugin_routes, path, route);
         }
+    }
+    for (path, route) in plugin_routes {
+        routes = routes.route_service(&path, route);
+    }
+    let has_root_routes = !root_plugin_routes.is_empty();
+    let mut root_routes = Router::new();
+    for (path, route) in root_plugin_routes {
+        root_routes = root_routes.route_service(&path, route);
     }
     let routes = with_route_layers(routes, service.clone());
     let app = Router::new().nest(service.base_path(), routes);
@@ -71,6 +78,19 @@ where
         app
     };
     with_request_layers(app, service)
+}
+
+fn merge_method_route(
+    routes: &mut BTreeMap<String, axum::routing::MethodRouter>,
+    path: String,
+    route: axum::routing::MethodRouter,
+) {
+    match routes.get_mut(&path) {
+        Some(existing) => *existing = existing.clone().merge(route),
+        None => {
+            routes.insert(path, route);
+        }
+    }
 }
 
 fn with_route_layers<S>(routes: Router<S>, service: Arc<AuthService>) -> Router<S>

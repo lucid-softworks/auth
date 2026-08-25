@@ -19,7 +19,7 @@ use lucid_auth::{
     LastLoginMethodPlugin, MagicLinkConfig, MagicLinkPlugin, McpPlugin, McpPluginConfig,
     MemoryOAuthProviderStore, MemoryStore, MemoryTwoFactorStore, MultiSessionPlugin,
     OAuthDeviceAuthorizationPlugin, OAuthProviderPluginConfig, OAuthProviderStore, OneTapConfig,
-    OneTapPlugin, OneTimeTokenConfig, OneTimeTokenPlugin, OtpConfig, PasskeyConfig,
+    OneTapPlugin, OneTimeTokenConfig, OneTimeTokenPlugin, OpenApiPlugin, OtpConfig, PasskeyConfig,
     PasskeyPlugin, PhoneNumberConfig, PhoneNumberPlugin, PhoneNumberSignUpConfig, SiweConfig,
     SiweMessageVerifier, SiweNonceGenerator, SiwePlugin, SiweVerificationRequest, TotpConfig,
     TwoFactorConfig, TwoFactorPlugin,
@@ -93,6 +93,9 @@ pub(super) fn register(
     register_agent_auth(config);
     let oauth = register_core_plugins(config, origin, messages, phone_number_messages, store);
     register_i18n(config);
+    config
+        .add_plugin(OpenApiPlugin::default())
+        .expect("unique Open API plugin");
     oauth
 }
 

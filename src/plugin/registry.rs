@@ -112,6 +112,21 @@ impl PluginRegistry {
             .expect("every Better Auth core model has a schema field set")
     }
 
+    pub(crate) fn open_api_endpoints(&self) -> Vec<(&'static str, Vec<crate::OpenApiEndpoint>)> {
+        self.plugins
+            .iter()
+            .zip(&self.descriptors)
+            .map(|(plugin, descriptor)| (descriptor.id, plugin.open_api_endpoints()))
+            .collect()
+    }
+
+    pub(crate) fn open_api_models(&self) -> Vec<crate::OpenApiModel> {
+        self.plugins
+            .iter()
+            .flat_map(|plugin| plugin.open_api_models())
+            .collect()
+    }
+
     pub(crate) fn find<P: AuthPlugin + 'static>(&self) -> Option<&P> {
         self.plugins
             .iter()

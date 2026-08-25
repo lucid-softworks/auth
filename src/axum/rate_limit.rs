@@ -18,6 +18,13 @@ pub(super) async fn enforce(
     next: Next,
 ) -> Response {
     let path = auth_relative_path(request.uri().path(), service.base_path());
+    if service
+        .disabled_paths()
+        .iter()
+        .any(|disabled| disabled == &path)
+    {
+        return (StatusCode::NOT_FOUND, "Not Found").into_response();
+    }
     let rate_limit_request = RateLimitRequest {
         method: request.method().to_string(),
         path,

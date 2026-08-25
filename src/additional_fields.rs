@@ -18,6 +18,7 @@ pub enum AdditionalFieldType {
     Json,
     StringArray,
     NumberArray,
+    StringLiteral(&'static [&'static str]),
 }
 
 /// Input/output policy for a configured user or session additional field.
@@ -231,6 +232,12 @@ impl AdditionalField {
         self.default_value.is_some() || self.default_factory.is_some()
     }
 
+    /// Returns only a static default. Runtime factories are deliberately not
+    /// evaluated while generating database or request documentation.
+    pub fn static_default_value(&self) -> Option<&Value> {
+        self.default_value.as_ref()
+    }
+
     fn default(&self) -> Result<Option<Value>, AuthError> {
         self.default_factory
             .as_ref()
@@ -257,6 +264,9 @@ impl AdditionalField {
             AdditionalFieldType::NumberArray => value
                 .as_array()
                 .is_some_and(|values| values.iter().all(Value::is_number)),
+            AdditionalFieldType::StringLiteral(values) => {
+                value.as_str().is_some_and(|value| values.contains(&value))
+            }
         }
     }
 }

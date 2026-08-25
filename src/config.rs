@@ -64,6 +64,8 @@ pub struct AuthConfig {
     pub(crate) plugins: Vec<Arc<dyn AuthPlugin>>,
     pub(crate) base_url: Option<Url>,
     pub(crate) base_path: String,
+    /// Exact Better Auth relative endpoint paths disabled at dispatch and in OpenAPI.
+    pub disabled_paths: Vec<String>,
     pub(crate) cors_enabled: bool,
 }
 
@@ -135,6 +137,7 @@ impl AuthConfig {
             plugins: Vec::new(),
             base_url: None,
             base_path: "/api/auth".into(),
+            disabled_paths: Vec::new(),
             cors_enabled: false,
         })
     }

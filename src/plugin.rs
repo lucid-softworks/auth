@@ -295,6 +295,14 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
         Vec::new()
     }
 
+    fn open_api_endpoints(&self) -> Vec<crate::OpenApiEndpoint> {
+        crate::open_api::endpoints_from_descriptor(&self.descriptor())
+    }
+
+    fn open_api_models(&self) -> Vec<crate::OpenApiModel> {
+        Vec::new()
+    }
+
     /// Social providers registered by a plugin ahead of core providers.
     fn social_providers(&self) -> Vec<Arc<dyn crate::SocialProvider>> {
         Vec::new()

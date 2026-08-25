@@ -76,6 +76,8 @@ The currently supported surface covers:
 - Better Auth-compatible cookies and response shapes for the supported routes
 - native, dependency-ordered plugin routes, middleware, hooks, migrations, and
   client compatibility metadata
+- the Better Auth Open API schema endpoint and Scalar reference page as an
+  optional server-only native plugin
 
 The library keeps authentication protocol details separate from host-product
 authorization. Core principals contain actor, subject, session, and credential
@@ -275,6 +277,50 @@ entry does not retry the default catalog. The official `i18nClient()` is
 type-inference-only and needs no locale endpoint. See the
 [compatibility matrix](COMPATIBILITY.md#security-utility-and-developer-plugins)
 for the exact no-storage/no-locale-management boundary.
+
+### Open API reference
+
+Enable the crate's `axum` feature and register the server-only Open API plugin:
+
+```rust
+use lucid_auth::{AuthConfig, OpenApiPlugin};
+
+let mut config = AuthConfig::new(std::env::var("BETTER_AUTH_SECRET")?.into_bytes())?;
+config.set_base_url("https://auth.example.com")?;
+config.add_plugin(OpenApiPlugin::default())?;
+```
+
+The Scalar UI is then available at `/api/auth/reference`, and its JSON document
+at `/api/auth/open-api/generate-schema`. Native tooling can retrieve the same
+typed document without HTTP:
+
+```rust
+use lucid_auth::{AuthService, generate_open_api_schema};
+
+let document = generate_open_api_schema(&service);
+let json = serde_json::to_string_pretty(&document)?;
+```
+
+The reference path, Scalar theme, CSP nonce, and UI availability use only the
+Better Auth 1.7.1 options:
+
+```rust
+use lucid_auth::{OpenApiConfig, OpenApiPlugin, OpenApiTheme};
+
+config.add_plugin(OpenApiPlugin::new(OpenApiConfig {
+    path: "/docs".into(),
+    disable_default_reference: false,
+    theme: OpenApiTheme::Moon,
+    nonce: Some("request-csp-nonce".into()),
+}))?;
+```
+
+Set `disable_default_reference` to `true` to return Better Auth's empty JSON
+404 from the UI route while keeping `/open-api/generate-schema` enabled. The
+schema route is fixed, both plugin routes are hidden from their own document,
+and Better Auth 1.7.1 provides no `openAPIClient` browser plugin. See the
+[compatibility matrix](COMPATIBILITY.md#security-utility-and-developer-plugins)
+for the exact generation boundary.
 
 Username is an optional native plugin. Register it explicitly to add username
 fields to email signup and current-user updates and to mount the official
