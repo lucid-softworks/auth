@@ -432,7 +432,7 @@ aliases or permissive alternate request/response shapes:
 | Creem | Supported | Optional `CreemPlugin` matches Better Auth `1.7.1`, `@creem_io/better-auth@1.1.4`, and the effective `creem@1.6.0`, `@creem_io/webhook-types@1.0.0`, and `zod@4.4.3` runtime: all six official `creemClient` actions with pinned validation, guard ordering, outer-HTTP-200 handler errors, and SDK-normalized results; all five provider operations without default retries; conditional/remappable schema plus native memory/PostgreSQL stores; best-effort non-transactional checkout/subscription persistence; decoded-text webhook verification, shallow parsing, all 12 handled events, and exact access/event callback order and collision behavior; and native equivalents for all 12 server helpers. There is no webhook replay ledger, retry queue, exactly-once callback guarantee, organization integration, customer lifecycle provisioning, npm/React replacement, or live-provider dependency. Schema mappings are isolated per plugin instance instead of reproducing the upstream runtime's process-global mutation; every other documented remapping rule is preserved; [#49](https://github.com/lucid-softworks/auth/issues/49). |
 | Dodo Payments | Supported | Optional `DodoPaymentsPlugin` matches Better Auth `1.7.1`, `@dodopayments/better-auth@1.6.5`, `@dodopayments/core@0.3.14`, and effective `dodopayments@2.47.0` behavior: empty or selective checkout/portal/usage/webhook feature composition; the official `dodopaymentsClient` namespaces; preferred checkout-session plus the pinned adapter's upstream-deprecated legacy checkout; exact customer resolution and optional `createCustomerOnSignUp`/`getCustomerParams` lifecycle hooks; native live/test provider transport; portal, payment/subscription list, and usage contracts; and Standard Webhooks verification with all 47 modeled callbacks plus permissive unknown events. A Dodo Payments account and server-only API/webhook keys are required. The plugin contributes only the optional, non-input `dodoCustomerId` user field and no Dodo-owned migration, local billing/usage projection, webhook-delivery ledger, organization mapping, retry queue, or generic SDK proxy; [#50](https://github.com/lucid-softworks/auth/issues/50). |
 | Commet | Supported | Optional `CommetPlugin` matches Better Auth `1.7.1`, `@commet/better-auth@8.1.0`, and `@commet/node@9.1.0`: ordered selection of portal, subscriptions, features, usage, seats, and webhooks produces 14 conditional routes—the official `commetClient` exposes 13 actions under the root `customer`, `subscription`, `features`, `usage`, and `seats` namespaces, while the raw public webhook is server-only. Exact request validation, unknown-key stripping, JavaScript property ordering, truthiness, coercion, and `undefined` response projections are preserved. Opt-in customer lifecycle hooks reproduce the adapter's first-truthy-customer lookup, conditional before-create, unconditional after-create (including its double-create behavior), and best-effort first-customer update; callback `domain` and subscription `plans` remain exposed but inert because 8.1.0 never forwards or reads them. The native provider validates server-only `ck_` API keys, implements all 15 SDK operations against `/api/v1`, retains raw JSON values, and matches the SDK's API-key/version headers, 30-second timeout, unbounded response read, status/network retry rules, and stable generated or explicit idempotency keys. Raw-body HMAC-SHA256 verification follows Node hexadecimal decoding and dispatches eight named callbacks before `onPayload` over the same shared payload. Commet remains authoritative: there is no plugin schema, local state, migration, organization mapping, replay ledger, checkout flow, generic SDK proxy, or npm/React replacement; [#51](https://github.com/lucid-softworks/auth/issues/51). |
-| Chargebee | Planned | [#52](https://github.com/lucid-softworks/auth/issues/52). |
+| Chargebee | Supported | Optional `ChargebeePlugin` matches Better Auth `1.7.1`, the Chargebee-maintained `@chargebee/better-auth@1.2.0`, and its `chargebee@3.23.1` runtime: eight always-mounted server routes; the official client's five explicit `pathMethods` plus its inferred GET cancel-callback action; exact validation, reference/origin rules, hosted checkout, portal, cancellation, local lifecycle, and declaration/runtime edges; conditional user/organization/subscription/item schema; an injected native provider gateway; eight webhook mappings, custom listeners, and optional awaited event-bus processing; and equivalent memory/PostgreSQL stores. One intentional hardening awaits webhook authentication, processing, listeners, and queue persistence instead of reproducing the package's unsafe early acknowledgement race. Pinned npm-oracle, official-client, native HTTP/lifecycle/webhook, memory, and live PostgreSQL contracts cover the boundary; see [Chargebee 1.2.0](#chargebee-120) and [#52](https://github.com/lucid-softworks/auth/issues/52). |
 | Dub | Planned | [#53](https://github.com/lucid-softworks/auth/issues/53). |
 | Dashboard and audit logs | Planned | [#54](https://github.com/lucid-softworks/auth/issues/54). |
 | Sentinel security | Planned | [#55](https://github.com/lucid-softworks/auth/issues/55). |
@@ -442,6 +442,119 @@ aliases or permissive alternate request/response shapes:
 Provider integrations are opt-in native Rust configurations. An unregistered or
 unavailable provider does not affect password, passkey, or other configured
 authentication methods.
+
+### Chargebee 1.2.0
+
+This target is the external Chargebee-maintained plugin, not a Better Auth core
+plugin. `ChargebeePlugin` takes an application-supplied `ChargebeeClient` and
+keeps every provider operation in-process. The gateway covers the adapter's
+customer list/create/update/delete, subscription list/retrieve/cancel, new and
+existing hosted checkout, portal-session creation, and authenticated webhook
+parsing operations. It is deliberately not a generic Chargebee SDK proxy.
+
+The server inventory is fixed even when subscription configuration is absent
+or disabled; those options condition schema and runtime behavior, not route
+installation:
+
+| Server method and path | Official client exposure |
+| --- | --- |
+| `POST /chargebee/webhook` | Server-only raw webhook. |
+| `POST /subscription/create` | Explicit `pathMethods`; `subscription.create`. |
+| `POST /subscription/update` | Explicit `pathMethods`; `subscription.update`. |
+| `GET /subscription/success` | Server-only redirect callback. |
+| `POST /subscription/cancel` | Explicit `pathMethods`; `subscription.cancel`. |
+| `GET /subscription/cancel/callback` | Inferred `subscription.cancel.callback`; the server forgot `isAction: false`, so this is callable despite having no explicit `pathMethods` entry. |
+| `POST /subscription/portal` | Explicit `pathMethods`; `subscription.portal`. |
+| `GET /subscription/list` | Explicit `pathMethods`; `subscription.list`. |
+
+The five explicit client entries are therefore create, update, cancel, and
+portal as POST plus list as GET. `chargebeeClient({ subscription: boolean })`
+uses that option only for server-type inference; it does not change the runtime
+client descriptor. Create and update retain the declared `returnUrl` after
+validation but never use it. `restore-subscription` exists only in the public
+authorization-action type. Callback queries accept only exact `callbackURL`,
+not `callbackUrl`. Plan `billingCycles`, `itemId`, and `itemFamilyId` are not
+forwarded by checkout; `freeTrial.days` drives default trial expiry and
+`limits` enriches locally listed subscriptions. All 14 published error
+code/message objects remain exported even though the executable package does
+not emit every one. These are upstream edges, not compatibility aliases or new
+semantics.
+
+User mode contributes optional unique `user.chargebeeCustomerId`.
+Organization mode moves that optional unique field to `organization` and
+contributes no user field; applications must install the native Organization
+plugin separately. When subscriptions are enabled, the plugin also contributes
+the `subscription` and cascading `subscriptionItem` models. Subscription
+`referenceId` is required but deliberately non-unique, provider subscription
+IDs are optional and unique, status defaults to `future`, and period, trial,
+cancellation, seat, and string-metadata fields remain optional. Items require
+subscription, item-price, item-type, and quantity fields, with optional unit
+price and amount. `MemoryChargebeeStore` and `PostgresChargebeeStore` preserve
+the same ordering and uniqueness behavior; PostgreSQL uses the plugin-owned
+conditional migration. There is no event-ID table, customer/plan model,
+transactional item replacement, or exactly-once guarantee.
+
+Hosted create/update preserve the adapter's local-first, non-transactional side
+effects, JavaScript truthiness for seats and trial timestamps, last-spread
+`getHostedPageParams` overrides, and the exact active set `active`, `in_trial`,
+and `non_renewing`. List is local-only and enriches the primary plan item with
+configured limits. Both cancel and ordinary portal actions open Chargebee's
+portal; cancel does not directly cancel the provider subscription. The cancel
+callback preserves its narrow user-customer gate and best-effort provider
+reconciliation. Signup customer provisioning, on-demand filtered lookup and
+race cleanup, user email synchronization, and deletion-time immediate provider
+cancellation/local cleanup match 1.2.0. Organization mode disables user
+customer hooks and provides on-demand organization linkage, but adds no
+organization name-update or deletion hooks.
+
+Webhook ingestion registers exactly these provider event mappings:
+`subscription_created`, `subscription_activated`, `subscription_started`,
+`subscription_changed`, `subscription_renewed`,
+`subscription_scheduled_cancellation_removed`, `subscription_cancelled`, and
+`customer_deleted`. Creation writes the subscription and then items
+sequentially before created/trial callbacks; provider-added status and item-type
+strings are retained rather than rejected by the known native variants.
+Activated/started completion uses provider ID, subscription metadata, then
+customer pending metadata lookup and does not replace items.
+Changed/renewed/cancellation-removed updates the row, replaces items, then calls
+newly scheduled cancellation, update, and trial-end callbacks. Cancellation
+marks the row cancelled without deleting it; customer deletion removes items
+and rows before clearing customer linkage. Subscription mapping and callback
+failures are logged and swallowed as upstream does; customer-deletion failures
+remain visible.
+
+`webhookHandler` configures application listeners on each delivery. Without an
+event bus, built-in processing is awaited directly. With `webhookEventBus`,
+known and unhandled deliveries are durably published first and the native
+`ChargebeeWebhookProcessor` performs the built-in transition later; endpoint
+custom listeners are awaited after direct processing or publication and are
+not replayed by the queued processor. As in the EventEmitter artifact, an exact
+custom listener for an otherwise unknown event consumes that event instead of
+also taking the unhandled-event publish/listener path. The processor accepts
+either an explicit `Arc<dyn ChargebeeStore>` or an async
+`ChargebeeWebhookProcessorSource` that resolves a fresh store/auth context for
+every queued event. Source and queue failures are typed; queue failures return
+retryable HTTP 500
+`Failed to queue webhook event`. Basic Auth is configured only when both
+credentials are non-empty and retains Chargebee 3.23.1's exact case-sensitive
+scheme and credential parsing.
+
+The sole intentional divergence is webhook acknowledgement safety. The npm
+artifact passes an undefined response into an EventEmitter handler that neither
+awaits authentication failures nor async listeners, so it can acknowledge bad
+credentials and queue work before persistence. The native endpoint has no
+unsafe compatibility mode: it returns 401 for invalid configured Basic Auth,
+awaits parsing, processing, publication, and custom listeners, and returns 500
+for non-swallowed customer-deletion, listener, or queue failures. Generic
+non-auth parse/validation failures and the subscription handlers' deliberate
+swallowing still acknowledge as upstream specifies.
+
+Verification combines an immutable `@chargebee/better-auth@1.2.0` npm artifact
+oracle (package hashes, exports, descriptor, schemas, JavaScript truthiness,
+provider calls, lifecycle, and the published webhook race), the pinned official
+`chargebeeClient` against the native HTTP surface, native route/lifecycle and
+webhook ordering/hardening tests, and equivalent memory plus live PostgreSQL
+persistence contracts.
 
 ## Storage and deployment
 

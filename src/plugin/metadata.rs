@@ -80,6 +80,26 @@ pub struct PluginClientMetadata {
     pub custom_actions: &'static [&'static str],
     #[serde(skip_serializing_if = "<[&str]>::is_empty")]
     pub non_action_paths: &'static [&'static str],
+    /// Exact `pathMethods` entries declared by the official JavaScript client.
+    ///
+    /// This is intentionally separate from server endpoints: Better Auth can
+    /// infer additional callable actions from a server plugin even when the
+    /// official client does not declare a path override for them.
+    #[serde(skip_serializing_if = "<[PluginClientPathMethod]>::is_empty")]
+    pub path_methods: &'static [PluginClientPathMethod],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginClientPathMethod {
+    pub path: &'static str,
+    pub method: PluginHttpMethod,
+}
+
+impl PluginClientPathMethod {
+    pub const fn new(path: &'static str, method: PluginHttpMethod) -> Self {
+        Self { path, method }
+    }
 }
 
 impl PluginClientMetadata {
@@ -97,6 +117,7 @@ impl PluginClientMetadata {
             client_version: None,
             custom_actions: &[],
             non_action_paths: &[],
+            path_methods: &[],
         }
     }
 
@@ -113,6 +134,14 @@ impl PluginClientMetadata {
 
     pub const fn with_non_action_paths(mut self, paths: &'static [&'static str]) -> Self {
         self.non_action_paths = paths;
+        self
+    }
+
+    pub const fn with_path_methods(
+        mut self,
+        path_methods: &'static [PluginClientPathMethod],
+    ) -> Self {
+        self.path_methods = path_methods;
         self
     }
 }

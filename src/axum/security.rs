@@ -148,6 +148,17 @@ fn validate_callback_url(
     }
 }
 
+/// Applies Better Auth's trusted-origin rules to one route-owned redirect
+/// value. Plugins use this inside handlers when upstream middleware ordering
+/// requires authorization to run before origin validation.
+pub(crate) fn validate_trusted_origin_value(
+    service: &AuthService,
+    headers: &HeaderMap,
+    value: &str,
+) -> Result<(), AuthError> {
+    validate_callback_url(service, headers, value, AuthError::InvalidCallbackUrl)
+}
+
 async fn validate_redirect_fields(
     service: &AuthService,
     mut request: Request,

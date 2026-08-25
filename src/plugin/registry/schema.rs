@@ -19,6 +19,7 @@ pub(super) fn core_schema_fields(
             DatabaseModel::Verification,
             config.verification.additional_fields.clone(),
         ),
+        (DatabaseModel::Organization, AdditionalFieldSet::new()),
     ])
 }
 

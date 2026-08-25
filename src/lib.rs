@@ -9,6 +9,7 @@ mod audit;
 mod autumn;
 mod bearer;
 mod captcha;
+mod chargebee;
 mod client_ip;
 mod commet;
 mod config;
@@ -200,11 +201,11 @@ pub use phone_number::{
 };
 pub use plugin::{
     AfterAuthEvent, AuthPlugin, BeforeAuthEvent, PasswordCredentialChanged,
-    PasswordCredentialSource, PluginApiError, PluginClientMetadata, PluginCookie, PluginDescriptor,
-    PluginEndpoint, PluginHttpMethod, PluginMiddleware, PluginMigration,
-    PluginMigrationContribution, PluginRateLimit, PluginRequestContext, PluginRequestSecurity,
-    PluginSchemaField, SensitiveOperation, UserManagementAction, UserManagementDecision,
-    UserManagementOperation,
+    PasswordCredentialSource, PluginApiError, PluginClientMetadata, PluginClientPathMethod,
+    PluginCookie, PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginMiddleware,
+    PluginMigration, PluginMigrationContribution, PluginRateLimit, PluginRequestContext,
+    PluginRequestSecurity, PluginSchemaField, SensitiveOperation, UserManagementAction,
+    UserManagementDecision, UserManagementOperation,
 };
 #[cfg(feature = "axum")]
 pub use plugin::{AxumPluginRoute, PluginSession};
@@ -212,7 +213,6 @@ pub use rate_limit::{
     RateLimitConfig, RateLimitCustomRule, RateLimitOutcome, RateLimitRequest, RateLimitRule,
     RateLimitRuleResolver, RateLimitStorage, RateLimitStorageMode,
 };
-pub use secondary_storage::{MemorySecondaryStorage, SecondaryStorage};
 pub use service::account_types::{
     LinkedAccount, ProviderAccountIdentity, ProviderAccountInfo, ProviderAccountUser,
     ProviderTokenResponse,

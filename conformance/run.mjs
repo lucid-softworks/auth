@@ -24,6 +24,7 @@ import {
 } from "better-auth/client/plugins";
 import { passkeyClient } from "@better-auth/passkey/client";
 import { apiKeyClient } from "@better-auth/api-key/client";
+import { chargebeeClient } from "@chargebee/better-auth/client";
 import { commetClient } from "@commet/better-auth/client";
 import { creemClient } from "@creem_io/better-auth/client";
 import { dodopaymentsClient } from "@dodopayments/better-auth/client";
@@ -3393,6 +3394,99 @@ async function nativeCommetConformance(origin) {
   console.log("ok - Commet official client against native server");
 }
 
+async function nativeChargebeeConformance(origin) {
+  const transport = new BrowserTransport(origin);
+  await transport.useFixtureSession("password");
+  const client = createAuthClient({
+    baseURL: origin,
+    fetchOptions: { customFetchImpl: transport.fetch.bind(transport) },
+    plugins: [chargebeeClient({ subscription: true })],
+  });
+
+  const checkout = success(
+    await client.subscription.create({
+      cancelUrl: "/pricing",
+      disableRedirect: true,
+      itemPriceId: "native-USD-Monthly",
+      seats: 3,
+      successUrl: "/billing/complete",
+    }),
+    "native Chargebee subscription.create",
+  );
+  assert.deepEqual(checkout, {
+    id: "hosted_page_native",
+    redirect: false,
+    url: "https://chargebee.example.test/checkout/native",
+  });
+  transport.assertRequest("/api/auth/subscription/create", "POST", {
+    cancelUrl: "/pricing",
+    disableRedirect: true,
+    itemPriceId: "native-USD-Monthly",
+    seats: 3,
+    successUrl: "/billing/complete",
+  });
+
+  const subscriptions = success(
+    await client.subscription.list(),
+    "native Chargebee subscription.list",
+  );
+  assert.deepEqual(subscriptions, []);
+  transport.assertRequest("/api/auth/subscription/list", "GET");
+
+  const portal = await client.subscription.portal({
+    disableRedirect: true,
+    returnUrl: "/account/billing",
+  });
+  assert.equal(
+    portal.error?.message,
+    "Chargebee customer not found for this user",
+  );
+  assert.equal(portal.error?.code, "CUSTOMER_NOT_FOUND");
+  transport.assertRequest("/api/auth/subscription/portal", "POST", {
+    disableRedirect: true,
+    returnUrl: "/account/billing",
+  });
+
+  const update = await client.subscription.update({
+    cancelUrl: "/pricing",
+    disableRedirect: true,
+    itemPriceId: "native-USD-Yearly",
+    successUrl: "/billing/complete",
+  });
+  assert.equal(update.error?.message, "Subscription not found");
+  transport.assertRequest("/api/auth/subscription/update", "POST", {
+    cancelUrl: "/pricing",
+    disableRedirect: true,
+    itemPriceId: "native-USD-Yearly",
+    successUrl: "/billing/complete",
+  });
+
+  const cancel = await client.subscription.cancel({
+    disableRedirect: true,
+    returnUrl: "/pricing?cancelled=true",
+  });
+  assert.equal(cancel.error?.message, "Subscription not found");
+  transport.assertRequest("/api/auth/subscription/cancel", "POST", {
+    disableRedirect: true,
+    returnUrl: "/pricing?cancelled=true",
+  });
+
+  await client.subscription.cancel.callback({
+    fetchOptions: { redirect: "manual" },
+    query: { callbackURL: "/pricing" },
+  });
+  const callback = transport.assertRequest(
+    "/api/auth/subscription/cancel/callback",
+    "GET",
+  );
+  assert.equal(callback.search, "?callbackURL=%2Fpricing");
+  assert.equal(
+    callback.responseHeaders.get("location"),
+    `${origin}/api/auth/pricing`,
+  );
+  console.log("ok - Chargebee official client against native server");
+}
+
 async function cookieCacheConformance(origin, strategy) {
   const transport = new BrowserTransport(origin);
   const client = createAuthClient({
@@ -3542,6 +3636,7 @@ for (const strategy of ["compact", "jwt", "jwe"]) {
       await nativeCreemConformance(origin);
       await nativeDodoPaymentsConformance(origin);
       await nativeCommetConformance(origin);
+      await nativeChargebeeConformance(origin);
       const oauthProviderTransport = new BrowserTransport(origin);
       await oauthProviderNativeConformance(
         origin,

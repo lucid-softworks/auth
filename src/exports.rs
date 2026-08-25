@@ -3,12 +3,13 @@ pub use crate::audit::{
     AuditStore, MemoryAuditStore,
 };
 pub use crate::cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
+pub use crate::secondary_storage::{MemorySecondaryStorage, SecondaryStorage};
 pub use crate::username::{
     UsernameConfig, UsernameError, UsernameNormalizer, UsernamePlugin, UsernameValidationOrder,
     UsernameValidationTiming, UsernameValidator,
 };
 pub use crate::{
-    agent_auth::*, autumn::*, bearer::*, captcha::*, commet::*, creem::*, dodo_payments::*,
-    error::AuthError, have_i_been_pwned::*, i18n::*, mcp::*, memory::MemoryStore, open_api::*,
-    origin::TrustedOrigin, polar::*, stripe::*, test_utils::*,
+    agent_auth::*, autumn::*, bearer::*, captcha::*, chargebee::*, commet::*, creem::*,
+    dodo_payments::*, error::AuthError, have_i_been_pwned::*, i18n::*, mcp::*, memory::MemoryStore,
+    open_api::*, origin::TrustedOrigin, polar::*, stripe::*, test_utils::*,
 };

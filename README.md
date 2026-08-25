@@ -486,6 +486,86 @@ Configure signed deliveries at `POST /api/auth/commet/webhooks`. See the
 for the exact 13 client actions, lifecycle, provider, retry, signature,
 callback, and exclusion boundary.
 
+### Chargebee billing
+
+Chargebee support is opt-in and pins Better Auth `1.7.1`, the
+Chargebee-maintained `@chargebee/better-auth@1.2.0`, and its
+`chargebee@3.23.1` runtime. The plugin is fully native: inject an application
+implementation of `ChargebeeClient` that performs the required Chargebee API
+operations and parses/authenticates webhooks. No Node process or JavaScript
+sidecar is used.
+
+```rust
+use lucid_auth::{
+    ChargebeeClient, ChargebeeFreeTrial, ChargebeeOptions, ChargebeePlan,
+    ChargebeePlanType, ChargebeePlugin, ChargebeeSubscriptionOptions,
+    MemoryChargebeeStore, StaticChargebeePlans,
+};
+use std::sync::Arc;
+
+// Application-owned native gateway; keep the site and API key server-side.
+let provider: Arc<dyn ChargebeeClient> = Arc::new(MyChargebeeGateway::new(
+    std::env::var("CHARGEBEE_SITE")?,
+    std::env::var("CHARGEBEE_API_KEY")?,
+));
+let plans = Arc::new(StaticChargebeePlans(vec![ChargebeePlan {
+    name: "pro".into(),
+    item_price_id: "price_pro".into(),
+    item_id: None,
+    item_family_id: None,
+    plan_type: ChargebeePlanType::Plan,
+    billing_cycles: None,
+    free_trial: Some(ChargebeeFreeTrial { days: 7.0 }),
+    limits: Some(serde_json::json!({ "projects": 20 })),
+}]));
+
+let mut options = ChargebeeOptions::new(provider);
+options.subscription = Some(ChargebeeSubscriptionOptions::new(true, plans));
+options.create_customer_on_sign_up = true;
+options.webhook_username = Some(std::env::var("CHARGEBEE_WEBHOOK_USERNAME")?.into());
+options.webhook_password = Some(std::env::var("CHARGEBEE_WEBHOOK_PASSWORD")?.into());
+
+let chargebee_store = Arc::new(MemoryChargebeeStore::new(store.clone()));
+config.add_plugin(ChargebeePlugin::new(options, chargebee_store))?;
+```
+
+`MyChargebeeGateway` above is application code implementing the narrow
+`ChargebeeClient` trait; it is not a lucid-auth type. Use
+`PostgresChargebeeStore` and apply the plugin-owned migration for PostgreSQL.
+For organization-owned subscriptions, also install the native Organization
+plugin and enable `ChargebeeOrganizationOptions`; Chargebee organization mode
+does not install Organization support implicitly.
+
+Configure Chargebee to deliver webhooks to
+`POST /api/auth/chargebee/webhook`. Basic authentication is enforced only when
+both webhook credentials are configured. Then install the official browser
+client with subscription inference enabled:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { chargebeeClient } from "@chargebee/better-auth/client";
+
+export const authClient = createAuthClient({
+  plugins: [chargebeeClient({ subscription: true })],
+});
+
+await authClient.subscription.create({
+  itemPriceId: "price_pro",
+  successUrl: "/billing/success",
+  cancelUrl: "/billing",
+});
+```
+
+The provider remains authoritative while lucid-auth stores the adapter's local
+customer linkage, subscription, and subscription-item projection. Create and
+update accept upstream's declared `returnUrl` field but do not use it; callback
+queries use exact `callbackURL` casing. Webhook handling intentionally awaits
+authentication, native processing, custom listeners, and event-bus persistence
+before acknowledging a delivery, fixing the published adapter's unsafe early
+acknowledgement race. See the
+[Chargebee compatibility details](COMPATIBILITY.md#chargebee-120) for the exact
+route, lifecycle, schema, webhook, and conformance boundary.
+
 Social providers use the same `signIn.social` and `/callback/:provider` wire
 contract as Better Auth. Register a built-in after setting the public base URL:
 

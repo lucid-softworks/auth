@@ -78,5 +78,14 @@ pub(crate) fn reserved_field_names(model: DatabaseModel) -> &'static [&'static s
             "createdAt",
             "updatedAt",
         ],
+        DatabaseModel::Organization => &[
+            "id",
+            "name",
+            "slug",
+            "logo",
+            "metadata",
+            "createdAt",
+            "updatedAt",
+        ],
     }
 }

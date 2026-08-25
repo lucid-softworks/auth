@@ -149,6 +149,7 @@ fn merge_core_model_fields(
         (DatabaseModel::Session, "Session"),
         (DatabaseModel::Account, "Account"),
         (DatabaseModel::Verification, "Verification"),
+        (DatabaseModel::Organization, "Organization"),
     ] {
         let Some(schema) = schemas.get_mut(name) else {
             continue;

@@ -25,6 +25,8 @@ mod anonymous;
 mod api_key;
 #[path = "postgres_contract/audit.rs"]
 mod audit;
+#[path = "postgres_contract/chargebee.rs"]
+mod chargebee;
 #[path = "postgres_contract/device_authorization_schema.rs"]
 mod device_authorization_schema;
 #[path = "postgres_contract/dodo_payments.rs"]
@@ -118,6 +120,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     test_utils::assert_persistence(&store, &pool).await?;
     let user = provision_owner(&service).await?;
     migrate_legacy_extensions(&service, &store, &pool, user.id).await?;
+    chargebee::assert_migration_and_persistence(&service, &store, &pool, user.id).await?;
     agent_auth::assert_switch_contract(&pool, user.id).await?;
     anonymous::assert_lifecycle(&service, &store).await?;
     let signed_in = authenticate_owner(&service, &user).await?;

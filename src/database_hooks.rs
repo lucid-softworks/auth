@@ -9,6 +9,7 @@ pub enum DatabaseModel {
     Session,
     Account,
     Verification,
+    Organization,
 }
 
 impl DatabaseModel {
@@ -18,6 +19,7 @@ impl DatabaseModel {
             Self::Session => "session",
             Self::Account => "account",
             Self::Verification => "verification",
+            Self::Organization => "organization",
         }
     }
 }
