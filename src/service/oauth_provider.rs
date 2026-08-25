@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 impl AuthService {
     pub(crate) fn oauth_provider_plugin(&self) -> Option<&crate::OAuthProviderPlugin> {
-        self.plugins.find::<crate::OAuthProviderPlugin>()
+        self.plugins.oauth_provider()
     }
 
     pub(crate) fn oauth_provider_extensions(

@@ -188,6 +188,10 @@ name = "device_authorization_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "mcp_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "one_tap_contract"
 required-features = ["axum"]
 

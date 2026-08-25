@@ -56,10 +56,10 @@ pub(super) async fn validate_browser_request(
     }
 
     let supplied_origin = request_origin(headers);
-    let browser_metadata_present = fetch_site.is_some()
-        || fetch_mode.is_some()
-        || fetch_dest.is_some()
-        || supplied_origin.is_some();
+    let server_to_server_oauth = is_server_to_server_oauth_path(path, service.base_path());
+    let browser_metadata_present = supplied_origin.is_some()
+        || (!server_to_server_oauth
+            && (fetch_site.is_some() || fetch_mode.is_some() || fetch_dest.is_some()));
     let uses_cookies = headers.contains_key(header::COOKIE);
     if !is_oauth_callback && !uses_accepted_bearer && (browser_metadata_present || uses_cookies) {
         let Some(origin) = supplied_origin.filter(|origin| *origin != "null") else {
@@ -73,6 +73,24 @@ pub(super) async fn validate_browser_request(
         Ok(request) => next.run(request).await,
         Err(error) => auth_error(error),
     }
+}
+
+fn is_server_to_server_oauth_path(path: &str, base_path: &str) -> bool {
+    let relative = if base_path == "/" {
+        path
+    } else {
+        path.strip_prefix(base_path).unwrap_or(path)
+    };
+    matches!(
+        relative,
+        "/oauth2/token"
+            | "/oauth2/introspect"
+            | "/oauth2/revoke"
+            | "/oauth2/register"
+            | "/oauth2/userinfo"
+            | "/device/code"
+            | "/device/token"
+    )
 }
 
 fn validate_callback_url(

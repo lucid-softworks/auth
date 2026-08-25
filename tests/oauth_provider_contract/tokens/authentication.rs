@@ -30,6 +30,8 @@ async fn endpoint_authentication_cardinality_and_scheme_handling_match_upstream(
 
     let basic =
         base64::engine::general_purpose::STANDARD.encode(format!("{client_id}:{client_secret}"));
+    assert_sdk_style_basic_request_without_origin(&fixture, &basic).await;
+
     let (status, _, token) = authorized_form_request(
         &fixture.app,
         "/api/auth/oauth2/token",
@@ -67,6 +69,23 @@ async fn endpoint_authentication_cardinality_and_scheme_handling_match_upstream(
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{error}");
     assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
     assert_eq!(error["error"], "invalid_client");
+}
+
+async fn assert_sdk_style_basic_request_without_origin(fixture: &Fixture, basic: &str) {
+    let response = fixture
+        .app
+        .clone()
+        .oneshot(
+            Request::post("/api/auth/oauth2/token")
+                .header("sec-fetch-mode", "cors")
+                .header(header::AUTHORIZATION, format!("Basic {basic}"))
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from("grant_type=client_credentials&scope=api.read"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[tokio::test]

@@ -13,6 +13,7 @@ use std::{
 
 mod core_endpoints;
 mod lifecycle;
+mod oauth_provider;
 mod schema;
 
 use core_endpoints::CORE_ENDPOINTS;
@@ -51,7 +52,7 @@ impl PluginRegistry {
             }
         }
         validate_relationships(&by_id)?;
-        validate_oauth_provider_extensions(plugins)?;
+        oauth_provider::validate_extensions(plugins)?;
         validate_contributions(&by_id, config)?;
         let ordered_ids = dependency_order(&by_id)?;
         let mut ordered_plugins = Vec::with_capacity(plugins.len());
@@ -127,26 +128,6 @@ impl PluginRegistry {
             .flat_map(|plugin| plugin.social_providers())
             .collect()
     }
-}
-
-fn validate_oauth_provider_extensions(plugins: &[Arc<dyn AuthPlugin>]) -> Result<(), AuthError> {
-    let Some(provider) = plugins
-        .iter()
-        .find_map(|plugin| plugin.as_any().downcast_ref::<crate::OAuthProviderPlugin>())
-    else {
-        return Ok(());
-    };
-    let mut effective = provider.config().clone();
-    effective.extensions.extend(
-        plugins
-            .iter()
-            .flat_map(|plugin| plugin.oauth_provider_extensions()),
-    );
-    effective.validate().map_err(|error| {
-        AuthError::InvalidConfiguration(format!(
-            "OAuth Provider companion extension configuration is invalid: {error}"
-        ))
-    })
 }
 
 fn validate_descriptor(descriptor: &PluginDescriptor) -> Result<(), AuthError> {

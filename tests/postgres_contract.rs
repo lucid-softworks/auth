@@ -33,6 +33,8 @@ mod guest_capability;
 mod last_login_method;
 #[path = "postgres_contract/magic_link.rs"]
 mod magic_link;
+#[path = "postgres_contract/mcp.rs"]
+mod mcp;
 #[path = "postgres_contract/multi_session.rs"]
 mod multi_session;
 #[path = "postgres_contract/oauth.rs"]
@@ -121,6 +123,7 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     step_up::assert_atomic(&service, &store, &pool, &step_up_session).await?;
 
     verification::values_are_atomic(&store, user.id).await?;
+    mcp::assert_durable_dpop_replay(&store, &pool).await?;
     verification::email_is_atomic(&store, &user).await?;
     verification::password_reset_is_atomic(&store, &pool, user.id).await?;
     email_otp::assert_redemption_is_atomic(&service, &pool).await?;

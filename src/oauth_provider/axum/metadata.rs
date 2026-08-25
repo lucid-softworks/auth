@@ -109,7 +109,11 @@ async fn openid_metadata(
 
 pub(super) fn issuer(service: &AuthService, headers: &HeaderMap) -> String {
     if let Some(configured) = service.configured_base_url() {
-        return configured.as_str().trim_end_matches('/').to_owned();
+        let mut resolved = configured.clone();
+        if resolved.path() == "/" {
+            resolved.set_path(service.base_path());
+        }
+        return resolved.as_str().trim_end_matches('/').to_owned();
     }
     let origin = request_origin(service, headers).unwrap_or_else(|| {
         format!(
@@ -124,7 +128,7 @@ pub(super) fn issuer(service: &AuthService, headers: &HeaderMap) -> String {
     format!("{origin}{}", service.base_path())
 }
 
-pub(super) fn provider_issuer(
+pub(crate) fn provider_issuer(
     service: &AuthService,
     headers: &HeaderMap,
     config: &OAuthProviderConfig,

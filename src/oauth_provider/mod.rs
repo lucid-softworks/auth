@@ -118,7 +118,10 @@ impl OAuthProviderPlugin {
     }
 
     #[cfg(feature = "axum")]
-    fn effective_config(&self, service: &crate::AuthService) -> Arc<OAuthProviderConfig> {
+    pub(crate) fn effective_config(
+        &self,
+        service: &crate::AuthService,
+    ) -> Arc<OAuthProviderConfig> {
         let mut config = (*self.config).clone();
         config
             .extensions

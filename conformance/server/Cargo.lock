@@ -1294,6 +1294,7 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "axum",
+ "base64 0.22.1",
  "chrono",
  "hex",
  "lucid-auth",

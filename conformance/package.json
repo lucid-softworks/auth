@@ -7,8 +7,10 @@
   },
   "dependencies": {
     "@better-auth/api-key": "1.7.1",
+    "@better-auth/mcp": "1.7.1",
     "@better-auth/oauth-provider": "1.7.1",
     "@better-auth/passkey": "1.7.1",
+    "@modelcontextprotocol/client": "2.0.0",
     "better-auth": "1.7.1"
   }
 }

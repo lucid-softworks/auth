@@ -57,6 +57,8 @@ The currently supported surface covers:
   optional OAuth Proxy server plugin and ordinary `signIn.social` client
 - the complete official `oauthProviderClient` management surface plus the
   native OAuth 2.0/OIDC authorization-server protocol as an optional plugin
+- the `@better-auth/mcp` authorization preset, protected-resource discovery,
+  and Bearer/DPoP request verification for application-owned MCP routes
 - the complete linked-account lifecycle: `listAccounts`, `linkSocial`,
   `unlinkAccount`, `accountInfo`, `getAccessToken`, and `refreshToken`
 - passkey rename and removal
@@ -399,6 +401,93 @@ revocation, UserInfo, and logout follow the pinned plugin contract. Better
 Auth's server-only admin/resource actions intentionally remain unavailable over
 HTTP, and device authorization is a separate plugin. See the
 [compatibility matrix](COMPATIBILITY.md) for the precise boundary.
+
+MCP support matches the authorization boundary of `@better-auth/mcp@1.7.1`.
+It is an OAuth Provider preset and RFC 9728 protected-resource server, not an
+MCP transport: it binds issued tokens to one configured MCP resource, links
+newly registered clients to that resource, serves both root-mounted protected
+resource metadata aliases, and verifies Bearer or DPoP credentials before an
+application-owned MCP handler runs. It reuses OAuth Provider's seven models,
+six rate limits, token/resource policy, and refresh rotation; the MCP preset
+defaults the refresh-token retry overlap to 30 seconds, with explicit zero
+restoring strict replay handling.
+
+Install the preset instead of a separate `OAuthProviderPlugin`; its descriptor
+remains `oauth-provider`, so it cannot be combined with another provider:
+
+```rust
+use lucid_auth::{
+    JwtPlugin, McpPlugin, McpPluginConfig, OAuthProviderPluginConfig,
+};
+
+config.add_plugin(JwtPlugin::default())?;
+let provider = OAuthProviderPluginConfig::new("/sign-in", "/oauth/consent");
+config.add_plugin(McpPlugin::in_memory(McpPluginConfig::new(
+    "https://api.example.com/mcp",
+    provider,
+))?)?;
+```
+
+Use `McpPlugin::postgres` with the same `PostgresStore` as `AuthService` in
+production. It contributes the ordinary OAuth Provider migration and no
+MCP-specific model.
+
+There is no `@better-auth/mcp/client` export or MCP-specific Better Auth client
+action. Use `oauthProviderClient()` for the inherited client-management
+surface and version 2 of the official `@modelcontextprotocol/client` package
+for MCP discovery, authorization, and protocol requests. The host application
+owns its MCP HTTP `POST` route and transport. Lucid Auth does not add an MCP
+session/SSE bridge, protocol-session store, database model, cookie, client
+factory, or route-specific rate limit.
+
+The configured resource must be one absolute URL without credentials, query,
+or fragment. HTTPS is required except for localhost and numeric loopback
+development URLs. Protected-resource metadata is publicly cacheable for 15
+seconds and advertises the externally resolved OAuth issuer, resource scopes,
+and Provider DPoP algorithms. Request challenges use the exact JSON-RPC error
+shape and RFC 6750/RFC 9728 `WWW-Authenticate` parameters expected by the
+official MCP client.
+
+The convenience request verifier defaults issuer, JWKS, and audience from the
+auth base URL. That default audience deliberately does not infer the MCP
+preset's configured resource; pass the resource explicitly when they differ.
+The convenience path uses durable core verification reservations for DPoP
+replay protection. The lower-level verifier accepts explicit issuer/audience,
+local JWKS or remote introspection, scope policy, and a custom replay store.
+
+Create one verifier with the service, then call it before dispatching each
+application-owned MCP request:
+
+```rust
+use lucid_auth::{
+    McpProtectedRequest, McpProtectedRequestOutcome, RequireMcpAuthOptions,
+    require_mcp_auth,
+};
+
+let verifier = require_mcp_auth(
+    service.clone(),
+    RequireMcpAuthOptions {
+        resource: Some("https://api.example.com/mcp".into()),
+        required_scopes: Some(vec!["mcp.read".into()]),
+        ..Default::default()
+    },
+)?;
+
+match verifier.verify(&McpProtectedRequest {
+    authorization_header,
+    dpop_proof_jwt,
+    method: "POST".into(),
+    url: "https://api.example.com/mcp".into(),
+}).await? {
+    McpProtectedRequestOutcome::Authorized(claims) => {
+        // Dispatch the JSON-RPC request with the verified claims.
+    }
+    McpProtectedRequestOutcome::Challenge(challenge) => {
+        // Return challenge.status_code, challenge.www_authenticate,
+        // challenge.content_type(), and challenge.json_rpc_body().
+    }
+}
+```
 
 Device Authorization is a separate plugin matching Better Auth 1.7.1. For a
 standalone first-party device flow, install it without OAuth Provider:

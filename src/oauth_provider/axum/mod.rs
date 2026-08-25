@@ -7,7 +7,7 @@ mod body;
 mod client;
 mod logout;
 pub(crate) mod management;
-mod metadata;
+pub(crate) mod metadata;
 mod provider_api;
 mod resource;
 pub(crate) mod response;

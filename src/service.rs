@@ -21,6 +21,7 @@ mod jwt;
 mod last_login_method;
 #[cfg(feature = "axum")]
 pub(crate) mod magic_link;
+mod mcp;
 #[cfg(feature = "axum")]
 mod multi_session;
 mod oauth;
@@ -244,6 +245,11 @@ impl AuthService {
     #[cfg(feature = "axum")]
     pub(crate) fn trusted_proxy_headers(&self) -> bool {
         self.config.trusted_proxy_headers
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn skip_trailing_slashes(&self) -> bool {
+        self.config.skip_trailing_slashes
     }
 
     #[cfg(feature = "axum")]

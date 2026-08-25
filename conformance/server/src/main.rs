@@ -6,17 +6,18 @@ use axum::{
     routing::{get, post},
 };
 use lucid_auth::{
-    AdditionalField, AdditionalFieldType, AdminConfig, AdminPlugin, AdminRole, AuthConfig,
     AuthService, EmailOtpMessage, MagicLinkEmail, MemorySecondaryStorage, MemoryStore,
-    NewPasswordUser, PasswordResetEmail, TwoFactorOtp, UsernamePlugin, VerificationEmail,
+    NewPasswordUser, PasswordResetEmail, TwoFactorOtp, VerificationEmail,
 };
 use serde_json::json;
 use std::{io::Write, net::SocketAddr, sync::Arc};
 use tokio::sync::Mutex;
 
 mod cookie_cache;
+mod config;
 mod email;
 mod metadata;
+mod mcp;
 mod native_plugin;
 mod organization;
 mod phone_number;
@@ -33,6 +34,7 @@ pub(crate) struct Fixture {
     pub(crate) store: Arc<MemoryStore>,
     pub(crate) secondary: Arc<MemorySecondaryStorage>,
     pub(crate) owner_id: uuid::Uuid,
+    mcp_resource: Option<String>,
     verification_emails: Arc<Mutex<Vec<VerificationEmail>>>,
     password_reset_emails: Arc<Mutex<Vec<PasswordResetEmail>>>,
     magic_links: Arc<Mutex<Vec<MagicLinkEmail>>>,
@@ -81,6 +83,7 @@ async fn main() {
             "/__conformance__/session/{authentication_method}",
             post(session_fixture::create),
         )
+        .route("/mcp", post(mcp::handle))
         .merge(lucid_auth::axum::router(fixture.service.clone()))
         .layer(Extension(fixture));
 
@@ -170,7 +173,7 @@ async fn fixture(origin: &str) -> Fixture {
     let secondary = Arc::new(MemorySecondaryStorage::default());
     let messages = ConformanceMessages::default();
     let phone_number_messages = phone_number::ConformancePhoneNumberMessages::default();
-    let config = conformance_config(
+    let (config, oauth) = config::build(
         origin,
         &messages,
         &phone_number_messages,
@@ -191,11 +194,16 @@ async fn fixture(origin: &str) -> Fixture {
         })
         .await
         .expect("provision fixture owner");
+    let mcp_resource = oauth.as_ref().map(|_| format!("{origin}/mcp"));
+    if let (Some(oauth), Some(resource)) = (oauth, mcp_resource.as_deref()) {
+        mcp::seed_client(oauth.as_ref(), resource).await;
+    }
     Fixture {
         service,
         store,
         secondary,
         owner_id: owner.id,
+        mcp_resource,
         verification_emails: messages.verification_emails,
         password_reset_emails: messages.password_reset_emails,
         magic_links: messages.magic_links,
@@ -204,58 +212,4 @@ async fn fixture(origin: &str) -> Fixture {
         phone_number_otps: phone_number_messages.verification,
         phone_number_reset_otps: phone_number_messages.password_reset,
     }
-}
-
-async fn conformance_config(
-    origin: &str,
-    messages: &ConformanceMessages,
-    phone_number_messages: &phone_number::ConformancePhoneNumberMessages,
-    store: Arc<MemoryStore>,
-    secondary: Arc<MemorySecondaryStorage>,
-) -> AuthConfig {
-    let mut config = AuthConfig::new([82_u8; 32]).expect("fixture secret");
-    config.secondary_storage = Some(secondary);
-    config.session.store_session_in_database = true;
-    config.account.store_account_cookie = true;
-    cookie_cache::configure(&mut config);
-    if std::env::var_os("LUCID_AUTH_DEFER_SESSION_REFRESH").is_some() {
-        config.session.cookie_cache.enabled = false;
-        config.session.defer_session_refresh = true;
-        config.session.update_age = chrono::Duration::zero();
-    }
-    let mut admin = AdminConfig::default();
-    admin.set_role("member", AdminRole::new());
-    admin.set_role("viewer", AdminRole::new());
-    config
-        .add_plugin(AdminPlugin::new(admin))
-        .expect("unique admin plugin");
-    config
-        .add_plugin(lucid_auth::AnonymousPlugin::default())
-        .expect("unique anonymous plugin");
-    config.email_and_password.enabled = true;
-    config.user.delete_user.enabled = true;
-    config.user.change_email.enabled = true;
-    config.user.additional_fields.insert(
-        "timezone".into(),
-        AdditionalField::new(AdditionalFieldType::String).default_value(json!("UTC")),
-    );
-    config.user.additional_fields.insert(
-        "department".into(),
-        AdditionalField::new(AdditionalFieldType::String).optional(),
-    );
-    config.session.additional_fields.insert(
-        "theme".into(),
-        AdditionalField::new(AdditionalFieldType::String).default_value(json!("system")),
-    );
-    email::configure(&mut config, messages);
-    config
-        .set_base_url(origin)
-        .expect("localhost fixture origin");
-    rate_limit::configure(&mut config);
-    social_provider::register(&mut config).await;
-    config
-        .add_plugin(UsernamePlugin::default())
-        .expect("unique username plugin");
-    plugin_setup::register(&mut config, origin, messages, phone_number_messages, store);
-    config
 }

@@ -14,12 +14,12 @@ use lucid_auth::{
     ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, AuthError, BearerPlugin,
     DeviceAuthorizationConfig, DeviceAuthorizationPlugin, EmailOtpConfig, EmailOtpPlugin,
     JwtPlugin, LastLoginMethodConfig, LastLoginMethodPlugin, MagicLinkConfig, MagicLinkPlugin,
-    MemoryStore, MemoryTwoFactorStore, MultiSessionPlugin, OAuthDeviceAuthorizationPlugin,
-    OAuthProviderPlugin, OAuthProviderPluginConfig, OneTapConfig, OneTapPlugin, OneTimeTokenConfig,
-    OneTimeTokenPlugin, OtpConfig, PasskeyConfig, PasskeyPlugin, PhoneNumberConfig,
-    PhoneNumberPlugin, PhoneNumberSignUpConfig, SiweConfig, SiweMessageVerifier,
-    SiweNonceGenerator, SiwePlugin, SiweVerificationRequest, TotpConfig, TwoFactorConfig,
-    TwoFactorPlugin,
+    McpPlugin, McpPluginConfig, MemoryOAuthProviderStore, MemoryStore, MemoryTwoFactorStore,
+    MultiSessionPlugin, OAuthDeviceAuthorizationPlugin, OAuthProviderPluginConfig,
+    OAuthProviderStore, OneTapConfig, OneTapPlugin, OneTimeTokenConfig, OneTimeTokenPlugin,
+    OtpConfig, PasskeyConfig, PasskeyPlugin, PhoneNumberConfig, PhoneNumberPlugin,
+    PhoneNumberSignUpConfig, SiweConfig, SiweMessageVerifier, SiweNonceGenerator, SiwePlugin,
+    SiweVerificationRequest, TotpConfig, TwoFactorConfig, TwoFactorPlugin,
 };
 use std::{
     collections::BTreeMap,
@@ -56,7 +56,7 @@ pub(super) fn register(
     messages: &ConformanceMessages,
     phone_number_messages: &ConformancePhoneNumberMessages,
     store: Arc<MemoryStore>,
-) {
+) -> Option<Arc<dyn OAuthProviderStore>> {
     config
         .add_plugin(PasskeyPlugin::new(PasskeyConfig {
             rp_id: Some("localhost".into()),
@@ -102,7 +102,7 @@ pub(super) fn register(
         .add_plugin(EmailOtpPlugin::new(email_otp))
         .expect("unique email-OTP plugin");
     register_phone_number(config, phone_number_messages, store.clone());
-    register_session_plugins(config, origin, store.clone());
+    let oauth = register_session_plugins(config, origin, store.clone());
     config
         .add_plugin(TwoFactorPlugin::new(
             Arc::new(MemoryTwoFactorStore::default()),
@@ -118,13 +118,18 @@ pub(super) fn register(
             },
         ))
         .expect("unique two-factor plugin");
+    oauth
 }
 
-fn register_session_plugins(config: &mut AuthConfig, origin: &str, store: Arc<MemoryStore>) {
+fn register_session_plugins(
+    config: &mut AuthConfig,
+    origin: &str,
+    store: Arc<MemoryStore>,
+) -> Option<Arc<dyn OAuthProviderStore>> {
     config
         .add_plugin(JwtPlugin::default())
         .expect("unique JWT plugin");
-    register_device_authorization(config);
+    let oauth = register_device_authorization(config, origin);
     config
         .add_plugin(BearerPlugin::default())
         .expect("unique bearer plugin");
@@ -155,24 +160,39 @@ fn register_session_plugins(config: &mut AuthConfig, origin: &str, store: Arc<Me
     config
         .add_plugin(SiwePlugin::new(store, siwe))
         .expect("unique SIWE plugin");
+    oauth
 }
 
-fn register_device_authorization(config: &mut AuthConfig) {
+fn register_device_authorization(
+    config: &mut AuthConfig,
+    origin: &str,
+) -> Option<Arc<dyn OAuthProviderStore>> {
     let mut device = DeviceAuthorizationConfig::default();
     device.interval = "0s".into();
     match std::env::var("LUCID_AUTH_DEVICE_MODE").as_deref() {
-        Ok("standalone") => config
-            .add_plugin(DeviceAuthorizationPlugin::in_memory(device))
-            .expect("unique standalone device-authorization plugin"),
-        Ok("oauth") | Err(_) => {
+        Ok("standalone") => {
             config
-                .add_plugin(OAuthProviderPlugin::in_memory(
-                    OAuthProviderPluginConfig::new("/login", "/consent"),
-                ))
-                .expect("unique OAuth-provider plugin");
+                .add_plugin(DeviceAuthorizationPlugin::in_memory(device))
+                .expect("unique standalone device-authorization plugin");
+            None
+        }
+        Ok("oauth") | Err(_) => {
+            let oauth = Arc::new(MemoryOAuthProviderStore::new());
+            let mut provider = OAuthProviderPluginConfig::new("/login", "/consent");
+            provider.scopes.push("mcp.read".into());
+            let mcp = McpPlugin::from_arc(
+                McpPluginConfig::new(format!("{origin}/mcp"), provider),
+                oauth as Arc<_>,
+            )
+            .expect("valid MCP OAuth preset");
+            let runtime_store = mcp.store().clone();
+            config
+                .add_plugin(mcp)
+                .expect("unique MCP OAuth-provider plugin");
             config
                 .add_plugin(OAuthDeviceAuthorizationPlugin::in_memory(device))
                 .expect("unique OAuth device-authorization plugin");
+            Some(runtime_store)
         }
         Ok(mode) => panic!("unsupported LUCID_AUTH_DEVICE_MODE `{mode}`"),
     }

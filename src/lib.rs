@@ -20,6 +20,7 @@ mod guest_capability;
 mod jwt;
 mod last_login_method;
 mod magic_link;
+mod mcp;
 mod memory;
 mod model;
 mod multi_session;
@@ -135,7 +136,6 @@ pub use magic_link::{
     MagicLinkConfig, MagicLinkEmail, MagicLinkPlugin, MagicLinkRequestContext, MagicLinkSender,
     MagicLinkTokenGenerator, MagicLinkTokenHasher, MagicLinkTokenStorage,
 };
-pub use memory::MemoryStore;
 pub use model::{
     ApiKey, AuthSession, AuthUser, AuthenticationMethod, IssuedApiKey, NewApiKey, NewPasswordUser,
     OAuthAccount, Principal, SessionWithUser, StoredPasskey, VerificationValue, VerifiedApiKey,
@@ -250,3 +250,4 @@ pub use username::{
     UsernameConfig, UsernameError, UsernameNormalizer, UsernamePlugin, UsernameValidationOrder,
     UsernameValidationTiming, UsernameValidator,
 };
+pub use {mcp::*, memory::MemoryStore};

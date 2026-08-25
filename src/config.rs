@@ -55,6 +55,9 @@ pub struct AuthConfig {
     /// Trust `x-forwarded-host` and `x-forwarded-proto` when deriving request URLs.
     /// Better Auth defaults this to false.
     pub trusted_proxy_headers: bool,
+    /// Ignore trailing slashes when matching MCP protected-resource metadata.
+    /// Mirrors Better Auth's `advanced.skipTrailingSlashes`; defaults to false.
+    pub skip_trailing_slashes: bool,
     /// Additional browser origins allowed to call authentication endpoints or
     /// receive absolute callback redirects.
     pub trusted_origins: Vec<TrustedOrigin>,
@@ -127,6 +130,7 @@ impl AuthConfig {
             trusted_social_providers: Vec::new(),
             ip_address: IpAddressConfig::default(),
             trusted_proxy_headers: false,
+            skip_trailing_slashes: false,
             trusted_origins: Vec::new(),
             plugins: Vec::new(),
             base_url: None,
@@ -389,6 +393,7 @@ mod tests {
     #[test]
     fn validates_and_normalizes_deployment_urls() {
         let mut config = AuthConfig::new([7_u8; 32]).unwrap();
+        assert!(!config.skip_trailing_slashes);
         config
             .set_base_url("https://auth.example.com/custom/")
             .unwrap();
