@@ -99,6 +99,7 @@ impl AuthPlugin for OpenApiPlugin {
             id: "open-api",
             display_name: "Open API",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::better_auth_plugin("openAPI"),
             dependencies: &[],
             conflicts: &[],
             endpoints: Cow::Owned(vec![

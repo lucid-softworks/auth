@@ -50,13 +50,14 @@ impl AuthPlugin for ConformancePlugin {
             id: "conformance",
             display_name: "Native conformance plugin",
             version: "1.0.0",
+            provenance: lucid_auth::PluginProvenance::lucid_extension(),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: &[],
             rate_limits: RATE_LIMITS,
             middleware: MIDDLEWARE,
-            client: Some(PluginClientMetadata::current(
+            client: Some(PluginClientMetadata::application(
                 "lucid-auth-conformance",
                 "./native-plugin-client.mjs",
                 "nativePluginClient",

@@ -3,22 +3,9 @@ use crate::{
     AdminListUsersQuery, AdminPermissionSet, AuthError, AuthSession, AuthUser, SessionWithUser,
 };
 use chrono::{DateTime, Utc};
-use serde_json::json;
 use uuid::Uuid;
 
 impl AuthService {
-    pub(crate) async fn require_recent_owner(
-        &self,
-        session: &SessionWithUser,
-    ) -> Result<(), AuthError> {
-        self.plugins
-            .authorize_sensitive(&crate::SensitiveOperation {
-                session,
-                operation: "owner-administration",
-            })
-            .await
-    }
-
     pub async fn list_users(
         &self,
         actor: &SessionWithUser,
@@ -99,13 +86,12 @@ impl AuthService {
         if decision.revoke_target_sessions {
             self.delete_user_sessions_with_hooks(user_id).await?;
         }
-        self.audit(
-            actor.user.id,
-            Some(user_id),
-            "user.role.changed",
-            Some(user_id.to_string()),
-            json!({ "from": target.role, "to": role }),
-        )
+        self.activity(crate::AuthActivity::UserRoleChanged {
+            actor_user_id: actor.user.id,
+            user_id,
+            previous_role: target.role,
+            new_role: role.to_owned(),
+        })
         .await;
         Ok(updated)
     }
@@ -166,13 +152,12 @@ impl AuthService {
         self.after_database_update(&crate::DatabaseRecord::User(updated.clone()))
             .await?;
         self.delete_user_sessions_with_hooks(user_id).await?;
-        self.audit(
-            actor.user.id,
-            Some(user_id),
-            "user.banned",
-            Some(user_id.to_string()),
-            json!({ "reason": reason, "expiresAt": expires_at }),
-        )
+        self.activity(crate::AuthActivity::UserBanned {
+            actor_user_id: actor.user.id,
+            user_id,
+            reason,
+            expires_at,
+        })
         .await;
         Ok(updated)
     }
@@ -206,13 +191,10 @@ impl AuthService {
             .map_err(admin_user_error)?;
         self.after_database_update(&crate::DatabaseRecord::User(updated.clone()))
             .await?;
-        self.audit(
-            actor.user.id,
-            Some(user_id),
-            "user.unbanned",
-            Some(user_id.to_string()),
-            json!({}),
-        )
+        self.activity(crate::AuthActivity::UserUnbanned {
+            actor_user_id: actor.user.id,
+            user_id,
+        })
         .await;
         Ok(updated)
     }
@@ -244,13 +226,12 @@ impl AuthService {
             .await?
             .map(|session| session.session.id);
         self.delete_session_token_with_hooks(session_token).await?;
-        self.audit(
-            actor.user.id,
-            None,
-            "session.revoked",
-            session_id.map(|id| id.to_string()),
-            json!({}),
-        )
+        self.activity(crate::AuthActivity::SessionRevoked {
+            actor_user_id: actor.user.id,
+            subject_user_id: None,
+            session_id,
+            self_service: false,
+        })
         .await;
         Ok(())
     }
@@ -263,13 +244,10 @@ impl AuthService {
         self.require_admin_permission(actor, "session", &["revoke"])
             .await?;
         self.delete_user_sessions_with_hooks(user_id).await?;
-        self.audit(
-            actor.user.id,
-            Some(user_id),
-            "session.user_revoked",
-            Some(user_id.to_string()),
-            json!({}),
-        )
+        self.activity(crate::AuthActivity::UserSessionsRevoked {
+            actor_user_id: actor.user.id,
+            user_id,
+        })
         .await;
         Ok(())
     }
@@ -311,13 +289,12 @@ impl AuthService {
                 user_agent,
             )
             .await?;
-        self.audit(
-            actor.user.id,
-            Some(user_id),
-            "impersonation.started",
-            Some(result.session.session.id.to_string()),
-            json!({ "expiresAt": result.session.session.expires_at }),
-        )
+        self.activity(crate::AuthActivity::ImpersonationStarted {
+            actor_user_id: actor.user.id,
+            user_id,
+            session_id: result.session.session.id,
+            expires_at: result.session.session.expires_at,
+        })
         .await;
         Ok(result)
     }
@@ -342,13 +319,11 @@ impl AuthService {
             token: actor_session_token.to_owned(),
             session: actor_session,
         };
-        self.audit(
-            actor_id,
-            Some(session.user.id),
-            "impersonation.stopped",
-            Some(session.session.id.to_string()),
-            json!({}),
-        )
+        self.activity(crate::AuthActivity::ImpersonationStopped {
+            actor_user_id: actor_id,
+            user_id: session.user.id,
+            session_id: session.session.id,
+        })
         .await;
         Ok(result)
     }

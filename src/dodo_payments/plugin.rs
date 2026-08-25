@@ -41,6 +41,12 @@ impl AuthPlugin for DodoPaymentsPlugin {
             id: "dodopayments",
             display_name: "Dodo Payments",
             version: DODO_PAYMENTS_ADAPTER_VERSION,
+            provenance: crate::PluginProvenance::pinned_upstream(
+                "@dodopayments/better-auth",
+                DODO_PAYMENTS_ADAPTER_VERSION,
+                "@dodopayments/better-auth",
+                "dodopayments",
+            ),
             dependencies: &[],
             conflicts: &[],
             endpoints: Cow::Owned(descriptor_endpoints(&self.options.features)),
@@ -48,7 +54,7 @@ impl AuthPlugin for DodoPaymentsPlugin {
             rate_limits: &[],
             middleware: &[],
             client: Some(
-                PluginClientMetadata::current(
+                PluginClientMetadata::official(
                     "@dodopayments/better-auth",
                     "@dodopayments/better-auth/client",
                     "dodopaymentsClient",

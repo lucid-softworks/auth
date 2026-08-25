@@ -170,6 +170,10 @@ name = "plugin_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "project_extension_boundary_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "password_reset_contract"
 required-features = ["axum"]
 

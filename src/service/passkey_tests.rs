@@ -4,6 +4,7 @@ use crate::{
     PasskeyRegistrationUserResolver,
 };
 use chrono::{DateTime, Duration};
+use serde_json::json;
 use std::sync::Arc;
 
 #[tokio::test]

@@ -33,7 +33,7 @@ fn webhook_only_plugin_metadata_matches_1_7_1() {
     assert_eq!(client.package, "@better-auth/stripe");
     assert_eq!(client.import_path, "@better-auth/stripe/client");
     assert_eq!(client.factory, "stripeClient");
-    assert_eq!(client.better_auth_version, "1.7.1");
+    assert_eq!(client.better_auth_version, Some("1.7.1"));
     assert_eq!(client.client_id, Some("stripe-client"));
     assert_eq!(client.client_version, Some("1.7.1"));
 }

@@ -55,6 +55,12 @@ impl AuthPlugin for CreemPlugin {
             id: "creem",
             display_name: "Creem",
             version: CREEM_ADAPTER_VERSION,
+            provenance: crate::PluginProvenance::pinned_upstream(
+                "@creem_io/better-auth",
+                CREEM_ADAPTER_VERSION,
+                "@creem_io/better-auth",
+                "creem",
+            ),
             dependencies: &[],
             conflicts: &[],
             endpoints: Cow::Owned(endpoints(self.options.webhook_enabled())),
@@ -62,7 +68,7 @@ impl AuthPlugin for CreemPlugin {
             rate_limits: &[],
             middleware: &[],
             client: Some(
-                PluginClientMetadata::current(
+                PluginClientMetadata::official(
                     "@creem_io/better-auth",
                     "@creem_io/better-auth/client",
                     "creemClient",

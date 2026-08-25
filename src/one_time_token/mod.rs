@@ -146,13 +146,14 @@ impl AuthPlugin for OneTimeTokenPlugin {
             id: "one-time-token",
             display_name: "Better Auth One-Time Token",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::better_auth_plugin("oneTimeToken"),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],
-            client: Some(PluginClientMetadata::current(
+            client: Some(PluginClientMetadata::official(
                 "better-auth",
                 "better-auth/client/plugins",
                 "oneTimeTokenClient",

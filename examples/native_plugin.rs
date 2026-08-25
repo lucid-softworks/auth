@@ -45,15 +45,16 @@ impl AuthPlugin for GreetingPlugin {
             id: "greeting",
             display_name: "Greeting example",
             version: "1.0.0",
+            provenance: lucid_auth::PluginProvenance::lucid_extension(),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: COOKIES,
             rate_limits: RATE_LIMITS,
             middleware: MIDDLEWARE,
-            client: Some(PluginClientMetadata::current(
-                "@example/lucid-auth-greeting",
-                "@example/lucid-auth-greeting/client",
+            client: Some(PluginClientMetadata::application(
+                "application",
+                "application/auth-client",
                 "greetingClient",
             )),
         }

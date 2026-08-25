@@ -4,7 +4,6 @@ use crate::{
     PasswordCredentialSource, SessionWithUser, UsernameError,
 };
 use chrono::Utc;
-use serde_json::json;
 use uuid::Uuid;
 
 impl AuthService {
@@ -80,13 +79,12 @@ impl AuthService {
                 })
                 .await?;
         }
-        self.audit(
-            actor.user.id,
-            Some(user.id),
-            "user.created",
-            Some(user.id.to_string()),
-            json!({ "role": user.role, "username": user.username }),
-        )
+        self.activity(crate::AuthActivity::UserCreated {
+            actor_user_id: actor.user.id,
+            user_id: user.id,
+            role: user.role.clone(),
+            username: user.username.clone(),
+        })
         .await;
         Ok(user)
     }
@@ -137,13 +135,10 @@ impl AuthService {
                 source: PasswordCredentialSource::AdministratorReset,
             })
             .await?;
-        self.audit(
-            actor.user.id,
-            Some(user_id),
-            "password.reset_by_owner",
-            Some(user_id.to_string()),
-            json!({}),
-        )
+        self.activity(crate::AuthActivity::AdministratorResetPassword {
+            actor_user_id: actor.user.id,
+            user_id,
+        })
         .await;
         Ok(())
     }
@@ -176,13 +171,13 @@ impl AuthService {
             )
             .await?;
         self.delete_user_with_hooks(target.clone()).await?;
-        self.audit(
-            actor.user.id,
-            None,
-            "user.removed",
-            Some(user_id.to_string()),
-            json!({ "name": target.name, "role": target.role, "username": target.username }),
-        )
+        self.activity(crate::AuthActivity::UserRemoved {
+            actor_user_id: actor.user.id,
+            user_id,
+            name: target.name,
+            role: target.role,
+            username: target.username,
+        })
         .await;
         Ok(())
     }

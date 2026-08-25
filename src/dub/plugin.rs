@@ -38,6 +38,12 @@ impl AuthPlugin for DubPlugin {
             id: "dub",
             display_name: "Dub",
             version: DUB_ADAPTER_VERSION,
+            provenance: crate::PluginProvenance::pinned_upstream(
+                "@dub/better-auth",
+                DUB_ADAPTER_VERSION,
+                "@dub/better-auth",
+                "dubAnalytics",
+            ),
             dependencies: &[],
             conflicts: &[],
             endpoints: Cow::Borrowed(&[PluginEndpoint {

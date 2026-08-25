@@ -8,7 +8,6 @@ use crate::{
 #[cfg(feature = "axum")]
 use chrono::Duration;
 use chrono::Utc;
-use serde_json::json;
 use uuid::Uuid;
 use webauthn_rs::prelude::{PublicKeyCredential, RequestChallengeResponse};
 use webauthn_rs_core::proto::{
@@ -57,13 +56,11 @@ impl AuthService {
             .update_passkey_name(actor.user.id, passkey_id, name.clone())
             .await?
             .ok_or(AuthError::PasskeyNotFound)?;
-        self.audit(
-            actor.user.id,
-            Some(actor.user.id),
-            "passkey.renamed",
-            Some(passkey_id.to_string()),
-            json!({ "name": name }),
-        )
+        self.activity(crate::AuthActivity::PasskeyRenamed {
+            user_id: actor.user.id,
+            passkey_id,
+            name,
+        })
         .await;
         Ok(passkey)
     }
@@ -91,13 +88,11 @@ impl AuthService {
             PasskeyDeleteOutcome::NotFound => return Err(AuthError::PasskeyNotFound),
             PasskeyDeleteOutcome::MinimumRequired => return Err(AuthError::LastPasskey),
         };
-        self.audit(
-            actor.user.id,
-            Some(actor.user.id),
-            "passkey.deleted",
-            Some(passkey_id.to_string()),
-            json!({ "remaining": remaining }),
-        )
+        self.activity(crate::AuthActivity::PasskeyDeleted {
+            user_id: actor.user.id,
+            passkey_id,
+            remaining,
+        })
         .await;
         Ok(())
     }

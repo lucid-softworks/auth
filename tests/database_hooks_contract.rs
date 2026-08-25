@@ -109,6 +109,7 @@ impl AuthPlugin for SchemaPlugin {
             id: "schema-test",
             display_name: "Schema test",
             version: "1.0.0",
+            provenance: lucid_auth::PluginProvenance::lucid_extension(),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(&[]),

@@ -59,6 +59,7 @@ impl AuthPlugin for OAuthProxyPlugin {
             id: "oauth-proxy",
             display_name: "Better Auth OAuth Proxy",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::better_auth_plugin("oAuthProxy"),
             dependencies: &[],
             conflicts: &[],
             endpoints: Cow::Borrowed(ENDPOINTS),

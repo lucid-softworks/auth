@@ -38,6 +38,12 @@ impl AuthPlugin for CommetPlugin {
             id: "commet",
             display_name: "Commet",
             version: COMMET_ADAPTER_VERSION,
+            provenance: crate::PluginProvenance::pinned_upstream(
+                "@commet/better-auth",
+                COMMET_ADAPTER_VERSION,
+                "@commet/better-auth",
+                "commet",
+            ),
             dependencies: &[],
             conflicts: &[],
             endpoints: Cow::Owned(descriptor_endpoints(&self.options.features)),
@@ -45,7 +51,7 @@ impl AuthPlugin for CommetPlugin {
             rate_limits: &[],
             middleware: &[],
             client: Some(
-                PluginClientMetadata::current(
+                PluginClientMetadata::official(
                     "@commet/better-auth",
                     "@commet/better-auth/client",
                     "commetClient",

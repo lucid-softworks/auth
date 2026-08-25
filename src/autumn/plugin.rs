@@ -41,6 +41,12 @@ impl AuthPlugin for AutumnPlugin {
             id: "autumn",
             display_name: "Autumn",
             version: AUTUMN_ADAPTER_VERSION,
+            provenance: crate::PluginProvenance::pinned_upstream(
+                "autumn-js",
+                AUTUMN_ADAPTER_VERSION,
+                "autumn-js/better-auth",
+                "autumn",
+            ),
             dependencies: &[],
             conflicts: &[],
             endpoints: Cow::Borrowed(ENDPOINTS),

@@ -29,9 +29,12 @@ pub enum PluginRequestSecurity {
     CookieOrigin,
 }
 
+mod activity;
 mod any;
 mod metadata;
 mod registry;
+
+pub use activity::AuthActivity;
 
 use any::PluginAny;
 pub use metadata::*;
@@ -143,6 +146,7 @@ pub enum BeforeAuthEvent {
 pub enum AfterAuthEvent {
     SessionCreated { session: SessionWithUser },
     UserDeleted { user: AuthUser },
+    Activity { activity: AuthActivity },
 }
 
 /// Typed authorization point for optional host security policy plugins.

@@ -96,7 +96,15 @@ impl fmt::Debug for McpPlugin {
 #[async_trait]
 impl AuthPlugin for McpPlugin {
     fn descriptor(&self) -> PluginDescriptor {
-        self.provider.descriptor()
+        let mut descriptor = self.provider.descriptor();
+        descriptor.display_name = "Better Auth MCP";
+        descriptor.provenance = crate::PluginProvenance::pinned_upstream(
+            "@better-auth/mcp",
+            crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            "@better-auth/mcp",
+            "mcp",
+        );
+        descriptor
     }
 
     fn validate(&self, auth: &AuthConfig) -> Result<(), AuthError> {
@@ -176,14 +184,21 @@ mod tests {
     }
 
     #[test]
-    fn mcp_is_the_oauth_provider_and_invents_no_plugin_surface() {
+    fn mcp_preserves_oauth_provider_surface_with_truthful_server_identity() {
         let plugin = plugin();
-        assert_eq!(plugin.descriptor(), plugin.provider.descriptor());
-        assert_eq!(plugin.descriptor().id, "oauth-provider");
-        assert_eq!(
-            plugin.descriptor().client.unwrap().factory,
-            "oauthProviderClient"
+        let descriptor = plugin.descriptor();
+        assert_eq!(descriptor.id, "oauth-provider");
+        assert_ne!(
+            descriptor.provenance,
+            plugin.provider.descriptor().provenance
         );
+        let crate::PluginProvenance::PinnedBetterAuthPort { server, .. } = descriptor.provenance
+        else {
+            panic!("MCP must be a pinned Better Auth port");
+        };
+        assert_eq!(server.package, "@better-auth/mcp");
+        assert_eq!(server.export, "mcp");
+        assert_eq!(descriptor.client.unwrap().factory, "oauthProviderClient");
         assert_eq!(plugin.migrations().len(), 1);
         assert_eq!(plugin.rate_limits().len(), 6);
     }

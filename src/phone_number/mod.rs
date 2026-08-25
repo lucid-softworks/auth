@@ -245,13 +245,14 @@ impl AuthPlugin for PhoneNumberPlugin {
             id: "phone-number",
             display_name: "Better Auth Phone Number",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::better_auth_plugin("phoneNumber"),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: &[],
             rate_limits: RATE_LIMITS,
             middleware: &[],
-            client: Some(PluginClientMetadata::current(
+            client: Some(PluginClientMetadata::official(
                 "better-auth",
                 "better-auth/client/plugins",
                 "phoneNumberClient",

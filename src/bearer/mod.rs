@@ -33,6 +33,7 @@ impl AuthPlugin for BearerPlugin {
             id: "bearer",
             display_name: "Better Auth Bearer",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::better_auth_plugin("bearer"),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(&[]),

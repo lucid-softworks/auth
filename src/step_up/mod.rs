@@ -213,6 +213,7 @@ impl AuthPlugin for StepUpPolicyPlugin {
             id: "lucid-step-up-policy",
             display_name: "Lucid Step-Up Policy",
             version: env!("CARGO_PKG_VERSION"),
+            provenance: crate::PluginProvenance::lucid_extension(),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(&[]),

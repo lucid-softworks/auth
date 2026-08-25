@@ -32,6 +32,7 @@ impl AuthPlugin for FixturePlugin {
             id: "i18n-fixture",
             display_name: "i18n fixture",
             version: "1.7.1",
+            provenance: lucid_auth::PluginProvenance::lucid_extension(),
             dependencies: &[],
             conflicts: &[],
             endpoints: Cow::Owned(vec![

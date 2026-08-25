@@ -79,6 +79,7 @@ impl AuthPlugin for OwnerPolicyPlugin {
             id: "lucid-owner-policy",
             display_name: "lucid-auth Owner Policy",
             version: env!("CARGO_PKG_VERSION"),
+            provenance: crate::PluginProvenance::lucid_extension(),
             dependencies: &["admin"],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(&[]),
@@ -119,7 +120,7 @@ impl AuthPlugin for OwnerPolicyPlugin {
     ) -> Result<(), AuthError> {
         if matches!(
             operation.operation,
-            "admin" | "owner-administration" | "guest-capability.manage" | "audit.list"
+            "admin" | "guest-capability.manage" | "audit.list"
         ) && !self.is_owner_session(operation.session)
         {
             return Err(AuthError::Forbidden);

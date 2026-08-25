@@ -91,6 +91,12 @@ impl AuthPlugin for StripePlugin {
             id: "stripe",
             display_name: "Better Auth Stripe",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::pinned_upstream(
+                "@better-auth/stripe",
+                crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+                "@better-auth/stripe",
+                "stripe",
+            ),
             dependencies: &[],
             conflicts: &[],
             endpoints: Cow::Owned(descriptor_endpoints(self.subscriptions_enabled())),
@@ -98,7 +104,7 @@ impl AuthPlugin for StripePlugin {
             rate_limits: &[],
             middleware: &[],
             client: Some(
-                PluginClientMetadata::current(
+                PluginClientMetadata::official(
                     "@better-auth/stripe",
                     "@better-auth/stripe/client",
                     "stripeClient",

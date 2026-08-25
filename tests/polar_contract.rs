@@ -32,7 +32,7 @@ fn descriptor_and_official_client_metadata_match_polar_1_8_4() {
     assert_eq!(client.package, "@polar-sh/better-auth");
     assert_eq!(client.import_path, "@polar-sh/better-auth/client");
     assert_eq!(client.factory, "polarClient");
-    assert_eq!(client.better_auth_version, "1.7.1");
+    assert_eq!(client.better_auth_version, Some("1.7.1"));
     assert_eq!(client.client_id, Some("polar-client"));
     assert_eq!(client.client_version, Some("1.8.4"));
     assert_eq!(client.custom_actions, ["checkoutEmbed"]);

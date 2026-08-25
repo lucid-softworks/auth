@@ -68,6 +68,7 @@ impl AuthPlugin for HaveIBeenPwnedPlugin {
             id: "have-i-been-pwned",
             display_name: "Have I Been Pwned",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::better_auth_plugin("haveIBeenPwned"),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(&[]),

@@ -89,13 +89,14 @@ impl AuthPlugin for OneTapPlugin {
             id: "one-tap",
             display_name: "Better Auth Google One Tap",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::better_auth_plugin("oneTap"),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],
-            client: Some(PluginClientMetadata::current(
+            client: Some(PluginClientMetadata::official(
                 "better-auth",
                 "better-auth/client/plugins",
                 "oneTapClient",

@@ -43,6 +43,7 @@ impl AuthPlugin for MetadataFixturePlugin {
             id: "fixture-plugin",
             display_name: "Fixture plugin",
             version: "1.7.1",
+            provenance: lucid_auth::PluginProvenance::lucid_extension(),
             dependencies: &[],
             conflicts: &[],
             endpoints: Cow::Borrowed(ENDPOINTS),
@@ -211,6 +212,7 @@ fn explicit_path_parameters_replace_inference_without_duplication() {
                 id: "explicit",
                 display_name: "Explicit",
                 version: "1.7.1",
+                provenance: lucid_auth::PluginProvenance::lucid_extension(),
                 dependencies: &[],
                 conflicts: &[],
                 endpoints: Cow::Owned(vec![PluginEndpoint {

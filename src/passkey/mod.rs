@@ -235,13 +235,19 @@ impl AuthPlugin for PasskeyPlugin {
             id: "passkey",
             display_name: "Better Auth Passkey",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::pinned_upstream(
+                "@better-auth/passkey",
+                crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+                "@better-auth/passkey",
+                "passkey",
+            ),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: COOKIES,
             rate_limits: &[],
             middleware: &[],
-            client: Some(PluginClientMetadata::current(
+            client: Some(PluginClientMetadata::official(
                 "@better-auth/passkey",
                 "@better-auth/passkey/client",
                 "passkeyClient",

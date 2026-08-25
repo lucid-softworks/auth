@@ -4,7 +4,6 @@ use crate::{
     StepUpAssurance, StepUpError, StepUpPolicyPlugin, StepUpSession, StepUpSessionProjection,
 };
 use chrono::Utc;
-use serde_json::json;
 
 impl AuthService {
     pub(crate) async fn step_up_session_projection(
@@ -46,13 +45,10 @@ impl AuthService {
             .store
             .replace_step_up_recovery_codes(actor.user.id, hashes)
             .await?;
-        self.audit(
-            actor.user.id,
-            Some(actor.user.id),
-            "step_up.recovery_codes.generated",
-            None,
-            json!({ "count": codes.len() }),
-        )
+        self.activity(crate::AuthActivity::StepUpRecoveryCodesGenerated {
+            user_id: actor.user.id,
+            count: codes.len(),
+        })
         .await;
         Ok(codes)
     }
@@ -106,7 +102,7 @@ impl AuthService {
             .store
             .delete_step_up_session(state.session_id)
             .await?;
-        self.audit_recovery_use(plugin, actor, &result).await?;
+        self.emit_recovery_activity(plugin, actor, &result).await?;
         Ok(result)
     }
 
@@ -158,7 +154,7 @@ impl AuthService {
         Ok((state, now))
     }
 
-    async fn audit_recovery_use(
+    async fn emit_recovery_activity(
         &self,
         plugin: &StepUpPolicyPlugin,
         actor: &SessionWithUser,
@@ -168,13 +164,11 @@ impl AuthService {
             .store
             .step_up_recovery_code_count(actor.user.id)
             .await?;
-        self.audit(
-            actor.user.id,
-            Some(actor.user.id),
-            "step_up.recovery_code.used",
-            Some(result.session.session.id.to_string()),
-            json!({ "remaining": remaining }),
-        )
+        self.activity(crate::AuthActivity::StepUpRecoveryCodeUsed {
+            user_id: actor.user.id,
+            session_id: result.session.session.id,
+            remaining,
+        })
         .await;
         Ok(())
     }

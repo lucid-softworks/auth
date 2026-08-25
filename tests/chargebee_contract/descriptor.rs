@@ -35,7 +35,7 @@ fn descriptor_always_exposes_the_exact_eight_server_routes() {
     let descriptor = plugin().descriptor();
     assert_eq!(descriptor.id, "chargebee");
     assert_eq!(descriptor.display_name, "Chargebee Better Auth");
-    assert_eq!(descriptor.version, "1.7.1");
+    assert_eq!(descriptor.version, "1.2.0");
     assert_eq!(
         descriptor
             .endpoints

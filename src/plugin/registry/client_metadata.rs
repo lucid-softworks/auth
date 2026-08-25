@@ -1,4 +1,7 @@
-use crate::{PluginClientMetadata, protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION};
+use crate::{
+    PluginClientMetadata, PluginClientProvenance,
+    protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+};
 
 pub(super) fn validate(client: PluginClientMetadata, plugin_id: &str) -> Result<(), String> {
     if [client.package, client.import_path, client.factory]
@@ -20,11 +23,21 @@ pub(super) fn validate(client: PluginClientMetadata, plugin_id: &str) -> Result<
             "plugin '{plugin_id}' client identity metadata is incomplete"
         ));
     }
-    if client.better_auth_version != COMPATIBLE_BETTER_AUTH_VERSION {
-        return Err(format!(
-            "plugin '{plugin_id}' targets Better Auth {}, expected {}",
-            client.better_auth_version, COMPATIBLE_BETTER_AUTH_VERSION
-        ));
+    match client.provenance {
+        PluginClientProvenance::OfficialUpstream => {
+            if client.better_auth_version != Some(COMPATIBLE_BETTER_AUTH_VERSION) {
+                return Err(format!(
+                    "plugin '{plugin_id}' official upstream client must target Better Auth {COMPATIBLE_BETTER_AUTH_VERSION}"
+                ));
+            }
+        }
+        PluginClientProvenance::Application => {
+            if client.better_auth_version.is_some() {
+                return Err(format!(
+                    "plugin '{plugin_id}' application client cannot claim a Better Auth version"
+                ));
+            }
+        }
     }
     Ok(())
 }

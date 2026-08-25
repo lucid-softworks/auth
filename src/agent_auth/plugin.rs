@@ -69,14 +69,20 @@ impl AuthPlugin for AgentAuthPlugin {
         PluginDescriptor {
             id: "agent-auth",
             display_name: "Better Auth Agent Auth",
-            version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            version: "0.6.2",
+            provenance: crate::PluginProvenance::pinned_upstream(
+                "@better-auth/agent-auth",
+                "0.6.2",
+                "@better-auth/agent-auth",
+                "agentAuth",
+            ),
             dependencies: &[],
             conflicts: &[],
             endpoints: Cow::Borrowed(AGENT_AUTH_ENDPOINTS),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],
-            client: Some(PluginClientMetadata::current(
+            client: Some(PluginClientMetadata::official(
                 "@better-auth/agent-auth",
                 "@better-auth/agent-auth/client",
                 "agentAuthClient",

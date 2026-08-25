@@ -56,6 +56,7 @@ impl AuthPlugin for ExistingExposeHeader {
             id: "one-time-token-header-fixture",
             display_name: "one-time-token header fixture",
             version: "1.7.1",
+            provenance: lucid_auth::PluginProvenance::lucid_extension(),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(&[]),

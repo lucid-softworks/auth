@@ -89,6 +89,7 @@ impl AuthPlugin for OperatorSecurityPlugin {
             id: PLUGIN_ID,
             display_name: "Lucid Operator Security",
             version: env!("CARGO_PKG_VERSION"),
+            provenance: crate::PluginProvenance::lucid_extension(),
             dependencies: &["lucid-owner-policy"],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(&[]),

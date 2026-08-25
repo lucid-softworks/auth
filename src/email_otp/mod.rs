@@ -220,13 +220,14 @@ impl AuthPlugin for EmailOtpPlugin {
             id: "email-otp",
             display_name: "Better Auth Email OTP",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::better_auth_plugin("emailOTP"),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],
-            client: Some(PluginClientMetadata::current(
+            client: Some(PluginClientMetadata::official(
                 "better-auth",
                 "better-auth/client/plugins",
                 "emailOTPClient",

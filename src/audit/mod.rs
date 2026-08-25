@@ -1,5 +1,6 @@
 #[cfg(feature = "axum")]
 mod axum;
+mod lifecycle;
 mod memory;
 
 pub use memory::MemoryAuditStore;
@@ -138,6 +139,7 @@ impl AuthPlugin for AuditPlugin {
             id: "lucid-security-audit",
             display_name: "lucid-auth Security Audit",
             version: env!("CARGO_PKG_VERSION"),
+            provenance: crate::PluginProvenance::lucid_extension(),
             dependencies: &["lucid-owner-policy"],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
@@ -167,8 +169,14 @@ impl AuthPlugin for AuditPlugin {
     }
 
     async fn after(&self, event: &crate::AfterAuthEvent) {
-        if let crate::AfterAuthEvent::UserDeleted { user } = event {
-            let _ = self.store.anonymize_user(user.id).await;
+        match event {
+            crate::AfterAuthEvent::UserDeleted { user } => {
+                let _ = self.store.anonymize_user(user.id).await;
+            }
+            crate::AfterAuthEvent::Activity { activity } => {
+                lifecycle::record(self, activity).await;
+            }
+            _ => {}
         }
     }
 

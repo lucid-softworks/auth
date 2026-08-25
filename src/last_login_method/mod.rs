@@ -135,13 +135,14 @@ impl AuthPlugin for LastLoginMethodPlugin {
             id: "last-login-method",
             display_name: "Better Auth Last Login Method",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::better_auth_plugin("lastLoginMethod"),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(&[]),
             cookies: COOKIES,
             rate_limits: &[],
             middleware: &[],
-            client: Some(PluginClientMetadata::current(
+            client: Some(PluginClientMetadata::official(
                 "better-auth",
                 "better-auth/client/plugins",
                 "lastLoginMethodClient",

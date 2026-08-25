@@ -1,4 +1,4 @@
-use crate::{AuthPlugin, PluginClientMetadata, PluginDescriptor};
+use crate::{AuthPlugin, PluginDescriptor};
 use async_trait::async_trait;
 use std::{borrow::Cow, fmt, sync::Arc};
 
@@ -55,17 +55,14 @@ impl AuthPlugin for CaptchaPlugin {
             id: "captcha",
             display_name: "Better Auth Captcha",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::better_auth_plugin("captcha"),
             dependencies: &[],
             conflicts: &[],
             endpoints: Cow::Borrowed(&[]),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],
-            client: Some(PluginClientMetadata::current(
-                "better-auth",
-                "better-auth/plugins",
-                "captcha",
-            )),
+            client: None,
         }
     }
 
@@ -92,9 +89,13 @@ mod tests {
         assert!(descriptor.cookies.is_empty());
         assert!(descriptor.rate_limits.is_empty());
         assert!(descriptor.middleware.is_empty());
-        let metadata = descriptor.client.unwrap();
-        assert_eq!(metadata.import_path, "better-auth/plugins");
-        assert_eq!(metadata.factory, "captcha");
+        assert!(descriptor.client.is_none());
+        let crate::PluginProvenance::PinnedBetterAuthPort { server, .. } = descriptor.provenance
+        else {
+            panic!("captcha must be a pinned Better Auth port");
+        };
+        assert_eq!(server.import_path, "better-auth/plugins");
+        assert_eq!(server.export, "captcha");
         assert_eq!(plugin.config().provider().as_str(), "hcaptcha");
     }
 

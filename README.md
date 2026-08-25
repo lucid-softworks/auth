@@ -2005,10 +2005,19 @@ Native plugins implement `AuthPlugin` and are registered with
 `AuthConfig::add_plugin`. Construct plugin-enabled services with
 `AuthService::try_new` so invalid IDs, missing or cyclic dependencies,
 conflicts, duplicate/core route ownership, cookie collisions, migration IDs,
-rate limits, middleware declarations, and mismatched Better Auth client
-versions fail before the router starts. Plugin routes remain inside the normal
-origin/CORS security boundary, while plugin middleware is scoped to the routes
-that plugin owns. Session lifecycle hooks run in validated dependency order.
+rate limits, middleware declarations, and false or incomplete provenance claims
+fail before the router starts. Every `PluginDescriptor` is explicitly either a
+`PinnedBetterAuthPort`, with exact upstream server artifact identity, or a
+`LucidExtension`, which makes no Better Auth compatibility claim. Official
+upstream client metadata is separate from server identity; application-authored
+client metadata cannot be reported as upstream evidence. Plugin routes remain
+inside the normal origin/CORS security boundary, while plugin middleware is
+scoped to the routes that plugin owns. Session lifecycle hooks run in validated
+dependency order.
+
+This is an in-process native Rust composition boundary, not a JavaScript plugin
+runtime, community SDK, registry, certification program, or marketplace.
+Arbitrary Better Auth npm/JavaScript plugins do not execute in Rust.
 
 PostgreSQL hosts apply core migrations and then the service's validated plugin
 contributions:
@@ -2021,7 +2030,9 @@ assert!(report.compatible);
 Plugin migrations are keyed by `(plugin_id, migration_id)`, share the core
 advisory migration lock, and are transactional and idempotent. See the
 [native plugin example](examples/native_plugin.rs) for a route, middleware,
-migration, cookie/rate-limit declarations, and official-client metadata.
+migration, cookie/rate-limit declarations, and application-owned client
+metadata. The example is a project extension and is not an official Better Auth
+plugin or client.
 
 `PostgresStore::migration_plan` discovers the deterministic ordered core/plugin
 migrations and derives their final tables, columns/types, and explicit indexes

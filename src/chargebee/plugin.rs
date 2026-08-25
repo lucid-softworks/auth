@@ -54,7 +54,13 @@ impl AuthPlugin for ChargebeePlugin {
         PluginDescriptor {
             id: "chargebee",
             display_name: "Chargebee Better Auth",
-            version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            version: "1.2.0",
+            provenance: crate::PluginProvenance::pinned_upstream(
+                "@chargebee/better-auth",
+                "1.2.0",
+                "@chargebee/better-auth",
+                "chargebee",
+            ),
             dependencies: &[],
             conflicts: &[],
             endpoints: Cow::Borrowed(CHARGEBEE_ENDPOINTS),
@@ -62,7 +68,7 @@ impl AuthPlugin for ChargebeePlugin {
             rate_limits: &[],
             middleware: &[],
             client: Some(
-                PluginClientMetadata::current(
+                PluginClientMetadata::official(
                     "@chargebee/better-auth",
                     "@chargebee/better-auth/client",
                     "chargebeeClient",

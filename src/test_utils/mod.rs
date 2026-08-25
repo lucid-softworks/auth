@@ -88,6 +88,7 @@ impl AuthPlugin for TestUtilsPlugin {
             id: "test-utils",
             display_name: "Better Auth Test Utils",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::better_auth_plugin("testUtils"),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(&[]),

@@ -68,10 +68,12 @@ pub struct PluginMiddleware {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginClientMetadata {
+    pub provenance: PluginClientProvenance,
     pub package: &'static str,
     pub import_path: &'static str,
     pub factory: &'static str,
-    pub better_auth_version: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub better_auth_version: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_id: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -89,6 +91,15 @@ pub struct PluginClientMetadata {
     pub path_methods: &'static [PluginClientPathMethod],
 }
 
+/// Whether a JavaScript client declaration is upstream evidence or an
+/// application-owned companion to a native extension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginClientProvenance {
+    OfficialUpstream,
+    Application,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginClientPathMethod {
@@ -103,16 +114,36 @@ impl PluginClientPathMethod {
 }
 
 impl PluginClientMetadata {
-    pub const fn current(
+    pub const fn official(
         package: &'static str,
         import_path: &'static str,
         factory: &'static str,
     ) -> Self {
         Self {
+            provenance: PluginClientProvenance::OfficialUpstream,
             package,
             import_path,
             factory,
-            better_auth_version: COMPATIBLE_BETTER_AUTH_VERSION,
+            better_auth_version: Some(COMPATIBLE_BETTER_AUTH_VERSION),
+            client_id: None,
+            client_version: None,
+            custom_actions: &[],
+            non_action_paths: &[],
+            path_methods: &[],
+        }
+    }
+
+    pub const fn application(
+        package: &'static str,
+        import_path: &'static str,
+        factory: &'static str,
+    ) -> Self {
+        Self {
+            provenance: PluginClientProvenance::Application,
+            package,
+            import_path,
+            factory,
+            better_auth_version: None,
             client_id: None,
             client_version: None,
             custom_actions: &[],
@@ -146,6 +177,80 @@ impl PluginClientMetadata {
     }
 }
 
+/// Exact published server artifact implemented by a pinned native port.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginArtifactMetadata {
+    pub package: &'static str,
+    pub version: &'static str,
+    pub import_path: &'static str,
+    pub export: &'static str,
+}
+
+impl PluginArtifactMetadata {
+    pub const fn new(
+        package: &'static str,
+        version: &'static str,
+        import_path: &'static str,
+        export: &'static str,
+    ) -> Self {
+        Self {
+            package,
+            version,
+            import_path,
+            export,
+        }
+    }
+}
+
+/// Truthful compatibility class for a native plugin implementation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", tag = "classification")]
+pub enum PluginProvenance {
+    PinnedBetterAuthPort {
+        #[serde(rename = "betterAuthVersion")]
+        better_auth_version: &'static str,
+        server: PluginArtifactMetadata,
+    },
+    LucidExtension,
+}
+
+impl PluginProvenance {
+    pub const fn pinned_upstream(
+        package: &'static str,
+        version: &'static str,
+        import_path: &'static str,
+        export: &'static str,
+    ) -> Self {
+        Self::better_auth(PluginArtifactMetadata::new(
+            package,
+            version,
+            import_path,
+            export,
+        ))
+    }
+
+    pub const fn better_auth_plugin(export: &'static str) -> Self {
+        Self::pinned_upstream(
+            "better-auth",
+            COMPATIBLE_BETTER_AUTH_VERSION,
+            "better-auth/plugins",
+            export,
+        )
+    }
+
+    pub const fn better_auth(server: PluginArtifactMetadata) -> Self {
+        Self::PinnedBetterAuthPort {
+            better_auth_version: COMPATIBLE_BETTER_AUTH_VERSION,
+            server,
+        }
+    }
+
+    pub const fn lucid_extension() -> Self {
+        Self::LucidExtension
+    }
+}
+
 /// Static identity, dependency, wire, and compatibility declaration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -153,6 +258,7 @@ pub struct PluginDescriptor {
     pub id: &'static str,
     pub display_name: &'static str,
     pub version: &'static str,
+    pub provenance: PluginProvenance,
     pub dependencies: &'static [&'static str],
     pub conflicts: &'static [&'static str],
     pub endpoints: Cow<'static, [PluginEndpoint]>,

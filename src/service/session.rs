@@ -3,7 +3,6 @@ use crate::{AuthError, AuthSession, SessionWithUser};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::Utc;
 use rand::RngExt;
-use serde_json::json;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -35,13 +34,12 @@ impl AuthService {
             .any(|session| session.id == session_id && session.expires_at > Utc::now());
         if owned {
             self.delete_session_id_with_hooks(session_id).await?;
-            self.audit(
-                actor.user.id,
-                Some(actor.user.id),
-                "session.revoked",
-                Some(session_id.to_string()),
-                json!({ "selfService": true }),
-            )
+            self.activity(crate::AuthActivity::SessionRevoked {
+                actor_user_id: actor.user.id,
+                subject_user_id: Some(actor.user.id),
+                session_id: Some(session_id),
+                self_service: true,
+            })
             .await;
         }
         Ok(())
@@ -64,13 +62,12 @@ impl AuthService {
                 .await?
                 .map(|session| session.session.id);
             self.delete_session_token_with_hooks(token).await?;
-            self.audit(
-                actor.user.id,
-                Some(actor.user.id),
-                "session.revoked",
-                session_id.map(|id| id.to_string()),
-                json!({ "selfService": true }),
-            )
+            self.activity(crate::AuthActivity::SessionRevoked {
+                actor_user_id: actor.user.id,
+                subject_user_id: Some(actor.user.id),
+                session_id,
+                self_service: true,
+            })
             .await;
         }
         Ok(())
@@ -84,13 +81,10 @@ impl AuthService {
                 self.delete_session_id_with_hooks(session.id).await?;
             }
         }
-        self.audit(
-            actor.user.id,
-            Some(actor.user.id),
-            "session.others_revoked",
-            Some(actor.session.id.to_string()),
-            json!({}),
-        )
+        self.activity(crate::AuthActivity::OtherSessionsRevoked {
+            user_id: actor.user.id,
+            retained_session_id: actor.session.id,
+        })
         .await;
         Ok(())
     }
@@ -101,13 +95,9 @@ impl AuthService {
     ) -> Result<(), AuthError> {
         require_account_session(actor)?;
         self.delete_user_sessions_with_hooks(actor.user.id).await?;
-        self.audit(
-            actor.user.id,
-            Some(actor.user.id),
-            "session.all_revoked",
-            None,
-            json!({}),
-        )
+        self.activity(crate::AuthActivity::AllSessionsRevoked {
+            user_id: actor.user.id,
+        })
         .await;
         Ok(())
     }

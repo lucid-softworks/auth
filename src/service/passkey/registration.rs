@@ -8,7 +8,6 @@ use crate::{
     PasskeyRegistrationVerified, SessionWithUser, StoredPasskey,
 };
 use chrono::{Duration, Utc};
-use serde_json::json;
 use uuid::Uuid;
 use webauthn_rs::prelude::{
     AuthenticatorAttachment, CreationChallengeResponse, RegisterPublicKeyCredential,
@@ -166,24 +165,12 @@ impl AuthService {
         let replacement_session = self
             .create_passkey_registration_session(verification.create_session, actor, user_id)
             .await?;
-        if let Some(actor) = actor {
-            self.audit(
-                actor.user.id,
-                Some(user_id),
-                "passkey.enrolled",
-                Some(stored.id.to_string()),
-                json!({}),
-            )
-            .await;
-        } else {
-            self.audit_actorless(
-                Some(user_id),
-                "passkey.enrolled",
-                Some(stored.id.to_string()),
-                json!({}),
-            )
-            .await;
-        }
+        self.activity(crate::AuthActivity::PasskeyEnrolled {
+            actor_user_id: actor.map(|actor| actor.user.id),
+            user_id,
+            passkey_id: stored.id,
+        })
+        .await;
         Ok(PasskeyRegistrationResult {
             passkey: stored,
             replacement_session,

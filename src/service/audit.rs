@@ -1,8 +1,5 @@
 use super::AuthService;
-use crate::{AuditEvent, AuditMetadata, AuditOutcome, AuditPlugin, AuthError, SessionWithUser};
-use chrono::Utc;
-use serde_json::Value;
-use uuid::Uuid;
+use crate::{AfterAuthEvent, AuditEvent, AuditPlugin, AuthActivity, AuthError, SessionWithUser};
 
 impl AuthService {
     pub async fn list_audit_events(
@@ -10,7 +7,12 @@ impl AuthService {
         actor: &SessionWithUser,
         limit: usize,
     ) -> Result<Vec<AuditEvent>, AuthError> {
-        self.require_recent_owner(actor).await?;
+        self.plugins
+            .authorize_sensitive(&crate::SensitiveOperation {
+                session: actor,
+                operation: "audit.list",
+            })
+            .await?;
         let plugin = self
             .plugins
             .find::<AuditPlugin>()
@@ -18,64 +20,9 @@ impl AuthService {
         plugin.store.list_audit_events(limit.clamp(1, 200)).await
     }
 
-    pub(super) async fn audit(
-        &self,
-        actor_user_id: Uuid,
-        subject_user_id: Option<Uuid>,
-        action: &str,
-        target: Option<String>,
-        metadata: Value,
-    ) {
-        self.record_audit_event(
-            Some(actor_user_id),
-            subject_user_id,
-            action,
-            target,
-            metadata,
-        )
-        .await;
-    }
-
-    pub(super) async fn audit_actorless(
-        &self,
-        subject_user_id: Option<Uuid>,
-        action: &str,
-        target: Option<String>,
-        metadata: Value,
-    ) {
-        self.record_audit_event(None, subject_user_id, action, target, metadata)
-            .await;
-    }
-
-    async fn record_audit_event(
-        &self,
-        actor_user_id: Option<Uuid>,
-        subject_user_id: Option<Uuid>,
-        action: &str,
-        target: Option<String>,
-        metadata: Value,
-    ) {
-        let Some(plugin) = self.plugins.find::<AuditPlugin>() else {
-            return;
-        };
-        let Ok(metadata) = AuditMetadata::new(metadata) else {
-            return;
-        };
-        let _ = plugin
-            .store
-            .record_audit_event(
-                AuditEvent {
-                    id: Uuid::new_v4(),
-                    actor_user_id,
-                    subject_user_id,
-                    action: action.to_owned(),
-                    target,
-                    outcome: AuditOutcome::Success,
-                    metadata,
-                    created_at: Utc::now(),
-                },
-                plugin.max_events,
-            )
+    pub(super) async fn activity(&self, activity: AuthActivity) {
+        self.plugins
+            .after(&AfterAuthEvent::Activity { activity })
             .await;
     }
 }

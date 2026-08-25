@@ -4,7 +4,6 @@ use crate::{
     GuestGrant, GuestGrantSignInResult, IssuedGuestGrant, NewGuestGrant,
 };
 use chrono::{Duration, Utc};
-use serde_json::json;
 use uuid::Uuid;
 
 impl AuthService {
@@ -14,7 +13,7 @@ impl AuthService {
         mut input: NewGuestGrant,
     ) -> Result<IssuedGuestGrant, AuthError> {
         let store = self.guest_capability()?.store.clone();
-        self.require_recent_owner(actor).await?;
+        self.require_guest_management(actor).await?;
         validate_guest_grant(&input)?;
         normalize(&mut input.permissions);
         normalize(&mut input.resource_scopes);
@@ -37,19 +36,15 @@ impl AuthService {
                 created_at: now,
             })
             .await?;
-        self.audit(
-            actor.user.id,
-            None,
-            "guest_grant.issued",
-            Some(grant.id.to_string()),
-            json!({
-                "label": grant.label,
-                "permissions": grant.permissions,
-                "resourceScopes": grant.resource_scopes,
-                "expiresAt": grant.expires_at,
-                "maxUses": grant.max_uses,
-            }),
-        )
+        self.activity(crate::AuthActivity::GuestGrantIssued {
+            actor_user_id: actor.user.id,
+            grant_id: grant.id,
+            label: grant.label.clone(),
+            permissions: grant.permissions.clone(),
+            resource_scopes: grant.resource_scopes.clone(),
+            expires_at: grant.expires_at,
+            max_uses: grant.max_uses,
+        })
         .await;
         Ok(IssuedGuestGrant { grant, token })
     }
@@ -108,12 +103,12 @@ impl AuthService {
             self.store.delete_user(result.session.user.id).await?;
             return Err(AuthError::InvalidGuestGrant);
         }
-        self.audit_actorless(
-            Some(result.session.user.id),
-            "guest_grant.redeemed",
-            Some(grant.id.to_string()),
-            json!({ "label": grant.label, "uses": grant.uses }),
-        )
+        self.activity(crate::AuthActivity::GuestGrantRedeemed {
+            user_id: result.session.user.id,
+            grant_id: grant.id,
+            label: grant.label,
+            uses: grant.uses,
+        })
         .await;
         Ok(GuestGrantSignInResult::new(result, grant.id))
     }
@@ -149,7 +144,7 @@ impl AuthService {
         actor: &crate::SessionWithUser,
     ) -> Result<Vec<GuestGrant>, AuthError> {
         let store = self.guest_capability()?.store.clone();
-        self.require_recent_owner(actor).await?;
+        self.require_guest_management(actor).await?;
         store.list_guest_grants().await
     }
 
@@ -159,15 +154,12 @@ impl AuthService {
         grant_id: Uuid,
     ) -> Result<(), AuthError> {
         let store = self.guest_capability()?.store.clone();
-        self.require_recent_owner(actor).await?;
+        self.require_guest_management(actor).await?;
         store.revoke_guest_grant(grant_id, Utc::now()).await?;
-        self.audit(
-            actor.user.id,
-            None,
-            "guest_grant.revoked",
-            Some(grant_id.to_string()),
-            json!({}),
-        )
+        self.activity(crate::AuthActivity::GuestGrantRevoked {
+            actor_user_id: actor.user.id,
+            grant_id,
+        })
         .await;
         Ok(())
     }
@@ -176,6 +168,18 @@ impl AuthService {
         self.plugins
             .find::<GuestCapabilityPlugin>()
             .ok_or(AuthError::NotFound)
+    }
+
+    async fn require_guest_management(
+        &self,
+        actor: &crate::SessionWithUser,
+    ) -> Result<(), AuthError> {
+        self.plugins
+            .authorize_sensitive(&crate::SensitiveOperation {
+                session: actor,
+                operation: "guest-capability.manage",
+            })
+            .await
     }
 }
 

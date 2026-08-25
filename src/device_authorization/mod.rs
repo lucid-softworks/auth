@@ -200,6 +200,16 @@ fn descriptor(oauth: bool) -> PluginDescriptor {
         id: "device-authorization",
         display_name: "Better Auth Device Authorization",
         version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+        provenance: if oauth {
+            crate::PluginProvenance::pinned_upstream(
+                "@better-auth/oauth-provider",
+                crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+                "@better-auth/oauth-provider",
+                "oauthDeviceAuthorization",
+            )
+        } else {
+            crate::PluginProvenance::better_auth_plugin("deviceAuthorization")
+        },
         dependencies: if oauth { &["oauth-provider"] } else { &[] },
         conflicts: &[],
         endpoints: Cow::Borrowed(ENDPOINTS),
@@ -207,13 +217,13 @@ fn descriptor(oauth: bool) -> PluginDescriptor {
         rate_limits: &[],
         middleware: &[],
         client: Some(if oauth {
-            PluginClientMetadata::current(
+            PluginClientMetadata::official(
                 "@better-auth/oauth-provider",
                 "@better-auth/oauth-provider/client",
                 "oauthDeviceAuthorizationClient",
             )
         } else {
-            PluginClientMetadata::current(
+            PluginClientMetadata::official(
                 "better-auth",
                 "better-auth/client/plugins",
                 "deviceAuthorizationClient",
@@ -312,6 +322,13 @@ mod tests {
             standalone.descriptor().client.unwrap().factory,
             "deviceAuthorizationClient"
         );
+        let crate::PluginProvenance::PinnedBetterAuthPort { server, .. } =
+            standalone.descriptor().provenance
+        else {
+            panic!("standalone device authorization must be pinned");
+        };
+        assert_eq!(server.package, "better-auth");
+        assert_eq!(server.export, "deviceAuthorization");
 
         let oauth = OAuthDeviceAuthorizationPlugin::in_memory(DeviceAuthorizationConfig::default());
         assert!(oauth.config().includes_oauth_fields());
@@ -319,6 +336,13 @@ mod tests {
             oauth.descriptor().client.unwrap().factory,
             "oauthDeviceAuthorizationClient"
         );
+        let crate::PluginProvenance::PinnedBetterAuthPort { server, .. } =
+            oauth.descriptor().provenance
+        else {
+            panic!("OAuth device authorization must be pinned");
+        };
+        assert_eq!(server.package, "@better-auth/oauth-provider");
+        assert_eq!(server.export, "oauthDeviceAuthorization");
     }
 
     #[test]

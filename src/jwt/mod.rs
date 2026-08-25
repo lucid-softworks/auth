@@ -70,6 +70,7 @@ impl AuthPlugin for JwtPlugin {
             id: "jwt",
             display_name: "Better Auth JWT",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::better_auth_plugin("jwt"),
             dependencies: &[],
             conflicts: &[],
             endpoints: Cow::Owned(vec![
@@ -87,7 +88,7 @@ impl AuthPlugin for JwtPlugin {
             cookies: &[],
             rate_limits: &[],
             middleware: &[],
-            client: Some(PluginClientMetadata::current(
+            client: Some(PluginClientMetadata::official(
                 "better-auth",
                 "better-auth/client/plugins",
                 "jwtClient",

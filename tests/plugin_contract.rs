@@ -26,6 +26,9 @@ use std::{
 use tokio::sync::Mutex;
 use tower::ServiceExt;
 
+#[path = "plugin_contract/provenance.rs"]
+mod provenance;
+
 const ENDPOINTS: &[PluginEndpoint] = &[PluginEndpoint {
     method: PluginHttpMethod::Get,
     path: std::borrow::Cow::Borrowed("/native-test/ping"),
@@ -367,6 +370,7 @@ fn descriptor(
         id,
         display_name: id,
         version: "1.0.0",
+        provenance: lucid_auth::PluginProvenance::lucid_extension(),
         dependencies,
         conflicts,
         endpoints: std::borrow::Cow::Borrowed(endpoints),
@@ -374,7 +378,7 @@ fn descriptor(
         rate_limits: &[],
         middleware: if id == "native-test" { MIDDLEWARE } else { &[] },
         client: (id == "native-test").then(|| {
-            PluginClientMetadata::current(
+            PluginClientMetadata::application(
                 "@lucid-auth/native-test",
                 "@lucid-auth/native-test/client",
                 "nativeTestClient",

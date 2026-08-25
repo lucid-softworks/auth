@@ -284,13 +284,14 @@ impl AuthPlugin for TwoFactorPlugin {
             id: "two-factor",
             display_name: "Better Auth Two-Factor",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::better_auth_plugin("twoFactor"),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),
             cookies: COOKIES,
             rate_limits: RATE_LIMITS,
             middleware: &[],
-            client: Some(PluginClientMetadata::current(
+            client: Some(PluginClientMetadata::official(
                 "better-auth",
                 "better-auth/client/plugins",
                 "twoFactorClient",

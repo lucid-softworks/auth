@@ -298,6 +298,7 @@ impl AuthPlugin for LimitedPlugin {
             id: "limited",
             display_name: "Limited",
             version: "1.0.0",
+            provenance: lucid_auth::PluginProvenance::lucid_extension(),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(PLUGIN_ENDPOINTS),

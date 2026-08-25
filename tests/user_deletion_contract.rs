@@ -108,6 +108,7 @@ impl AuthPlugin for DeletionObserver {
             id: "deletion-observer",
             display_name: "Deletion observer",
             version: "1.0.0",
+            provenance: lucid_auth::PluginProvenance::lucid_extension(),
             dependencies: &[],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(&[]),

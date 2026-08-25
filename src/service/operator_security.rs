@@ -1,6 +1,5 @@
 use super::{AuthService, password::hash_password, password::normalize_username};
 use crate::{AuthError, OperatorSecurityError, OperatorSecurityPlugin, OperatorSecurityStatus};
-use serde_json::json;
 
 const PLUGIN_ID: &str = "lucid-operator-security";
 
@@ -52,17 +51,8 @@ impl AuthService {
         self.plugins
             .reset_user_security_state_except(target.id, PLUGIN_ID)
             .await?;
-        self.audit_actorless(
-            Some(target.id),
-            "operator_security.owner_recovered",
-            Some(target.id.to_string()),
-            json!({
-                "sessionsRevoked": true,
-                "factorsReset": true,
-                "replacementRequired": true,
-            }),
-        )
-        .await;
+        self.activity(crate::AuthActivity::SoleOwnerRecovered { user_id: target.id })
+            .await;
         Ok(())
     }
 

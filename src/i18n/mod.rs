@@ -45,13 +45,19 @@ impl AuthPlugin for I18nPlugin {
             id: "i18n",
             display_name: "Better Auth i18n",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::pinned_upstream(
+                "@better-auth/i18n",
+                crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+                "@better-auth/i18n",
+                "i18n",
+            ),
             dependencies: &[],
             conflicts: &[],
             endpoints: Cow::Borrowed(&[]),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],
-            client: Some(PluginClientMetadata::current(
+            client: Some(PluginClientMetadata::official(
                 "@better-auth/i18n",
                 "@better-auth/i18n/client",
                 "i18nClient",

@@ -37,6 +37,12 @@ impl AuthPlugin for PolarPlugin {
             id: "polar",
             display_name: "Polar",
             version: POLAR_ADAPTER_VERSION,
+            provenance: crate::PluginProvenance::pinned_upstream(
+                "@polar-sh/better-auth",
+                POLAR_ADAPTER_VERSION,
+                "@polar-sh/better-auth",
+                "polar",
+            ),
             dependencies: &[],
             conflicts: &[],
             endpoints: Cow::Owned(descriptor_endpoints(&self.options)),
@@ -44,7 +50,7 @@ impl AuthPlugin for PolarPlugin {
             rate_limits: &[],
             middleware: &[],
             client: Some(
-                PluginClientMetadata::current(
+                PluginClientMetadata::official(
                     "@polar-sh/better-auth",
                     "@polar-sh/better-auth/client",
                     "polarClient",

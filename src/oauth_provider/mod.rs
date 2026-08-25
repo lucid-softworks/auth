@@ -146,6 +146,12 @@ impl AuthPlugin for OAuthProviderPlugin {
             id: "oauth-provider",
             display_name: "Better Auth OAuth Provider",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::pinned_upstream(
+                "@better-auth/oauth-provider",
+                crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+                "@better-auth/oauth-provider",
+                "oauthProvider",
+            ),
             dependencies: if self.config.disable_jwt_plugin {
                 &[]
             } else {
@@ -156,7 +162,7 @@ impl AuthPlugin for OAuthProviderPlugin {
             cookies: &[],
             rate_limits: DEFAULT_OAUTH_PROVIDER_RATE_LIMITS,
             middleware: &[],
-            client: Some(PluginClientMetadata::current(
+            client: Some(PluginClientMetadata::official(
                 "@better-auth/oauth-provider",
                 "@better-auth/oauth-provider/client",
                 "oauthProviderClient",

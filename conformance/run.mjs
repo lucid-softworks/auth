@@ -465,7 +465,21 @@ async function conformance(origin) {
     const oneTimeToken = metadata.find((plugin) => plugin.id === "one-time-token");
     const bearer = metadata.find((plugin) => plugin.id === "bearer");
     const jwt = metadata.find((plugin) => plugin.id === "jwt");
-    assert.equal(nativePlugin.client.betterAuthVersion, betterAuthPackage.version);
+    assert.deepEqual(nativePlugin.provenance, {
+      classification: "lucidExtension",
+    });
+    assert.equal(nativePlugin.client.provenance, "application");
+    assert.equal("betterAuthVersion" in nativePlugin.client, false);
+    assert.deepEqual(username.provenance, {
+      classification: "pinnedBetterAuthPort",
+      betterAuthVersion: betterAuthPackage.version,
+      server: {
+        package: "better-auth",
+        version: betterAuthPackage.version,
+        importPath: "better-auth/plugins",
+        export: "username",
+      },
+    });
     assert.equal(nativePlugin.endpoints[0].clientMethod, "nativePlugin.ping");
     assert.equal(magicLink.client.factory, "magicLinkClient");
     assert.equal(emailOtp.client.factory, "emailOTPClient");

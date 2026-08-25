@@ -6,7 +6,6 @@ use crate::{
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use chrono::Utc;
 use rand_core::OsRng;
-use serde_json::json;
 use uuid::Uuid;
 
 /// A password change and an optional replacement for the current session.
@@ -188,13 +187,10 @@ impl AuthService {
         } else {
             None
         };
-        self.audit(
-            session.user.id,
-            Some(session.user.id),
-            "password.changed",
-            None,
-            json!({ "revokedOtherSessions": revoke_other_sessions }),
-        )
+        self.activity(crate::AuthActivity::PasswordChanged {
+            user_id: session.user.id,
+            revoked_other_sessions: revoke_other_sessions,
+        })
         .await;
         Ok(PasswordChangeResult {
             user: updated_user,

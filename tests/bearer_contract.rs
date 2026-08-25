@@ -1,19 +1,19 @@
-use async_trait::async_trait;
 use axum::{
     Router,
     body::Body,
-    http::{HeaderValue, Request, StatusCode, header},
+    http::{Request, StatusCode, header},
     response::Response,
 };
 use http_body_util::BodyExt;
-use lucid_auth::{
-    AuthConfig, AuthPlugin, AuthService, BearerConfig, BearerPlugin, DatabaseModel, MemoryStore,
-    PluginDescriptor, PluginRequestContext,
-};
+use lucid_auth::{AuthConfig, AuthService, BearerConfig, BearerPlugin, DatabaseModel, MemoryStore};
 use percent_encoding::{NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tower::ServiceExt;
+
+#[path = "bearer_contract/response_headers.rs"]
+mod response_headers;
+use response_headers::ResponseHeadersPlugin;
 
 const DEFAULT_COOKIE: &str = "better-auth.session_token";
 
@@ -309,48 +309,6 @@ async fn bearer_only_post_bypasses_browser_origin_checks_without_adding_challeng
     assert_eq!(invalid.status(), StatusCode::UNAUTHORIZED);
     assert!(!invalid.headers().contains_key(header::WWW_AUTHENTICATE));
     assert!(!invalid.headers().contains_key(header::AUTHORIZATION));
-}
-
-struct ResponseHeadersPlugin;
-
-#[async_trait]
-impl AuthPlugin for ResponseHeadersPlugin {
-    fn descriptor(&self) -> PluginDescriptor {
-        PluginDescriptor {
-            id: "bearer-response-fixture",
-            display_name: "Bearer response fixture",
-            version: "1.7.1",
-            dependencies: &[],
-            conflicts: &[],
-            endpoints: std::borrow::Cow::Borrowed(&[]),
-            cookies: &[],
-            rate_limits: &[],
-            middleware: &[],
-            client: None,
-        }
-    }
-
-    async fn after_response(
-        &self,
-        _service: &AuthService,
-        request: &PluginRequestContext,
-        mut response: Response,
-    ) -> Response {
-        if request.path == "/sign-up/email" {
-            response.headers_mut().insert(
-                header::ACCESS_CONTROL_EXPOSE_HEADERS,
-                HeaderValue::from_static("X-First, Set-Auth-Token"),
-            );
-            response
-                .headers_mut()
-                .insert("set-auth-token", HeaderValue::from_static("replaced"));
-            response.headers_mut().append(
-                header::SET_COOKIE,
-                HeaderValue::from_static("better-auth.session_token=last.value; Path=/"),
-            );
-        }
-        response
-    }
 }
 
 #[tokio::test]

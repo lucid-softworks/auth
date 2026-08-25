@@ -184,6 +184,12 @@ impl AuthPlugin for ApiKeyPlugin {
             id: "api-key",
             display_name: "Better Auth API Key",
             version: crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+            provenance: crate::PluginProvenance::pinned_upstream(
+                "@better-auth/api-key",
+                crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION,
+                "@better-auth/api-key",
+                "apiKey",
+            ),
             dependencies: if self
                 .configurations
                 .iter()
@@ -198,7 +204,7 @@ impl AuthPlugin for ApiKeyPlugin {
             cookies: &[],
             rate_limits: &[],
             middleware: &[],
-            client: Some(PluginClientMetadata::current(
+            client: Some(PluginClientMetadata::official(
                 "@better-auth/api-key",
                 "@better-auth/api-key/client",
                 "apiKeyClient",

@@ -12,6 +12,7 @@ mod client_metadata;
 mod core_endpoints;
 mod lifecycle;
 mod oauth_provider;
+mod provenance;
 mod schema;
 
 use core_endpoints::CORE_ENDPOINTS;
@@ -153,6 +154,7 @@ fn validate_descriptor(descriptor: &PluginDescriptor) -> Result<(), AuthError> {
             descriptor.id
         ));
     }
+    provenance::validate(descriptor).map_err(AuthError::InvalidConfiguration)?;
     if let Some(client) = descriptor.client {
         client_metadata::validate(client, descriptor.id)
             .map_err(AuthError::InvalidConfiguration)?;

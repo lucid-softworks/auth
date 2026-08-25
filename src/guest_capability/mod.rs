@@ -162,6 +162,7 @@ impl AuthPlugin for GuestCapabilityPlugin {
             id: "lucid-guest-capability",
             display_name: "lucid-auth Guest Capabilities",
             version: env!("CARGO_PKG_VERSION"),
+            provenance: crate::PluginProvenance::lucid_extension(),
             dependencies: &["lucid-owner-policy"],
             conflicts: &[],
             endpoints: std::borrow::Cow::Borrowed(ENDPOINTS),

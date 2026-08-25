@@ -102,6 +102,7 @@ mod tests {
                 id: "cookie-origin-test",
                 display_name: "Cookie origin test",
                 version: "1.0.0",
+                provenance: crate::PluginProvenance::lucid_extension(),
                 dependencies: &[],
                 conflicts: &[],
                 endpoints: Cow::Borrowed(&[]),
