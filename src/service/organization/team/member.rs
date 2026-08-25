@@ -258,11 +258,11 @@ async fn require_target_and_team(
     {
         return Err(member_not_found());
     }
-    if !plugin
+    if plugin
         .store
         .find_team(team_id)
         .await?
-        .is_some_and(|team| team.organization_id == organization_id)
+        .is_none_or(|team| team.organization_id != organization_id)
     {
         return Err(team_not_found());
     }

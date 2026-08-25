@@ -165,15 +165,14 @@ async fn sign_out(
     headers: HeaderMap,
     body::OptionalBetterAuthBody(input): body::OptionalBetterAuthBody<SignOutInput>,
 ) -> Response {
-    if let Some(token) = session_token(&service, &headers)
-        && let result = service
+    if let Some(token) = session_token(&service, &headers) {
+        let result = service
             .sign_out_with_provider_logout(
                 &token,
                 input.callback_url.as_deref(),
                 input.state.as_deref(),
             )
-            .await
-    {
+            .await;
         let url = result.unwrap_or(None);
         let redirect = url.as_ref().map(|_| input.disable_redirect != Some(true));
         let mut response = Json(SignOutResponse {

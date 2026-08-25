@@ -9,7 +9,7 @@ mod organization_lifecycle;
 mod plugin;
 #[cfg(feature = "postgres")]
 mod postgres;
-pub mod schema;
+mod schema;
 mod store;
 mod transport;
 mod webhook;
