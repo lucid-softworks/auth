@@ -117,11 +117,11 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     let (service, api_keys, phone_numbers) = contract_service(&store)?;
     test_utils::assert_persistence(&store, &pool).await?;
     let user = provision_owner(&service).await?;
-    dodo_payments::assert_schema_and_persistence(&service, &store, user.id).await?;
     migrate_legacy_extensions(&service, &store, &pool, user.id).await?;
     agent_auth::assert_switch_contract(&pool, user.id).await?;
     anonymous::assert_lifecycle(&service, &store).await?;
     let signed_in = authenticate_owner(&service, &user).await?;
+    dodo_payments::assert_schema_and_persistence(&service, &store, user.id).await?;
     multi_session::assert_http_round_trip(&service).await?;
     last_login_method::assert_http_round_trip(&service, &store, user.id).await?;
     session_refresh::assert_atomic(&service, &store).await?;
