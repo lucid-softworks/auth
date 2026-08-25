@@ -53,6 +53,8 @@ The currently supported surface covers:
   built-in provider, with issuer-qualified accounts and optional provider-token encryption
 - preview/development OAuth through the production callback deployment with the
   optional OAuth Proxy server plugin and ordinary `signIn.social` client
+- the complete official `oauthProviderClient` management surface plus the
+  native OAuth 2.0/OIDC authorization-server protocol as an optional plugin
 - the complete linked-account lifecycle: `listAccounts`, `linkSocial`,
   `unlinkAccount`, `accountInfo`, `getAccessToken`, and `refreshToken`
 - passkey rename and removal
@@ -337,6 +339,64 @@ callback `iss`, OAuth `device_id`, nor a provider `error_description` across
 the proxy hop. It adds no dedicated client factory, plugin-owned cookie,
 schema, migration, rate limit, or error-code table; its only route is
 `GET /oauth-proxy-callback`.
+
+OAuth Provider is the independent authorization-server plugin matching
+`@better-auth/oauth-provider@1.7.1`. The JWT plugin owns provider signing keys;
+the OAuth Provider plugin owns its seven models, routes, rate limits, and
+migration:
+
+```rust
+use lucid_auth::{
+    AuthService, JwtPlugin, OAuthProviderPlugin, OAuthProviderPluginConfig,
+};
+use lucid_auth::postgres::PostgresStore;
+use std::sync::Arc;
+
+config.add_plugin(JwtPlugin::default())?;
+config.add_plugin(OAuthProviderPlugin::in_memory(
+    OAuthProviderPluginConfig::new("/sign-in", "/oauth/consent"),
+))?;
+```
+
+Use the schema-aware PostgreSQL constructor in production, passing the same
+cloneable store used by `AuthService`, and apply the plugin migration before
+serving:
+
+```rust
+let postgres_store = PostgresStore::new(pool);
+let provider_config = OAuthProviderPluginConfig::new(
+    "/sign-in",
+    "/oauth/consent",
+);
+config.add_plugin(OAuthProviderPlugin::postgres(
+    provider_config,
+    postgres_store.clone(),
+)?)?;
+let service = AuthService::try_new(Arc::new(postgres_store.clone()), config)?;
+postgres_store
+    .migrate_plugins(&service.plugin_migrations())
+    .await?;
+```
+
+The required pages receive Better Auth's signed `oauth_query` and must return
+it through the provider's continue or consent methods.
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { oauthProviderClient } from "@better-auth/oauth-provider/client";
+
+export const authClient = createAuthClient({
+  baseURL: "https://issuer.example.com",
+  plugins: [oauthProviderClient()],
+});
+```
+
+Authorization code, client credentials, refresh tokens, OIDC, DPoP, resource
+indicators, discovery, registration, client/consent management, introspection,
+revocation, UserInfo, and logout follow the pinned plugin contract. Better
+Auth's server-only admin/resource actions intentionally remain unavailable over
+HTTP, and device authorization is a separate plugin. See the
+[compatibility matrix](COMPATIBILITY.md) for the precise boundary.
 
 Bearer session authentication is a separate, optional server plugin:
 

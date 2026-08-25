@@ -35,6 +35,8 @@ mod magic_link;
 mod multi_session;
 #[path = "postgres_contract/oauth.rs"]
 mod oauth;
+#[path = "postgres_contract/oauth_provider_schema.rs"]
+mod oauth_provider_schema;
 #[path = "postgres_contract/operator_security.rs"]
 mod operator_security;
 #[path = "postgres_contract/organization.rs"]

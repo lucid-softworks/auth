@@ -315,6 +315,26 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
         Ok(())
     }
 
+    /// Runs service-aware preparation before a database record is deleted.
+    async fn before_database_delete(
+        &self,
+        _service: &crate::AuthService,
+        _record: &crate::DatabaseRecord,
+        _context: &crate::DatabaseHookContext,
+    ) -> Result<(), AuthError> {
+        Ok(())
+    }
+
+    /// Runs service-aware work after a database record has been deleted.
+    async fn after_database_delete(
+        &self,
+        _service: &crate::AuthService,
+        _record: &crate::DatabaseRecord,
+        _context: &crate::DatabaseHookContext,
+    ) -> Result<(), AuthError> {
+        Ok(())
+    }
+
     async fn before(&self, _event: &BeforeAuthEvent) -> Result<(), AuthError> {
         Ok(())
     }
@@ -373,6 +393,16 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
 
     #[cfg(feature = "axum")]
     fn routes(&self, _service: Arc<AuthService>) -> Vec<AxumPluginRoute> {
+        Vec::new()
+    }
+
+    /// Adds routes that must live outside the configured Better Auth base path.
+    ///
+    /// Standards such as RFC 8414 derive discovery URLs from an issuer path and
+    /// therefore cannot always be represented by a route nested under
+    /// `AuthConfig::base_path()`. Most plugins should continue using `routes`.
+    #[cfg(feature = "axum")]
+    fn root_routes(&self, _service: Arc<AuthService>) -> Vec<AxumPluginRoute> {
         Vec::new()
     }
 

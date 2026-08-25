@@ -32,6 +32,10 @@ import { jwtConformance } from "./jwt.mjs";
 import { oneTimeTokenConformance } from "./one-time-token.mjs";
 import { oauthPopupConformance } from "./oauth-popup.mjs";
 import { oauthProxyConformance } from "./oauth-proxy.mjs";
+import {
+  oauthProviderConformance,
+  oauthProviderNativeConformance,
+} from "./oauth-provider.mjs";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
 const betterAuthPackage = JSON.parse(
@@ -2780,6 +2784,7 @@ await jwtConformance();
 await oneTimeTokenConformance();
 await oauthPopupConformance();
 await oauthProxyConformance();
+await oauthProviderConformance();
 
 for (const strategy of ["compact", "jwt", "jwe"]) {
   const { child, origin } = await startServer(strategy);
@@ -2789,6 +2794,11 @@ for (const strategy of ["compact", "jwt", "jwe"]) {
       await nativeBearerConformance(origin);
       await nativeJwtConformance(origin);
       await nativeOneTimeTokenConformance(origin);
+      const oauthProviderTransport = new BrowserTransport(origin);
+      await oauthProviderNativeConformance(
+        origin,
+        oauthProviderTransport.fetch.bind(oauthProviderTransport),
+      );
     }
     await cookieCacheConformance(origin, strategy);
   } finally {

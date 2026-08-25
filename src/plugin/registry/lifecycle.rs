@@ -78,15 +78,17 @@ impl PluginRegistry {
 
     pub(crate) async fn before_database_delete(
         &self,
+        service: &crate::AuthService,
         record: &DatabaseRecord,
         context: &DatabaseHookContext,
     ) -> Result<(), AuthError> {
-        for hooks in self
-            .plugins
-            .iter()
-            .filter_map(|plugin| plugin.database_hooks())
-        {
-            if !hooks.before_delete(record, context).await? {
+        for plugin in &self.plugins {
+            plugin
+                .before_database_delete(service, record, context)
+                .await?;
+            if let Some(hooks) = plugin.database_hooks()
+                && !hooks.before_delete(record, context).await?
+            {
                 return Err(cancelled(record, "delete"));
             }
         }
@@ -95,15 +97,17 @@ impl PluginRegistry {
 
     pub(crate) async fn after_database_delete(
         &self,
+        service: &crate::AuthService,
         record: &DatabaseRecord,
         context: &DatabaseHookContext,
     ) -> Result<(), AuthError> {
-        for hooks in self
-            .plugins
-            .iter()
-            .filter_map(|plugin| plugin.database_hooks())
-        {
-            hooks.after_delete(record, context).await?;
+        for plugin in &self.plugins {
+            plugin
+                .after_database_delete(service, record, context)
+                .await?;
+            if let Some(hooks) = plugin.database_hooks() {
+                hooks.after_delete(record, context).await?;
+            }
         }
         Ok(())
     }

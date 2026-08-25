@@ -46,14 +46,35 @@ where
         .merge(email_password::router())
         .merge(account::router())
         .merge(user_deletion::router());
+    let mut root_routes = Router::new();
+    let mut has_root_routes = false;
     for plugin in service.plugins().plugins() {
         for route in plugin.routes(service.clone()) {
             let (path, route) = route.into_parts();
             let route = plugin.middleware(route, service.clone());
             routes = routes.route_service(&path, route);
         }
+        for route in plugin.root_routes(service.clone()) {
+            has_root_routes = true;
+            let (path, route) = route.into_parts();
+            let route = plugin.middleware(route, service.clone());
+            root_routes = root_routes.route_service(&path, route);
+        }
     }
-    let routes = routes
+    let routes = with_auth_layers(routes, service.clone());
+    let app = Router::new().nest(service.base_path(), routes);
+    if has_root_routes {
+        app.merge(with_auth_layers(root_routes, service))
+    } else {
+        app
+    }
+}
+
+fn with_auth_layers<S>(routes: Router<S>, service: Arc<AuthService>) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    routes
         .layer(middleware::from_fn_with_state(
             service.clone(),
             security::validate_browser_request,
@@ -71,8 +92,7 @@ where
             service.clone(),
             plugin_hooks::after_response,
         ))
-        .layer(Extension(service.clone()));
-    Router::new().nest(service.base_path(), routes)
+        .layer(Extension(service))
 }
 
 pub(crate) async fn sign_in_response(

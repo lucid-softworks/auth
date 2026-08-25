@@ -14,10 +14,11 @@ use lucid_auth::{
     ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, AuthError, BearerPlugin,
     EmailOtpConfig, EmailOtpPlugin, JwtPlugin, LastLoginMethodConfig, LastLoginMethodPlugin,
     MagicLinkConfig, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore, MultiSessionPlugin,
-    OneTapConfig, OneTapPlugin, OneTimeTokenConfig, OneTimeTokenPlugin, OtpConfig, PasskeyConfig,
-    PasskeyPlugin, PhoneNumberConfig, PhoneNumberPlugin, PhoneNumberSignUpConfig, SiweConfig,
-    SiweMessageVerifier, SiweNonceGenerator, SiwePlugin, SiweVerificationRequest, TotpConfig,
-    TwoFactorConfig, TwoFactorPlugin,
+    OAuthProviderPlugin, OAuthProviderPluginConfig, OneTapConfig, OneTapPlugin,
+    OneTimeTokenConfig, OneTimeTokenPlugin, OtpConfig, PasskeyConfig, PasskeyPlugin,
+    PhoneNumberConfig, PhoneNumberPlugin, PhoneNumberSignUpConfig, SiweConfig, SiweMessageVerifier,
+    SiweNonceGenerator, SiwePlugin, SiweVerificationRequest, TotpConfig, TwoFactorConfig,
+    TwoFactorPlugin,
 };
 use std::{
     collections::BTreeMap,
@@ -122,6 +123,11 @@ fn register_session_plugins(config: &mut AuthConfig, origin: &str, store: Arc<Me
     config
         .add_plugin(JwtPlugin::default())
         .expect("unique JWT plugin");
+    config
+        .add_plugin(OAuthProviderPlugin::in_memory(OAuthProviderPluginConfig::new(
+            "/login", "/consent",
+        )))
+        .expect("unique OAuth-provider plugin");
     config
         .add_plugin(BearerPlugin::default())
         .expect("unique bearer plugin");

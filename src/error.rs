@@ -29,6 +29,8 @@ pub enum AuthError {
     Organization(#[from] crate::OrganizationError),
     #[error(transparent)]
     Jwt(#[from] crate::JwtError),
+    #[error(transparent)]
+    OAuthProvider(#[from] crate::OAuthProviderError),
     #[error("invalid username or password")]
     InvalidCredentials,
     #[error("invalid email or password")]

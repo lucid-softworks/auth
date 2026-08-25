@@ -22,6 +22,35 @@ impl AuthService {
 }
 
 impl<'a> JwtService<'a> {
+    pub fn configured_issuer(&self) -> Option<&str> {
+        self.config.jwt.issuer.as_deref()
+    }
+
+    pub fn remote_jwks_url(&self) -> Option<&str> {
+        self.config.jwks.remote_url.as_deref()
+    }
+
+    pub fn jwks_uri(&self, base_url: &str) -> String {
+        self.config.jwks.remote_url.clone().unwrap_or_else(|| {
+            format!(
+                "{}{}",
+                base_url.trim_end_matches('/'),
+                self.config.jwks.jwks_path
+            )
+        })
+    }
+
+    pub fn signing_algorithms(&self) -> Vec<&'static str> {
+        let mut algorithms = vec![self.config.jwks.key_pair_config.unwrap_or_default().name()];
+        for algorithm in &self.config.jwks.key_pair_configs {
+            let name = algorithm.name();
+            if !algorithms.contains(&name) {
+                algorithms.push(name);
+            }
+        }
+        algorithms
+    }
+
     pub async fn create_jwk(
         &self,
         context: &JwtAdapterContext,
@@ -89,6 +118,27 @@ impl<'a> JwtService<'a> {
         issuer: Option<&str>,
     ) -> Result<Option<Map<String, Value>>, AuthError> {
         verify_jwt(self.service, self.config, context, token, issuer).await
+    }
+
+    pub async fn verify_jwt_for_audiences(
+        &self,
+        context: &JwtAdapterContext,
+        token: &str,
+        issuer: &str,
+        audiences: &[String],
+    ) -> Result<Option<Map<String, Value>>, AuthError> {
+        verify_jwt_claims(self.service, self.config, context, token, issuer, audiences).await
+    }
+
+    /// Verifies only the compact JWS signature with this plugin's keyring.
+    /// Protocol adapters that intentionally accept expired JWT hints must
+    /// validate their own semantic claims after this operation.
+    pub async fn verify_jwt_signature(
+        &self,
+        context: &JwtAdapterContext,
+        token: &str,
+    ) -> Result<Option<Map<String, Value>>, AuthError> {
+        verify_jwt_signature(self.service, self.config, context, token).await
     }
 }
 
@@ -194,36 +244,46 @@ pub(crate) async fn verify_jwt(
     token: &str,
     issuer: Option<&str>,
 ) -> Result<Option<Map<String, Value>>, AuthError> {
-    let Some(kid) = token_kid(token) else {
-        return Ok(None);
-    };
-    let keys = keyring::all_keys(service, config, context).await?;
-    let Some(key) = keys.iter().find(|key| key.id == kid) else {
-        return Ok(None);
-    };
-    let primary = config.jwks.key_pair_config.unwrap_or_default();
-    let Some(algorithm) = keyring::effective_algorithm(key, primary) else {
-        return Ok(None);
-    };
-    let Some(payload) = super::crypto::verify_compact(token, algorithm, &key.public_key) else {
-        return Ok(None);
-    };
-    let Some(expected_issuer) = issuer
+    let expected_issuer = issuer
         .map(str::to_owned)
         .or_else(|| config.jwt.issuer.clone())
-        .or_else(|| service.jwt_default_origin())
-    else {
-        return Ok(None);
-    };
-    if Some(expected_issuer.as_str()) != payload.get("iss").and_then(Value::as_str) {
-        return Ok(None);
-    }
-    let expected_audience = config
+        .or_else(|| service.jwt_default_origin());
+    let expected_audiences = config
         .jwt
         .audience
         .clone()
-        .or_else(|| service.jwt_default_origin().map(Into::into));
-    if !audience_matches(payload.get("aud"), expected_audience.as_ref()) {
+        .or_else(|| service.jwt_default_origin().map(Into::into))
+        .map(|audience| audience.values());
+    let (Some(expected_issuer), Some(expected_audiences)) = (expected_issuer, expected_audiences)
+    else {
+        return Ok(None);
+    };
+    verify_jwt_claims(
+        service,
+        config,
+        context,
+        token,
+        &expected_issuer,
+        &expected_audiences,
+    )
+    .await
+}
+
+async fn verify_jwt_claims(
+    service: &AuthService,
+    config: &JwtConfig,
+    context: &JwtAdapterContext,
+    token: &str,
+    expected_issuer: &str,
+    expected_audiences: &[String],
+) -> Result<Option<Map<String, Value>>, AuthError> {
+    let Some(payload) = verify_jwt_signature(service, config, context, token).await? else {
+        return Ok(None);
+    };
+    if Some(expected_issuer) != payload.get("iss").and_then(Value::as_str) {
+        return Ok(None);
+    }
+    if !audience_values_match(payload.get("aud"), expected_audiences) {
         return Ok(None);
     }
     let now = Utc::now().timestamp() as f64;
@@ -244,6 +304,30 @@ pub(crate) async fn verify_jwt(
         return Ok(None);
     }
     Ok(Some(payload))
+}
+
+async fn verify_jwt_signature(
+    service: &AuthService,
+    config: &JwtConfig,
+    context: &JwtAdapterContext,
+    token: &str,
+) -> Result<Option<Map<String, Value>>, AuthError> {
+    let Some(kid) = token_kid(token) else {
+        return Ok(None);
+    };
+    let keys = keyring::all_keys(service, config, context).await?;
+    let Some(key) = keys.iter().find(|key| key.id == kid) else {
+        return Ok(None);
+    };
+    let primary = config.jwks.key_pair_config.unwrap_or_default();
+    let Some(algorithm) = keyring::effective_algorithm(key, primary) else {
+        return Ok(None);
+    };
+    Ok(super::crypto::verify_compact(
+        token,
+        algorithm,
+        &key.public_key,
+    ))
 }
 
 fn token_kid(token: &str) -> Option<String> {
@@ -287,11 +371,7 @@ fn optional_numeric_claim(payload: &Map<String, Value>, name: &str) -> Option<Op
     }
 }
 
-fn audience_matches(actual: Option<&Value>, expected: Option<&super::JwtAudience>) -> bool {
-    let Some(expected) = expected else {
-        return false;
-    };
-    let expected = expected.values();
+fn audience_values_match(actual: Option<&Value>, expected: &[String]) -> bool {
     match actual {
         Some(Value::String(value)) => expected.contains(value),
         Some(Value::Array(values)) => values

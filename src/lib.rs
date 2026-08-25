@@ -24,6 +24,7 @@ mod model;
 mod multi_session;
 mod oauth;
 mod oauth_popup;
+mod oauth_provider;
 mod oauth_proxy;
 mod one_tap;
 mod one_time_token;
@@ -148,6 +149,7 @@ pub use oauth_popup::{
     OAUTH_POPUP_DATA_ELEMENT_ID, OAUTH_POPUP_MESSAGE_TYPE, OAUTH_POPUP_SCRIPT_CSP_HASH,
     OAuthPopupPlugin, POPUP_MARKER_COOKIE, POPUP_TOKEN_STORAGE_KEY,
 };
+pub use oauth_provider::*;
 pub use oauth_proxy::{
     OAuthProxyConfig, OAuthProxyPlugin, OAuthProxySecret, OAuthProxyVersionedSecret,
 };

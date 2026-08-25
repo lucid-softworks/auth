@@ -180,6 +180,10 @@ name = "operator_security_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "oauth_provider_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "one_tap_contract"
 required-features = ["axum"]
 

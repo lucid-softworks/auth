@@ -132,7 +132,7 @@ impl AuthService {
     ) -> Result<(), AuthError> {
         let context = crate::database_hooks::current_context();
         self.plugins
-            .before_database_delete(record, &context)
+            .before_database_delete(self, record, &context)
             .await?;
         if let Some(hooks) = &self.config.database_hooks
             && !hooks.before_delete(record, &context).await?
@@ -147,7 +147,9 @@ impl AuthService {
         record: &DatabaseRecord,
     ) -> Result<(), AuthError> {
         let context = crate::database_hooks::current_context();
-        self.plugins.after_database_delete(record, &context).await?;
+        self.plugins
+            .after_database_delete(self, record, &context)
+            .await?;
         if let Some(hooks) = &self.config.database_hooks {
             hooks.after_delete(record, &context).await?;
         }

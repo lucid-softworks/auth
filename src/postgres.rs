@@ -14,6 +14,7 @@ mod guest_capability;
 mod jwt;
 mod migrate;
 mod oauth;
+mod oauth_provider;
 mod operator_security;
 mod organization;
 mod passkey;
@@ -32,6 +33,7 @@ mod verification;
 use rows::{SessionRow, UserRow};
 
 pub use migrate::{CoreMigration, core_migrations};
+pub use oauth_provider::PostgresOAuthProviderStore;
 pub use schema::{
     PostgresMigrationDescriptor, PostgresMigrationPlan, PostgresSchemaIssue, PostgresSchemaObject,
     PostgresSchemaReport,
