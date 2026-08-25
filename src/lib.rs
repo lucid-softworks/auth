@@ -242,11 +242,6 @@ pub use store::{
     PasskeyDeleteOutcome, PasswordResetOutcome, SecurityStore, UserProfileUpdate,
     VerificationStore,
 };
-pub use two_factor::{
-    AccountLockoutConfig, BackupCodeConfig, MemoryTwoFactorStore, OtpConfig, TotpConfig,
-    TwoFactorConfig, TwoFactorError, TwoFactorOtp, TwoFactorOtpSender, TwoFactorPlugin,
-    TwoFactorRecord, TwoFactorStore,
-};
 pub use user_deletion::{
     ChangeEmailConfig, ChangeEmailConfirmation, ChangeEmailConfirmationSender,
     DeleteAccountVerification, DeleteAccountVerificationSender, DeleteUserConfig, UserConfig,

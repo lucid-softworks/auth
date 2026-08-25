@@ -13,7 +13,16 @@ pub use crate::infra::email::{
     VerifyEmailOtpVariables, VerifyEmailVariables, create_email_sender, send_bulk_emails,
     send_email,
 };
+pub use crate::infra::sms::{
+    SMS_TEMPLATES, SendSmsOptions, SendSmsResult, SmsApiOptions, SmsConfig, SmsSender,
+    SmsTemplateId, SmsTemplateVariables, create_sms_sender, send_sms,
+};
 pub use crate::secondary_storage::{MemorySecondaryStorage, SecondaryStorage};
+pub use crate::two_factor::{
+    AccountLockoutConfig, BackupCodeConfig, MemoryTwoFactorStore, OtpConfig, TotpConfig,
+    TwoFactorConfig, TwoFactorError, TwoFactorOtp, TwoFactorOtpSender, TwoFactorPlugin,
+    TwoFactorRecord, TwoFactorStore,
+};
 pub use crate::username::{
     UsernameConfig, UsernameError, UsernameNormalizer, UsernamePlugin, UsernameValidationOrder,
     UsernameValidationTiming, UsernameValidator,

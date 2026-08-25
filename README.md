@@ -81,6 +81,7 @@ The currently supported surface covers:
 - Dub signup lead attribution as an optional native plugin matching
   `@dub/better-auth@0.0.6`
 - the standalone managed email client from `@better-auth/infra@0.4.3`
+- the standalone managed SMS client from `@better-auth/infra@0.4.3`
 
 The library keeps authentication protocol details separate from host-product
 authorization. Core principals contain actor, subject, session, and credential
@@ -682,6 +683,50 @@ variables with per-recipient overrides. There is no automatic retry, backoff,
 queue, delivery ledger, local provider fallback, or reconciliation. See the
 [managed email compatibility details](COMPATIBILITY.md#managed-email-043) for
 the precise request, configuration, result, and failure contract.
+
+### Better Auth Infrastructure managed SMS
+
+Managed SMS support also pins `@better-auth/infra@0.4.3`. It is a standalone
+outbound client, not an auth plugin: creating an `SmsSender` does not install a
+route, schema, migration, browser client, or automatic `dash`/`sentinel`
+delivery hook. Call it explicitly from an application-owned phone-number or
+two-factor OTP sender. The one-shot `send_sms` function is available when a
+reusable sender is unnecessary.
+
+```rust
+use lucid_auth::{SendSmsOptions, SmsConfig, SmsSender, SmsTemplateId};
+
+let sender = SmsSender::new(Some(SmsConfig {
+    api_key: Some(std::env::var("BETTER_AUTH_API_KEY")?),
+    ..SmsConfig::default()
+}));
+let result = sender
+    .send(
+        SendSmsOptions::new("+1234567890", "123456")
+            .with_template(SmsTemplateId::PhoneVerification)
+            .with_client_ip("203.0.113.8"),
+    )
+    .await;
+if !result.success {
+    // Apply the application's delivery-failure policy here.
+}
+```
+
+For `PhoneNumberPlugin`, adapt the sender through `PhoneNumberOtpSender` and
+assign it to `PhoneNumberConfig::send_otp`; use `TwoFactorOtpSender` with
+`OtpConfig` for delivered two-factor codes. That explicit adapter selects
+`phone-verification`, `two-factor`, `sign-in-otp`, or no template. The managed
+callable surface has no template-variables input even though the upstream
+TypeScript declarations publish a variable type for template metadata.
+
+Configuration and transport use the same API-key, API-origin, `/api` suffix,
+three-second timeout, bearer header, and infrastructure user agent as the
+published package. A truthy `client_ip` adds `x-better-auth-client-ip`. Every
+call sends the phone number, OTP, selected template, and optional end-user IP
+to the configured origin exactly once. There is no local E.164 validation,
+retry, batching, idempotency key, queue, status polling, webhook, locale,
+provider selection, or password-reset template. See the
+[managed SMS compatibility details](COMPATIBILITY.md#managed-sms-043).
 
 Social providers use the same `signIn.social` and `/callback/:provider` wire
 contract as Better Auth. Register a built-in after setting the public base URL:

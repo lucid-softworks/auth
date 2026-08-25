@@ -437,7 +437,7 @@ aliases or permissive alternate request/response shapes:
 | Dashboard and audit logs | Planned | [#54](https://github.com/lucid-softworks/auth/issues/54). |
 | Sentinel security | Planned | [#55](https://github.com/lucid-softworks/auth/issues/55). |
 | Managed email service | Supported | Standalone `infra::email` client matching `@better-auth/infra@0.4.3`: exact reusable and one-shot send operations, bulk send, remote template listing, all 13 published templates and their typed variables, configuration/environment/timeout precedence, URL and header construction, result normalization, and one-request failure behavior. This is not an auth plugin: it adds no route, client plugin, schema, migration, lifecycle mapping, queue, retry, idempotency, locale, or provider transport. Recipients and template payloads leave the process for the configured API origin; see [Managed email 0.4.3](#managed-email-043) and [#56](https://github.com/lucid-softworks/auth/issues/56). |
-| Managed SMS service | Planned | [#57](https://github.com/lucid-softworks/auth/issues/57). |
+| Managed SMS service | Supported | Standalone `infra::sms` client matching the root-only SMS exports from `@better-auth/infra@0.4.3`: exact reusable and one-shot sends, three templates plus the generic send, configuration/environment/timeout precedence, optional client-IP header, URL/header/body construction, unchecked provider message IDs, result normalization, and one-request failure behavior. This is not an auth plugin and is not automatically wired by `dash` or `sentinel`; it adds no route, client plugin, schema, migration, validation, queue, retry, idempotency, locale, or provider transport. Phone numbers, OTPs, and optional end-user IPs leave the process for the configured origin; see [Managed SMS 0.4.3](#managed-sms-043) and [#57](https://github.com/lucid-softworks/auth/issues/57). |
 
 Provider integrations are opt-in native Rust configurations. An unregistered or
 unavailable provider does not affect password, passkey, or other configured
@@ -668,6 +668,58 @@ Recording-server coverage includes configuration and timeout precedence, URL
 suffix edges, all operation bodies, missing keys, malformed and HTTP responses,
 timeouts, duplicate bulk recipients, template listing, and the single-attempt
 boundary.
+
+### Managed SMS 0.4.3
+
+`infra::sms` is the native equivalent of the standalone SMS client exported
+only from the root of `@better-auth/infra@0.4.3`; the package has no `./sms`
+subpath. It is not an `AuthPlugin` and does not install an auth route, browser
+client, callback, schema, migration, or automatic lifecycle mapping. The
+published `dash` and `sentinel` factories do not call `createSMSSender` or
+`sendSMS`. Applications explicitly compose `SmsSender` or the one-shot
+`send_sms` function with their own phone-number or two-factor delivery callback.
+
+The runtime template inventory is exactly `phone-verification`, `two-factor`,
+and `sign-in-otp`; omitting the template requests the generic verification
+message. `SendSmsOptions` contains only the recipient, code, optional template,
+and optional client IP. The upstream declaration-only `SMSTemplateVariables`
+shape has required `code` plus optional `appName` and `expirationMinutes`, but
+the callable API has no variables input. There is no password-reset template,
+locale, application-name option, expiration option, free-form template data,
+provider selector, or local E.164 validation.
+
+`SmsConfig` preserves the artifact's `apiUrl`, API-key, `apiOptions.timeout`,
+deprecated `apiTimeout`, environment fallback, exact `/api` suffix behavior,
+three-second default, bearer header, and `@better-auth/infra v0.4.3` user agent.
+The sole provider operation is `POST /v1/sms/send` with JSON `to`, `code`, and
+an optional `template`. A truthy client IP adds `x-better-auth-client-ip`; it is
+otherwise omitted. A missing key short-circuits without a request.
+
+Every successful object body is accepted and its unvalidated `messageId` is
+passed through, including a missing, null, or non-string value. Successful
+null, array, or primitive bodies return `Failed to parse JSON`. Provider HTTP
+errors use a truthy `message` value without string validation and otherwise
+fall back to `HTTP <status>`. Transport and timeout exceptions use the native
+exception message; the published non-Error fallback is `Failed to send SMS`.
+Missing-key construction and transport exceptions warn, while HTTP and result
+shape failures do not. Each call makes at most one request: there is no retry,
+backoff, batching, duplicate suppression, idempotency key, request ID, queue,
+delivery polling, webhook, persistence, or reconciliation.
+
+The configured origin receives the bearer credential, phone number, OTP,
+selected template, and optional end-user IP. Upstream does not require HTTPS
+or allowlist custom origins, so applications must keep the key server-side and
+trust that destination. Lucid-auth does not log credentials, recipients, codes,
+request bodies, results, or message IDs.
+
+Verification pins the root-only artifact declarations and runtime, proves the
+absence of `dash`/`sentinel` auto-wiring, and compares transport behavior with
+an immutable JavaScript oracle. Native recording-server coverage includes all
+templates and the generic send, unvalidated recipients, configuration and
+timeout precedence, import-time URL equivalence, exact URL suffix/query/fragment
+resolution, headers and bodies, optional client IP, missing keys, compressed,
+malformed, HTTP, and transport responses, warning boundaries, unvalidated
+message IDs, and the single-attempt contract.
 
 ## Storage and deployment
 
