@@ -33,23 +33,25 @@ pub(super) struct TokenInput {
 pub(crate) async fn code(
     request: Request,
     client_id_optional: bool,
-) -> Result<(HeaderMap, CodeInput), Response> {
+) -> Result<(HeaderMap, CodeInput), Box<Response>> {
     let content_type = content_type(request.headers());
     let headers = request.headers().clone();
     let bytes = body_bytes(request).await?;
     match media_type(&content_type) {
-        "application/json" => code_json(&bytes, client_id_optional).map(|input| (headers, input)),
-        "application/x-www-form-urlencoded" => {
-            code_form(&bytes, client_id_optional).map(|input| (headers, input))
-        }
-        _ => Err(error::unsupported_media_type(
+        "application/json" => code_json(&bytes, client_id_optional)
+            .map(|input| (headers, input))
+            .map_err(Box::new),
+        "application/x-www-form-urlencoded" => code_form(&bytes, client_id_optional)
+            .map(|input| (headers, input))
+            .map_err(Box::new),
+        _ => Err(Box::new(error::unsupported_media_type(
             &presented_content_type(&content_type),
             "application/json, application/x-www-form-urlencoded",
-        )),
+        ))),
     }
 }
 
-pub(super) async fn token(request: Request) -> Result<(HeaderMap, TokenInput), Response> {
+pub(super) async fn token(request: Request) -> Result<(HeaderMap, TokenInput), Box<Response>> {
     let (headers, value) = json_request(request).await?;
     let mut issues = Vec::new();
     match value.get("grant_type").and_then(Value::as_str) {
@@ -61,7 +63,7 @@ pub(super) async fn token(request: Request) -> Result<(HeaderMap, TokenInput), R
     let device_code = required_string(&value, "device_code", &mut issues);
     let client_id = required_string(&value, "client_id", &mut issues);
     if !issues.is_empty() {
-        return Err(error::validation(issues.join("; ")));
+        return Err(Box::new(error::validation(issues.join("; "))));
     }
     Ok((
         headers,
@@ -72,12 +74,12 @@ pub(super) async fn token(request: Request) -> Result<(HeaderMap, TokenInput), R
     ))
 }
 
-pub(super) async fn decision(request: Request) -> Result<(HeaderMap, String), Response> {
+pub(super) async fn decision(request: Request) -> Result<(HeaderMap, String), Box<Response>> {
     let (headers, value) = json_request(request).await?;
     let mut issues = Vec::new();
     let user_code = required_string(&value, "userCode", &mut issues);
     if !issues.is_empty() {
-        return Err(error::validation(issues.join("; ")));
+        return Err(Box::new(error::validation(issues.join("; "))));
     }
     Ok((headers, user_code.expect("validated userCode")))
 }
@@ -184,29 +186,29 @@ fn code_form(bytes: &[u8], client_id_optional: bool) -> Result<CodeInput, Respon
     })
 }
 
-async fn json_request(request: Request) -> Result<(HeaderMap, Value), Response> {
+async fn json_request(request: Request) -> Result<(HeaderMap, Value), Box<Response>> {
     let content_type = content_type(request.headers());
     if media_type(&content_type) != "application/json" {
-        return Err(error::unsupported_media_type(
+        return Err(Box::new(error::unsupported_media_type(
             &presented_content_type(&content_type),
             "application/json",
-        ));
+        )));
     }
     let headers = request.headers().clone();
     let bytes = body_bytes(request).await?;
-    let value = serde_json::from_slice(&bytes).map_err(|_| error::invalid_json())?;
+    let value = serde_json::from_slice(&bytes).map_err(|_| Box::new(error::invalid_json()))?;
     Ok((headers, value))
 }
 
-async fn body_bytes(request: Request) -> Result<axum::body::Bytes, Response> {
+async fn body_bytes(request: Request) -> Result<axum::body::Bytes, Box<Response>> {
     to_bytes(request.into_body(), BODY_LIMIT)
         .await
         .map_err(|_| {
-            error::generic(
+            Box::new(error::generic(
                 axum::http::StatusCode::BAD_REQUEST,
                 "Request body is too large",
                 "BAD_REQUEST",
-            )
+            ))
         })
 }
 

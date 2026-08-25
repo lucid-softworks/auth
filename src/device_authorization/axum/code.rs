@@ -26,7 +26,7 @@ pub(super) async fn issue(
     let oauth_mode = state.config.includes_oauth_fields();
     let (headers, input) = match request::code(raw, oauth_mode).await {
         Ok(input) => input,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     if oauth_mode {
         return crate::device_authorization::oauth::issue_code(
@@ -40,7 +40,7 @@ pub(super) async fn issue(
     }
     let prepared = match prepare(&state, input).await {
         Ok(prepared) => prepared,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     create(&service, &state, &headers, prepared).await
 }
@@ -48,27 +48,32 @@ pub(super) async fn issue(
 async fn prepare(
     state: &DeviceAuthorizationState,
     input: request::CodeInput,
-) -> Result<PreparedRequest, axum::response::Response> {
+) -> Result<PreparedRequest, Box<axum::response::Response>> {
     let Some(client_id) = input.client_id.as_deref() else {
-        return Err(error::protocol(
+        return Err(Box::new(error::protocol(
             StatusCode::BAD_REQUEST,
             "invalid_request",
             "client_id is required",
             true,
-        ));
+        )));
     };
     if let Some(validator) = &state.config.validate_client {
         match validator.validate(client_id).await {
             Ok(true) => {}
             Ok(false) => {
-                return Err(error::protocol(
+                return Err(Box::new(error::protocol(
                     StatusCode::BAD_REQUEST,
                     "invalid_client",
                     "Invalid client ID",
                     true,
-                ));
+                )));
             }
-            Err(_) => return Err(error::internal("Unable to validate client ID", true)),
+            Err(_) => {
+                return Err(Box::new(error::internal(
+                    "Unable to validate client ID",
+                    true,
+                )));
+            }
         }
     }
     if let Some(observer) = &state.config.on_device_auth_request
@@ -77,33 +82,35 @@ async fn prepare(
             .await
             .is_err()
     {
-        return Err(error::internal(
+        return Err(Box::new(error::internal(
             "Unable to process device authorization request",
             true,
-        ));
+        )));
     }
     let expires_ms = state
         .config
         .expires_in_milliseconds()
-        .map_err(|_| error::internal("Invalid device-code expiration", true))?;
-    let interval_ms = state
-        .config
-        .interval_milliseconds()
-        .map_err(|_| error::internal("Invalid device-code polling interval", true))?;
+        .map_err(|_| Box::new(error::internal("Invalid device-code expiration", true)))?;
+    let interval_ms = state.config.interval_milliseconds().map_err(|_| {
+        Box::new(error::internal(
+            "Invalid device-code polling interval",
+            true,
+        ))
+    })?;
     let expires_at = javascript_expiry(Utc::now(), expires_ms)
-        .ok_or_else(|| error::internal("Invalid device-code expiration", true))?;
+        .ok_or_else(|| Box::new(error::internal("Invalid device-code expiration", true)))?;
     let user_id = input
         .user_id
         .as_deref()
         .map(Uuid::parse_str)
         .transpose()
         .map_err(|_| {
-            error::protocol(
+            Box::new(error::protocol(
                 StatusCode::BAD_REQUEST,
                 "invalid_request",
                 "user_id is invalid",
                 true,
-            )
+            ))
         })?;
     Ok(PreparedRequest {
         client_id: client_id.to_owned(),
@@ -124,7 +131,7 @@ async fn create(
     for _ in 0..MAX_GENERATION_ATTEMPTS {
         let (device_code, user_code) = match generate_pair(state).await {
             Ok(pair) => pair,
-            Err(response) => return response,
+            Err(response) => return *response,
         };
         let record = DeviceCode {
             id: Uuid::new_v4(),
@@ -172,13 +179,13 @@ async fn create(
 
 async fn generate_pair(
     state: &DeviceAuthorizationState,
-) -> Result<(String, String), axum::response::Response> {
+) -> Result<(String, String), Box<axum::response::Response>> {
     let device = generation::device_code(&state.config)
         .await
-        .map_err(generation_error)?;
+        .map_err(|error| Box::new(generation_error(error)))?;
     let user = generation::user_code(&state.config)
         .await
-        .map_err(generation_error)?;
+        .map_err(|error| Box::new(generation_error(error)))?;
     Ok((device, user))
 }
 

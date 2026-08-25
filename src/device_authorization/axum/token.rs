@@ -12,7 +12,7 @@ pub(super) async fn exchange(
 ) -> axum::response::Response {
     let (headers, input) = match request::token(raw).await {
         Ok(input) => input,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     if let Some(validator) = &state.config.validate_client {
         match validator.validate(&input.client_id).await {
@@ -31,7 +31,7 @@ pub(super) async fn exchange(
     let (claimed, user) =
         match redeem::standalone(&service, &state, &input.device_code, &input.client_id).await {
             Ok(result) => result,
-            Err(response) => return response,
+            Err(response) => return *response,
         };
     let signed_in = match service
         .create_device_authorization_session(user, &headers)

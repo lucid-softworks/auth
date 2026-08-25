@@ -29,7 +29,7 @@ async fn decide(
 ) -> axum::response::Response {
     let (headers, user_code) = match request::decision(raw).await {
         Ok(input) => input,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let Some(session) = crate::axum::http::current_session_cache_first(&service, &headers).await
     else {
