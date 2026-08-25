@@ -13,7 +13,7 @@ struct OAuthErrorBody<'a> {
     error_description: &'a str,
 }
 
-pub(super) fn oauth_error(error: &OAuthProviderError) -> Response {
+pub(crate) fn oauth_error(error: &OAuthProviderError) -> Response {
     if let OAuthProviderError::UnsupportedMediaType(message) = error {
         return (
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -106,6 +106,9 @@ pub(super) fn description(error: &OAuthProviderError) -> &str {
         | OAuthProviderError::InvalidScope(value)
         | OAuthProviderError::InvalidTarget(value)
         | OAuthProviderError::AccessDenied(value)
+        | OAuthProviderError::AuthorizationPending(value)
+        | OAuthProviderError::SlowDown(value)
+        | OAuthProviderError::ExpiredToken(value)
         | OAuthProviderError::InteractionRequired(value)
         | OAuthProviderError::LoginRequired(value)
         | OAuthProviderError::AccountSelectionRequired(value)

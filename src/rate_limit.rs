@@ -177,6 +177,9 @@ impl RateLimitConfig {
             rule = default_special_rule(path).expect("checked above");
         }
         if let Some(plugin) = plugin_rule {
+            if plugin.window == 0 {
+                return Ok(None);
+            }
             rule = RateLimitRule::new(plugin.window, plugin.max);
         }
         if let Some(custom) = self
@@ -336,6 +339,20 @@ mod tests {
                 .await
                 .unwrap(),
             Some(RateLimitRule::new(30, 4))
+        );
+        assert_eq!(
+            config
+                .resolve_rule(
+                    &request("/disabled-plugin-rule"),
+                    Some(PluginRateLimit {
+                        path: "/disabled-plugin-rule",
+                        window: 0,
+                        max: 5,
+                    }),
+                )
+                .await
+                .unwrap(),
+            None
         );
     }
 

@@ -71,6 +71,12 @@ pub enum OAuthProviderError {
     InvalidTarget(String),
     #[error("access_denied: {0}")]
     AccessDenied(String),
+    #[error("authorization_pending: {0}")]
+    AuthorizationPending(String),
+    #[error("slow_down: {0}")]
+    SlowDown(String),
+    #[error("expired_token: {0}")]
+    ExpiredToken(String),
     #[error("interaction_required: {0}")]
     InteractionRequired(String),
     #[error("login_required: {0}")]
@@ -124,6 +130,9 @@ impl OAuthProviderError {
             Self::InvalidScope(_) => "invalid_scope",
             Self::InvalidTarget(_) => "invalid_target",
             Self::AccessDenied(_) => "access_denied",
+            Self::AuthorizationPending(_) => "authorization_pending",
+            Self::SlowDown(_) => "slow_down",
+            Self::ExpiredToken(_) => "expired_token",
             Self::InteractionRequired(_) => "interaction_required",
             Self::LoginRequired(_) => "login_required",
             Self::AccountSelectionRequired(_) => "account_selection_required",

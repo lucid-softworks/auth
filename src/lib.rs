@@ -11,6 +11,7 @@ mod client_ip;
 mod config;
 mod cookie;
 mod database_hooks;
+pub mod device_authorization;
 mod email;
 mod email_otp;
 mod error;
@@ -91,6 +92,7 @@ pub use database_hooks::{
     BeforeDatabaseHook, DatabaseHookContext, DatabaseHookRequest, DatabaseHooks, DatabaseModel,
     DatabaseRecord,
 };
+pub use device_authorization::*;
 pub use email::{
     EmailVerificationConfig, PasswordResetCallback, PasswordResetEmail, PasswordResetEmailSender,
     VerificationEmail, VerificationEmailSender,

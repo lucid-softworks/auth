@@ -39,6 +39,8 @@ The currently supported surface covers:
 - the complete official `lastLoginMethodClient` surface as an optional native plugin
 - the official `jwtClient` token/JWKS surface as an optional native plugin
 - the complete official `oneTimeTokenClient` surface as an optional native plugin
+- standalone and OAuth Provider device authorization through the official
+  `deviceAuthorizationClient` and `oauthDeviceAuthorizationClient`
 - the complete Better Auth username lifecycle as an optional native plugin
 - sign-out
 - the complete official anonymous client lifecycle as an optional native plugin
@@ -397,6 +399,70 @@ revocation, UserInfo, and logout follow the pinned plugin contract. Better
 Auth's server-only admin/resource actions intentionally remain unavailable over
 HTTP, and device authorization is a separate plugin. See the
 [compatibility matrix](COMPATIBILITY.md) for the precise boundary.
+
+Device Authorization is a separate plugin matching Better Auth 1.7.1. For a
+standalone first-party device flow, install it without OAuth Provider:
+
+```rust
+use lucid_auth::{DeviceAuthorizationConfig, DeviceAuthorizationPlugin};
+
+config.add_plugin(DeviceAuthorizationPlugin::in_memory(
+    DeviceAuthorizationConfig::default(),
+))?;
+```
+
+Use the matching official client plugin. The standalone `/device/token`
+exchange creates a first-party session and returns its bearer token without
+setting a browser session cookie:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { deviceAuthorizationClient } from "better-auth/client/plugins";
+
+export const authClient = createAuthClient({
+  baseURL: "https://auth.example.com",
+  plugins: [deviceAuthorizationClient()],
+});
+```
+
+For RFC 8628 token issuance by OAuth Provider, install the companion after the
+provider and keep `JwtPlugin` for provider signing keys:
+
+```rust
+use lucid_auth::{
+    DeviceAuthorizationConfig, JwtPlugin, OAuthDeviceAuthorizationPlugin,
+    OAuthProviderPlugin, OAuthProviderPluginConfig,
+};
+
+config.add_plugin(JwtPlugin::default())?;
+config.add_plugin(OAuthProviderPlugin::in_memory(
+    OAuthProviderPluginConfig::new("/sign-in", "/oauth/consent"),
+))?;
+config.add_plugin(OAuthDeviceAuthorizationPlugin::in_memory(
+    DeviceAuthorizationConfig::default(),
+))?;
+```
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import {
+  oauthDeviceAuthorizationClient,
+  oauthProviderClient,
+} from "@better-auth/oauth-provider/client";
+
+export const authClient = createAuthClient({
+  baseURL: "https://issuer.example.com",
+  plugins: [oauthProviderClient(), oauthDeviceAuthorizationClient()],
+});
+```
+
+OAuth-owned device codes are exchanged at `/oauth2/token`; `/device/token` is
+reserved for standalone codes and deliberately returns `invalid_grant` for
+OAuth-owned codes. Both variants own a dedicated `deviceCode` model with atomic
+claim and one-time redemption. In production, use `DeviceAuthorizationPlugin::postgres`
+or `OAuthDeviceAuthorizationPlugin::postgres` with the same cloneable
+`PostgresStore` passed to `AuthService`, then apply `plugin_migrations()` as in
+the OAuth Provider example above.
 
 Bearer session authentication is a separate, optional server plugin:
 

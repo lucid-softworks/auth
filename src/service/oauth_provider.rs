@@ -4,6 +4,20 @@ use chrono::Utc;
 use uuid::Uuid;
 
 impl AuthService {
+    pub(crate) fn oauth_provider_plugin(&self) -> Option<&crate::OAuthProviderPlugin> {
+        self.plugins.find::<crate::OAuthProviderPlugin>()
+    }
+
+    pub(crate) fn oauth_provider_extensions(
+        &self,
+    ) -> Vec<std::sync::Arc<dyn crate::OAuthProviderExtension>> {
+        self.plugins
+            .plugins()
+            .iter()
+            .flat_map(|plugin| plugin.oauth_provider_extensions())
+            .collect()
+    }
+
     pub(crate) async fn auth_user_by_id(
         &self,
         user_id: Uuid,

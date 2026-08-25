@@ -1,13 +1,13 @@
 use lucid_auth::{
     AccessStore, AccountDeleteOutcome, AdditionalField, AdditionalFieldType, AdminPlugin,
     AnonymousPlugin, AuditPlugin, AuthConfig, AuthError, AuthService, AuthSession, AuthStore,
-    AuthUser, AuthenticationMethod, EmailSignUpInput, GuestCapabilityPlugin, LastLoginMethodConfig,
+    AuthUser, AuthenticationMethod, GuestCapabilityPlugin, LastLoginMethodConfig,
     LastLoginMethodPlugin, MultiSessionPlugin, NewPasswordUser, OAuthAccount, OAuthAccountStore,
     OAuthTokenUpdateOutcome, OperatorSecurityConfig, OperatorSecurityPlugin,
     OrganizationDynamicAccessControlConfig, OrganizationPlugin, OrganizationPluginConfig,
     OrganizationTeamsConfig, OwnerPolicyPlugin, PasskeyConfig, PasskeyPlugin, PluginMigration,
     PluginMigrationContribution, StepUpPolicyConfig, StepUpPolicyPlugin, TwoFactorConfig,
-    TwoFactorPlugin, UsernameError, UsernamePlugin, postgres::PostgresStore,
+    TwoFactorPlugin, UsernamePlugin, postgres::PostgresStore,
 };
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
@@ -23,6 +23,8 @@ mod anonymous;
 mod api_key;
 #[path = "postgres_contract/audit.rs"]
 mod audit;
+#[path = "postgres_contract/device_authorization_schema.rs"]
+mod device_authorization_schema;
 #[path = "postgres_contract/email_otp.rs"]
 mod email_otp;
 #[path = "postgres_contract/guest_capability.rs"]
@@ -51,6 +53,8 @@ mod rate_limit;
 mod schema;
 #[path = "postgres_contract/session_refresh.rs"]
 mod session_refresh;
+#[path = "postgres_contract/signup.rs"]
+mod signup;
 #[path = "postgres_contract/siwe.rs"]
 mod siwe;
 #[path = "postgres_contract/step_up.rs"]
@@ -123,8 +127,8 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
     phone_number::assert_atomic_and_persistent(&service, &store, &pool, &phone_numbers).await?;
     siwe::assert_atomic_and_persistent(&service, &pool).await?;
     magic_link::assert_promotion_is_atomic(&store, &pool).await?;
-    email_signup_is_case_insensitive(&service, &pool).await?;
-    username_signup_is_atomic(&service, &pool).await?;
+    signup::email_is_case_insensitive(&service, &pool).await?;
+    signup::username_is_atomic(&service, &pool).await?;
     guest_capability::assert_atomic(&store, &service, &pool, &signed_in.session).await?;
     user_deletion::assert_transactional(&service, &pool).await?;
     passkey_counters_are_atomic(&store, user.id).await?;
@@ -331,83 +335,6 @@ async fn plugin_migrations_are_idempotent(
         sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM lucid_auth_plugin_migrations \
              WHERE plugin_id = 'postgres-contract' AND migration_id = 'create-records'",
-        )
-        .fetch_one(pool)
-        .await?,
-        1
-    );
-    Ok(())
-}
-
-async fn email_signup_is_case_insensitive(
-    service: &AuthService,
-    pool: &sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let signup = |email: &str| EmailSignUpInput {
-        name: "PostgreSQL email user".into(),
-        email: email.into(),
-        password: "correct horse battery staple".into(),
-        image: None,
-        callback_url: None,
-        remember_me: None,
-        username: None,
-        display_username: None,
-        additional_fields: serde_json::Map::new(),
-    };
-    let (left, right) = tokio::join!(
-        service.sign_up_email(signup("Case.Variant@Example.com"), None, None),
-        service.sign_up_email(signup("case.variant@example.com"), None, None)
-    );
-    assert_eq!(usize::from(left.is_ok()) + usize::from(right.is_ok()), 1);
-    let error = left.err().or_else(|| right.err()).unwrap();
-    assert!(matches!(error, AuthError::UserAlreadyExistsEmail));
-    assert_eq!(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_users WHERE LOWER(email) = 'case.variant@example.com'",
-        )
-        .fetch_one(pool)
-        .await?,
-        1
-    );
-    Ok(())
-}
-
-async fn username_signup_is_atomic(
-    service: &AuthService,
-    pool: &sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let signup = |email: &str, username: &str| EmailSignUpInput {
-        name: "PostgreSQL username user".into(),
-        email: email.into(),
-        password: "correct horse battery staple".into(),
-        image: None,
-        callback_url: None,
-        remember_me: None,
-        username: Some(username.into()),
-        display_username: None,
-        additional_fields: serde_json::Map::new(),
-    };
-    let (left, right) = tokio::join!(
-        service.sign_up_email(
-            signup("postgres-username-left@example.com", "Postgres_User"),
-            None,
-            None,
-        ),
-        service.sign_up_email(
-            signup("postgres-username-right@example.com", "postgres_user"),
-            None,
-            None,
-        )
-    );
-    assert_eq!(usize::from(left.is_ok()) + usize::from(right.is_ok()), 1);
-    let error = left.err().or_else(|| right.err()).unwrap();
-    assert!(matches!(
-        error,
-        AuthError::Username(UsernameError::AlreadyTaken)
-    ));
-    assert_eq!(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_users WHERE username = 'postgres_user'",
         )
         .fetch_one(pool)
         .await?,

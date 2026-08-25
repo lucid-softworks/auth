@@ -12,11 +12,12 @@ use super::{
 };
 use lucid_auth::{
     ApiKeyConfiguration, ApiKeyPlugin, ApiKeyReference, AuthConfig, AuthError, BearerPlugin,
-    EmailOtpConfig, EmailOtpPlugin, JwtPlugin, LastLoginMethodConfig, LastLoginMethodPlugin,
-    MagicLinkConfig, MagicLinkPlugin, MemoryStore, MemoryTwoFactorStore, MultiSessionPlugin,
-    OAuthProviderPlugin, OAuthProviderPluginConfig, OneTapConfig, OneTapPlugin,
-    OneTimeTokenConfig, OneTimeTokenPlugin, OtpConfig, PasskeyConfig, PasskeyPlugin,
-    PhoneNumberConfig, PhoneNumberPlugin, PhoneNumberSignUpConfig, SiweConfig, SiweMessageVerifier,
+    DeviceAuthorizationConfig, DeviceAuthorizationPlugin, EmailOtpConfig, EmailOtpPlugin,
+    JwtPlugin, LastLoginMethodConfig, LastLoginMethodPlugin, MagicLinkConfig, MagicLinkPlugin,
+    MemoryStore, MemoryTwoFactorStore, MultiSessionPlugin, OAuthDeviceAuthorizationPlugin,
+    OAuthProviderPlugin, OAuthProviderPluginConfig, OneTapConfig, OneTapPlugin, OneTimeTokenConfig,
+    OneTimeTokenPlugin, OtpConfig, PasskeyConfig, PasskeyPlugin, PhoneNumberConfig,
+    PhoneNumberPlugin, PhoneNumberSignUpConfig, SiweConfig, SiweMessageVerifier,
     SiweNonceGenerator, SiwePlugin, SiweVerificationRequest, TotpConfig, TwoFactorConfig,
     TwoFactorPlugin,
 };
@@ -123,11 +124,7 @@ fn register_session_plugins(config: &mut AuthConfig, origin: &str, store: Arc<Me
     config
         .add_plugin(JwtPlugin::default())
         .expect("unique JWT plugin");
-    config
-        .add_plugin(OAuthProviderPlugin::in_memory(OAuthProviderPluginConfig::new(
-            "/login", "/consent",
-        )))
-        .expect("unique OAuth-provider plugin");
+    register_device_authorization(config);
     config
         .add_plugin(BearerPlugin::default())
         .expect("unique bearer plugin");
@@ -158,6 +155,27 @@ fn register_session_plugins(config: &mut AuthConfig, origin: &str, store: Arc<Me
     config
         .add_plugin(SiwePlugin::new(store, siwe))
         .expect("unique SIWE plugin");
+}
+
+fn register_device_authorization(config: &mut AuthConfig) {
+    let mut device = DeviceAuthorizationConfig::default();
+    device.interval = "0s".into();
+    match std::env::var("LUCID_AUTH_DEVICE_MODE").as_deref() {
+        Ok("standalone") => config
+            .add_plugin(DeviceAuthorizationPlugin::in_memory(device))
+            .expect("unique standalone device-authorization plugin"),
+        Ok("oauth") | Err(_) => {
+            config
+                .add_plugin(OAuthProviderPlugin::in_memory(
+                    OAuthProviderPluginConfig::new("/login", "/consent"),
+                ))
+                .expect("unique OAuth-provider plugin");
+            config
+                .add_plugin(OAuthDeviceAuthorizationPlugin::in_memory(device))
+                .expect("unique OAuth device-authorization plugin");
+        }
+        Ok(mode) => panic!("unsupported LUCID_AUTH_DEVICE_MODE `{mode}`"),
+    }
 }
 
 fn register_phone_number(

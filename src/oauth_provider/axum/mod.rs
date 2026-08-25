@@ -10,7 +10,7 @@ pub(crate) mod management;
 mod metadata;
 mod provider_api;
 mod resource;
-mod response;
+pub(crate) mod response;
 mod token;
 
 pub use provider_api::*;

@@ -113,13 +113,17 @@ impl OAuthProviderPlugin {
         request: OAuthProviderApiRequest,
         grant_type: Option<String>,
     ) -> Result<OAuthProviderApi, OAuthProviderError> {
-        OAuthProviderApi::new(
-            service,
-            self.config.clone(),
-            self.store.clone(),
-            request,
-            grant_type,
-        )
+        let config = self.effective_config(&service);
+        OAuthProviderApi::new(service, config, self.store.clone(), request, grant_type)
+    }
+
+    #[cfg(feature = "axum")]
+    fn effective_config(&self, service: &crate::AuthService) -> Arc<OAuthProviderConfig> {
+        let mut config = (*self.config).clone();
+        config
+            .extensions
+            .extend(service.oauth_provider_extensions());
+        Arc::new(config)
     }
 }
 
@@ -213,13 +217,13 @@ impl AuthPlugin for OAuthProviderPlugin {
     }
 
     #[cfg(feature = "axum")]
-    fn routes(&self, _service: Arc<crate::AuthService>) -> Vec<crate::AxumPluginRoute> {
-        axum::routes(self.config.clone(), self.store.clone())
+    fn routes(&self, service: Arc<crate::AuthService>) -> Vec<crate::AxumPluginRoute> {
+        axum::routes(self.effective_config(&service), self.store.clone())
     }
 
     #[cfg(feature = "axum")]
     fn root_routes(&self, service: Arc<crate::AuthService>) -> Vec<crate::AxumPluginRoute> {
-        axum::root_routes(&service, self.config.clone())
+        axum::root_routes(&service, self.effective_config(&service))
     }
 }
 

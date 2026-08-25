@@ -301,6 +301,16 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
         Vec::new()
     }
 
+    /// Contributes capabilities to an installed OAuth Provider companion.
+    ///
+    /// Companion plugins use this during registry construction and request
+    /// dispatch, matching Better Auth's `extendOAuthProvider` initialization
+    /// contract without requiring the application to wire the same extension
+    /// object into two plugin configurations.
+    fn oauth_provider_extensions(&self) -> Vec<Arc<dyn crate::OAuthProviderExtension>> {
+        Vec::new()
+    }
+
     fn database_hooks(&self) -> Option<&dyn DatabaseHooks> {
         None
     }

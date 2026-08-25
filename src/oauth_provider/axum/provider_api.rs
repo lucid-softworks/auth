@@ -194,6 +194,35 @@ impl OAuthProviderApi {
         .await
     }
 
+    pub(crate) async fn load_user(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<crate::AuthUser>, OAuthProviderError> {
+        self.service
+            .auth_user_by_id(user_id)
+            .await
+            .map_err(|error| OAuthProviderError::ServerError(error.to_string()))
+    }
+
+    /// Validates scopes and RFC 8707 resource policy without consuming grant state.
+    pub(crate) async fn validate_resource_policy(
+        &self,
+        client: &OAuthProviderClient,
+        scopes: &[String],
+        resources: Option<&[String]>,
+    ) -> Result<(), OAuthProviderError> {
+        token::provider_api_validate_resource_policy(
+            &self.service,
+            &self.config,
+            self.store.as_ref(),
+            &self.headers,
+            client,
+            scopes,
+            resources,
+        )
+        .await
+    }
+
     pub async fn hash_token(
         &self,
         token_value: &str,

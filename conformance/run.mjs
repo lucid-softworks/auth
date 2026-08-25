@@ -36,6 +36,11 @@ import {
   oauthProviderConformance,
   oauthProviderNativeConformance,
 } from "./oauth-provider.mjs";
+import {
+  deviceAuthorizationConformance,
+  deviceAuthorizationNativeOAuthConformance,
+  deviceAuthorizationNativeStandaloneConformance,
+} from "./device-authorization.mjs";
 
 const repository = fileURLToPath(new URL("..", import.meta.url));
 const betterAuthPackage = JSON.parse(
@@ -2722,7 +2727,7 @@ async function deferredSessionConformance(origin) {
   console.log("ok - Better Auth deferred session GET/POST contract");
 }
 
-async function startServer(strategy, deferred = false) {
+async function startServer(strategy, deferred = false, deviceMode = "oauth") {
   const child = spawn(
     "cargo",
     [
@@ -2736,6 +2741,7 @@ async function startServer(strategy, deferred = false) {
       env: {
         ...process.env,
         LUCID_AUTH_COOKIE_CACHE_STRATEGY: strategy,
+        LUCID_AUTH_DEVICE_MODE: deviceMode,
         ...(deferred ? { LUCID_AUTH_DEFER_SESSION_REFRESH: "1" } : {}),
       },
       detached: process.platform !== "win32",
@@ -2785,6 +2791,7 @@ await oneTimeTokenConformance();
 await oauthPopupConformance();
 await oauthProxyConformance();
 await oauthProviderConformance();
+await deviceAuthorizationConformance();
 
 for (const strategy of ["compact", "jwt", "jwe"]) {
   const { child, origin } = await startServer(strategy);
@@ -2799,6 +2806,11 @@ for (const strategy of ["compact", "jwt", "jwe"]) {
         origin,
         oauthProviderTransport.fetch.bind(oauthProviderTransport),
       );
+      const oauthDeviceTransport = new BrowserTransport(origin);
+      await deviceAuthorizationNativeOAuthConformance(
+        origin,
+        oauthDeviceTransport.fetch.bind(oauthDeviceTransport),
+      );
     }
     await cookieCacheConformance(origin, strategy);
   } finally {
@@ -2806,6 +2818,18 @@ for (const strategy of ["compact", "jwt", "jwe"]) {
   }
 }
 
+{
+  const { child, origin } = await startServer("compact", false, "standalone");
+  try {
+    const transport = new BrowserTransport(origin);
+    await deviceAuthorizationNativeStandaloneConformance(
+      origin,
+      transport.fetch.bind(transport),
+    );
+  } finally {
+    stopServer(child);
+  }
+}
 
 {
   const { child, origin } = await startServer("compact", true);

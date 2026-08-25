@@ -214,6 +214,20 @@ pub(in crate::oauth_provider) async fn provider_api_hash_token(
         .map_err(server)
 }
 
+pub(in crate::oauth_provider) async fn provider_api_validate_resource_policy(
+    service: &AuthService,
+    config: &OAuthProviderConfig,
+    store: &dyn OAuthProviderStore,
+    headers: &HeaderMap,
+    client: &OAuthProviderClient,
+    scopes: &[String],
+    resources: Option<&[String]>,
+) -> Result<(), OAuthProviderError> {
+    resolve_resource_policy(service, config, store, client, scopes, resources, headers)
+        .await
+        .map(|_| ())
+}
+
 pub(in crate::oauth_provider) async fn provider_api_validate_access_token(
     service: &AuthService,
     config: &OAuthProviderConfig,

@@ -11,6 +11,8 @@ mod audit;
 mod change_email;
 mod cookie_signing;
 mod database;
+#[cfg(feature = "axum")]
+mod device_authorization;
 mod email_otp;
 mod email_password;
 mod email_verification;

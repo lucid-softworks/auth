@@ -10,6 +10,7 @@ use uuid::Uuid;
 mod access;
 mod api_key;
 mod audit;
+mod device_authorization;
 mod guest_capability;
 mod jwt;
 mod migrate;
@@ -32,6 +33,7 @@ mod verification;
 
 use rows::{SessionRow, UserRow};
 
+pub use device_authorization::PostgresDeviceAuthorizationStore;
 pub use migrate::{CoreMigration, core_migrations};
 pub use oauth_provider::PostgresOAuthProviderStore;
 pub use schema::{

@@ -11,9 +11,11 @@ use std::{
     sync::Arc,
 };
 
+mod core_endpoints;
 mod lifecycle;
 mod schema;
 
+use core_endpoints::CORE_ENDPOINTS;
 use schema::{core_schema_fields, merge_schema_fields};
 
 type DescriptorMap = HashMap<&'static str, (usize, PluginDescriptor)>;
@@ -49,6 +51,7 @@ impl PluginRegistry {
             }
         }
         validate_relationships(&by_id)?;
+        validate_oauth_provider_extensions(plugins)?;
         validate_contributions(&by_id, config)?;
         let ordered_ids = dependency_order(&by_id)?;
         let mut ordered_plugins = Vec::with_capacity(plugins.len());
@@ -124,6 +127,26 @@ impl PluginRegistry {
             .flat_map(|plugin| plugin.social_providers())
             .collect()
     }
+}
+
+fn validate_oauth_provider_extensions(plugins: &[Arc<dyn AuthPlugin>]) -> Result<(), AuthError> {
+    let Some(provider) = plugins
+        .iter()
+        .find_map(|plugin| plugin.as_any().downcast_ref::<crate::OAuthProviderPlugin>())
+    else {
+        return Ok(());
+    };
+    let mut effective = provider.config().clone();
+    effective.extensions.extend(
+        plugins
+            .iter()
+            .flat_map(|plugin| plugin.oauth_provider_extensions()),
+    );
+    effective.validate().map_err(|error| {
+        AuthError::InvalidConfiguration(format!(
+            "OAuth Provider companion extension configuration is invalid: {error}"
+        ))
+    })
 }
 
 fn validate_descriptor(descriptor: &PluginDescriptor) -> Result<(), AuthError> {
@@ -300,7 +323,6 @@ fn validate_runtime_rate_limits(
             .endpoints
             .iter()
             .any(|endpoint| endpoint.path == rate_limit.path)
-            || rate_limit.window == 0
             || rate_limit.max == 0
         {
             return invalid(format!(
@@ -400,26 +422,3 @@ enum VisitState {
     Visiting,
     Complete,
 }
-
-const CORE_ENDPOINTS: &[(PluginHttpMethod, &str)] = &[
-    (PluginHttpMethod::Get, "/get-session"),
-    (PluginHttpMethod::Post, "/sign-up/email"),
-    (PluginHttpMethod::Post, "/sign-in/email"),
-    (PluginHttpMethod::Post, "/verify-password"),
-    (PluginHttpMethod::Post, "/request-password-reset"),
-    (PluginHttpMethod::Get, "/reset-password/:token"),
-    (PluginHttpMethod::Post, "/reset-password"),
-    (PluginHttpMethod::Post, "/send-verification-email"),
-    (PluginHttpMethod::Get, "/verify-email"),
-    (PluginHttpMethod::Post, "/sign-out"),
-    (PluginHttpMethod::Post, "/update-user"),
-    (PluginHttpMethod::Post, "/update-session"),
-    (PluginHttpMethod::Post, "/change-email"),
-    (PluginHttpMethod::Post, "/delete-user"),
-    (PluginHttpMethod::Get, "/delete-user/callback"),
-    (PluginHttpMethod::Post, "/change-password"),
-    (PluginHttpMethod::Get, "/list-sessions"),
-    (PluginHttpMethod::Post, "/revoke-session"),
-    (PluginHttpMethod::Post, "/revoke-other-sessions"),
-    (PluginHttpMethod::Post, "/revoke-sessions"),
-];
