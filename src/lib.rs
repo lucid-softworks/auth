@@ -6,6 +6,7 @@ mod agent_auth;
 mod anonymous;
 mod api_key;
 mod audit;
+mod autumn;
 mod bearer;
 mod captcha;
 mod client_ip;

@@ -209,6 +209,62 @@ adds no retry or idempotency layer to Polar provider calls. See the
 [Polar compatibility row](COMPATIBILITY.md#payments-analytics-and-better-auth-infrastructure)
 for the exact endpoint, webhook, lifecycle, and recovery boundary.
 
+### Autumn billing
+
+Autumn support is opt-in and pins Better Auth `1.7.1`, `autumn-js@1.2.53`,
+and its generated SDK metadata version `0.10.18`. By default, customers are
+resolved from the authenticated user and the provider key is read from
+`AUTUMN_SECRET_KEY`:
+
+```rust
+use lucid_auth::{AutumnCustomerScope, AutumnOptions, AutumnPlugin};
+
+let mut autumn = AutumnOptions::default();
+autumn.secret_key = Some(std::env::var("AUTUMN_SECRET_KEY")?);
+autumn.base_url = Some("https://autumn-proxy.example.com/provider-prefix".into());
+autumn.customer_scope = AutumnCustomerScope::UserAndOrganization;
+config.add_plugin(AutumnPlugin::new(autumn))?;
+```
+
+Omit `secret_key` to read `AUTUMN_SECRET_KEY` automatically. Use `base_url` for
+an alternate Autumn API URL, or `autumn_url` for the adapter's higher-precedence
+spelling. `AutumnCustomerScope::User` always uses the session user;
+`Organization` requires an active organization;
+`UserAndOrganization` prefers it and falls back to the user. For application-
+specific identity rules, set `identify` to an `AutumnIdentityProvider`; its
+trusted `AutumnIdentity` replaces the built-in scope resolver.
+
+The official React provider selects Better Auth's path and credential defaults
+only when `useBetterAuth` is enabled:
+
+```tsx
+import { AutumnProvider } from "autumn-js/react";
+
+export function Providers({ children }) {
+  return <AutumnProvider useBetterAuth={true}>{children}</AutumnProvider>;
+}
+```
+
+Direct client construction must supply those settings explicitly:
+
+```ts
+import { createAutumnClient } from "autumn-js/react";
+
+export const autumn = createAutumnClient({
+  backendUrl: "https://auth.example.com",
+  pathPrefix: "/api/auth/autumn",
+  includeCredentials: true,
+});
+```
+
+The plugin exposes exactly Autumn's 15 camelCase POST endpoints. It owns no
+local billing models or migrations, accepts no client-selected customer, and
+adds no retries or idempotency behavior. Provider-produced errors intentionally
+retain Autumn's Better Auth 1.7.1 outer-HTTP-200 envelope; public request-schema
+errors remain HTTP 400. See the
+[Autumn compatibility row](COMPATIBILITY.md#payments-analytics-and-better-auth-infrastructure)
+for the complete transport, identity, fail-open, and exclusion boundary.
+
 Social providers use the same `signIn.social` and `/callback/:provider` wire
 contract as Better Auth. Register a built-in after setting the public base URL:
 

@@ -24,6 +24,7 @@ import {
 import { passkeyClient } from "@better-auth/passkey/client";
 import { apiKeyClient } from "@better-auth/api-key/client";
 import { polarClient } from "@polar-sh/better-auth/client";
+import { createAutumnClient } from "autumn-js/react";
 import { base32 } from "@better-auth/utils/base32";
 import { createOTP } from "@better-auth/utils/otp";
 import { decodeJwt, decodeProtectedHeader, importJWK, jwtVerify } from "jose";
@@ -2867,6 +2868,68 @@ async function nativePolarConformance(origin) {
   console.log("ok - Polar official client against native server");
 }
 
+async function nativeAutumnConformance(origin) {
+  const transport = new BrowserTransport(origin);
+  await transport.useFixtureSession("password");
+  const cookie = [...transport.cookies]
+    .map(([name, value]) => `${name}=${value}`)
+    .join("; ");
+  const client = createAutumnClient({
+    backendUrl: origin,
+    pathPrefix: "/api/auth/autumn",
+    includeCredentials: true,
+    headers: { cookie, origin },
+  });
+
+  const customer = await client.getOrCreateCustomer({});
+  assert.ok(customer.id);
+  assert.equal(customer.env, "live");
+
+  const entity = await client.getEntity({ entityId: "entity_native" });
+  assert.equal(entity.id, "entity_native");
+  assert.equal(entity.customerId, customer.id);
+
+  const attached = await client.attach({ planId: "plan_native" });
+  assert.equal(attached.paymentUrl, "https://autumn.example.test/native/attach");
+  const attachPreview = await client.previewAttach({ planId: "plan_native" });
+  assert.equal(attachPreview.checkoutType, "autumn_checkout");
+  assert.equal(attachPreview.total, 0);
+
+  const updated = await client.updateSubscription({});
+  assert.equal(updated.paymentUrl, "https://autumn.example.test/native/update");
+  const updatePreview = await client.previewUpdateSubscription({});
+  assert.equal(updatePreview.intent, "none");
+
+  const portal = await client.openCustomerPortal({});
+  assert.equal(portal.url, "https://autumn.example.test/native/portal");
+  const referral = await client.createReferralCode({ programId: "program_native" });
+  assert.equal(referral.code, "NATIVE-REFERRAL");
+  const redemption = await client.redeemReferralCode({ code: referral.code });
+  assert.equal(redemption.rewardId, "reward_native");
+
+  const plans = await client.listPlans();
+  assert.deepEqual(plans.list, []);
+  const events = await client.listEvents({});
+  assert.deepEqual(events, { list: [], nextCursor: "" });
+  const aggregate = await client.aggregateEvents({ featureId: "feature_native" });
+  assert.deepEqual(aggregate, { list: [], total: { value: 0 } });
+
+  const multiAttached = await client.multiAttach({ plans: [] });
+  assert.equal(
+    multiAttached.paymentUrl,
+    "https://autumn.example.test/native/multi-attach",
+  );
+  const multiPreview = await client.previewMultiAttach({ plans: [] });
+  assert.equal(multiPreview.checkoutType, "autumn_checkout");
+  const setup = await client.setupPayment({});
+  assert.equal(
+    setup.url,
+    "https://autumn.example.test/native/setup-payment",
+  );
+
+  console.log("ok - Autumn official client against native server");
+}
+
 async function cookieCacheConformance(origin, strategy) {
   const transport = new BrowserTransport(origin);
   const client = createAuthClient({
@@ -3012,6 +3075,7 @@ for (const strategy of ["compact", "jwt", "jwe"]) {
       await nativeJwtConformance(origin);
       await nativeOneTimeTokenConformance(origin);
       await nativePolarConformance(origin);
+      await nativeAutumnConformance(origin);
       const oauthProviderTransport = new BrowserTransport(origin);
       await oauthProviderNativeConformance(
         origin,

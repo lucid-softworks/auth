@@ -13,6 +13,7 @@ use serde_json::json;
 use std::{io::Write, net::SocketAddr, sync::Arc};
 use tokio::sync::Mutex;
 
+mod autumn;
 mod cookie_cache;
 mod config;
 mod email;
