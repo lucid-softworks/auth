@@ -12,6 +12,8 @@ use std::sync::Arc;
 
 const MAX_INSPECTED_BODY_BYTES: usize = 1024 * 1024;
 
+mod plugin;
+
 pub(super) async fn validate_browser_request(
     State(service): State<Arc<AuthService>>,
     request: Request,
@@ -26,11 +28,15 @@ pub(super) async fn validate_browser_request(
             || path == format!("{}/oauth-popup/start", service.base_path()));
     let is_oauth_proxy_callback = path == "/oauth-proxy-callback"
         || path == format!("{}/oauth-proxy-callback", service.base_path());
-    if is_raw_public_plugin_route(&service, path, request.method()) {
+    let plugin_security = plugin::request_security(&service, path, request.method());
+    if plugin_security == crate::PluginRequestSecurity::RawPublic {
         return next.run(request).await;
     }
     if is_oauth_popup_start {
         return next.run(request).await;
+    }
+    if plugin_security == crate::PluginRequestSecurity::CookieOrigin {
+        return plugin::validate_cookie_origin_request(&service, request, next).await;
     }
     if is_safe_method(request.method()) {
         return match validate_redirect_fields(&service, request).await {
@@ -77,25 +83,6 @@ pub(super) async fn validate_browser_request(
         Ok(request) => next.run(request).await,
         Err(error) => auth_error(error),
     }
-}
-
-fn is_raw_public_plugin_route(service: &AuthService, path: &str, method: &Method) -> bool {
-    let relative = if service.base_path() == "/" {
-        path
-    } else {
-        path.strip_prefix(service.base_path()).unwrap_or(path)
-    };
-    let method = match *method {
-        Method::GET => crate::PluginHttpMethod::Get,
-        Method::POST => crate::PluginHttpMethod::Post,
-        Method::PUT => crate::PluginHttpMethod::Put,
-        Method::PATCH => crate::PluginHttpMethod::Patch,
-        Method::DELETE => crate::PluginHttpMethod::Delete,
-        _ => return false,
-    };
-    service.plugins().plugins().iter().any(|plugin| {
-        plugin.request_security(method, relative) == crate::PluginRequestSecurity::RawPublic
-    })
 }
 
 fn is_agent_auth_machine_path(service: &AuthService, path: &str) -> bool {
@@ -161,7 +148,28 @@ pub(crate) fn validate_trusted_origin_value(
 
 async fn validate_redirect_fields(
     service: &AuthService,
+    request: Request,
+) -> Result<Request, AuthError> {
+    validate_redirect_fields_with(service, request, CoreRedirectFields::All).await
+}
+
+async fn validate_callback_url_field(
+    service: &AuthService,
+    request: Request,
+) -> Result<Request, AuthError> {
+    validate_redirect_fields_with(service, request, CoreRedirectFields::CallbackUrl).await
+}
+
+#[derive(Clone, Copy)]
+enum CoreRedirectFields {
+    All,
+    CallbackUrl,
+}
+
+async fn validate_redirect_fields_with(
+    service: &AuthService,
     mut request: Request,
+    core_fields: CoreRedirectFields,
 ) -> Result<Request, AuthError> {
     let query_fields = request.uri().query().map(|query| {
         url::form_urlencoded::parse(query.as_bytes())
@@ -184,7 +192,7 @@ async fn validate_redirect_fields(
     };
 
     if let Some(fields) = query_fields {
-        validate_redirect_map(service, request.headers(), &fields)?;
+        validate_core_redirect_map(service, request.headers(), &fields, core_fields)?;
         validate_plugin_redirect_map(
             service,
             request.method(),
@@ -194,7 +202,7 @@ async fn validate_redirect_fields(
         )?;
     }
     if let Some(fields) = body_fields {
-        validate_redirect_map(service, request.headers(), &fields)?;
+        validate_core_redirect_map(service, request.headers(), &fields, core_fields)?;
         validate_plugin_redirect_map(
             service,
             request.method(),
@@ -204,6 +212,25 @@ async fn validate_redirect_fields(
         )?;
     }
     Ok(request)
+}
+
+fn validate_core_redirect_map(
+    service: &AuthService,
+    headers: &HeaderMap,
+    fields: &Map<String, Value>,
+    core_fields: CoreRedirectFields,
+) -> Result<(), AuthError> {
+    match core_fields {
+        CoreRedirectFields::All => validate_redirect_map(service, headers, fields),
+        CoreRedirectFields::CallbackUrl => validate_body_redirect(
+            service,
+            headers,
+            fields,
+            "callbackURL",
+            "callbackURL",
+            AuthError::InvalidCallbackUrl,
+        ),
+    }
 }
 
 fn validate_plugin_redirect_map(

@@ -78,6 +78,8 @@ The currently supported surface covers:
   client compatibility metadata
 - the Better Auth Open API schema endpoint and Scalar reference page as an
   optional server-only native plugin
+- Dub signup lead attribution as an optional native plugin matching
+  `@dub/better-auth@0.0.6`
 
 The library keeps authentication protocol details separate from host-product
 authorization. Core principals contain actor, subject, session, and credential
@@ -565,6 +567,55 @@ before acknowledging a delivery, fixing the published adapter's unsafe early
 acknowledgement race. See the
 [Chargebee compatibility details](COMPATIBILITY.md#chargebee-120) for the exact
 route, lifecycle, schema, webhook, and conformance boundary.
+
+### Dub lead attribution
+
+Dub support is opt-in and pins Better Auth `1.7.1`,
+`@dub/better-auth@0.0.6`, and `dub@0.66.5`. Inject only the application-owned
+native lead transport that the adapter needs; lucid-auth does not start Node,
+embed JavaScript, or expose Dub credentials to requests:
+
+```rust
+use lucid_auth::{DubLead, DubLeadError, DubOptions, DubPlugin, FnDubLeadTracker};
+use std::sync::Arc;
+
+let tracker = Arc::new(FnDubLeadTracker::new(|lead: DubLead| async move {
+    // Application code: send `lead` with a server-side Dub SDK or HTTP client.
+    send_lead_to_dub(lead)
+        .await
+        .map_err(|error| DubLeadError::new(error.to_string()))
+}));
+let mut dub = DubOptions::new(tracker);
+dub.lead_event_name = Some("Signed Up".into());
+config.add_plugin(DubPlugin::new(dub))?;
+```
+
+Place `dub_id` yourself after obtaining the user's consent. The plugin reads
+that exact case-sensitive cookie after any user creation, percent-decodes its
+first value, and sends `clickId`, `eventName`, and the new user's id, name,
+email, and optional image. It does not create or validate the attribution
+cookie. On a default provider result—success or rejection—it emits the
+upstream adapter's exact pathless deletion header. Because the header has no
+`Path`, it may not remove a source cookie that was scoped to `/`; applications
+remain responsible for cookie placement, consent, and cleanup.
+
+Set `disable_lead_tracking = true` to leave both tracking and the cookie
+untouched. An empty `lead_event_name` falls back to `Sign Up`. Set
+`custom_lead_track` to an `Arc<dyn DubCustomLeadTrack>` or use
+`FnDubCustomLeadTrack` when the application must replace the Dub call entirely.
+The callback receives the persisted user and request context. Its failure is
+deliberately visible as an empty HTTP 500 after the user, credential account,
+and session have committed, and all response cookies are discarded, matching
+the pinned adapter.
+
+Do not install a Dub browser client for this target. Although upstream docs
+show `@dub/better-auth/client`, version 0.0.6 does not export that subpath.
+Its only server route, `POST /api/auth/dub/link`, also cannot complete OAuth
+under Better Auth 1.7.1: without OAuth configuration it returns 404, and with
+configuration it reaches an upstream missing-endpoint error and returns an
+empty 500. Lucid-auth reproduces those observable outcomes and does not invent
+a callback route or repaired client contract. See the
+[Dub compatibility details](COMPATIBILITY.md#dub-006).
 
 Social providers use the same `signIn.social` and `/callback/:provider` wire
 contract as Better Auth. Register a built-in after setting the public base URL:

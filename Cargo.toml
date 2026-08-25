@@ -226,6 +226,10 @@ name = "chargebee_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "dub_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "i18n_contract"
 required-features = ["axum"]
 

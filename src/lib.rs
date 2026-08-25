@@ -18,6 +18,7 @@ mod creem;
 mod database_hooks;
 pub mod device_authorization;
 mod dodo_payments;
+mod dub;
 mod email;
 mod email_otp;
 mod error;
@@ -89,7 +90,6 @@ pub use api_key::{
     ApiKeyConfiguration, ApiKeyError, ApiKeyExpirationConfig, ApiKeyGenerator, ApiKeyPlugin,
     ApiKeyRateLimitConfig, ApiKeyReference, ApiKeyStartingCharactersConfig,
 };
-pub use client_ip::IpAddressConfig;
 pub use config::{
     AccountConfig, AccountLinkingConfig, AuthConfig, AuthIdGenerator, EmailPasswordConfig,
     OAuthStateStrategy, VerificationConfig, VerificationIdentifierConfig,
@@ -97,7 +97,7 @@ pub use config::{
 };
 pub use database_hooks::{
     BeforeDatabaseHook, DatabaseHookContext, DatabaseHookRequest, DatabaseHooks, DatabaseModel,
-    DatabaseRecord,
+    DatabaseRecord, DeferredHookResponse,
 };
 pub use device_authorization::*;
 pub use email::{

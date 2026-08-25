@@ -25,6 +25,8 @@ pub enum PluginRequestSecurity {
     /// Public provider callback whose untouched body is authenticated by the
     /// plugin itself.
     RawPublic,
+    /// Applies origin enforcement only when the request carries cookies.
+    CookieOrigin,
 }
 
 mod any;

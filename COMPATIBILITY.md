@@ -433,7 +433,7 @@ aliases or permissive alternate request/response shapes:
 | Dodo Payments | Supported | Optional `DodoPaymentsPlugin` matches Better Auth `1.7.1`, `@dodopayments/better-auth@1.6.5`, `@dodopayments/core@0.3.14`, and effective `dodopayments@2.47.0` behavior: empty or selective checkout/portal/usage/webhook feature composition; the official `dodopaymentsClient` namespaces; preferred checkout-session plus the pinned adapter's upstream-deprecated legacy checkout; exact customer resolution and optional `createCustomerOnSignUp`/`getCustomerParams` lifecycle hooks; native live/test provider transport; portal, payment/subscription list, and usage contracts; and Standard Webhooks verification with all 47 modeled callbacks plus permissive unknown events. A Dodo Payments account and server-only API/webhook keys are required. The plugin contributes only the optional, non-input `dodoCustomerId` user field and no Dodo-owned migration, local billing/usage projection, webhook-delivery ledger, organization mapping, retry queue, or generic SDK proxy; [#50](https://github.com/lucid-softworks/auth/issues/50). |
 | Commet | Supported | Optional `CommetPlugin` matches Better Auth `1.7.1`, `@commet/better-auth@8.1.0`, and `@commet/node@9.1.0`: ordered selection of portal, subscriptions, features, usage, seats, and webhooks produces 14 conditional routes—the official `commetClient` exposes 13 actions under the root `customer`, `subscription`, `features`, `usage`, and `seats` namespaces, while the raw public webhook is server-only. Exact request validation, unknown-key stripping, JavaScript property ordering, truthiness, coercion, and `undefined` response projections are preserved. Opt-in customer lifecycle hooks reproduce the adapter's first-truthy-customer lookup, conditional before-create, unconditional after-create (including its double-create behavior), and best-effort first-customer update; callback `domain` and subscription `plans` remain exposed but inert because 8.1.0 never forwards or reads them. The native provider validates server-only `ck_` API keys, implements all 15 SDK operations against `/api/v1`, retains raw JSON values, and matches the SDK's API-key/version headers, 30-second timeout, unbounded response read, status/network retry rules, and stable generated or explicit idempotency keys. Raw-body HMAC-SHA256 verification follows Node hexadecimal decoding and dispatches eight named callbacks before `onPayload` over the same shared payload. Commet remains authoritative: there is no plugin schema, local state, migration, organization mapping, replay ledger, checkout flow, generic SDK proxy, or npm/React replacement; [#51](https://github.com/lucid-softworks/auth/issues/51). |
 | Chargebee | Supported | Optional `ChargebeePlugin` matches Better Auth `1.7.1`, the Chargebee-maintained `@chargebee/better-auth@1.2.0`, and its `chargebee@3.23.1` runtime: eight always-mounted server routes; the official client's five explicit `pathMethods` plus its inferred GET cancel-callback action; exact validation, reference/origin rules, hosted checkout, portal, cancellation, local lifecycle, and declaration/runtime edges; conditional user/organization/subscription/item schema; an injected native provider gateway; eight webhook mappings, custom listeners, and optional awaited event-bus processing; and equivalent memory/PostgreSQL stores. One intentional hardening awaits webhook authentication, processing, listeners, and queue persistence instead of reproducing the package's unsafe early acknowledgement race. Pinned npm-oracle, official-client, native HTTP/lifecycle/webhook, memory, and live PostgreSQL contracts cover the boundary; see [Chargebee 1.2.0](#chargebee-120) and [#52](https://github.com/lucid-softworks/auth/issues/52). |
-| Dub | Planned | [#53](https://github.com/lucid-softworks/auth/issues/53). |
+| Dub | Supported | Optional `DubPlugin` matches Better Auth `1.7.1`, `@dub/better-auth@0.0.6`, and `dub@0.66.5` for its actual published surface: one post-commit user-create lead hook, exact `dub_id` parsing and pathless deletion, default/custom/disabled tracking behavior, and `POST /dub/link` validation/security/failure outcomes. The package exports no installable client, and its configured OAuth flow is broken with Better Auth 1.7.1; the native plugin preserves the empty 500 and adds no callback or fabricated repair. There is no schema, migration, local attribution state, webhook, sale/update tracking, job, retry, or idempotency layer; see [Dub 0.0.6](#dub-006) and [#53](https://github.com/lucid-softworks/auth/issues/53). |
 | Dashboard and audit logs | Planned | [#54](https://github.com/lucid-softworks/auth/issues/54). |
 | Sentinel security | Planned | [#55](https://github.com/lucid-softworks/auth/issues/55). |
 | Managed email service | Planned | [#56](https://github.com/lucid-softworks/auth/issues/56). |
@@ -555,6 +555,73 @@ provider calls, lifecycle, and the published webhook race), the pinned official
 `chargebeeClient` against the native HTTP surface, native route/lifecycle and
 webhook ordering/hardening tests, and equivalent memory plus live PostgreSQL
 persistence contracts.
+
+### Dub 0.0.6
+
+`DubPlugin` is the native equivalent of the external
+`@dub/better-auth@0.0.6` adapter. Its only provider boundary is
+`DubLeadTracker::track_lead`; credentials and transport remain application
+owned and in-process. `disable_lead_tracking` defaults false,
+`lead_event_name` falls back to `Sign Up` when absent or empty, and an optional
+`DubCustomLeadTrack` replaces rather than supplements the provider call.
+
+The plugin installs one `user.create.after` hook. Better Auth queues that hook
+while an adapter transaction is active and awaits it after commit; otherwise it
+runs immediately after the user write. With request context and a truthy exact
+`dub_id` cookie, default tracking receives only `clickId`, `eventName`,
+`customerExternalId`, `customerName`, `customerEmail`, and `customerAvatar`.
+The cookie parser percent-decodes valid values, preserves malformed percent
+sequences, removes surrounding quotes, is case-sensitive, and uses the first
+duplicate—even when that first value is empty. A missing context, missing or
+empty cookie, or disabled tracking does nothing and leaves the cookie alone.
+
+Default provider rejection is logged without the personal lead payload and is
+swallowed. Successful custom tracking, successful default tracking, and
+rejected default tracking each emit exactly
+`dub_id=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`. The header has no
+`Path`, `HttpOnly`, `Secure`, or `SameSite`; it is a deletion attempt, not a
+guarantee that a source cookie scoped to `/` is removed. Custom callback
+rejection remains fatal. For email signup it occurs after the user, credential
+account, and session persist but before the response: the caller gets an empty
+500, every session and Dub response cookie is discarded, and a retry gets the
+existing-user 422. No retry, timeout, idempotency, duplicate suppression,
+compensation, delivery ledger, or local attribution state is added.
+
+The fixed HTTP inventory is one ordinary custom endpoint:
+
+| Method and path | Exact contract |
+| --- | --- |
+| `POST /dub/link` | Body requires exact `callbackURL` accepted by the adapter's Zod 3 `string().url()`; unknown keys, including `callbackUrl`, are stripped. No explicit session middleware is installed. |
+
+Any `Cookie` header activates core origin checking: a missing/null Origin and
+Referer returns 403 `MISSING_OR_NULL_ORIGIN`, while an untrusted Origin returns
+403 `INVALID_ORIGIN`. Without a Cookie header, hostile Origin or cross-site
+Fetch Metadata alone is ignored because the adapter does not install form-CSRF
+middleware. Core callback-origin checks precede Zod for truthy values: a
+non-string returns 400 `Invalid callbackURL: expected a string`, and an
+untrusted string returns 403 `INVALID_CALLBACK_URL`. Missing, empty, null,
+false, zero, and relative values reach Zod 3 and retain its exact errors.
+
+A trusted absolute URL without `oauth` returns 404
+`Dub OAuth is not configured`. With `oauth`, Better Auth 1.7.1's
+`genericOAuth()` no longer exposes `endpoints.oAuth2LinkAccount`, so both
+anonymous and authenticated calls that reach the handler return an empty 500.
+The published adapter installs no provider or callback route and cannot
+complete linking. Its runtime object has exactly `id`, `endpoints`, and `init`;
+it contributes no version, schema, migration, errors, cookie declaration,
+client metadata, provider, or callback. The package root exports only
+`dubAnalytics`; `./types` is a declaration-only target, and the documented
+`./client` subpath is not exported. Lucid-auth deliberately supplies no client
+plugin or repaired OAuth flow for this pinned version.
+
+Conformance pins Better Auth `1.7.1`, Better Call `1.4.0`, their Zod `4.4.3`,
+`@dub/better-auth@0.0.6` with its own Zod `3.25.76`, and `dub@0.66.5`.
+The immutable artifact oracle checks registry integrity and SHA-1, exports and
+declarations, exact plugin keys and endpoint wrapper, the full route security
+and validation matrix, authenticated and anonymous OAuth failures, cookie
+parsing/deletion, payload mapping, disabled/custom/rejected lifecycle paths,
+post-commit persistence and response-cookie loss, and composition without
+additional storage or surface.
 
 ## Storage and deployment
 

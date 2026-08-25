@@ -9,7 +9,8 @@ pub use crate::username::{
     UsernameValidationTiming, UsernameValidator,
 };
 pub use crate::{
-    agent_auth::*, autumn::*, bearer::*, captcha::*, chargebee::*, commet::*, creem::*,
-    dodo_payments::*, error::AuthError, have_i_been_pwned::*, i18n::*, mcp::*, memory::MemoryStore,
-    open_api::*, origin::TrustedOrigin, polar::*, stripe::*, test_utils::*,
+    agent_auth::*, autumn::*, bearer::*, captcha::*, chargebee::*, client_ip::IpAddressConfig,
+    commet::*, creem::*, dodo_payments::*, dub::*, error::AuthError, have_i_been_pwned::*, i18n::*,
+    mcp::*, memory::MemoryStore, open_api::*, origin::TrustedOrigin, polar::*, stripe::*,
+    test_utils::*,
 };

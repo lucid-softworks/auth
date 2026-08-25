@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node run.mjs && npm run test:test-utils && npm run test:have-i-been-pwned && npm run test:stripe && npm run test:polar && npm run test:autumn && npm run test:creem && npm run test:dodo-payments && npm run test:commet && npm run test:chargebee",
+    "test": "node run.mjs && npm run test:test-utils && npm run test:have-i-been-pwned && npm run test:stripe && npm run test:polar && npm run test:autumn && npm run test:creem && npm run test:dodo-payments && npm run test:commet && npm run test:chargebee && npm run test:dub",
     "test:autumn": "vitest run autumn.test.mjs autumn-schema.test.mjs && npm run check:autumn-schema",
     "generate:autumn-schema": "node generate-autumn-schema.mjs",
     "check:autumn-schema": "node generate-autumn-schema.mjs --check",
@@ -11,6 +11,7 @@
     "test:chargebee": "vitest run chargebee.test.mjs",
     "test:commet": "vitest run commet.test.mjs",
     "test:dodo-payments": "vitest run dodopayments.test.mjs",
+    "test:dub": "vitest run dub.test.mjs",
     "test:have-i-been-pwned": "vitest run have-i-been-pwned.test.mjs",
     "test:polar": "vitest run polar.test.mjs polar-schema.test.mjs && npm run check:polar-schema",
     "generate:polar-schema": "node generate-polar-schema.mjs",
@@ -34,6 +35,7 @@
     "@creem_io/webhook-types": "1.0.0",
     "@dodopayments/better-auth": "1.6.5",
     "@dodopayments/core": "0.3.14",
+    "@dub/better-auth": "0.0.6",
     "@modelcontextprotocol/client": "2.0.0",
     "@polar-sh/better-auth": "1.8.4",
     "@polar-sh/sdk": "0.47.1",
@@ -44,6 +46,7 @@
     "chargebee": "3.23.1",
     "creem": "1.6.0",
     "dodopayments": "2.47.0",
+    "dub": "0.66.5",
     "stripe": "22.0.1",
     "zod": "4.4.3"
   },
