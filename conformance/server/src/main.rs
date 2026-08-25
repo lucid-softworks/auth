@@ -22,6 +22,7 @@ mod native_plugin;
 mod organization;
 mod phone_number;
 mod plugin_setup;
+mod polar;
 mod rate_limit;
 mod session_fixture;
 mod social_provider;

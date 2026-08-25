@@ -17,6 +17,16 @@ pub struct PluginRequestContext {
     pub headers: std::collections::BTreeMap<String, String>,
 }
 
+/// Browser-security policy selected by an installed plugin for one route.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PluginRequestSecurity {
+    #[default]
+    Browser,
+    /// Public provider callback whose untouched body is authenticated by the
+    /// plugin itself.
+    RawPublic,
+}
+
 mod any;
 mod metadata;
 mod registry;
@@ -208,6 +218,21 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
 
     fn open_api_models(&self) -> Vec<crate::OpenApiModel> {
         Vec::new()
+    }
+
+    /// Selects request-security handling for one plugin-owned route.
+    fn request_security(&self, _method: PluginHttpMethod, _path: &str) -> PluginRequestSecurity {
+        PluginRequestSecurity::Browser
+    }
+
+    /// Callback/redirect request fields that use Better Auth's trusted-origin
+    /// validation for one plugin route.
+    fn request_origin_fields(
+        &self,
+        _method: PluginHttpMethod,
+        _path: &str,
+    ) -> &'static [&'static str] {
+        &[]
     }
 
     /// Social providers registered by a plugin ahead of core providers.

@@ -56,27 +56,8 @@ fn marked(mut response: Response) -> Response {
 }
 
 fn auth_error_inner(error: AuthError) -> Response {
-    if let Some(response) = plugin::response(&error) {
+    if let Some(response) = custom_error_response(&error) {
         return response;
-    }
-    if let Some(response) = oauth::response(&error) {
-        return response;
-    }
-    if let Some(response) = have_i_been_pwned::response(&error) {
-        return response;
-    }
-    if let AuthError::AccountDisabled(message) = &error {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(DynamicErrorResponse {
-                code: "BANNED_USER",
-                message,
-            }),
-        )
-            .into_response();
-    }
-    if let AuthError::InvalidRequest(message) = &error {
-        return dynamic_error(StatusCode::BAD_REQUEST, "BAD_REQUEST", message);
     }
     let (status, code, message) = match &error {
         error if credential::is_error(error) => credential::details(error),
@@ -129,6 +110,45 @@ fn auth_error_inner(error: AuthError) -> Response {
         ),
     };
     (status, Json(ErrorResponse { code, message })).into_response()
+}
+
+fn custom_error_response(error: &AuthError) -> Option<Response> {
+    if let Some(response) = plugin::response(error) {
+        return Some(response);
+    }
+    if let Some(response) = oauth::response(error) {
+        return Some(response);
+    }
+    if let Some(response) = have_i_been_pwned::response(error) {
+        return Some(response);
+    }
+    if let AuthError::AccountDisabled(message) = error {
+        return Some(
+            (
+                StatusCode::FORBIDDEN,
+                Json(DynamicErrorResponse {
+                    code: "BANNED_USER",
+                    message,
+                }),
+            )
+                .into_response(),
+        );
+    }
+    if let AuthError::InvalidRequest(message) = error {
+        return Some(dynamic_error(
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            message,
+        ));
+    }
+    if let AuthError::PluginApi(error) = error {
+        return Some(dynamic_error(
+            StatusCode::from_u16(error.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            error.code,
+            &error.message,
+        ));
+    }
+    None
 }
 
 pub(super) fn dynamic_error(status: StatusCode, code: &'static str, message: &str) -> Response {

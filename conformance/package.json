@@ -3,8 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node run.mjs && npm run test:test-utils && npm run test:have-i-been-pwned && npm run test:stripe",
+    "test": "node run.mjs && npm run test:test-utils && npm run test:have-i-been-pwned && npm run test:stripe && npm run test:polar",
     "test:have-i-been-pwned": "vitest run have-i-been-pwned.test.mjs",
+    "test:polar": "vitest run polar.test.mjs polar-schema.test.mjs && npm run check:polar-schema",
+    "generate:polar-schema": "node generate-polar-schema.mjs",
+    "check:polar-schema": "node generate-polar-schema.mjs --check",
     "test:stripe": "vitest run stripe.test.mjs",
     "test:test-utils": "vitest run test-utils.test.mjs"
   },
@@ -18,6 +21,8 @@
     "@better-auth/passkey": "1.7.1",
     "@better-auth/stripe": "1.7.1",
     "@modelcontextprotocol/client": "2.0.0",
+    "@polar-sh/better-auth": "1.8.4",
+    "@polar-sh/sdk": "0.47.1",
     "better-auth": "1.7.1",
     "stripe": "22.0.1"
   },

@@ -3,7 +3,11 @@ pub use crate::audit::{
     AuditStore, MemoryAuditStore,
 };
 pub use crate::cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
+pub use crate::username::{
+    UsernameConfig, UsernameError, UsernameNormalizer, UsernamePlugin, UsernameValidationOrder,
+    UsernameValidationTiming, UsernameValidator,
+};
 pub use crate::{
     agent_auth::*, captcha::*, have_i_been_pwned::*, i18n::*, mcp::*, memory::MemoryStore,
-    open_api::*, origin::TrustedOrigin, stripe::*, test_utils::*,
+    open_api::*, origin::TrustedOrigin, polar::*, stripe::*, test_utils::*,
 };

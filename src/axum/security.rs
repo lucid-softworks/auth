@@ -26,7 +26,7 @@ pub(super) async fn validate_browser_request(
             || path == format!("{}/oauth-popup/start", service.base_path()));
     let is_oauth_proxy_callback = path == "/oauth-proxy-callback"
         || path == format!("{}/oauth-proxy-callback", service.base_path());
-    if is_stripe_webhook(&service, path, request.method()) {
+    if is_raw_public_plugin_route(&service, path, request.method()) {
         return next.run(request).await;
     }
     if is_oauth_popup_start {
@@ -79,22 +79,23 @@ pub(super) async fn validate_browser_request(
     }
 }
 
-fn is_stripe_webhook(service: &AuthService, path: &str, method: &Method) -> bool {
-    if *method != Method::POST
-        || !service
-            .plugins()
-            .plugins()
-            .iter()
-            .any(|plugin| plugin.descriptor().id == "stripe")
-    {
-        return false;
-    }
+fn is_raw_public_plugin_route(service: &AuthService, path: &str, method: &Method) -> bool {
     let relative = if service.base_path() == "/" {
         path
     } else {
         path.strip_prefix(service.base_path()).unwrap_or(path)
     };
-    relative == "/stripe/webhook"
+    let method = match *method {
+        Method::GET => crate::PluginHttpMethod::Get,
+        Method::POST => crate::PluginHttpMethod::Post,
+        Method::PUT => crate::PluginHttpMethod::Put,
+        Method::PATCH => crate::PluginHttpMethod::Patch,
+        Method::DELETE => crate::PluginHttpMethod::Delete,
+        _ => return false,
+    };
+    service.plugins().plugins().iter().any(|plugin| {
+        plugin.request_security(method, relative) == crate::PluginRequestSecurity::RawPublic
+    })
 }
 
 fn is_agent_auth_machine_path(service: &AuthService, path: &str) -> bool {
@@ -173,50 +174,74 @@ async fn validate_redirect_fields(
 
     if let Some(fields) = query_fields {
         validate_redirect_map(service, request.headers(), &fields)?;
-        validate_stripe_redirect_map(service, request.uri().path(), request.headers(), &fields)?;
+        validate_plugin_redirect_map(
+            service,
+            request.method(),
+            request.uri().path(),
+            request.headers(),
+            &fields,
+        )?;
     }
     if let Some(fields) = body_fields {
         validate_redirect_map(service, request.headers(), &fields)?;
-        validate_stripe_redirect_map(service, request.uri().path(), request.headers(), &fields)?;
+        validate_plugin_redirect_map(
+            service,
+            request.method(),
+            request.uri().path(),
+            request.headers(),
+            &fields,
+        )?;
     }
     Ok(request)
 }
 
-fn validate_stripe_redirect_map(
+fn validate_plugin_redirect_map(
     service: &AuthService,
+    method: &Method,
     path: &str,
     headers: &HeaderMap,
     fields: &Map<String, Value>,
 ) -> Result<(), AuthError> {
-    if !service
-        .plugins()
-        .plugins()
-        .iter()
-        .any(|plugin| plugin.descriptor().id == "stripe")
-    {
-        return Ok(());
-    }
     let relative = if service.base_path() == "/" {
         path
     } else {
         path.strip_prefix(service.base_path()).unwrap_or(path)
     };
-    let names: &[&str] = match relative {
-        "/subscription/upgrade" => &["successUrl", "cancelUrl", "returnUrl"],
-        "/subscription/cancel" | "/subscription/billing-portal" => &["returnUrl"],
-        _ => &[],
+    let method = match *method {
+        Method::GET => crate::PluginHttpMethod::Get,
+        Method::POST => crate::PluginHttpMethod::Post,
+        Method::PUT => crate::PluginHttpMethod::Put,
+        Method::PATCH => crate::PluginHttpMethod::Patch,
+        Method::DELETE => crate::PluginHttpMethod::Delete,
+        _ => return Ok(()),
     };
-    for name in names {
-        validate_body_redirect(
-            service,
-            headers,
-            fields,
-            name,
-            "callbackURL",
-            AuthError::InvalidCallbackUrl,
-        )?;
+    for plugin in service.plugins().plugins() {
+        for name in plugin.request_origin_fields(method, relative) {
+            validate_plugin_redirect(service, headers, fields, name)?;
+        }
     }
     Ok(())
+}
+
+fn validate_plugin_redirect(
+    service: &AuthService,
+    headers: &HeaderMap,
+    fields: &Map<String, Value>,
+    field: &str,
+) -> Result<(), AuthError> {
+    let Some(value) = truthy_string(fields.get(field), "callbackURL")? else {
+        return Ok(());
+    };
+    if safe_relative_callback(value) {
+        return Ok(());
+    }
+    // Plugin request schemas own malformed-value errors. Origin middleware
+    // still rejects unsafe slash-prefixed values and every parseable URL so a
+    // scheme-relative callback cannot be smuggled through URL resolution.
+    if !value.starts_with('/') && url::Url::parse(value).is_err() {
+        return Ok(());
+    }
+    validate_callback_url(service, headers, value, AuthError::InvalidCallbackUrl)
 }
 
 fn validate_redirect_map(

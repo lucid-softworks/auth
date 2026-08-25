@@ -23,6 +23,7 @@ import {
 } from "better-auth/client/plugins";
 import { passkeyClient } from "@better-auth/passkey/client";
 import { apiKeyClient } from "@better-auth/api-key/client";
+import { polarClient } from "@polar-sh/better-auth/client";
 import { base32 } from "@better-auth/utils/base32";
 import { createOTP } from "@better-auth/utils/otp";
 import { decodeJwt, decodeProtectedHeader, importJWK, jwtVerify } from "jose";
@@ -142,6 +143,65 @@ class BrowserTransport {
     if (body !== undefined) assert.deepEqual(request.body, body);
     return request;
   }
+}
+
+function installPolarEmbedDom(origin) {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  let messageListener;
+  const children = [];
+  const body = {
+    classList: { add() {}, remove() {} },
+    appendChild(child) { children.push(child); },
+    contains(child) { return children.includes(child); },
+    removeChild(child) {
+      const index = children.indexOf(child);
+      if (index >= 0) children.splice(index, 1);
+    },
+  };
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      location: { origin },
+      parent: { postMessage() {} },
+      addEventListener(type, listener) {
+        if (type === "message") messageListener = listener;
+      },
+      removeEventListener() {},
+    },
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      body,
+      head: { appendChild() {} },
+      createElement: (tag) => ({ tag, style: {}, appendChild() {} }),
+    },
+  });
+  return {
+    async loaded() {
+      for (let attempt = 0; messageListener === undefined && attempt < 1_000; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      assert.equal(typeof messageListener, "function");
+      messageListener({
+        origin: "https://polar.sh",
+        data: { type: "POLAR_CHECKOUT", event: "loaded" },
+      });
+    },
+    restore() {
+      if (previousWindow === undefined) delete globalThis.window;
+      else Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: previousWindow,
+      });
+      if (previousDocument === undefined) delete globalThis.document;
+      else Object.defineProperty(globalThis, "document", {
+        configurable: true,
+        value: previousDocument,
+      });
+    },
+  };
 }
 
 function success(result, method) {
@@ -2667,6 +2727,146 @@ async function nativeOneTimeTokenConformance(origin) {
   console.log("ok - one-time-token official client against native server");
 }
 
+async function nativePolarConformance(origin) {
+  const transport = new BrowserTransport(origin);
+  await transport.useFixtureSession("password");
+  const client = createAuthClient({
+    baseURL: origin,
+    fetchOptions: { customFetchImpl: transport.fetch.bind(transport) },
+    plugins: [polarClient()],
+  });
+
+  const checkout = success(
+    await client.checkout({
+      metadata: { referenceId: "body-wins", seats: 3 },
+      redirect: false,
+      referenceId: "native-reference",
+      returnUrl: "/account",
+      slug: "native",
+      successUrl: "/complete",
+    }),
+    "native Polar checkout",
+  );
+  assert.deepEqual(checkout, {
+    redirect: false,
+    url: "https://polar.example.test/checkout?source=native&theme=dark",
+  });
+  transport.assertRequest("/api/auth/checkout", "POST", {
+    metadata: { referenceId: "body-wins", seats: 3 },
+    redirect: false,
+    referenceId: "native-reference",
+    returnUrl: "/account",
+    slug: "native",
+    successUrl: "/complete",
+  });
+
+  const embedDom = installPolarEmbedDom(origin);
+  try {
+    const pendingEmbed = client.checkoutEmbed(
+      { slug: "native" },
+      { body: { products: "product_native", redirect: true } },
+    );
+    await new Promise(setImmediate);
+    await embedDom.loaded();
+    const embedded = await pendingEmbed;
+    assert.equal(
+      embedded.iframe.src,
+      `https://polar.example.test/checkout?source=native&theme=dark&embed=true&embed_origin=${encodeURIComponent(origin)}`,
+    );
+    transport.assertRequest("/api/auth/checkout", "POST", {
+      products: "product_native",
+      redirect: true,
+    });
+  } finally {
+    embedDom.restore();
+  }
+
+  const portal = success(
+    await client.customer.portal(),
+    "native Polar customer.portal GET",
+  );
+  assert.deepEqual(portal, {
+    redirect: true,
+    url: "https://polar.example.test/portal?theme=light",
+  });
+  const portalPost = success(
+    await client.customer.portal({ redirect: false }),
+    "native Polar customer.portal POST",
+  );
+  assert.equal(portalPost.redirect, false);
+  transport.assertRequest("/api/auth/customer/portal", "GET");
+  transport.assertRequest("/api/auth/customer/portal", "POST", { redirect: false });
+
+  const state = success(
+    await client.customer.state(),
+    "native Polar customer.state",
+  );
+  assert.deepEqual(state.activeSubscriptions, []);
+  const benefits = success(
+    await client.customer.benefits.list({ query: { page: 2 } }),
+    "native Polar customer.benefits.list",
+  );
+  assert.equal(benefits.result.items[0].id, "benefit_native");
+  const subscriptions = success(
+    await client.customer.subscriptions.list({ query: { limit: 3 } }),
+    "native Polar customer.subscriptions.list",
+  );
+  assert.equal(subscriptions.result.items[0].id, "subscription_customer");
+  const referenceSubscriptions = success(
+    await client.customer.subscriptions.list({
+      query: { active: false, referenceId: "foreign-reference" },
+    }),
+    "native Polar reference subscriptions",
+  );
+  assert.equal(
+    referenceSubscriptions.result.items[0].referenceId,
+    "foreign-reference",
+  );
+  const orders = success(
+    await client.customer.orders.list({
+      query: { limit: 4, productBillingType: "one_time" },
+    }),
+    "native Polar customer.orders.list",
+  );
+  assert.equal(orders.result.items[0].id, "order_native");
+  const meters = success(
+    await client.usage.meters.list({ query: { page: 5 } }),
+    "native Polar usage.meters.list",
+  );
+  assert.equal(meters.result.items[0].id, "meter_native");
+  const ingestion = success(
+    await client.usage.ingest({
+      event: "tokens",
+      metadata: { cached: true, count: 7, model: "native" },
+    }),
+    "native Polar usage.ingest",
+  );
+  assert.equal(ingestion.inserted, 1);
+  assert.deepEqual(ingestion.metadata, { cached: true, count: 7, model: "native" });
+
+  assert.equal(
+    transport.assertRequest("/api/auth/customer/benefits/list", "GET").search,
+    "?page=2",
+  );
+  assert.equal(
+    transport.assertRequest("/api/auth/customer/subscriptions/list", "GET").search,
+    "?active=false&referenceId=foreign-reference",
+  );
+  assert.equal(
+    transport.assertRequest("/api/auth/customer/orders/list", "GET").search,
+    "?limit=4&productBillingType=one_time",
+  );
+  assert.equal(
+    transport.assertRequest("/api/auth/usage/meters/list", "GET").search,
+    "?page=5",
+  );
+  transport.assertRequest("/api/auth/usage/ingest", "POST", {
+    event: "tokens",
+    metadata: { cached: true, count: 7, model: "native" },
+  });
+  console.log("ok - Polar official client against native server");
+}
+
 async function cookieCacheConformance(origin, strategy) {
   const transport = new BrowserTransport(origin);
   const client = createAuthClient({
@@ -2811,6 +3011,7 @@ for (const strategy of ["compact", "jwt", "jwe"]) {
       await nativeBearerConformance(origin);
       await nativeJwtConformance(origin);
       await nativeOneTimeTokenConformance(origin);
+      await nativePolarConformance(origin);
       const oauthProviderTransport = new BrowserTransport(origin);
       await oauthProviderNativeConformance(
         origin,

@@ -144,6 +144,71 @@ header there. Callback inputs use Better Auth's exact casing—most notably
 the [Stripe compatibility row](COMPATIBILITY.md#payments-analytics-and-better-auth-infrastructure)
 for the audited boundary and issue link.
 
+### Polar billing
+
+Polar support is opt-in and pins Better Auth `1.7.1`,
+`@polar-sh/better-auth@1.8.4`, and `@polar-sh/sdk@0.47.1`. Configure only the
+feature factories used by the application; an empty feature list is valid, and
+repeating one feature uses the last configuration, matching the adapter:
+
+```rust
+use lucid_auth::{
+    CheckoutOptions, PolarFeature, PolarHttpClient, PolarOptions, PolarPlugin,
+    PolarProduct, PolarProducts, PolarTheme, PortalOptions, UsageOptions,
+    WebhooksOptions,
+};
+use std::sync::Arc;
+
+let checkout = CheckoutOptions {
+    products: Some(PolarProducts::static_products(vec![PolarProduct::new(
+        "polar_product_id",
+        "pro",
+    )])),
+    success_url: Some("/billing/success?checkout_id={CHECKOUT_ID}".into()),
+    authenticated_users_only: true,
+    ..CheckoutOptions::default()
+};
+let portal = PortalOptions::new(
+    Some("https://app.example.com/account"),
+    Some(PolarTheme::Dark),
+)?;
+let webhooks = WebhooksOptions::new(std::env::var("POLAR_WEBHOOK_SECRET")?);
+
+let mut polar_options = PolarOptions::new(
+    Arc::new(PolarHttpClient::new(std::env::var("POLAR_ACCESS_TOKEN")?)),
+    vec![
+        PolarFeature::Checkout(checkout),
+        PolarFeature::Portal(portal),
+        PolarFeature::Usage(UsageOptions::default()),
+        PolarFeature::Webhooks(webhooks),
+    ],
+);
+polar_options.create_customer_on_sign_up = true;
+config.add_plugin(PolarPlugin::new(polar_options))?;
+```
+
+The portal-level return URL must be absolute because the upstream adapter
+constructs it with `new URL(returnUrl)` when the feature is installed. Checkout
+success and return URLs may be relative paths beginning with `/` or absolute
+URLs. Configure Polar's webhook endpoint as
+`POST /api/auth/polar/webhooks`, then enable its official browser client:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { polarClient } from "@polar-sh/better-auth/client";
+
+export const authClient = createAuthClient({
+  plugins: [polarClient()],
+});
+```
+
+Polar is authoritative for customers, products, checkouts, subscriptions,
+orders, benefits, meters, and events. `PolarPlugin` deliberately creates no
+local billing or customer-mapping tables and contributes no migrations; it also
+adds no retry or idempotency layer to Polar provider calls. See the
+[Polar compatibility row](COMPATIBILITY.md#payments-analytics-and-better-auth-infrastructure)
+for the exact endpoint, webhook, lifecycle, and recovery boundary.
+
 Social providers use the same `signIn.social` and `/callback/:provider` wire
 contract as Better Auth. Register a built-in after setting the public base URL:
 

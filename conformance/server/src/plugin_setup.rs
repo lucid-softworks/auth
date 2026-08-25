@@ -92,6 +92,7 @@ pub(super) fn register(
 ) -> Option<Arc<dyn OAuthProviderStore>> {
     register_agent_auth(config);
     let oauth = register_core_plugins(config, origin, messages, phone_number_messages, store);
+    super::polar::register(config);
     register_i18n(config);
     config
         .add_plugin(OpenApiPlugin::default())

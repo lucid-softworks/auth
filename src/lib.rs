@@ -42,6 +42,7 @@ mod owner_policy;
 mod passkey;
 mod phone_number;
 mod plugin;
+mod polar;
 mod rate_limit;
 mod secondary_storage;
 mod service;
@@ -197,10 +198,11 @@ pub use phone_number::{
 };
 pub use plugin::{
     AfterAuthEvent, AuthPlugin, BeforeAuthEvent, PasswordCredentialChanged,
-    PasswordCredentialSource, PluginClientMetadata, PluginCookie, PluginDescriptor, PluginEndpoint,
-    PluginHttpMethod, PluginMiddleware, PluginMigration, PluginMigrationContribution,
-    PluginRateLimit, PluginRequestContext, PluginSchemaField, SensitiveOperation,
-    UserManagementAction, UserManagementDecision, UserManagementOperation,
+    PasswordCredentialSource, PluginApiError, PluginClientMetadata, PluginCookie, PluginDescriptor,
+    PluginEndpoint, PluginHttpMethod, PluginMiddleware, PluginMigration,
+    PluginMigrationContribution, PluginRateLimit, PluginRequestContext, PluginRequestSecurity,
+    PluginSchemaField, SensitiveOperation, UserManagementAction, UserManagementDecision,
+    UserManagementOperation,
 };
 #[cfg(feature = "axum")]
 pub use plugin::{AxumPluginRoute, PluginSession};
@@ -246,8 +248,4 @@ pub use user_deletion::{
     ChangeEmailConfig, ChangeEmailConfirmation, ChangeEmailConfirmationSender,
     DeleteAccountVerification, DeleteAccountVerificationSender, DeleteUserConfig, UserConfig,
     UserDeletionCallback,
-};
-pub use username::{
-    UsernameConfig, UsernameError, UsernameNormalizer, UsernamePlugin, UsernameValidationOrder,
-    UsernameValidationTiming, UsernameValidator,
 };

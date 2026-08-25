@@ -2,6 +2,8 @@
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
     #[error(transparent)]
+    PluginApi(#[from] crate::PluginApiError),
+    #[error(transparent)]
     Admin(#[from] crate::AdminError),
     #[error(transparent)]
     ApiKey(#[from] crate::ApiKeyError),

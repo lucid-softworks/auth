@@ -140,6 +140,34 @@ impl AuthPlugin for StripePlugin {
         open_api_endpoints(self.subscriptions_enabled())
     }
 
+    fn request_security(
+        &self,
+        method: crate::PluginHttpMethod,
+        path: &str,
+    ) -> crate::PluginRequestSecurity {
+        if method == crate::PluginHttpMethod::Post && path == "/stripe/webhook" {
+            crate::PluginRequestSecurity::RawPublic
+        } else {
+            crate::PluginRequestSecurity::Browser
+        }
+    }
+
+    fn request_origin_fields(
+        &self,
+        method: crate::PluginHttpMethod,
+        path: &str,
+    ) -> &'static [&'static str] {
+        if method == crate::PluginHttpMethod::Post {
+            match path {
+                "/subscription/upgrade" => &["successUrl", "cancelUrl", "returnUrl"],
+                "/subscription/cancel" | "/subscription/billing-portal" => &["returnUrl"],
+                _ => &[],
+            }
+        } else {
+            &[]
+        }
+    }
+
     async fn after_database_create(
         &self,
         service: &crate::AuthService,

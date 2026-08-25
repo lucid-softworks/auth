@@ -2,6 +2,25 @@ use crate::protocol::better_auth::COMPATIBLE_BETTER_AUTH_VERSION;
 use serde::Serialize;
 use std::borrow::Cow;
 
+/// Exact HTTP error contributed by a plugin lifecycle hook.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
+pub struct PluginApiError {
+    pub status: u16,
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl PluginApiError {
+    pub fn new(status: u16, code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            code,
+            message: message.into(),
+        }
+    }
+}
+
 /// HTTP method owned by a native authentication plugin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "UPPERCASE")]
@@ -57,6 +76,10 @@ pub struct PluginClientMetadata {
     pub client_id: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_version: Option<&'static str>,
+    #[serde(skip_serializing_if = "<[&str]>::is_empty")]
+    pub custom_actions: &'static [&'static str],
+    #[serde(skip_serializing_if = "<[&str]>::is_empty")]
+    pub non_action_paths: &'static [&'static str],
 }
 
 impl PluginClientMetadata {
@@ -72,12 +95,24 @@ impl PluginClientMetadata {
             better_auth_version: COMPATIBLE_BETTER_AUTH_VERSION,
             client_id: None,
             client_version: None,
+            custom_actions: &[],
+            non_action_paths: &[],
         }
     }
 
     pub const fn with_identity(mut self, id: &'static str, version: &'static str) -> Self {
         self.client_id = Some(id);
         self.client_version = Some(version);
+        self
+    }
+
+    pub const fn with_custom_actions(mut self, actions: &'static [&'static str]) -> Self {
+        self.custom_actions = actions;
+        self
+    }
+
+    pub const fn with_non_action_paths(mut self, paths: &'static [&'static str]) -> Self {
+        self.non_action_paths = paths;
         self
     }
 }
