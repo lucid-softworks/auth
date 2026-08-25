@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)] // Axum responses are the deliberate error channel.
+
 use super::error::{FlowError, Result};
 use crate::{
     AgentAuthAuditEvent, AgentAuthAuditEventType, AgentAuthConfig, AgentAuthEvent,

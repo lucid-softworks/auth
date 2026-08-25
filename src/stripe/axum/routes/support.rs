@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)] // Axum responses are the deliberate error channel.
+
 use crate::{
     AuthService, AuthorizeReferenceAction, CustomerType, SessionWithUser, StripeCallbackContext,
     StripeError, StripeErrorCode, StripePlugin, StripeSessionSnapshot, StripeUserSnapshot,

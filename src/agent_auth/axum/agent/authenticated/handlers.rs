@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)] // Axum responses are the deliberate error channel.
+
 use super::lifecycle::{
     reactivate_for_host, revoke_authorized, rotate_for_host, status_authorized,
 };
