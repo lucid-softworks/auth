@@ -92,12 +92,6 @@ pub use api_key::{
     ApiKeyConfiguration, ApiKeyError, ApiKeyExpirationConfig, ApiKeyGenerator, ApiKeyOptions,
     ApiKeyPlugin, ApiKeyRateLimitConfig, ApiKeyReference, ApiKeyStartingCharactersConfig,
 };
-pub use config::{
-    AccountConfig, AccountFieldMappings, AccountLinkingConfig, AuthConfig, AuthIdGenerator,
-    EmailPasswordConfig, OAuthStateStrategy, RateLimitFieldMappings, SessionFieldMappings,
-    UserFieldMappings, VerificationConfig, VerificationFieldMappings, VerificationIdentifierConfig,
-    VerificationIdentifierHasher, VerificationIdentifierStorage, VersionedSecret,
-};
 pub use database_hooks::{
     BeforeDatabaseHook, DatabaseHookContext, DatabaseHookRequest, DatabaseHooks, DatabaseModel,
     DatabaseRecord, DeferredHookResponse,

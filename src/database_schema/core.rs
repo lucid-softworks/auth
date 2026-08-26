@@ -12,6 +12,7 @@ mod account;
 pub(super) fn build_tables(
     config: &AuthConfig,
     mut plugin: IndexMap<String, SchemaTable>,
+    id_type: super::catalog::DatabaseIdType,
 ) -> IndexMap<String, SchemaTable> {
     let user_plugin = plugin.shift_remove("user");
     let session_plugin = plugin.shift_remove("session");
@@ -27,6 +28,7 @@ pub(super) fn build_tables(
             user_plugin,
             &config.user.additional_fields,
             1,
+            id_type,
         ),
     );
     if database_sessions(config) {
@@ -39,6 +41,7 @@ pub(super) fn build_tables(
                 session_plugin,
                 &config.session.additional_fields,
                 2,
+                id_type,
             ),
         );
     }
@@ -49,6 +52,7 @@ pub(super) fn build_tables(
         account_plugin,
         &config.account.additional_fields,
         3,
+        id_type,
     );
     let mut account_indexes = account::indexes();
     for index in account.indexes {
@@ -68,12 +72,13 @@ pub(super) fn build_tables(
                 verification_plugin,
                 &config.verification.additional_fields,
                 4,
+                id_type,
             ),
         );
     }
     tables.extend(plugin);
     if matches!(config.rate_limit.storage, RateLimitStorageMode::Database) {
-        tables.insert("rateLimit".into(), rate_limit_table(config));
+        tables.insert("rateLimit".into(), rate_limit_table(config, id_type));
     }
     tables
 }
@@ -85,6 +90,7 @@ fn core_table(
     plugin: Option<SchemaTable>,
     host_additional: &AdditionalFieldSet,
     order: u32,
+    id_type: super::catalog::DatabaseIdType,
 ) -> SchemaTable {
     let mut indexes = Vec::new();
     if let Some(plugin) = plugin {
@@ -94,7 +100,7 @@ fn core_table(
     fields.extend(host_additional.clone());
     SchemaTable {
         model_name: truthy(configured_model_name).unwrap_or(canonical).into(),
-        id_type: super::catalog::DatabaseIdType::Uuid,
+        id_type,
         fields,
         indexes,
         disable_migrations: false,
@@ -257,7 +263,7 @@ fn verification_fields(config: &AuthConfig) -> AdditionalFieldSet {
     result
 }
 
-fn rate_limit_table(config: &AuthConfig) -> SchemaTable {
+fn rate_limit_table(config: &AuthConfig, id_type: super::catalog::DatabaseIdType) -> SchemaTable {
     let fields = &config.rate_limit.fields;
     let mut result = AdditionalFieldSet::new();
     result.insert(
@@ -281,7 +287,7 @@ fn rate_limit_table(config: &AuthConfig) -> SchemaTable {
         model_name: truthy(config.rate_limit.model_name.as_deref())
             .unwrap_or("rateLimit")
             .into(),
-        id_type: super::catalog::DatabaseIdType::Uuid,
+        id_type,
         fields: result,
         indexes: Vec::new(),
         disable_migrations: false,

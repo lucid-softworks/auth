@@ -7,11 +7,11 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use lucid_auth::{
-    AdditionalField, AdditionalFieldType, AuthConfig, AuthError, AuthIdGenerator, AuthPlugin,
-    AuthService, AuthStore, DatabaseHookContext, DatabaseHooks, DatabaseRecord,
-    MemoryOrganizationStore, MemoryStore, OrganizationDataStore, OrganizationMemberStore,
-    OrganizationPlugin, TestOrganizationOverrides, TestUserOverrides, TestUtilsOptions,
-    TestUtilsPlugin, VerificationValue,
+    AdditionalField, AdditionalFieldType, AuthConfig, AuthError, AuthPlugin, AuthService,
+    AuthStore, DatabaseHookContext, DatabaseHooks, DatabaseRecord, MemoryOrganizationStore,
+    MemoryStore, OrganizationDataStore, OrganizationMemberStore, OrganizationPlugin,
+    TestOrganizationOverrides, TestUserOverrides, TestUtilsOptions, TestUtilsPlugin,
+    VerificationValue,
 };
 use serde_json::json;
 use std::sync::{
@@ -20,15 +20,6 @@ use std::sync::{
 };
 use tower::ServiceExt;
 use uuid::Uuid;
-
-#[derive(Debug)]
-struct FixedIds(Uuid);
-
-impl AuthIdGenerator for FixedIds {
-    fn generate(&self, model: &str) -> Option<Uuid> {
-        (model == "user").then_some(self.0)
-    }
-}
 
 #[derive(Debug, Default)]
 struct HookCounts {
@@ -107,9 +98,7 @@ async fn metadata_and_option_gates_match_test_utils_171() {
 async fn user_factories_persistence_and_core_hooks_are_exact() {
     let store = Arc::new(MemoryStore::default());
     let hooks = Arc::new(HookCounts::default());
-    let fixed_id = Uuid::new_v4();
     let mut config = AuthConfig::new([5_u8; 32]).unwrap();
-    config.id_generator = Some(Arc::new(FixedIds(fixed_id)));
     config.database_hooks = Some(hooks.clone());
     config.user.additional_fields.insert(
         "tenant".into(),
@@ -132,7 +121,7 @@ async fn user_factories_persistence_and_core_hooks_are_exact() {
         additional_fields: fields,
         ..TestUserOverrides::default()
     });
-    assert_eq!(user.id, fixed_id);
+    assert_ne!(user.id, defaults.id);
     assert_eq!(user.name, "Test User");
     assert!(user.email_verified);
     assert!(user.image.is_none());

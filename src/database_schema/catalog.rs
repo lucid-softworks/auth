@@ -1,4 +1,4 @@
-use crate::{AdditionalField, AdditionalFieldSet, AuthConfig};
+use crate::{AdditionalField, AdditionalFieldSet, AuthConfig, DatabaseIdGenerationKind};
 use indexmap::IndexMap;
 use std::collections::BTreeMap;
 
@@ -26,14 +26,13 @@ pub struct DatabaseSchemaIndex {
     pub unique: bool,
 }
 
-/// Storage type for a model's implicit Better Auth `id` field.
-///
-/// This describes storage only. ID generation remains the caller's responsibility.
+/// Storage type for every implicit Better Auth `id` field and its references.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum DatabaseIdType {
     #[default]
-    Uuid,
     String,
+    Serial,
+    Uuid,
 }
 
 impl DatabaseSchemaIndex {
@@ -61,7 +60,6 @@ impl DatabaseSchemaIndex {
 pub struct PluginSchemaTable {
     pub logical_name: String,
     pub model_name: Option<String>,
-    pub id_type: Option<DatabaseIdType>,
     pub fields: AdditionalFieldSet,
     pub indexes: Vec<DatabaseSchemaIndex>,
     pub disable_migration: Option<bool>,
@@ -72,7 +70,6 @@ impl PluginSchemaTable {
         Self {
             logical_name: logical_name.into(),
             model_name: None,
-            id_type: None,
             fields: AdditionalFieldSet::new(),
             indexes: Vec::new(),
             disable_migration: None,
@@ -81,11 +78,6 @@ impl PluginSchemaTable {
 
     pub fn model_name(mut self, model_name: impl Into<String>) -> Self {
         self.model_name = Some(model_name.into());
-        self
-    }
-
-    pub fn id_type(mut self, id_type: DatabaseIdType) -> Self {
-        self.id_type = Some(id_type);
         self
     }
 
@@ -120,6 +112,7 @@ pub struct SchemaTable {
 #[derive(Debug, Clone)]
 pub struct AuthSchemaCatalog {
     tables: IndexMap<String, SchemaTable>,
+    id_generation: DatabaseIdGenerationKind,
     indexes_by_table: IndexMap<String, Vec<super::ResolvedDatabaseIndex>>,
     field_indexes_by_table: IndexMap<String, Vec<super::ResolvedDatabaseIndex>>,
     fingerprint: SchemaFingerprint,
@@ -130,10 +123,12 @@ impl AuthSchemaCatalog {
         config: &AuthConfig,
         plugin_tables: impl IntoIterator<Item = PluginSchemaTable>,
     ) -> Result<Self, super::SchemaIndexError> {
-        let plugin_tables = accumulate_plugins(plugin_tables);
-        let tables = super::core::build_tables(config, plugin_tables);
+        let id_type = configured_id_type(config);
+        let plugin_tables = accumulate_plugins(plugin_tables, id_type);
+        let tables = super::core::build_tables(config, plugin_tables, id_type);
         let mut catalog = Self {
             tables,
+            id_generation: config.database_id_generation.kind(),
             indexes_by_table: IndexMap::new(),
             field_indexes_by_table: IndexMap::new(),
             fingerprint: SchemaFingerprint(String::new()),
@@ -147,6 +142,10 @@ impl AuthSchemaCatalog {
 
     pub fn tables(&self) -> &IndexMap<String, SchemaTable> {
         &self.tables
+    }
+
+    pub(crate) fn id_generation(&self) -> DatabaseIdGenerationKind {
+        self.id_generation
     }
 
     pub fn table(&self, logical_name: &str) -> Option<&SchemaTable> {
@@ -172,17 +171,17 @@ impl AuthSchemaCatalog {
 
 fn accumulate_plugins(
     contributions: impl IntoIterator<Item = PluginSchemaTable>,
+    id_type: DatabaseIdType,
 ) -> IndexMap<String, SchemaTable> {
     let mut tables = IndexMap::<String, SchemaTable>::new();
     for contribution in contributions {
         let logical_name = contribution.logical_name;
-        let id_type = contribution.id_type;
         let selected_model_name = truthy(contribution.model_name.as_deref())
             .unwrap_or(&logical_name)
             .to_owned();
         let table = tables.entry(logical_name).or_insert_with(|| SchemaTable {
             model_name: selected_model_name.clone(),
-            id_type: id_type.unwrap_or_default(),
+            id_type,
             fields: AdditionalFieldSet::new(),
             indexes: Vec::new(),
             disable_migrations: false,
@@ -197,14 +196,21 @@ fn accumulate_plugins(
             }
         }
         table.model_name = selected_model_name;
-        if let Some(id_type) = id_type {
-            table.id_type = id_type;
-        }
         if let Some(disable) = contribution.disable_migration {
             table.disable_migrations = disable;
         }
     }
     tables
+}
+
+fn configured_id_type(config: &AuthConfig) -> DatabaseIdType {
+    match config.database_id_generation {
+        crate::DatabaseIdGeneration::Serial => DatabaseIdType::Serial,
+        crate::DatabaseIdGeneration::Uuid => DatabaseIdType::Uuid,
+        crate::DatabaseIdGeneration::Default
+        | crate::DatabaseIdGeneration::Database
+        | crate::DatabaseIdGeneration::Callback(_) => DatabaseIdType::String,
+    }
 }
 
 pub(super) fn truthy(value: Option<&str>) -> Option<&str> {
@@ -243,7 +249,6 @@ mod tests {
             [
                 PluginSchemaTable::new("widget")
                     .model_name("first")
-                    .id_type(DatabaseIdType::String)
                     .field("a", AdditionalField::new(AdditionalFieldType::String))
                     .field("b", AdditionalField::new(AdditionalFieldType::String))
                     .disable_migration(true),
@@ -285,5 +290,61 @@ mod tests {
         assert_eq!(table.fields["known"].field_name, None);
         assert!(!table.fields.contains_key("unknown"));
         assert!(table.fields.contains_key("extra"));
+    }
+
+    #[test]
+    fn one_global_strategy_controls_core_plugin_and_reference_id_storage() {
+        let mut config = AuthConfig::new([8; 32]).unwrap();
+        config.database_id_generation = crate::DatabaseIdGeneration::Serial;
+        let catalog = AuthSchemaCatalog::build(
+            &config,
+            [PluginSchemaTable::new("widget").field(
+                "ownerId",
+                AdditionalField::new(AdditionalFieldType::String).references(
+                    crate::AdditionalFieldReference {
+                        model: "user".into(),
+                        field: "id".into(),
+                        on_delete: None,
+                    },
+                ),
+            )],
+        )
+        .unwrap();
+
+        assert!(
+            catalog
+                .tables()
+                .values()
+                .all(|table| table.id_type == DatabaseIdType::Serial)
+        );
+        assert_eq!(
+            catalog.table("widget").unwrap().fields["ownerId"]
+                .references
+                .as_ref()
+                .unwrap()
+                .model,
+            "user"
+        );
+    }
+
+    #[test]
+    fn only_literal_uuid_selects_uuid_storage() {
+        for strategy in [
+            crate::DatabaseIdGeneration::Default,
+            crate::DatabaseIdGeneration::Database,
+        ] {
+            let mut config = AuthConfig::new([9; 32]).unwrap();
+            config.database_id_generation = strategy;
+            let catalog = AuthSchemaCatalog::build(&config, []).unwrap();
+            assert_eq!(
+                catalog.table("user").unwrap().id_type,
+                DatabaseIdType::String
+            );
+        }
+
+        let mut config = AuthConfig::new([9; 32]).unwrap();
+        config.database_id_generation = crate::DatabaseIdGeneration::Uuid;
+        let catalog = AuthSchemaCatalog::build(&config, []).unwrap();
+        assert_eq!(catalog.table("user").unwrap().id_type, DatabaseIdType::Uuid);
     }
 }

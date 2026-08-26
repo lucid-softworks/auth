@@ -38,7 +38,6 @@ fn exact_models_fields_and_text_ids_match_agent_auth_0_6_2() {
     );
     for (table, expected) in tables.iter().zip(EXPECTED_FIELDS) {
         assert_eq!(table.model_name, None);
-        assert_eq!(table.id_type, Some(DatabaseIdType::String));
         assert_eq!(
             table.fields.keys().map(String::as_str).collect::<Vec<_>>(),
             expected.split(',').collect::<Vec<_>>()

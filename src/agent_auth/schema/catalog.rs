@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     AdditionalField, AdditionalFieldOnDelete, AdditionalFieldReference, AdditionalFieldType,
-    DatabaseIdType, PluginSchemaTable,
+    PluginSchemaTable,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -18,7 +18,7 @@ pub(crate) fn schema_tables(schema: &AgentAuthSchema) -> Vec<PluginSchemaTable> 
 
 fn table(definition: &ModelDefinition, config: &AgentAuthModelSchema) -> PluginSchemaTable {
     let model = definition.model;
-    let mut table = PluginSchemaTable::new(definition.logical_name).id_type(DatabaseIdType::String);
+    let mut table = PluginSchemaTable::new(definition.logical_name);
     if let Some(model_name) = config.model_name.as_deref().filter(|name| !name.is_empty()) {
         table = table.model_name(model_name);
     }

@@ -2,6 +2,16 @@ pub use crate::audit::{
     AUDIT_ACTION_VOCABULARY_VERSION, AuditEvent, AuditMetadata, AuditOutcome, AuditPlugin,
     AuditStore, MemoryAuditStore,
 };
+pub use crate::config::{
+    AccountConfig, AccountFieldMappings, AccountLinkingConfig, AuthConfig,
+    DatabaseIdAdapterCapabilities, DatabaseIdGeneration, DatabaseIdGenerationError,
+    DatabaseIdGenerationKind, DatabaseIdGenerationRequest, DatabaseIdGenerationResult,
+    DatabaseIdGenerationSize, DatabaseIdGenerationSource, DatabaseIdGenerator, EmailPasswordConfig,
+    OAuthStateStrategy, RateLimitFieldMappings, SessionFieldMappings, UserFieldMappings,
+    VerificationConfig, VerificationFieldMappings, VerificationIdentifierConfig,
+    VerificationIdentifierHasher, VerificationIdentifierStorage, VersionedSecret,
+    generate_database_id,
+};
 pub use crate::cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
 pub use crate::infra::email::{
     ApplicationInviteVariables, BulkEmailRecipient, ChangeEmailVariables, DeleteAccountVariables,

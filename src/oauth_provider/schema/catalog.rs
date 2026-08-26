@@ -1,6 +1,6 @@
 use crate::{
     AdditionalField, AdditionalFieldOnDelete, AdditionalFieldReference, AdditionalFieldType,
-    DatabaseIdType, DatabaseSchemaIndex, PluginSchemaTable,
+    DatabaseSchemaIndex, PluginSchemaTable,
 };
 use serde_json::json;
 
@@ -17,9 +17,6 @@ fn schema_table(
 ) -> PluginSchemaTable {
     let model = definition.model;
     let mut table = PluginSchemaTable::new(definition.logical_name);
-    if model == OAuthProviderModel::ClientAssertion {
-        table = table.id_type(DatabaseIdType::String);
-    }
     let default_model_name = (definition.model != OAuthProviderModel::RefreshToken)
         .then_some(definition.logical_name);
     if let Some(model_name) = config
@@ -213,7 +210,6 @@ mod catalog_tests {
         );
         assert!(tables[0].model_name.is_some());
         assert!(tables[3].model_name.is_none());
-        assert_eq!(tables[6].id_type, Some(DatabaseIdType::String));
         assert_eq!(tables[2].indexes.len(), 1);
         assert_eq!(tables[2].indexes[0].fields, ["clientId", "resourceId"]);
         assert!(tables[2].indexes[0].unique);

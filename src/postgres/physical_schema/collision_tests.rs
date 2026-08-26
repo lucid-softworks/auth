@@ -1,6 +1,6 @@
 use crate::{
     AdditionalField, AdditionalFieldReference, AdditionalFieldType, AuthConfig, AuthSchemaCatalog,
-    DatabaseIdType, PluginSchemaTable,
+    PluginSchemaTable,
     postgres::{PostgresAdapterConfig, PostgresStore},
 };
 use sqlx::postgres::PgPoolOptions;
@@ -15,7 +15,6 @@ async fn plural_runtime_shadow_does_not_block_raw_plugin_table_binding() {
             [
                 PluginSchemaTable::new("users")
                     .model_name("pluginOnly")
-                    .id_type(DatabaseIdType::String)
                     .field(
                         "pluginValue",
                         AdditionalField::new(AdditionalFieldType::String)

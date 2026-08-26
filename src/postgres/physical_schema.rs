@@ -7,6 +7,7 @@ use indexmap::IndexMap;
 mod collision_tests;
 mod ddl;
 mod evolve;
+mod number;
 mod objects;
 mod runtime;
 #[cfg(test)]
@@ -252,7 +253,7 @@ mod tests {
             .migration_sql(&schema)
             .unwrap();
         assert!(sql.contains("CREATE TABLE \"omitted\""));
-        assert!(sql.contains("\"userId\" UUID NOT NULL REFERENCES"));
+        assert!(sql.contains("\"userId\" TEXT NOT NULL REFERENCES"));
         assert!(sql.contains("REFERENCES \"user\"(\"id\") ON DELETE CASCADE"));
         assert!(sql.contains("REFERENCES \"user\"(\"id\") ON DELETE SET NULL"));
     }

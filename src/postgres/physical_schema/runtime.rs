@@ -236,19 +236,32 @@ fn encode_id(
     field: &str,
     value: Value,
 ) -> Result<PostgresValue, AuthError> {
-    if id_type == DatabaseIdType::String {
-        return match value {
+    match id_type {
+        DatabaseIdType::String => match value {
             Value::Null => Ok(PostgresValue::Text(None)),
             Value::String(value) => Ok(PostgresValue::Text(Some(value))),
             _ => Err(invalid_type(field, "string")),
-        };
-    }
-    match value {
-        Value::Null => Ok(PostgresValue::Uuid(None)),
-        Value::String(value) => uuid::Uuid::parse_str(&value)
-            .map(|value| PostgresValue::Uuid(Some(value)))
-            .map_err(|error| invalid_value(field, error)),
-        _ => Err(invalid_type(field, "UUID string")),
+        },
+        DatabaseIdType::Serial => match value {
+            Value::Null => Ok(PostgresValue::Integer(None)),
+            Value::Number(value) => value
+                .as_f64()
+                .and_then(super::number::serial_i32)
+                .map(|value| PostgresValue::Integer(Some(value)))
+                .ok_or_else(|| invalid_type(field, "32-bit integer")),
+            Value::String(value) => super::number::javascript_number(&value)
+                .and_then(super::number::serial_i32)
+                .map(|value| PostgresValue::Integer(Some(value)))
+                .ok_or_else(|| invalid_type(field, "32-bit integer")),
+            _ => Err(invalid_type(field, "32-bit integer")),
+        },
+        DatabaseIdType::Uuid => match value {
+            Value::Null => Ok(PostgresValue::Uuid(None)),
+            Value::String(value) => uuid::Uuid::parse_str(&value)
+                .map(|value| PostgresValue::Uuid(Some(value)))
+                .map_err(|error| invalid_value(field, error)),
+            _ => Err(invalid_type(field, "UUID string")),
+        },
     }
 }
 
@@ -304,12 +317,15 @@ fn encode_column(column: &LogicalColumn, value: Value) -> Result<PostgresValue, 
 
 fn decode_id(row: &PgRow, id_type: DatabaseIdType, field: &str) -> Result<Value, AuthError> {
     match id_type {
-        DatabaseIdType::Uuid => row
-            .try_get::<Option<uuid::Uuid>, _>(field)
-            .map(|value| value.map_or(Value::Null, |value| Value::String(value.to_string()))),
         DatabaseIdType::String => row
             .try_get::<Option<String>, _>(field)
             .map(|value| value.map_or(Value::Null, Value::String)),
+        DatabaseIdType::Serial => row
+            .try_get::<Option<i32>, _>(field)
+            .map(|value| value.map_or(Value::Null, |value| Value::String(value.to_string()))),
+        DatabaseIdType::Uuid => row
+            .try_get::<Option<uuid::Uuid>, _>(field)
+            .map(|value| value.map_or(Value::Null, |value| Value::String(value.to_string()))),
     }
     .map_err(storage)
 }

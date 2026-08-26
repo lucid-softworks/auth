@@ -21,8 +21,9 @@ pub(super) fn schema_objects(
             table: model.table.clone(),
             name: "id".into(),
             data_type: match model.id_type {
-                crate::DatabaseIdType::Uuid => "uuid",
                 crate::DatabaseIdType::String => "text",
+                crate::DatabaseIdType::Serial => "integer",
+                crate::DatabaseIdType::Uuid => "uuid",
             }
             .into(),
         });

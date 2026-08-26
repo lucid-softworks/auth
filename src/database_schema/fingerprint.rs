@@ -1,6 +1,7 @@
 use sha2::{Digest, Sha256};
 
 use super::AuthSchemaCatalog;
+use crate::DatabaseIdGenerationKind;
 
 /// Stable identity for one ordered logical Better Auth schema.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -9,14 +10,22 @@ pub struct SchemaFingerprint(pub(super) String);
 impl SchemaFingerprint {
     pub(super) fn from_catalog(catalog: &AuthSchemaCatalog) -> Self {
         let mut digest = Sha256::new();
+        digest.update([match catalog.id_generation() {
+            DatabaseIdGenerationKind::Default => 0,
+            DatabaseIdGenerationKind::Database => 1,
+            DatabaseIdGenerationKind::Serial => 2,
+            DatabaseIdGenerationKind::Uuid => 3,
+            DatabaseIdGenerationKind::Callback => 4,
+        }]);
         for (logical, table) in catalog.tables() {
             frame(&mut digest, logical.as_bytes());
             frame(&mut digest, table.model_name.as_bytes());
             digest.update([
                 u8::from(table.disable_migrations),
                 match table.id_type {
-                    crate::DatabaseIdType::Uuid => 0,
-                    crate::DatabaseIdType::String => 1,
+                    crate::DatabaseIdType::String => 0,
+                    crate::DatabaseIdType::Serial => 1,
+                    crate::DatabaseIdType::Uuid => 2,
                 },
             ]);
             for (field_name, field) in &table.fields {
@@ -101,4 +110,49 @@ impl SchemaFingerprint {
 fn frame(digest: &mut Sha256, value: &[u8]) {
     digest.update((value.len() as u64).to_be_bytes());
     digest.update(value);
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        AuthConfig, AuthSchemaCatalog, DatabaseIdGeneration, DatabaseIdGenerationRequest,
+        DatabaseIdGenerationResult, DatabaseIdGenerator,
+    };
+    use std::sync::Arc;
+
+    #[derive(Debug)]
+    struct Callback;
+
+    impl DatabaseIdGenerator for Callback {
+        fn generate(
+            &self,
+            _request: DatabaseIdGenerationRequest<'_>,
+        ) -> DatabaseIdGenerationResult {
+            DatabaseIdGenerationResult::Defer
+        }
+    }
+
+    #[test]
+    fn every_generation_policy_has_a_distinct_schema_binding_identity() {
+        let strategies = [
+            DatabaseIdGeneration::Default,
+            DatabaseIdGeneration::Database,
+            DatabaseIdGeneration::Serial,
+            DatabaseIdGeneration::Uuid,
+            DatabaseIdGeneration::Callback(Arc::new(Callback)),
+        ];
+        let fingerprints = strategies
+            .into_iter()
+            .map(|strategy| {
+                let mut config = AuthConfig::new([38; 32]).unwrap();
+                config.database_id_generation = strategy;
+                AuthSchemaCatalog::build(&config, [])
+                    .unwrap()
+                    .fingerprint()
+                    .as_str()
+                    .to_owned()
+            })
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(fingerprints.len(), 5);
+    }
 }

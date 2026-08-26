@@ -18,7 +18,12 @@ pub use database::{
     AccountFieldMappings, RateLimitFieldMappings, SessionFieldMappings, UserFieldMappings,
     VerificationFieldMappings,
 };
-pub use id::AuthIdGenerator;
+pub use id::{
+    DatabaseIdAdapterCapabilities, DatabaseIdGeneration, DatabaseIdGenerationError,
+    DatabaseIdGenerationKind, DatabaseIdGenerationRequest, DatabaseIdGenerationResult,
+    DatabaseIdGenerationSize, DatabaseIdGenerationSource, DatabaseIdGenerator,
+    generate_database_id,
+};
 pub use secret::VersionedSecret;
 pub use verification::{
     VerificationConfig, VerificationIdentifierConfig, VerificationIdentifierHasher,
@@ -49,8 +54,8 @@ pub struct AuthConfig {
     pub session: SessionConfig,
     pub account: AccountConfig,
     pub verification: VerificationConfig,
-    /// Optional Better Auth model-aware ID generator.
-    pub id_generator: Option<Arc<dyn AuthIdGenerator>>,
+    /// Better Auth `advanced.database.generateId` behavior.
+    pub database_id_generation: DatabaseIdGeneration,
     pub database_hooks: Option<Arc<dyn DatabaseHooks>>,
     /// Better Auth-compatible secondary storage for live sessions,
     /// verification values, and, by default, request rate limits.
@@ -133,7 +138,7 @@ impl AuthConfig {
             session: SessionConfig::default(),
             account: AccountConfig::default(),
             verification: VerificationConfig::default(),
-            id_generator: None,
+            database_id_generation: DatabaseIdGeneration::default(),
             database_hooks: None,
             secondary_storage: None,
             social_providers: Vec::new(),

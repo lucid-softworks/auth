@@ -13,12 +13,10 @@ impl AuthService {
             .map(|_| TestHelpers { service: self })
     }
 
-    pub(crate) fn generate_id(&self, model: &str) -> Uuid {
-        self.config
-            .id_generator
-            .as_ref()
-            .and_then(|generator| generator.generate(model))
-            .unwrap_or_else(Uuid::new_v4)
+    pub(crate) fn generate_id(&self, _model: &str) -> Uuid {
+        // TODO(#100, #101): migrate this temporary UUID-domain bridge to the
+        // Better Auth database ID policy and its Test Utils fallback rules.
+        Uuid::new_v4()
     }
 
     fn test_utils_plugin(&self) -> Option<&TestUtilsPlugin> {
