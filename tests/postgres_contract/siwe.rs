@@ -109,12 +109,12 @@ pub(super) async fn assert_atomic_and_persistent(
     assert_eq!(second.user_id, first.user_id);
     assert_eq!(third.user_id, first.user_id);
 
-    assert_persisted_identity(pool, first.user_id).await
+    assert_persisted_identity(pool, &first.user_id).await
 }
 
 async fn assert_persisted_identity(
     pool: &sqlx::PgPool,
-    user_id: uuid::Uuid,
+    user_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         sqlx::query_scalar::<_, i64>(

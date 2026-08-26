@@ -50,7 +50,7 @@ async fn revoke_refresh(
     }
     if refresh.revoked.is_some() {
         store
-            .revoke_oauth_refresh_family(client_id, refresh.user_id)
+            .revoke_oauth_refresh_family(client_id, &refresh.user_id)
             .await
             .map_err(server)?;
         return Ok(true);

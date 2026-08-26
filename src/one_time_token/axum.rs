@@ -109,7 +109,7 @@ async fn verify(
     let response = crate::axum::http::with_bound_session_cookie(
         &service,
         &headers,
-        session.user.id,
+        &session.user.id,
         &session.session.token,
         remember_me,
         Json(session_response),

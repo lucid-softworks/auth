@@ -41,7 +41,7 @@ pub(crate) fn clear_account_cookie(
 pub(crate) fn refresh_account_cookie(
     service: &AuthService,
     headers: &HeaderMap,
-    user_id: uuid::Uuid,
+    user_id: &str,
     body: impl IntoResponse,
 ) -> Response {
     if !service.account_cookie_enabled() || !service.cookie_cache_enabled() {
@@ -68,8 +68,8 @@ mod tests {
     fn account(additional_size: usize) -> OAuthAccount {
         let now = Utc::now();
         OAuthAccount {
-            id: uuid::Uuid::new_v4(),
-            user_id: uuid::Uuid::new_v4(),
+            id: uuid::Uuid::new_v4().to_string(),
+            user_id: uuid::Uuid::new_v4().to_string(),
             issuer: "https://issuer.example.com".into(),
             account_id: "provider-subject".into(),
             provider_id: "provider".into(),

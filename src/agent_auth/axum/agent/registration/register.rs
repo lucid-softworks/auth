@@ -82,7 +82,7 @@ async fn registration_material(
     )
     .await?;
     let (host, new_host) = prepare_host(state, mode, bootstrap.host, bootstrap.new_host).await?;
-    enforce_limit(state, host.user_id).await?;
+    enforce_limit(state, host.user_id.as_deref()).await?;
     let key = agent_key_material(state, &bootstrap.claims)?;
     Ok(RegistrationMaterial {
         mode,
@@ -173,7 +173,7 @@ fn agent_key_material(
     })
 }
 
-async fn enforce_limit(state: &AgentAuthState, user_id: Option<Uuid>) -> Result<(), AgentError> {
+async fn enforce_limit(state: &AgentAuthState, user_id: Option<&str>) -> Result<(), AgentError> {
     if state.config.max_agents_per_user == 0 || user_id.is_none() {
         return Ok(());
     }
@@ -276,7 +276,7 @@ async fn persist_registration(
                     agent_id: &agent.id,
                     agent_name: &agent.name,
                     host_id: &agent.host_id,
-                    user_id: agent.user_id,
+                    user_id: agent.user_id.clone(),
                     capabilities: &plan.requested,
                     preferred_method: body.preferred_method.as_deref(),
                     login_hint: body.login_hint.as_deref(),
@@ -292,7 +292,7 @@ async fn persist_registration(
         None
     };
     let bundle = AgentRegistrationBundle {
-        host: material.new_host,
+        host: material.new_host.clone(),
         agent: agent.clone(),
         grants: grant_rows.clone(),
         approval: built_approval.as_ref().map(|built| built.record.clone()),
@@ -326,7 +326,7 @@ fn build_agent(
         id: Uuid::new_v4().to_string(),
         name: sanitize(&body.name, 200),
         user_id: (!plan.force_approval && !plan.delegated_without_user)
-            .then_some(material.host.user_id)
+            .then_some(material.host.user_id.clone())
             .flatten(),
         host_id: material.host.id.clone(),
         status: if plan.needs_approval {
@@ -386,7 +386,7 @@ async fn emit_created(state: &AgentAuthState, agent: &AgentIdentity, plan: &Capa
     super::super::events::emit(
         state,
         crate::AgentAuthAuditEventType::AgentCreated,
-        agent.user_id.map(|user_id| user_id.to_string()),
+        agent.user_id.clone(),
         None,
         Some(agent.id.clone()),
         Some(agent.host_id.clone()),

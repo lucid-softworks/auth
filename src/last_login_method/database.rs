@@ -1,5 +1,8 @@
 use super::{LastLoginMethodPlugin, context::resolve_method};
-use crate::{AuthError, BeforeDatabaseHook, DatabaseHookContext, DatabaseHooks, DatabaseRecord};
+use crate::{
+    AuthError, BeforeDatabaseCreateHook, DatabaseCreatePatch, DatabaseCreateRecord,
+    DatabaseHookContext, DatabaseHooks, DatabaseModel, DatabaseRecord,
+};
 use async_trait::async_trait;
 use serde_json::Value;
 
@@ -7,14 +10,14 @@ use serde_json::Value;
 impl DatabaseHooks for LastLoginMethodPlugin {
     async fn before_create(
         &self,
-        record: &DatabaseRecord,
+        record: &DatabaseCreateRecord,
         context: &DatabaseHookContext,
-    ) -> Result<BeforeDatabaseHook, AuthError> {
-        let DatabaseRecord::User(user) = record else {
-            return Ok(BeforeDatabaseHook::Continue);
-        };
+    ) -> Result<BeforeDatabaseCreateHook, AuthError> {
+        if record.model() != DatabaseModel::User {
+            return Ok(BeforeDatabaseCreateHook::Continue);
+        }
         let Some(request) = context.request.as_ref() else {
-            return Ok(BeforeDatabaseHook::Continue);
+            return Ok(BeforeDatabaseCreateHook::Continue);
         };
         let resolve_context = super::LastLoginMethodContext::from_database_request(request);
         let Some(method) = resolve_method(
@@ -22,12 +25,11 @@ impl DatabaseHooks for LastLoginMethodPlugin {
             &resolve_context,
         )?
         .filter(|method| !method.is_empty()) else {
-            return Ok(BeforeDatabaseHook::Continue);
+            return Ok(BeforeDatabaseCreateHook::Continue);
         };
-        let mut user = user.clone();
-        user.additional_fields
-            .insert("lastLoginMethod".into(), Value::String(method));
-        Ok(BeforeDatabaseHook::replace(DatabaseRecord::User(user)))
+        Ok(BeforeDatabaseCreateHook::Merge(
+            DatabaseCreatePatch::new().with_field("lastLoginMethod", Value::String(method)),
+        ))
     }
 }
 
@@ -55,7 +57,7 @@ pub(super) async fn after_create(
         return Ok(());
     };
     if let Err(error) = service
-        .update_last_login_method(session.user_id, method)
+        .update_last_login_method(&session.user_id, method)
         .await
     {
         eprintln!("Failed to update lastLoginMethod: {error}");

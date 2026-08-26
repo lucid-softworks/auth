@@ -134,7 +134,7 @@ impl OrganizationInvitationStore for MemoryOrganizationStore {
     async fn accept_invitation(
         &self,
         invitation_id: Uuid,
-        user_id: Uuid,
+        user_id: &str,
         now: DateTime<Utc>,
         membership_limit: usize,
     ) -> Result<OrganizationInvitationWriteOutcome, AuthError> {
@@ -165,7 +165,7 @@ impl OrganizationInvitationStore for MemoryOrganizationStore {
         let member = OrganizationMember {
             id: Uuid::new_v4(),
             organization_id: invitation.organization_id,
-            user_id,
+            user_id: user_id.to_owned(),
             role: invitation.role,
             created_at: now,
         };
@@ -185,7 +185,7 @@ impl OrganizationInvitationStore for MemoryOrganizationStore {
                 let team_member = OrganizationTeamMember {
                     id: Uuid::new_v4(),
                     team_id,
-                    user_id,
+                    user_id: user_id.to_owned(),
                     created_at: now,
                 };
                 state.team_members.insert(team_member.id, team_member);

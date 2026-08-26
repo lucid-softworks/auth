@@ -76,7 +76,7 @@ pub(super) async fn auto_grant(
                 capability: capability.to_owned(),
                 agent_id: session.agent.id.clone(),
                 host_id: Some(session.agent.host_id.clone()),
-                user_id: session.host.as_ref().and_then(|host| host.user_id),
+                user_id: session.host.as_ref().and_then(|host| host.user_id.clone()),
             })
             .await
     } else {

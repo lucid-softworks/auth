@@ -19,7 +19,7 @@ pub(super) struct ApprovalInput<'a> {
     pub(super) agent_id: &'a str,
     pub(super) agent_name: &'a str,
     pub(super) host_id: &'a str,
-    pub(super) user_id: Option<Uuid>,
+    pub(super) user_id: Option<String>,
     pub(super) capabilities: &'a [String],
     pub(super) preferred_method: Option<&'a str>,
     pub(super) login_hint: Option<&'a str>,
@@ -49,7 +49,7 @@ pub(super) async fn build(config: &AgentAuthConfig, input: ApprovalInput<'_>) ->
         Some(resolver) => {
             resolver
                 .resolve(AgentApprovalMethodContext {
-                    user_id: input.user_id,
+                    user_id: input.user_id.clone(),
                     agent_name: input.agent_name.to_owned(),
                     host_id: Some(input.host_id.to_owned()),
                     capabilities: input.capabilities.to_vec(),

@@ -17,7 +17,7 @@ impl AuthService {
         let plugin = self.organization_plugin()?;
         let member = plugin
             .store
-            .find_member(organization_id, session.user.id)
+            .find_member(organization_id, &session.user.id)
             .await?
             .ok_or_else(|| {
                 OrganizationError::forbidden(
@@ -92,7 +92,7 @@ impl AuthService {
             .ok_or_else(team_not_found)?;
         let member = plugin
             .store
-            .find_member(team.organization_id, session.user.id)
+            .find_member(team.organization_id, &session.user.id)
             .await?
             .ok_or_else(team_not_found)?;
         require_team_permission(
@@ -147,7 +147,7 @@ impl AuthService {
             .ok_or_else(team_not_found)?;
         let member = plugin
             .store
-            .find_member(organization_id, session.user.id)
+            .find_member(organization_id, &session.user.id)
             .await?
             .ok_or_else(team_not_found)?;
         if Self::active_team_id(session) == Some(team.id) {
@@ -206,7 +206,7 @@ impl AuthService {
         let plugin = self.organization_plugin()?;
         if plugin
             .store
-            .find_member(organization_id, session.user.id)
+            .find_member(organization_id, &session.user.id)
             .await?
             .is_none()
         {

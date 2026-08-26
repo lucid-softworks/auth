@@ -8,7 +8,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 
 mod access;
@@ -17,6 +17,8 @@ mod guest_capability;
 mod jwt;
 mod oauth;
 mod operator_security;
+#[cfg(test)]
+mod passkey_tests;
 mod phone_number;
 mod security;
 mod session;
@@ -26,25 +28,29 @@ mod verification;
 
 #[derive(Default)]
 struct MemoryState {
-    users: HashMap<Uuid, AuthUser>,
-    usernames: HashMap<String, Uuid>,
-    emails: HashMap<String, Uuid>,
-    phone_numbers: HashMap<String, Uuid>,
+    users: HashMap<String, AuthUser>,
+    usernames: HashMap<String, String>,
+    emails: HashMap<String, String>,
+    pending_usernames: HashSet<String>,
+    pending_emails: HashSet<String>,
+    phone_numbers: HashMap<String, String>,
     wallet_addresses: HashMap<(String, u64), crate::WalletAddress>,
-    passwords: HashMap<Uuid, String>,
+    passwords: HashMap<String, String>,
     oauth_accounts: HashMap<(String, String), OAuthAccount>,
+    pending_oauth_accounts: HashSet<(String, String)>,
     sessions: HashMap<String, AuthSession>,
-    passkeys: HashMap<Uuid, StoredPasskey>,
+    passkeys: HashMap<String, StoredPasskey>,
     guest_grants: HashMap<Uuid, GuestGrant>,
-    guest_sessions: HashMap<Uuid, Uuid>,
-    api_keys: HashMap<Uuid, ApiKey>,
+    guest_sessions: HashMap<String, Uuid>,
+    api_keys: HashMap<String, ApiKey>,
     rate_limits: HashMap<String, RateLimitWindow>,
-    temporary_passwords: HashSet<Uuid>,
-    verifications: HashMap<Uuid, VerificationValue>,
+    temporary_passwords: HashSet<String>,
+    verifications: HashMap<String, VerificationValue>,
     jwks: Vec<crate::StoredJwk>,
 }
 
 struct RateLimitWindow {
+    _id: String,
     count: u32,
     last_request: DateTime<Utc>,
 }
@@ -53,11 +59,40 @@ struct RateLimitWindow {
 #[derive(Clone, Default)]
 pub struct MemoryStore {
     state: Arc<RwLock<MemoryState>>,
+    siwe_identity_write: Arc<Mutex<()>>,
+}
+
+impl MemoryStore {
+    fn create_id(
+        &self,
+        model: &str,
+        prepared: crate::store::PreparedDatabaseId,
+        current_len: usize,
+    ) -> Result<String, AuthError> {
+        match prepared {
+            crate::store::PreparedDatabaseId::Value(value) => Ok(value.into_output_string()),
+            crate::store::PreparedDatabaseId::DeferredSerial => {
+                Ok(current_len.saturating_add(1).to_string())
+            }
+            crate::store::PreparedDatabaseId::Deferred => Err(AuthError::Storage(format!(
+                "database adapter did not return an id for model '{model}'"
+            ))),
+        }
+    }
 }
 
 #[async_trait]
 impl AuthStore for MemoryStore {
-    fn bind_schema(&self, _schema: Arc<crate::AuthSchemaCatalog>) -> Result<(), AuthError> {
+    fn database_adapter_name(&self) -> &str {
+        "Memory Adapter"
+    }
+
+    fn bind_schema(&self, schema: Arc<crate::AuthSchemaCatalog>) -> Result<(), AuthError> {
+        if schema.id_generation() == crate::DatabaseIdGenerationKind::Database {
+            tracing::error!(
+                "[better-auth] Misconfiguration detected.\nYou are using the memory DB with generateId: false.\nThis will cause no id to be generated for any model.\nMost of the features of Better Auth will not work correctly."
+            );
+        }
         Ok(())
     }
 
@@ -67,25 +102,31 @@ impl AuthStore for MemoryStore {
 
     async fn create_password_user(
         &self,
-        user: AuthUser,
-        credential_account: crate::OAuthAccount,
-    ) -> Result<AuthUser, AuthError> {
+        user: crate::store::DatabaseCreate<AuthUser>,
+        credential_account: &dyn crate::store::DependentAccountPreparer,
+    ) -> Result<crate::OAuthAccountOwner, AuthError> {
         user::create_password(self, user, credential_account).await
     }
 
     async fn upsert_password_user(
         &self,
-        user: AuthUser,
-        credential_account: crate::OAuthAccount,
-    ) -> Result<AuthUser, AuthError> {
+        user: crate::store::DatabaseWrite<AuthUser>,
+        credential_account: &dyn crate::store::DependentAccountPreparer,
+    ) -> Result<crate::store::DatabaseAccountOwnerWrite, AuthError> {
         user::upsert_password(self, user, credential_account).await
     }
 
-    async fn create_anonymous_user(&self, user: AuthUser) -> Result<AuthUser, AuthError> {
+    async fn create_anonymous_user(
+        &self,
+        user: crate::store::DatabaseCreate<AuthUser>,
+    ) -> Result<AuthUser, AuthError> {
         user::create_without_account(self, user).await
     }
 
-    async fn create_user_without_account(&self, user: AuthUser) -> Result<AuthUser, AuthError> {
+    async fn create_user_without_account(
+        &self,
+        user: crate::store::DatabaseCreate<AuthUser>,
+    ) -> Result<AuthUser, AuthError> {
         user::create_without_account(self, user).await
     }
 
@@ -99,7 +140,7 @@ impl AuthStore for MemoryStore {
 
     async fn update_user_profile(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         update: crate::UserProfileUpdate,
     ) -> Result<Option<AuthUser>, AuthError> {
         user::update_profile(self, user_id, update).await
@@ -107,7 +148,7 @@ impl AuthStore for MemoryStore {
 
     async fn update_user_email(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         expected_email: &str,
         new_email: &str,
         email_verified: bool,
@@ -117,19 +158,19 @@ impl AuthStore for MemoryStore {
 
     async fn promote_email_owner(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         now: DateTime<Utc>,
     ) -> Result<Option<AuthUser>, AuthError> {
         user::promote_email_owner(self, user_id, now).await
     }
 
-    async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError> {
+    async fn find_password_hash(&self, user_id: &str) -> Result<Option<String>, AuthError> {
         user::find_password_hash(self, user_id).await
     }
 
     async fn update_password_hash(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         password_hash: String,
     ) -> Result<(), AuthError> {
         user::update_password_hash(self, user_id, password_hash).await
@@ -137,26 +178,32 @@ impl AuthStore for MemoryStore {
 
     async fn set_password_hash(
         &self,
-        user_id: Uuid,
+        account_id: &dyn crate::store::DatabaseIdSupplier,
+        user_id: &str,
         password_hash: String,
     ) -> Result<(), AuthError> {
-        user::set_password_hash(self, user_id, password_hash).await
+        user::set_password_hash(self, account_id, user_id, password_hash).await
     }
 
-    async fn save_passkey(&self, passkey: StoredPasskey) -> Result<StoredPasskey, AuthError> {
+    async fn save_passkey(
+        &self,
+        passkey: crate::store::DatabaseCreate<StoredPasskey>,
+    ) -> Result<StoredPasskey, AuthError> {
         let mut state = self.state.write().await;
         if state
             .passkeys
             .values()
-            .any(|stored| stored.credential_id == passkey.credential_id)
+            .any(|stored| stored.credential_id == passkey.record.credential_id)
         {
             return Err(AuthError::CredentialAlreadyRegistered);
         }
-        state.passkeys.insert(passkey.id, passkey.clone());
+        let (mut passkey, id) = passkey.into_parts(self)?;
+        passkey.id = self.create_id("passkey", id, state.passkeys.len())?;
+        state.passkeys.insert(passkey.id.clone(), passkey.clone());
         Ok(passkey)
     }
 
-    async fn list_passkeys(&self, user_id: Uuid) -> Result<Vec<StoredPasskey>, AuthError> {
+    async fn list_passkeys(&self, user_id: &str) -> Result<Vec<StoredPasskey>, AuthError> {
         Ok(self
             .state
             .read()
@@ -184,9 +231,9 @@ impl AuthStore for MemoryStore {
 
     async fn find_passkey_by_id(
         &self,
-        passkey_id: Uuid,
+        passkey_id: &str,
     ) -> Result<Option<StoredPasskey>, AuthError> {
-        Ok(self.state.read().await.passkeys.get(&passkey_id).cloned())
+        Ok(self.state.read().await.passkeys.get(passkey_id).cloned())
     }
 
     async fn update_passkey_after_authentication(
@@ -201,20 +248,20 @@ impl AuthStore for MemoryStore {
         if current.counter != expected_counter {
             return Ok(false);
         }
-        state.passkeys.insert(passkey.id, passkey);
+        state.passkeys.insert(passkey.id.clone(), passkey);
         Ok(true)
     }
 
     async fn update_passkey_name(
         &self,
-        user_id: Uuid,
-        passkey_id: Uuid,
+        user_id: &str,
+        passkey_id: &str,
         name: String,
     ) -> Result<Option<StoredPasskey>, AuthError> {
         let mut state = self.state.write().await;
         let Some(passkey) = state
             .passkeys
-            .get_mut(&passkey_id)
+            .get_mut(passkey_id)
             .filter(|passkey| passkey.user_id == user_id)
         else {
             return Ok(None);
@@ -225,14 +272,14 @@ impl AuthStore for MemoryStore {
 
     async fn delete_passkey(
         &self,
-        user_id: Uuid,
-        passkey_id: Uuid,
+        user_id: &str,
+        passkey_id: &str,
         minimum_remaining: usize,
     ) -> Result<PasskeyDeleteOutcome, AuthError> {
         let mut state = self.state.write().await;
         let owned = state
             .passkeys
-            .get(&passkey_id)
+            .get(passkey_id)
             .is_some_and(|passkey| passkey.user_id == user_id);
         if !owned {
             return Ok(PasskeyDeleteOutcome::NotFound);
@@ -245,12 +292,12 @@ impl AuthStore for MemoryStore {
         if count <= minimum_remaining {
             return Ok(PasskeyDeleteOutcome::MinimumRequired);
         }
-        state.passkeys.remove(&passkey_id);
+        state.passkeys.remove(passkey_id);
         let remaining = count - 1;
         Ok(PasskeyDeleteOutcome::Deleted { remaining })
     }
 
-    async fn delete_user_passkeys(&self, user_id: Uuid) -> Result<(), AuthError> {
+    async fn delete_user_passkeys(&self, user_id: &str) -> Result<(), AuthError> {
         self.state
             .write()
             .await
@@ -259,11 +306,14 @@ impl AuthStore for MemoryStore {
         Ok(())
     }
 
-    async fn find_user_by_id(&self, user_id: Uuid) -> Result<Option<AuthUser>, AuthError> {
+    async fn find_user_by_id(&self, user_id: &str) -> Result<Option<AuthUser>, AuthError> {
         user::find_by_id(self, user_id).await
     }
 
-    async fn create_session(&self, session: AuthSession) -> Result<(), AuthError> {
+    async fn create_session(
+        &self,
+        session: crate::store::DatabaseCreate<AuthSession>,
+    ) -> Result<AuthSession, AuthError> {
         session::create(self, session).await
     }
 
@@ -274,13 +324,13 @@ impl AuthStore for MemoryStore {
         session::find(self, token).await
     }
 
-    async fn find_session_by_id(&self, session_id: Uuid) -> Result<Option<AuthSession>, AuthError> {
+    async fn find_session_by_id(&self, session_id: &str) -> Result<Option<AuthSession>, AuthError> {
         session::find_by_id(self, session_id).await
     }
 
     async fn update_session_fields(
         &self,
-        session_id: Uuid,
+        session_id: &str,
         fields: serde_json::Map<String, serde_json::Value>,
     ) -> Result<Option<AuthSession>, AuthError> {
         session::update_fields(self, session_id, fields).await
@@ -301,7 +351,7 @@ impl AuthStore for MemoryStore {
 
     async fn expire_session(
         &self,
-        session_id: Uuid,
+        session_id: &str,
         expires_at: DateTime<Utc>,
     ) -> Result<(), AuthError> {
         session::expire(self, session_id, expires_at).await

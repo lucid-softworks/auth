@@ -45,7 +45,7 @@ impl AuthService {
             return Ok(None);
         }
         if !self.plugins.validates_session(&session).await? {
-            self.delete_session_id_with_hooks(session.session.id)
+            self.delete_session_id_with_hooks(&session.session.id)
                 .await?;
             return Ok(None);
         }

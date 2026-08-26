@@ -12,7 +12,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use uuid::Uuid;
 
 pub(super) fn router<S>() -> Router<S>
 where
@@ -109,7 +108,7 @@ async fn link_social(
             })
             .into_response();
             match service
-                .account_cookie_for_provider(actor.user.id, &provider_id)
+                .account_cookie_for_provider(&actor.user.id, &provider_id)
                 .await
             {
                 Ok(Some(account)) => with_account_cookie(&service, &headers, account, response),
@@ -132,11 +131,7 @@ async fn unlink_account(
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(AuthError::Unauthorized);
     };
-    let account_id = match Uuid::parse_str(&input.account_id) {
-        Ok(id) => id,
-        Err(_) => return auth_error(AuthError::AccountNotFound),
-    };
-    match service.unlink_account(&actor, account_id).await {
+    match service.unlink_account(&actor, &input.account_id).await {
         Ok(()) => Json(StatusResponse { status: true }).into_response(),
         Err(error) => auth_error(error),
     }
@@ -176,18 +171,18 @@ async fn account_token_response(
     };
     let from_cookie = matches!(selected, SelectedAccount::Cookie(_));
     let selected_id = match &selected {
-        SelectedAccount::Database(account_id) => *account_id,
-        SelectedAccount::Cookie(account) => account.id,
+        SelectedAccount::Database(account_id) => account_id.clone(),
+        SelectedAccount::Cookie(account) => account.id.clone(),
     };
     let result = match (refresh, selected) {
         (true, SelectedAccount::Database(account_id)) => {
             let context = refresh_context(headers, request);
             service
-                .refresh_provider_access_token_with_context(&actor, account_id, &context)
+                .refresh_provider_access_token_with_context(&actor, &account_id, &context)
                 .await
         }
         (false, SelectedAccount::Database(account_id)) => {
-            service.get_provider_access_token(&actor, account_id).await
+            service.get_provider_access_token(&actor, &account_id).await
         }
         (true, SelectedAccount::Cookie(account)) => {
             let context = refresh_context(headers, request);
@@ -203,16 +198,16 @@ async fn account_token_response(
     };
     match result {
         Ok(tokens) => {
-            let refreshed_id = tokens.account_id;
+            let refreshed_id = tokens.account_id.clone();
             let response = Json(tokens).into_response();
             let should_update_cookie = refreshed_id.is_some()
                 && (!refresh
                     || from_cookie
-                    || selected_cookie_matches(service, headers, actor.user.id, selected_id));
+                    || selected_cookie_matches(service, headers, &actor.user.id, &selected_id));
             refresh_selected_account_cookie(
                 service,
                 headers,
-                actor.user.id,
+                &actor.user.id,
                 should_update_cookie.then_some(selected_id),
                 response,
             )
@@ -263,7 +258,7 @@ async fn account_info(
         SelectedAccount::Database(account_id) => {
             let needs_refresh = if service.account_cookie_enabled() {
                 match service
-                    .account_cookie_for_id(actor.user.id, account_id)
+                    .account_cookie_for_id(&actor.user.id, &account_id)
                     .await
                 {
                     Ok(Some(account)) => account_needs_refresh(&account),
@@ -273,15 +268,12 @@ async fn account_info(
             } else {
                 false
             };
-            (
-                account_id,
-                needs_refresh,
-                service.provider_account_info(&actor, account_id).await,
-            )
+            let result = service.provider_account_info(&actor, &account_id).await;
+            (account_id, needs_refresh, result)
         }
         SelectedAccount::Cookie(account) => {
             let needs_refresh = account_needs_refresh(&account);
-            let account_id = account.id;
+            let account_id = account.id.clone();
             (
                 account_id,
                 needs_refresh,
@@ -297,7 +289,7 @@ async fn account_info(
             refresh_selected_account_cookie(
                 &service,
                 &headers,
-                actor.user.id,
+                &actor.user.id,
                 needs_refresh.then_some(account_id),
                 response,
             )
@@ -311,7 +303,7 @@ async fn account_info(
 }
 
 enum SelectedAccount {
-    Database(Uuid),
+    Database(String),
     Cookie(Box<OAuthAccount>),
 }
 
@@ -333,9 +325,8 @@ fn selected_account(
     }
     if let Some(account_id) = input.account_id.as_deref()
         && input.use_account_cookie.is_none()
-        && let Ok(account_id) = Uuid::parse_str(account_id)
     {
-        return Ok(SelectedAccount::Database(account_id));
+        return Ok(SelectedAccount::Database(account_id.to_owned()));
     }
     if input.account_id.is_none()
         && input.use_account_cookie == Some(true)
@@ -366,8 +357,8 @@ fn account_selection_error(
 fn selected_cookie_matches(
     service: &AuthService,
     headers: &HeaderMap,
-    user_id: Uuid,
-    account_id: Uuid,
+    user_id: &str,
+    account_id: &str,
 ) -> bool {
     account_data_cookie(service, headers)
         .and_then(|value| service.decode_account_cookie(&value))
@@ -377,14 +368,14 @@ fn selected_cookie_matches(
 async fn refresh_selected_account_cookie(
     service: &AuthService,
     headers: &HeaderMap,
-    user_id: Uuid,
-    account_id: Option<Uuid>,
+    user_id: &str,
+    account_id: Option<String>,
     response: Response,
 ) -> Response {
     let Some(account_id) = account_id else {
         return response;
     };
-    match service.account_cookie_for_id(user_id, account_id).await {
+    match service.account_cookie_for_id(user_id, &account_id).await {
         Ok(Some(account)) => with_account_cookie(service, headers, account, response),
         Ok(None) => clear_account_cookie(service, Some(headers), response),
         Err(error) => auth_error(error),

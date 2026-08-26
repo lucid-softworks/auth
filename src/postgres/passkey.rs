@@ -4,7 +4,6 @@ use super::{PostgresModel, PostgresStore, storage_error};
 use crate::{AuthError, PasskeyDeleteOutcome, StoredPasskey};
 use serde_json::json;
 use sqlx::{Postgres, QueryBuilder};
-use uuid::Uuid;
 
 use codec::{decode_passkey, passkey_writes};
 
@@ -16,10 +15,11 @@ impl PostgresStore {
 
 pub(super) async fn save(
     store: &PostgresStore,
-    passkey: StoredPasskey,
+    passkey: crate::store::DatabaseCreate<StoredPasskey>,
 ) -> Result<StoredPasskey, AuthError> {
+    let (passkey, id) = passkey.into_parts(store)?;
     let model = store.passkey_model()?;
-    let writes = passkey_writes(&model, &passkey)?;
+    let writes = passkey_writes(&model, &passkey, &id)?;
     let mut query = super::rows::insert_query(&model, writes);
     query
         .build()
@@ -37,7 +37,7 @@ pub(super) async fn save(
 
 pub(super) async fn list_for_user(
     store: &PostgresStore,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<Vec<StoredPasskey>, AuthError> {
     let model = store.passkey_model()?;
     let mut query = select_query(&model);
@@ -62,9 +62,9 @@ pub(super) async fn find_by_credential_id(
 
 pub(super) async fn find_by_id(
     store: &PostgresStore,
-    passkey_id: Uuid,
+    passkey_id: &str,
 ) -> Result<Option<StoredPasskey>, AuthError> {
-    find_by(store, "id", json!(passkey_id.to_string())).await
+    find_by(store, "id", json!(passkey_id)).await
 }
 
 pub(super) async fn compare_and_swap(
@@ -83,9 +83,9 @@ pub(super) async fn compare_and_swap(
         ("aaguid", optional_string(passkey.aaguid)),
     ])?;
     let mut query = super::rows::update_query(&model, writes);
+    query.push(" WHERE \"id\" = ");
+    super::rows::push_model_value(&mut query, &model, "id", json!(passkey.id))?;
     query
-        .push(" WHERE \"id\" = ")
-        .push_bind(passkey.id)
         .push(" AND ")
         .push(model.quoted_column("counter")?)
         .push(" = ");
@@ -102,21 +102,21 @@ pub(super) async fn compare_and_swap(
 
 pub(super) async fn rename(
     store: &PostgresStore,
-    user_id: Uuid,
-    passkey_id: Uuid,
+    user_id: &str,
+    passkey_id: &str,
     name: String,
 ) -> Result<Option<StoredPasskey>, AuthError> {
     let model = store.passkey_model()?;
     let writes = model.encode_fields([("name", json!(name))])?;
     let mut query = super::rows::update_query(&model, writes);
+    query.push(" WHERE \"id\" = ");
+    super::rows::push_model_value(&mut query, &model, "id", json!(passkey_id))?;
     query
-        .push(" WHERE \"id\" = ")
-        .push_bind(passkey_id)
         .push(" AND ")
         .push(model.quoted_column("userId")?)
         .push(" = ");
     model
-        .encode("userId", json!(user_id.to_string()))?
+        .encode("userId", json!(user_id))?
         .push_bind(&mut query);
     query.push(" RETURNING ").push(model.all_projection());
     decode_optional(&model, query, &store.pool).await
@@ -124,8 +124,8 @@ pub(super) async fn rename(
 
 pub(super) async fn delete(
     store: &PostgresStore,
-    user_id: Uuid,
-    passkey_id: Uuid,
+    user_id: &str,
+    passkey_id: &str,
     minimum_remaining: usize,
 ) -> Result<PasskeyDeleteOutcome, AuthError> {
     let user_model = store.user_model()?;
@@ -133,19 +133,17 @@ pub(super) async fn delete(
     let mut transaction = store.pool.begin().await.map_err(storage_error)?;
     let mut lock = QueryBuilder::<Postgres>::new("SELECT \"id\" FROM ");
     lock.push(user_model.quoted_table())
-        .push(" WHERE \"id\" = ")
-        .push_bind(user_id)
-        .push(" FOR UPDATE");
+        .push(" WHERE \"id\" = ");
+    super::rows::push_model_value(&mut lock, &user_model, "id", json!(user_id))?;
+    lock.push(" FOR UPDATE");
     lock.build()
         .execute(&mut *transaction)
         .await
         .map_err(storage_error)?;
 
     let mut owned = QueryBuilder::<Postgres>::new("SELECT EXISTS(SELECT 1 FROM ");
-    owned
-        .push(model.quoted_table())
-        .push(" WHERE \"id\" = ")
-        .push_bind(passkey_id);
+    owned.push(model.quoted_table()).push(" WHERE \"id\" = ");
+    super::rows::push_model_value(&mut owned, &model, "id", json!(passkey_id))?;
     push_user_predicate_suffix(&mut owned, &model, user_id)?;
     owned.push(")");
     if !owned
@@ -168,10 +166,8 @@ pub(super) async fn delete(
         return Ok(PasskeyDeleteOutcome::MinimumRequired);
     }
     let mut delete = QueryBuilder::<Postgres>::new("DELETE FROM ");
-    delete
-        .push(model.quoted_table())
-        .push(" WHERE \"id\" = ")
-        .push_bind(passkey_id);
+    delete.push(model.quoted_table()).push(" WHERE \"id\" = ");
+    super::rows::push_model_value(&mut delete, &model, "id", json!(passkey_id))?;
     push_user_predicate_suffix(&mut delete, &model, user_id)?;
     delete
         .build()
@@ -184,7 +180,7 @@ pub(super) async fn delete(
     })
 }
 
-pub(super) async fn delete_for_user(store: &PostgresStore, user_id: Uuid) -> Result<(), AuthError> {
+pub(super) async fn delete_for_user(store: &PostgresStore, user_id: &str) -> Result<(), AuthError> {
     let model = store.passkey_model()?;
     let mut query = QueryBuilder::<Postgres>::new("DELETE FROM ");
     query.push(model.quoted_table());
@@ -239,7 +235,7 @@ async fn decode_optional(
 fn push_user_predicate(
     query: &mut QueryBuilder<'static, Postgres>,
     model: &PostgresModel<'_>,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), AuthError> {
     query.push(" WHERE ");
     push_user_comparison(query, model, user_id)
@@ -248,7 +244,7 @@ fn push_user_predicate(
 fn push_user_predicate_suffix(
     query: &mut QueryBuilder<'static, Postgres>,
     model: &PostgresModel<'_>,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), AuthError> {
     query.push(" AND ");
     push_user_comparison(query, model, user_id)
@@ -257,12 +253,10 @@ fn push_user_predicate_suffix(
 fn push_user_comparison(
     query: &mut QueryBuilder<'static, Postgres>,
     model: &PostgresModel<'_>,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), AuthError> {
     query.push(model.quoted_column("userId")?).push(" = ");
-    model
-        .encode("userId", json!(user_id.to_string()))?
-        .push_bind(query);
+    model.encode("userId", json!(user_id))?.push_bind(query);
     Ok(())
 }
 

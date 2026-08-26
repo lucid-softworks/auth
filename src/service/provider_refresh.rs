@@ -4,16 +4,15 @@ use crate::{
     ProviderTokenResponse, SessionWithUser,
 };
 use chrono::Utc;
-use uuid::Uuid;
 
 impl AuthService {
     pub async fn refresh_provider_access_token(
         &self,
         actor: &SessionWithUser,
-        account_id: Uuid,
+        account_id: &str,
     ) -> Result<ProviderTokenResponse, AuthError> {
         require_account_session(actor)?;
-        let account = self.account_for_user(actor.user.id, account_id).await?;
+        let account = self.account_for_user(&actor.user.id, account_id).await?;
         self.refresh_provider_account(account).await
     }
 
@@ -21,11 +20,11 @@ impl AuthService {
     pub(crate) async fn refresh_provider_access_token_with_context(
         &self,
         actor: &SessionWithUser,
-        account_id: Uuid,
+        account_id: &str,
         context: &OAuthRefreshContext,
     ) -> Result<ProviderTokenResponse, AuthError> {
         require_account_session(actor)?;
-        let account = self.account_for_user(actor.user.id, account_id).await?;
+        let account = self.account_for_user(&actor.user.id, account_id).await?;
         self.refresh_provider_account_with_context(account, context)
             .await
     }
@@ -63,7 +62,7 @@ impl AuthService {
         {
             Ok(tokens) => tokens,
             Err(_) => {
-                let current = self.account_for_user(account.user_id, account.id).await?;
+                let current = self.account_for_user(&account.user_id, &account.id).await?;
                 if current.updated_at != expected_updated {
                     return self
                         .account_token_response(current, true)

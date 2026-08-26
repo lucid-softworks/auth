@@ -76,7 +76,7 @@ async fn merge(
         .name
         .or_else(|| provisioned.name.clone())
         .or(existing.name);
-    existing.user_id = existing.user_id.or(provisioned.user_id);
+    existing.user_id = existing.user_id.or_else(|| provisioned.user_id.clone());
     existing.kid = enrollment.kid;
     existing.status = AgentHostStatus::Active;
     existing.activated_at = Some(enrollment.now);

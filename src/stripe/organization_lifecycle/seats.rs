@@ -184,7 +184,7 @@ mod tests {
                 .raw_insert_member(OrganizationMember {
                     id: Uuid::new_v4(),
                     organization_id: organization.id,
-                    user_id: Uuid::new_v4(),
+                    user_id: Uuid::new_v4().to_string(),
                     role: role.into(),
                     created_at: now,
                 })

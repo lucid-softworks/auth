@@ -1,4 +1,4 @@
-use super::{UserRequest, parse_uuid, success_response};
+use super::{UserRequest, success_response};
 use crate::{
     AuthError, AuthService, AxumPluginRoute,
     axum::http::{
@@ -45,11 +45,7 @@ async fn list_user_sessions(
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(AuthError::InvalidSession);
     };
-    let result = async {
-        let user_id = parse_uuid(&input.user_id)?;
-        service.list_user_sessions(&actor, user_id).await
-    }
-    .await;
+    let result = service.list_user_sessions(&actor, &input.user_id).await;
     match result {
         Ok(sessions) => Json(SessionsResponse {
             sessions: sessions
@@ -84,10 +80,7 @@ async fn revoke_user_sessions(
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(AuthError::InvalidSession);
     };
-    let result = match parse_uuid(&input.user_id) {
-        Ok(user_id) => service.revoke_user_sessions(&actor, user_id).await,
-        Err(error) => Err(error),
-    };
+    let result = service.revoke_user_sessions(&actor, &input.user_id).await;
     success_response(result)
 }
 
@@ -103,19 +96,14 @@ async fn impersonate_user(
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(AuthError::InvalidSession);
     };
-    let result = match parse_uuid(&input.user_id) {
-        Ok(user_id) => {
-            service
-                .impersonate_user(
-                    &actor,
-                    user_id,
-                    client_ip(&service, &headers, peer),
-                    user_agent(&headers),
-                )
-                .await
-        }
-        Err(error) => Err(error),
-    };
+    let result = service
+        .impersonate_user(
+            &actor,
+            &input.user_id,
+            client_ip(&service, &headers, peer),
+            user_agent(&headers),
+        )
+        .await;
     match result {
         Ok(result) => {
             match service
@@ -126,7 +114,7 @@ async fn impersonate_user(
                     let response = with_bound_session_cookie(
                         &service,
                         &headers,
-                        result.session.user.id,
+                        &result.session.user.id,
                         &result.token,
                         Some(true),
                         Json(response),
@@ -162,7 +150,7 @@ async fn stop_impersonating(
                     let response = with_bound_session_cookie(
                         &service,
                         &headers,
-                        result.session.user.id,
+                        &result.session.user.id,
                         &result.token,
                         Some(true),
                         Json(response),

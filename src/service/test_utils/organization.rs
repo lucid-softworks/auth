@@ -72,7 +72,7 @@ impl super::AuthService {
         let member = OrganizationMember {
             id: self.generate_id("member"),
             organization_id,
-            user_id,
+            user_id: user_id.to_string(),
             role: role
                 .filter(|role| !role.is_empty())
                 .unwrap_or_else(|| "member".into()),

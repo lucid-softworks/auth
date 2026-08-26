@@ -6,14 +6,13 @@ use lucid_auth::{
     PolarTheme, PortalOptions, UsageOptions, WebhooksOptions,
 };
 use std::sync::Arc;
-use uuid::Uuid;
 
 pub(crate) struct Fixture {
     pub(crate) app: Router,
     pub(crate) client: Arc<FakePolarClient>,
     pub(crate) cookie: String,
     pub(crate) anonymous_cookie: String,
-    pub(crate) user_id: Uuid,
+    pub(crate) user_id: String,
 }
 
 pub(crate) async fn fixture() -> Fixture {

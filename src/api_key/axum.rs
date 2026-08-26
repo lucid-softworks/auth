@@ -121,11 +121,8 @@ async fn get_one(
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(ApiKeyError::UnauthorizedSession.into());
     };
-    let Ok(id) = Uuid::parse_str(&input.id) else {
-        return auth_error(ApiKeyError::NotFound.into());
-    };
     let config = resolve_configuration(&configurations, input.config_id.as_deref());
-    match service.get_api_key(&actor, config, id).await {
+    match service.get_api_key(&actor, config, &input.id).await {
         Ok(api_key) => Json(api_key).into_response(),
         Err(error) => auth_error(error),
     }
@@ -214,9 +211,6 @@ async fn update(
     let Some(key_id) = input.get("keyId").and_then(Value::as_str) else {
         return auth_error(ApiKeyError::NotFound.into());
     };
-    let Ok(key_id) = Uuid::parse_str(key_id) else {
-        return auth_error(ApiKeyError::NotFound.into());
-    };
     let config_id = input.get("configId").and_then(Value::as_str);
     let config = resolve_configuration(&configurations, config_id);
     let update = match client_update(&input, config) {
@@ -238,11 +232,8 @@ async fn delete(
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(ApiKeyError::UnauthorizedSession.into());
     };
-    let Ok(key_id) = Uuid::parse_str(&input.key_id) else {
-        return auth_error(ApiKeyError::NotFound.into());
-    };
     let config = resolve_configuration(&configurations, input.config_id.as_deref());
-    match service.delete_api_key(&actor, config, key_id).await {
+    match service.delete_api_key(&actor, config, &input.key_id).await {
         Ok(()) => Json(json!({ "success": true })).into_response(),
         Err(error) => auth_error(error),
     }

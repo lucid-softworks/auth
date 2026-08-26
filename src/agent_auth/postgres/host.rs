@@ -9,7 +9,6 @@ use crate::{
 };
 use serde_json::{Value, json};
 use sqlx::{Postgres, QueryBuilder};
-use uuid::Uuid;
 
 pub(super) async fn create(
     store: &PostgresAgentAuthStore,
@@ -88,10 +87,10 @@ pub(super) async fn find(
 
 pub(super) async fn list_for_user(
     store: &PostgresAgentAuthStore,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<Vec<AgentHost>, AuthError> {
     let model = store.model("agentHost")?;
-    let mut query = query::filter(&model, [("userId", json!(user_id.to_string()))])?;
+    let mut query = query::filter(&model, [("userId", json!(user_id))])?;
     query
         .push(" ORDER BY ")
         .push(model.quoted_column("createdAt")?)

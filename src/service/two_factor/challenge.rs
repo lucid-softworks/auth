@@ -19,17 +19,20 @@ impl AuthService {
         };
         if !plugin
             .store
-            .two_factor_enabled(result.session.user.id)
+            .two_factor_enabled(&result.session.user.id)
             .await?
         {
             return Ok(continue_sign_in(result, None));
         }
-        let record = plugin.store.find_two_factor(result.session.user.id).await?;
+        let record = plugin
+            .store
+            .find_two_factor(&result.session.user.id)
+            .await?;
         if self
-            .validate_trust_device(result.session.user.id, trust_cookie)
+            .validate_trust_device(&result.session.user.id, trust_cookie)
             .await?
         {
-            let rotated = self.create_trust_device(result.session.user.id).await?;
+            let rotated = self.create_trust_device(&result.session.user.id).await?;
             return Ok(continue_sign_in(result, Some(rotated)));
         }
         let identifier = self
@@ -52,7 +55,7 @@ impl AuthService {
         let now = Utc::now();
         let expires_at = now + ttl;
         let payload = ChallengePayload {
-            user_id: result.session.user.id,
+            user_id: result.session.user.id.clone(),
             session_expires_at: result.session.session.expires_at,
             remember_me,
             ip_address: result.session.session.ip_address.clone(),
@@ -105,7 +108,7 @@ impl AuthService {
             serde_json::from_str(&value.value).map_err(|_| TwoFactorError::InvalidCookie)?;
         let user = self
             .store
-            .find_user_by_id(payload.user_id)
+            .find_user_by_id(&payload.user_id)
             .await?
             .ok_or(TwoFactorError::InvalidCookie)?;
         Ok(VerificationContext {
@@ -120,7 +123,7 @@ impl AuthService {
         context: VerificationContext,
         trust_device: bool,
     ) -> Result<TwoFactorVerification, AuthError> {
-        self.reset_two_factor_failures(context.user.id).await?;
+        self.reset_two_factor_failures(&context.user.id).await?;
         let (result, remember_me) = match context.challenge {
             Some((identifier, payload)) => {
                 let consumed = self
@@ -164,7 +167,7 @@ impl AuthService {
             }
         };
         let trust_cookie = if trust_device {
-            Some(self.create_trust_device(context.user.id).await?)
+            Some(self.create_trust_device(&context.user.id).await?)
         } else {
             None
         };
@@ -184,7 +187,7 @@ impl AuthService {
             .create_session_until(
                 session.user.clone(),
                 session.session.authentication_method,
-                session.session.actor_user_id,
+                session.session.actor_user_id.clone(),
                 Some(session.session.expires_at),
                 session.session.ip_address.clone(),
                 session.session.user_agent.clone(),
@@ -237,12 +240,12 @@ impl AuthService {
             value.expires_at,
         ))
         .await?;
-        self.record_two_factor_failure(payload.user_id).await
+        self.record_two_factor_failure(&payload.user_id).await
     }
 
     async fn validate_trust_device(
         &self,
-        user_id: uuid::Uuid,
+        user_id: &str,
         cookie: Option<&str>,
     ) -> Result<bool, AuthError> {
         let Some((token, identifier)) = cookie.and_then(|value| value.split_once('!')) else {
@@ -257,7 +260,7 @@ impl AuthService {
         else {
             return Ok(false);
         };
-        Ok(value.value == user_id.to_string())
+        Ok(value.value == user_id)
     }
 
     pub(super) async fn revoke_trust_device(&self, cookie: Option<&str>) -> Result<(), AuthError> {
@@ -270,16 +273,13 @@ impl AuthService {
         Ok(())
     }
 
-    pub(super) async fn create_trust_device(
-        &self,
-        user_id: uuid::Uuid,
-    ) -> Result<String, AuthError> {
+    pub(super) async fn create_trust_device(&self, user_id: &str) -> Result<String, AuthError> {
         let plugin = self.two_factor_plugin()?;
         let identifier = format!("trust-device-{}", super::super::random_token());
         let now = Utc::now();
         self.create_verification_record(VerificationValue::new(
             identifier.clone(),
-            user_id.to_string(),
+            user_id.to_owned(),
             now + plugin.config.trust_device_ttl,
         ))
         .await?;

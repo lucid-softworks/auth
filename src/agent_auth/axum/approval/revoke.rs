@@ -56,11 +56,12 @@ pub(in crate::agent_auth::axum) async fn revoke_capability(
 async fn run(
     state: &AgentAuthState,
     scoped: ScopedAgentAuthentication,
-    user_id: Option<uuid::Uuid>,
+    user_id: Option<String>,
     body: RevokeCapabilityBody,
 ) -> Result<serde_json::Value> {
     validate_nonempty(&body.capabilities)?;
-    let (agent, host, grants) = load_authorized(state, &scoped, user_id, &body.agent_id).await?;
+    let (agent, host, grants) =
+        load_authorized(state, &scoped, user_id.clone(), &body.agent_id).await?;
     let expected_grants = grants.clone();
     let (changed, revoked, grant_ids) = revoke_matching(grants, &body.capabilities);
     apply(state, &agent, host, expected_grants, changed).await?;
@@ -71,7 +72,7 @@ async fn run(
 async fn load_authorized(
     state: &AgentAuthState,
     scoped: &ScopedAgentAuthentication,
-    user_id: Option<uuid::Uuid>,
+    user_id: Option<String>,
     agent_id: &str,
 ) -> Result<(
     crate::AgentIdentity,
@@ -94,9 +95,11 @@ async fn load_authorized(
     let authorized = match scoped {
         ScopedAgentAuthentication::Agent(session) => session.agent.id == agent.id,
         ScopedAgentAuthentication::Host(session) => session.host.id == agent.host_id,
-        ScopedAgentAuthentication::NotApplicable => match user_id {
-            Some(user) if agent.user_id == Some(user) => true,
-            Some(user) => host.as_ref().is_some_and(|host| host.user_id == Some(user)),
+        ScopedAgentAuthentication::NotApplicable => match user_id.as_deref() {
+            Some(user) if agent.user_id.as_deref() == Some(user) => true,
+            Some(user) => host
+                .as_ref()
+                .is_some_and(|host| host.user_id.as_deref() == Some(user)),
             None => false,
         },
     };
@@ -180,17 +183,15 @@ async fn apply(
 async fn emit_revoked(
     state: &AgentAuthState,
     scoped: &ScopedAgentAuthentication,
-    user_id: Option<uuid::Uuid>,
+    user_id: Option<String>,
     agent: &crate::AgentIdentity,
     revoked: &[String],
     grant_ids: &[String],
 ) {
     if !revoked.is_empty() {
-        let actor_id = user_id.map(|id| id.to_string()).or_else(|| match &scoped {
+        let actor_id = user_id.or_else(|| match &scoped {
             ScopedAgentAuthentication::Agent(session) => Some(session.user.id.clone()),
-            ScopedAgentAuthentication::Host(session) => {
-                session.host.user_id.map(|id| id.to_string())
-            }
+            ScopedAgentAuthentication::Host(session) => session.host.user_id.clone(),
             ScopedAgentAuthentication::NotApplicable => None,
         });
         emit(

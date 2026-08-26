@@ -158,7 +158,7 @@ async fn validated_callback_state(
     headers: &HeaderMap,
     state_token: &str,
     default_error_url: &str,
-) -> Result<(crate::service::OAuthState, Option<uuid::Uuid>, String), Response> {
+) -> Result<(crate::service::OAuthState, Option<String>, String), Response> {
     let state_cookie_name = service.oauth_state_cookie_name();
     let state_cookie = service.plugin_cookie(state_cookie_name);
     let raw_state_cookie = cookie_value(headers, &state_cookie.name);
@@ -183,7 +183,7 @@ async fn validated_callback_state(
             ));
         }
     };
-    let account_user_id = state.link.as_ref().map(|link| link.user_id);
+    let account_user_id = state.link.as_ref().map(|link| link.user_id.clone());
     let error_url = state
         .error_url
         .clone()
@@ -230,7 +230,7 @@ async fn oauth_success_response(
     service: &AuthService,
     headers: &HeaderMap,
     provider_id: &str,
-    linked_user_id: Option<uuid::Uuid>,
+    linked_user_id: Option<String>,
     result: crate::OAuthCallbackResult,
 ) -> Response {
     let response = redirect(&result.redirect_url);
@@ -239,7 +239,7 @@ async fn oauth_success_response(
             with_bound_session_cookie(
                 service,
                 headers,
-                session.session.user.id,
+                &session.session.user.id,
                 &session.token,
                 Some(true),
                 response,
@@ -251,11 +251,11 @@ async fn oauth_success_response(
     let user_id = result
         .session
         .as_ref()
-        .map(|session| session.session.user.id)
+        .map(|session| session.session.user.id.clone())
         .or(linked_user_id);
     let response = match user_id {
         Some(user_id) => {
-            with_provider_account_cookie(service, headers, user_id, provider_id, response).await
+            with_provider_account_cookie(service, headers, &user_id, provider_id, response).await
         }
         None => response,
     };
@@ -265,7 +265,7 @@ async fn oauth_success_response(
 pub(crate) async fn with_provider_account_cookie(
     service: &AuthService,
     headers: &HeaderMap,
-    user_id: uuid::Uuid,
+    user_id: &str,
     provider_id: &str,
     response: Response,
 ) -> Response {

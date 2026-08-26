@@ -4,7 +4,6 @@ use crate::{
     AuthError, AuthUser, AuthenticationMethod, SessionWithUser,
 };
 use chrono::Utc;
-use uuid::Uuid;
 
 impl AuthService {
     pub async fn sign_in_anonymous(
@@ -35,15 +34,16 @@ impl AuthService {
         context: AnonymousSignInContext,
     ) -> Result<SignInResult, AuthError> {
         let now = Utc::now();
-        let id = Uuid::new_v4();
-        let email = anonymous_email(config, id).await?;
+        let email_entropy = crate::generate_database_id(crate::DatabaseIdGenerationSize::Omitted)
+            .expect("the omitted Better Auth ID size is valid");
+        let email = anonymous_email(config, &email_entropy).await?;
         let name = match &config.generate_name {
             Some(generator) => generator.generate(&context).await?,
             None => "Anonymous".into(),
         };
         let user = self
             .prepare_user_create(AuthUser {
-                id,
+                id: String::new(),
                 username: None,
                 display_username: None,
                 name,
@@ -78,7 +78,7 @@ impl AuthService {
         {
             Ok(result) => result,
             Err(_) => {
-                let _ = self.store.delete_user(user.id).await;
+                let _ = self.store.delete_user(&user.id).await;
                 return Err(AuthError::AnonymousSessionCreationFailed);
             }
         };
@@ -106,11 +106,11 @@ impl AuthService {
         if !session.user.is_anonymous {
             return Err(AuthError::UserIsNotAnonymous);
         }
-        self.delete_user_sessions_with_hooks(session.user.id)
+        self.delete_user_sessions_with_hooks(&session.user.id)
             .await
             .map_err(|_| AuthError::AnonymousUserSessionDeletionFailed)?;
         self.store
-            .delete_user(session.user.id)
+            .delete_user(&session.user.id)
             .await
             .map_err(|_| AuthError::AnonymousUserDeletionFailed)
     }
@@ -126,7 +126,7 @@ impl AuthService {
         {
             return Ok(());
         }
-        if self.is_guest_capability_session(source.session.id).await {
+        if self.is_guest_capability_session(&source.session.id).await {
             return Ok(());
         }
         let Some(plugin) = self.plugins.find::<AnonymousPlugin>() else {
@@ -146,7 +146,7 @@ impl AuthService {
         callback_result?;
         if !plugin.config.disable_delete_anonymous_user {
             self.store
-                .delete_user(source.user.id)
+                .delete_user(&source.user.id)
                 .await
                 .map_err(|_| AuthError::AnonymousUserDeletionFailed)?;
         }
@@ -156,7 +156,7 @@ impl AuthService {
     #[cfg(feature = "axum")]
     pub(crate) async fn anonymous_upgrade_source(
         &self,
-        user_id: Option<Uuid>,
+        user_id: Option<String>,
     ) -> Result<Option<SessionWithUser>, AuthError> {
         let Some(user_id) = user_id else {
             return Ok(None);
@@ -164,7 +164,7 @@ impl AuthService {
         if self.plugins.find::<AnonymousPlugin>().is_none() {
             return Ok(None);
         }
-        let Some(user) = self.store.find_user_by_id(user_id).await? else {
+        let Some(user) = self.store.find_user_by_id(&user_id).await? else {
             return Ok(None);
         };
         if !user.is_anonymous {
@@ -172,7 +172,7 @@ impl AuthService {
         }
         let session = self
             .store
-            .list_sessions(user_id)
+            .list_sessions(&user_id)
             .await?
             .into_iter()
             .find(|session| session.expires_at > Utc::now());
@@ -180,7 +180,7 @@ impl AuthService {
     }
 }
 
-async fn anonymous_email(config: &AnonymousPluginConfig, id: Uuid) -> Result<String, AuthError> {
+async fn anonymous_email(config: &AnonymousPluginConfig, id: &str) -> Result<String, AuthError> {
     let email = match &config.generate_random_email {
         Some(generator) => generator.generate().await?,
         None => match &config.email_domain_name {

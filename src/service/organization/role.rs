@@ -16,7 +16,7 @@ impl AuthService {
     ) -> Result<OrganizationRole, AuthError> {
         let organization_id = active_or(session, organization_id)?;
         let plugin = self.organization_plugin()?;
-        let member = require_member(plugin, organization_id, session.user.id).await?;
+        let member = require_member(plugin, organization_id, &session.user.id).await?;
         require_ac_permission(self, &member, "create").await?;
         validate_permission_resources(plugin, &permission)?;
         if !self
@@ -86,7 +86,7 @@ impl AuthService {
     ) -> Result<Vec<OrganizationRole>, AuthError> {
         let organization_id = active_or(session, organization_id)?;
         let plugin = self.organization_plugin()?;
-        let member = require_member(plugin, organization_id, session.user.id).await?;
+        let member = require_member(plugin, organization_id, &session.user.id).await?;
         require_ac_permission(self, &member, "read").await?;
         plugin.store.list_roles(organization_id).await
     }
@@ -100,7 +100,7 @@ impl AuthService {
     ) -> Result<OrganizationRole, AuthError> {
         let organization_id = active_or(session, organization_id)?;
         let plugin = self.organization_plugin()?;
-        let member = require_member(plugin, organization_id, session.user.id).await?;
+        let member = require_member(plugin, organization_id, &session.user.id).await?;
         require_ac_permission(self, &member, "read").await?;
         find_role(plugin, organization_id, role_id, role_name)
             .await?
@@ -118,7 +118,7 @@ impl AuthService {
     ) -> Result<OrganizationRole, AuthError> {
         let organization_id = active_or(session, organization_id)?;
         let plugin = self.organization_plugin()?;
-        let member = require_member(plugin, organization_id, session.user.id).await?;
+        let member = require_member(plugin, organization_id, &session.user.id).await?;
         require_ac_permission(self, &member, "update").await?;
         let mut role = find_role(plugin, organization_id, role_id, role_name)
             .await?
@@ -159,7 +159,7 @@ impl AuthService {
     ) -> Result<(), AuthError> {
         let organization_id = active_or(session, organization_id)?;
         let plugin = self.organization_plugin()?;
-        let member = require_member(plugin, organization_id, session.user.id).await?;
+        let member = require_member(plugin, organization_id, &session.user.id).await?;
         require_ac_permission(self, &member, "delete").await?;
         if role_name.is_some_and(|name| plugin.config.roles.contains_key(name)) {
             return Err(OrganizationError::bad_request(
@@ -223,7 +223,7 @@ async fn require_ac_permission(
 async fn require_member(
     plugin: &crate::OrganizationPlugin,
     organization_id: Uuid,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<crate::OrganizationMember, AuthError> {
     plugin
         .store

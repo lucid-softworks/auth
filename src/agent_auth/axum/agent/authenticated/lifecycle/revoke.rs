@@ -5,22 +5,17 @@ use crate::agent_auth::axum::{
 };
 use chrono::Utc;
 use serde_json::{Value, json};
-use uuid::Uuid;
 
 pub(in crate::agent_auth::axum::agent::authenticated) async fn revoke_authorized(
     state: &AgentAuthState,
     authentication: auth::ScopedAgentAuthentication,
-    user_id: Option<Uuid>,
+    user_id: Option<String>,
     body: RevokeBody,
 ) -> Result<Value, AgentError> {
     let actor_id = match &authentication {
         auth::ScopedAgentAuthentication::Agent(session) => Some(session.user.id.clone()),
-        auth::ScopedAgentAuthentication::Host(session) => {
-            session.host.user_id.map(|user_id| user_id.to_string())
-        }
-        auth::ScopedAgentAuthentication::NotApplicable => {
-            user_id.map(|user_id| user_id.to_string())
-        }
+        auth::ScopedAgentAuthentication::Host(session) => session.host.user_id.clone(),
+        auth::ScopedAgentAuthentication::NotApplicable => user_id.clone(),
     };
     let agent = authorized_agent(state, &authentication, user_id, &body).await?;
     let now = Utc::now();
@@ -46,7 +41,7 @@ pub(in crate::agent_auth::axum::agent::authenticated) async fn revoke_authorized
 async fn authorized_agent(
     state: &AgentAuthState,
     authentication: &auth::ScopedAgentAuthentication,
-    user_id: Option<Uuid>,
+    user_id: Option<String>,
     body: &RevokeBody,
 ) -> Result<crate::AgentIdentity, AgentError> {
     let session_agent = match authentication {

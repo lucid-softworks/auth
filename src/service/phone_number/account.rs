@@ -7,7 +7,6 @@ use crate::{
 };
 use chrono::Utc;
 use serde_json::{Map, Value, json};
-use uuid::Uuid;
 
 const PHONE_NUMBER: &str = "phoneNumber";
 const PHONE_NUMBER_VERIFIED: &str = "phoneNumberVerified";
@@ -47,11 +46,11 @@ impl AuthService {
             }
             return Err(PhoneNumberError::PhoneNumberNotVerified.into());
         }
-        let password_hash = self.store.find_password_hash(user.id).await?;
+        let password_hash = self.store.find_password_hash(&user.id).await?;
         if password_hash.is_none() {
             let has_credential_account = self
                 .store
-                .list_user_accounts(user.id)
+                .list_user_accounts(&user.id)
                 .await?
                 .iter()
                 .any(|account| account.provider_id == "credential");
@@ -229,12 +228,11 @@ impl AuthService {
             .await?
             .ok_or(PhoneNumberError::UnexpectedError)?;
         self.validate_new_password(&new_password).await?;
-        self.store
-            .set_password_hash(user.id, self.hash_password(new_password).await?)
+        self.set_password_hash_with_database_id(&user.id, self.hash_password(new_password).await?)
             .await?;
         let user = self
             .store
-            .update_user_profile(user.id, UserProfileUpdate::default())
+            .update_user_profile(&user.id, UserProfileUpdate::default())
             .await?
             .ok_or(PhoneNumberError::UnexpectedError)?;
         self.after_database_update(&DatabaseRecord::User(user.clone()))
@@ -247,11 +245,11 @@ impl AuthService {
             .email_and_password
             .revoke_sessions_on_password_reset
         {
-            self.delete_user_sessions_with_hooks(user.id).await?;
+            self.delete_user_sessions_with_hooks(&user.id).await?;
         }
         self.plugins
             .password_credential_changed(&PasswordCredentialChanged {
-                user_id: user.id,
+                user_id: user.id.clone(),
                 source: PasswordCredentialSource::PasswordReset,
             })
             .await?;
@@ -289,30 +287,25 @@ impl AuthService {
         additional_fields.insert(PHONE_NUMBER.into(), json!(phone_number));
         additional_fields.insert(PHONE_NUMBER_VERIFIED.into(), json!(true));
         let now = Utc::now();
-        let user = AuthUser {
-            id: Uuid::new_v4(),
-            username: None,
-            display_username: None,
-            name,
-            email: email.to_lowercase(),
-            email_verified: false,
-            image: None,
-            additional_fields,
-            role: self.default_user_role(),
-            is_anonymous: false,
-            banned: false,
-            ban_reason: None,
-            ban_expires: None,
-            created_at: now,
-            updated_at: now,
-        };
-        let user = match self
-            .before_database_create(DatabaseRecord::User(user))
-            .await?
-        {
-            DatabaseRecord::User(user) => user,
-            _ => unreachable!("database hook model was validated"),
-        };
+        let user = self
+            .prepare_user_create(AuthUser {
+                id: String::new(),
+                username: None,
+                display_username: None,
+                name,
+                email: email.to_lowercase(),
+                email_verified: false,
+                image: None,
+                additional_fields,
+                role: self.default_user_role(),
+                is_anonymous: false,
+                banned: false,
+                ban_reason: None,
+                ban_expires: None,
+                created_at: now,
+                updated_at: now,
+            })
+            .await?;
         let user = match plugin.store.create_phone_number_user(user).await? {
             PhoneNumberWriteOutcome::Written(user) => user,
             PhoneNumberWriteOutcome::AlreadyExists => {
@@ -363,7 +356,7 @@ impl AuthService {
             .unwrap_or(false);
         let user = match plugin
             .store
-            .update_user_phone_number(original.id, phone_number, verified)
+            .update_user_phone_number(&original.id, phone_number, verified)
             .await?
         {
             PhoneNumberWriteOutcome::Written(user) => user,

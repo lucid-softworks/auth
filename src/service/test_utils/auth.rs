@@ -42,7 +42,7 @@ impl TestHelpers<'_> {
         let user = self
             .service
             .store
-            .find_user_by_id(user_id)
+            .find_user_by_id(&user_id.to_string())
             .await?
             .ok_or(TestUtilsError::UserNotFound(user_id))?;
         let result = self

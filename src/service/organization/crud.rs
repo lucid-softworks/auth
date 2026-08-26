@@ -99,7 +99,7 @@ impl AuthService {
             .or_else(|| Self::active_organization_id(session))
             .ok_or_else(organization_not_found)?;
         let plugin = self.organization_plugin()?;
-        let member = require_member(plugin, organization_id, session.user.id).await?;
+        let member = require_member(plugin, organization_id, &session.user.id).await?;
         require_permission(
             self,
             &member,
@@ -165,7 +165,7 @@ impl AuthService {
             )
             .into());
         }
-        let member = require_member(plugin, organization_id, session.user.id).await?;
+        let member = require_member(plugin, organization_id, &session.user.id).await?;
         require_permission(
             self,
             &member,
@@ -206,7 +206,7 @@ impl AuthService {
     ) -> Result<Vec<Organization>, AuthError> {
         self.organization_plugin()?
             .store
-            .list_organizations(session.user.id)
+            .list_organizations(&session.user.id)
             .await
     }
 
@@ -227,7 +227,7 @@ impl AuthService {
         let Some(organization) = organization else {
             return Err(organization_not_found());
         };
-        require_member(plugin, organization.id, session.user.id).await?;
+        require_member(plugin, organization.id, &session.user.id).await?;
         Ok(Some(organization))
     }
 
@@ -253,7 +253,7 @@ impl AuthService {
             .into_iter()
             .take(members_limit.unwrap_or(plugin.config.membership_limit))
         {
-            if let Some(user) = self.store.find_user_by_id(member.user_id).await? {
+            if let Some(user) = self.store.find_user_by_id(&member.user_id).await? {
                 members.push(OrganizationMemberWithUser { member, user });
             }
         }
@@ -294,7 +294,7 @@ async fn prepare_creation(
     let mut member = OrganizationMember {
         id: Uuid::new_v4(),
         organization_id: organization.id,
-        user_id: session.user.id,
+        user_id: session.user.id.clone(),
         role: plugin.config.creator_role.clone(),
         created_at: now,
     };
@@ -304,7 +304,7 @@ async fn prepare_creation(
             .await?;
     }
     let mut team = (plugin.config.teams.enabled && plugin.config.teams.default_team_enabled)
-        .then(|| default_team(&organization, session.user.id, now));
+        .then(|| default_team(&organization, session.user.id.clone(), now));
     if let (Some(hooks), Some((team, team_member))) = (&plugin.config.hooks, team.as_mut()) {
         *team = hooks
             .before_create_team(team.clone(), &session.user, &organization)
@@ -316,7 +316,7 @@ async fn prepare_creation(
 
 fn default_team(
     organization: &Organization,
-    user_id: Uuid,
+    user_id: String,
     now: chrono::DateTime<Utc>,
 ) -> (OrganizationTeam, OrganizationTeamMember) {
     let team = OrganizationTeam {
@@ -338,7 +338,7 @@ fn default_team(
 async fn require_member(
     plugin: &crate::OrganizationPlugin,
     organization_id: Uuid,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<OrganizationMember, AuthError> {
     plugin
         .store

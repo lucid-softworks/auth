@@ -35,12 +35,12 @@ pub(in crate::agent_auth::axum) async fn grant_capability(
         )
         .into_response();
     };
-    response(run(&state, session.user.id, body).await)
+    response(run(&state, &session.user.id, body).await)
 }
 
 async fn run(
     state: &AgentAuthState,
-    user_id: Uuid,
+    user_id: &str,
     body: GrantCapabilityBody,
 ) -> Result<serde_json::Value> {
     validate_nonempty(&body.capabilities)?;
@@ -74,7 +74,7 @@ async fn run(
 async fn load_authorized(
     state: &AgentAuthState,
     agent_id: &str,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(
     crate::AgentIdentity,
     Option<crate::AgentHost>,
@@ -93,10 +93,14 @@ async fn load_authorized(
         ));
     }
     let host = state.store.find_host(&agent.host_id).await?;
-    if agent.user_id.is_some_and(|owner| owner != user_id) {
+    if agent
+        .user_id
+        .as_deref()
+        .is_some_and(|owner| owner != user_id)
+    {
         let owned_host = host
             .as_ref()
-            .is_some_and(|host| host.user_id == Some(user_id));
+            .is_some_and(|host| host.user_id.as_deref() == Some(user_id));
         if !owned_host {
             return Err(FlowError::code(
                 StatusCode::FORBIDDEN,
@@ -118,7 +122,7 @@ struct GrantMutations {
 async fn build_mutations(
     state: &AgentAuthState,
     agent: &crate::AgentIdentity,
-    user_id: Uuid,
+    user_id: &str,
     ttl: Option<f64>,
     normalized: Vec<(String, Option<crate::AgentCapabilityConstraints>)>,
     existing: &[AgentCapabilityGrant],
@@ -137,7 +141,7 @@ async fn build_mutations(
             .cloned()
         {
             pending.status = AgentGrantStatus::Active;
-            pending.granted_by = Some(user_id);
+            pending.granted_by = Some(user_id.to_owned());
             pending.expires_at = expires_at(&state.config, &capability, agent, ttl).await;
             pending.updated_at = now;
             if constraints.is_some() {
@@ -157,7 +161,7 @@ async fn build_mutations(
                 capability: capability.clone(),
                 constraints,
                 denied_by: None,
-                granted_by: Some(user_id),
+                granted_by: Some(user_id.to_owned()),
                 expires_at: expires_at(&state.config, &capability, agent, ttl).await,
                 status: AgentGrantStatus::Active,
                 reason: None,
@@ -219,7 +223,7 @@ async fn apply(
 
 async fn emit_granted(
     state: &AgentAuthState,
-    user_id: Uuid,
+    user_id: &str,
     agent: &crate::AgentIdentity,
     added: &[String],
 ) {
@@ -227,7 +231,7 @@ async fn emit_granted(
         &state.config,
         AgentAuthAuditEventType::CapabilityGranted,
         AgentAuthEventFields {
-            actor_id: Some(user_id.to_string()),
+            actor_id: Some(user_id.to_owned()),
             agent_id: Some(agent.id.clone()),
             metadata: Some(Map::from_iter([("capabilities".into(), json!(added))])),
             ..AgentAuthEventFields::default()

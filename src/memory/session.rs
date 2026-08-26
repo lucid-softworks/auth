@@ -1,16 +1,19 @@
 use super::MemoryStore;
+use crate::store::DatabaseCreate;
 use crate::{AuthError, AuthSession, AuthUser};
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 
-pub(super) async fn create(store: &MemoryStore, session: AuthSession) -> Result<(), AuthError> {
-    store
-        .state
-        .write()
-        .await
+pub(super) async fn create(
+    store: &MemoryStore,
+    session: DatabaseCreate<AuthSession>,
+) -> Result<AuthSession, AuthError> {
+    let (mut session, id) = session.into_parts(store)?;
+    let mut state = store.state.write().await;
+    session.id = store.create_id("session", id, state.sessions.len())?;
+    state
         .sessions
-        .insert(session.token.clone(), session);
-    Ok(())
+        .insert(session.token.clone(), session.clone());
+    Ok(session)
 }
 
 pub(super) async fn find(
@@ -30,7 +33,7 @@ pub(super) async fn find(
 
 pub(super) async fn find_by_id(
     store: &MemoryStore,
-    session_id: Uuid,
+    session_id: &str,
 ) -> Result<Option<AuthSession>, AuthError> {
     Ok(store
         .state
@@ -44,7 +47,7 @@ pub(super) async fn find_by_id(
 
 pub(super) async fn update_fields(
     store: &MemoryStore,
-    session_id: Uuid,
+    session_id: &str,
     fields: serde_json::Map<String, serde_json::Value>,
 ) -> Result<Option<AuthSession>, AuthError> {
     let mut state = store.state.write().await;
@@ -85,7 +88,7 @@ pub(super) async fn delete(store: &MemoryStore, token: &str) -> Result<(), AuthE
 
 pub(super) async fn expire(
     store: &MemoryStore,
-    session_id: Uuid,
+    session_id: &str,
     expires_at: DateTime<Utc>,
 ) -> Result<(), AuthError> {
     if let Some(session) = store
@@ -108,8 +111,11 @@ pub(super) async fn delete_expired(
 ) -> Result<(), AuthError> {
     let mut state = store.state.write().await;
     state.sessions.retain(|_, session| session.expires_at > now);
-    let active_sessions: std::collections::HashSet<_> =
-        state.sessions.values().map(|session| session.id).collect();
+    let active_sessions: std::collections::HashSet<_> = state
+        .sessions
+        .values()
+        .map(|session| session.id.clone())
+        .collect();
     state
         .guest_sessions
         .retain(|session_id, _| active_sessions.contains(session_id));

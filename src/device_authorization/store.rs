@@ -29,7 +29,7 @@ pub trait DeviceAuthorizationStore: Send + Sync {
     async fn bind_pending_user(
         &self,
         id: Uuid,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Option<DeviceCode>, AuthError>;
 
     /// Ordinary polling update performed after the early `slow_down` check.

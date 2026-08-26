@@ -83,7 +83,7 @@ pub(super) async fn verify(
         .await
     {
         Ok(result) => {
-            let user_id = result.user.id;
+            let user_id = result.user.id.clone();
             let user = match service.better_auth_user(&result.user).await {
                 Ok(user) => user,
                 Err(error) => return auth_error(error),
@@ -98,7 +98,7 @@ pub(super) async fn verify(
                     with_bound_session_cookie(
                         &service,
                         &headers,
-                        user_id,
+                        &user_id,
                         &token,
                         Some(true),
                         response,

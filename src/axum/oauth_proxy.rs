@@ -175,7 +175,7 @@ pub(crate) async fn oauth_proxy_callback(
             let response = with_bound_session_cookie(
                 &service,
                 &headers,
-                result.session.user.id,
+                &result.session.user.id,
                 &result.token,
                 Some(true),
                 redirect(&destination),
@@ -184,7 +184,7 @@ pub(crate) async fn oauth_proxy_callback(
             let response = with_provider_account_cookie(
                 &service,
                 &headers,
-                result.session.user.id,
+                &result.session.user.id,
                 &payload.account.provider_id,
                 response,
             )

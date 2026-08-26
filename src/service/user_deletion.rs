@@ -29,7 +29,7 @@ impl AuthService {
         }
         let password_provided = password.is_some();
         if let Some(password) = password {
-            let hash = self.store.find_password_hash(session.user.id).await?;
+            let hash = self.store.find_password_hash(&session.user.id).await?;
             let Some(hash) = hash else {
                 return Err(AuthError::CredentialAccountNotFound);
             };

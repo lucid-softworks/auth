@@ -12,7 +12,7 @@ pub(super) fn writes<'a>(
         ("id".into(), json!(code.id.to_string())),
         ("deviceCode".into(), json!(code.device_code)),
         ("userCode".into(), json!(code.user_code)),
-        ("userId".into(), optional_uuid(code.user_id)),
+        ("userId".into(), optional_string(code.user_id.clone())),
         ("expiresAt".into(), json!(code.expires_at.to_rfc3339())),
         ("status".into(), json!(code.status.as_str())),
         (
@@ -61,7 +61,7 @@ fn decode_values(
     let id = required_uuid(&mut values, "id")?;
     let device_code = required_string(&mut values, "deviceCode")?;
     let user_code = required_string(&mut values, "userCode")?;
-    let user_id = optional_uuid_value(&mut values, "userId")?;
+    let user_id = optional_string_value(&mut values, "userId")?;
     let expires_at = required_date(&mut values, "expiresAt")?;
     let status = DeviceCodeStatus::from_str(&required_string(&mut values, "status")?)
         .map_err(|_| invalid_row("status"))?;
@@ -111,12 +111,6 @@ fn optional_number(value: Option<f64>) -> Result<Value, AuthError> {
     value.map_or(Ok(Value::Null), number_value)
 }
 
-fn optional_uuid(value: Option<uuid::Uuid>) -> Value {
-    value
-        .map(|value| Value::String(value.to_string()))
-        .unwrap_or(Value::Null)
-}
-
 fn optional_string(value: Option<String>) -> Value {
     value.map(Value::String).unwrap_or(Value::Null)
 }
@@ -124,15 +118,6 @@ fn optional_string(value: Option<String>) -> Value {
 fn required_uuid(values: &mut Map<String, Value>, field: &str) -> Result<uuid::Uuid, AuthError> {
     let value = required_string(values, field)?;
     uuid::Uuid::parse_str(&value).map_err(|_| invalid_row(field))
-}
-
-fn optional_uuid_value(
-    values: &mut Map<String, Value>,
-    field: &str,
-) -> Result<Option<uuid::Uuid>, AuthError> {
-    optional_string_value(values, field)?
-        .map(|value| uuid::Uuid::parse_str(&value).map_err(|_| invalid_row(field)))
-        .transpose()
 }
 
 fn required_string(values: &mut Map<String, Value>, field: &str) -> Result<String, AuthError> {

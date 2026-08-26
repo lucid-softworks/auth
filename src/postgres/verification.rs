@@ -1,4 +1,5 @@
 use super::{PostgresModel, PostgresStore, storage_error};
+use crate::store::DatabaseCreate;
 use crate::{AuthError, VerificationStore, VerificationValue};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -7,29 +8,43 @@ use sqlx::{Postgres, QueryBuilder, postgres::PgRow};
 
 #[async_trait]
 impl VerificationStore for PostgresStore {
-    async fn create_verification(&self, value: VerificationValue) -> Result<(), AuthError> {
+    async fn create_verification(
+        &self,
+        value: DatabaseCreate<VerificationValue>,
+    ) -> Result<VerificationValue, AuthError> {
+        let (value, id) = value.into_parts(self)?;
         let model = self.physical_model("verification")?;
-        let writes = verification_writes(&model, &value)?;
-        let mut query = super::rows::insert_query_prefix(&model, writes);
+        let writes = verification_writes(&model, &value, &id)?;
+        let mut query = super::rows::insert_query(&model, writes);
         query
             .build()
-            .execute(&self.pool)
+            .fetch_one(&self.pool)
             .await
-            .map(|_| ())
             .map_err(storage_error)
+            .and_then(|row| decode_verification(&model, &row))
     }
 
-    async fn reserve_verification(&self, value: VerificationValue) -> Result<bool, AuthError> {
+    async fn reserve_verification(
+        &self,
+        value: DatabaseCreate<VerificationValue>,
+    ) -> Result<Option<VerificationValue>, AuthError> {
+        let (value, id) = value.into_parts(self)?;
         let model = self.physical_model("verification")?;
-        let writes = verification_writes(&model, &value)?;
+        let writes = verification_writes(&model, &value, &id)?;
         let mut query = super::rows::insert_query_prefix(&model, writes);
-        query.push(" ON CONFLICT (\"id\") DO NOTHING");
+        query
+            .push(" ON CONFLICT (\"id\") DO NOTHING RETURNING ")
+            .push(model.all_projection());
         query
             .build()
-            .execute(&self.pool)
+            .fetch_optional(&self.pool)
             .await
-            .map(|result| result.rows_affected() == 1)
             .map_err(storage_error)
+            .and_then(|row| {
+                row.as_ref()
+                    .map(|row| decode_verification(&model, row))
+                    .transpose()
+            })
     }
 
     async fn find_verification(
@@ -67,12 +82,9 @@ impl VerificationStore for PostgresStore {
         };
         let candidate = decode_verification(&model, &row)?;
         let mut consume = QueryBuilder::<Postgres>::new("DELETE FROM ");
-        consume
-            .push(model.quoted_table())
-            .push(" WHERE \"id\" = ")
-            .push_bind(candidate.id)
-            .push(" RETURNING ")
-            .push(model.all_projection());
+        consume.push(model.quoted_table()).push(" WHERE \"id\" = ");
+        super::rows::push_model_value(&mut consume, &model, "id", json!(candidate.id))?;
+        consume.push(" RETURNING ").push(model.all_projection());
         let consumed = consume
             .build()
             .fetch_optional(&mut *transaction)
@@ -99,11 +111,9 @@ impl VerificationStore for PostgresStore {
             ("updatedAt", json!(value.updated_at.to_rfc3339())),
         ])?;
         let mut query = super::rows::update_query(&model, writes);
-        query
-            .push(" WHERE \"id\" = ")
-            .push_bind(value.id)
-            .push(" RETURNING ")
-            .push(model.all_projection());
+        query.push(" WHERE \"id\" = ");
+        super::rows::push_model_value(&mut query, &model, "id", json!(value.id))?;
+        query.push(" RETURNING ").push(model.all_projection());
         query
             .build()
             .fetch_optional(&self.pool)
@@ -142,8 +152,10 @@ impl VerificationStore for PostgresStore {
             .push(model.quoted_table())
             .push(" WHERE ")
             .push(model.quoted_column("expiresAt")?)
-            .push(" < ")
-            .push_bind(now);
+            .push(" < ");
+        model
+            .encode("expiresAt", json!(now.to_rfc3339()))?
+            .push_bind(&mut query);
         query
             .build()
             .execute(&self.pool)
@@ -156,15 +168,21 @@ impl VerificationStore for PostgresStore {
 fn verification_writes<'a>(
     model: &'a PostgresModel<'a>,
     value: &VerificationValue,
+    id: &crate::store::PreparedDatabaseId,
 ) -> Result<Vec<super::PostgresWrite<'a>>, AuthError> {
-    model.encode_fields([
-        ("id", json!(value.id.to_string())),
-        ("identifier", json!(value.identifier)),
-        ("value", json!(value.value)),
-        ("expiresAt", json!(value.expires_at.to_rfc3339())),
-        ("createdAt", json!(value.created_at.to_rfc3339())),
-        ("updatedAt", json!(value.updated_at.to_rfc3339())),
-    ])
+    let mut values = serde_json::Map::from_iter([
+        ("identifier".into(), json!(value.identifier)),
+        ("value".into(), json!(value.value)),
+        ("expiresAt".into(), json!(value.expires_at.to_rfc3339())),
+        ("createdAt".into(), json!(value.created_at.to_rfc3339())),
+        ("updatedAt".into(), json!(value.updated_at.to_rfc3339())),
+    ]);
+    super::rows::insert_prepared_id(&mut values, id)?;
+    model.encode_fields(
+        values
+            .iter()
+            .map(|(logical, value)| (logical.as_str(), value.clone())),
+    )
 }
 
 fn latest_query(

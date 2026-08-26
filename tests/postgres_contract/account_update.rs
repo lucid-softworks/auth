@@ -44,7 +44,7 @@ pub(super) async fn assert_persistence(
         })
         .await?;
     let duplicate = store
-        .update_user_email(session.user.id, &session.user.email, &other.email, true)
+        .update_user_email(&session.user.id, &session.user.email, &other.email, true)
         .await
         .unwrap_err();
     assert!(matches!(duplicate, AuthError::UserAlreadyExistsEmail));

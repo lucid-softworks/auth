@@ -7,7 +7,6 @@ use crate::{
 };
 use serde_json::{Value, json};
 use sqlx::{Postgres, QueryBuilder};
-use uuid::Uuid;
 
 pub(super) async fn create(
     store: &PostgresAgentAuthStore,
@@ -80,9 +79,9 @@ pub(super) async fn find(
 
 pub(super) async fn list_for_user(
     store: &PostgresAgentAuthStore,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<Vec<AgentIdentity>, AuthError> {
-    list_by(store, "userId", json!(user_id.to_string())).await
+    list_by(store, "userId", json!(user_id)).await
 }
 
 pub(super) async fn list_for_host(

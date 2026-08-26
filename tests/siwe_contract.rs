@@ -16,6 +16,8 @@ use tower::ServiceExt;
 #[path = "siwe_contract/validation_helpers.rs"]
 mod validation_helpers;
 use validation_helpers::*;
+#[path = "siwe_contract/create_hooks.rs"]
+mod create_hooks;
 #[path = "siwe_contract/runtime_helpers.rs"]
 mod runtime_helpers;
 

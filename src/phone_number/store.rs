@@ -1,6 +1,5 @@
-use crate::{AuthError, AuthUser};
+use crate::{AuthError, AuthUser, DatabaseCreate};
 use async_trait::async_trait;
-use uuid::Uuid;
 
 /// Result of an atomic phone-number user write.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,12 +19,12 @@ pub trait PhoneNumberStore: Send + Sync {
 
     async fn create_phone_number_user(
         &self,
-        user: AuthUser,
+        user: DatabaseCreate<AuthUser>,
     ) -> Result<PhoneNumberWriteOutcome<AuthUser>, AuthError>;
 
     async fn update_user_phone_number(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         phone_number: Option<String>,
         verified: bool,
     ) -> Result<PhoneNumberWriteOutcome<AuthUser>, AuthError>;

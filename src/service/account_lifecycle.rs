@@ -12,7 +12,6 @@ use crate::{
 };
 use chrono::{Duration, Utc};
 use serde_json::Value;
-use uuid::Uuid;
 
 impl AuthService {
     pub async fn list_linked_accounts(
@@ -23,7 +22,7 @@ impl AuthService {
         let configured = self.database_schema_fields(crate::DatabaseModel::Account);
         Ok(self
             .store
-            .list_user_accounts(actor.user.id)
+            .list_user_accounts(&actor.user.id)
             .await?
             .into_iter()
             .map(|mut account| {
@@ -40,12 +39,12 @@ impl AuthService {
     pub async fn unlink_account(
         &self,
         actor: &SessionWithUser,
-        account_id: Uuid,
+        account_id: &str,
     ) -> Result<(), AuthError> {
         require_fresh_session(self, actor)?;
         let account = self
             .store
-            .list_user_accounts(actor.user.id)
+            .list_user_accounts(&actor.user.id)
             .await?
             .into_iter()
             .find(|account| account.id == account_id);
@@ -56,7 +55,7 @@ impl AuthService {
         let outcome = self
             .store
             .delete_user_account(
-                actor.user.id,
+                &actor.user.id,
                 account_id,
                 self.config.account.account_linking.allow_unlinking_all,
             )
@@ -93,7 +92,7 @@ impl AuthService {
             .social_provider(&input.provider)
             .ok_or(AuthError::OAuthProviderNotFound)?;
         let link = OAuthLinkState {
-            user_id: actor.user.id,
+            user_id: actor.user.id.clone(),
             email: actor.user.email.clone(),
         };
         if let Some(id_token) = input.id_token.clone() {
@@ -152,8 +151,8 @@ impl AuthService {
             if owner.user.id != user.id {
                 return Err(AuthError::SocialAccountAlreadyLinked);
             }
-            account.id = owner.account.id;
-            account.user_id = user.id;
+            account.id.clone_from(&owner.account.id);
+            account.user_id = user.id.clone();
             account.created_at = owner.account.created_at;
             preserve_oauth_tokens(&mut account, &owner.account);
             let account = self.prepare_account_update(account).await?;
@@ -174,7 +173,7 @@ impl AuthService {
         {
             return Err(AuthError::LinkingDifferentEmailsNotAllowed);
         }
-        account.user_id = user.id;
+        account.user_id = user.id.clone();
         let account = self
             .prepare_account_create(account)
             .await
@@ -193,10 +192,10 @@ impl AuthService {
     pub async fn get_provider_access_token(
         &self,
         actor: &SessionWithUser,
-        account_id: Uuid,
+        account_id: &str,
     ) -> Result<ProviderTokenResponse, AuthError> {
         require_account_session(actor)?;
-        let account = self.account_for_user(actor.user.id, account_id).await?;
+        let account = self.account_for_user(&actor.user.id, account_id).await?;
         self.get_provider_access_token_for_account(account).await
     }
 
@@ -217,9 +216,9 @@ impl AuthService {
     pub async fn provider_account_info(
         &self,
         actor: &SessionWithUser,
-        account_id: Uuid,
+        account_id: &str,
     ) -> Result<ProviderAccountInfo, AuthError> {
-        let account = self.account_for_user(actor.user.id, account_id).await?;
+        let account = self.account_for_user(&actor.user.id, account_id).await?;
         self.provider_account_info_for_account(account).await
     }
 
@@ -252,8 +251,8 @@ impl AuthService {
 
     pub(super) async fn account_for_user(
         &self,
-        user_id: Uuid,
-        account_id: Uuid,
+        user_id: &str,
+        account_id: &str,
     ) -> Result<OAuthAccount, AuthError> {
         self.store
             .list_user_accounts(user_id)

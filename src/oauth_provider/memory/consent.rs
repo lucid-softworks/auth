@@ -15,7 +15,7 @@ impl OAuthProviderConsentStore for MemoryOAuthProviderStore {
     async fn find_oauth_consent_for_grant(
         &self,
         client_id: &str,
-        user_id: Uuid,
+        user_id: &str,
         reference_id: Option<&str>,
     ) -> Result<Option<OAuthProviderConsent>, AuthError> {
         Ok(self
@@ -26,7 +26,7 @@ impl OAuthProviderConsentStore for MemoryOAuthProviderStore {
             .values()
             .find(|consent| {
                 consent.client_id == client_id
-                    && consent.user_id == Some(user_id)
+                    && consent.user_id.as_deref() == Some(user_id)
                     && consent.reference_id.as_deref() == reference_id
             })
             .cloned())
@@ -34,7 +34,7 @@ impl OAuthProviderConsentStore for MemoryOAuthProviderStore {
 
     async fn list_oauth_consents(
         &self,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Vec<OAuthProviderConsent>, AuthError> {
         let mut consents = self
             .state
@@ -42,7 +42,7 @@ impl OAuthProviderConsentStore for MemoryOAuthProviderStore {
             .await
             .consents
             .values()
-            .filter(|consent| consent.user_id == Some(user_id))
+            .filter(|consent| consent.user_id.as_deref() == Some(user_id))
             .cloned()
             .collect::<Vec<_>>();
         consents.sort_by_key(|consent| (consent.created_at, consent.id));

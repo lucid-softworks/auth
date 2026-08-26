@@ -9,7 +9,6 @@ use crate::{
 use chrono::{DateTime, Utc};
 use sqlx::{Postgres, Row, Transaction};
 use std::collections::BTreeMap;
-use uuid::Uuid;
 
 pub(super) async fn revoke_cascade(
     store: &PostgresAgentAuthStore,
@@ -35,14 +34,14 @@ pub(super) async fn revoke_cascade(
 pub(super) async fn switch_account_cascade(
     store: &PostgresAgentAuthStore,
     host_id: &str,
-    user_id: Uuid,
+    user_id: &str,
     now: DateTime<Utc>,
 ) -> Result<Option<AgentHostSwitchOutcome>, AuthError> {
     let mut transaction = store.pool().begin().await.map_err(storage_error)?;
     let Some(mut host) = lock_host(&mut transaction, store, "id", host_id).await? else {
         return Ok(None);
     };
-    let previous_user_id = host.user_id.replace(user_id);
+    let previous_user_id = host.user_id.replace(user_id.to_owned());
     host.updated_at = now;
     let host = write_host(&mut transaction, store, &host).await?;
     let (claimed_agents, revoked_agent_ids) =
@@ -216,30 +215,44 @@ async fn switch_agents(
     transaction: &mut Transaction<'_, Postgres>,
     store: &PostgresAgentAuthStore,
     host_id: &str,
-    user_id: Uuid,
+    user_id: &str,
     now: DateTime<Utc>,
 ) -> Result<(Vec<AgentClaimedAutonomousAgent>, Vec<String>), AuthError> {
     let model = store.model("agent")?;
     let mut claimed_agents = lock_claimable_agents(transaction, store, host_id).await?;
-    sqlx::query(&format!(
-        "UPDATE {} SET {}='claimed', {}=$2, {}=$3 WHERE {}=$1 AND {}='autonomous' AND {}='active'",
-        model.quoted_table(),
-        model.quoted_column("status")?,
-        model.quoted_column("userId")?,
-        model.quoted_column("updatedAt")?,
-        model.quoted_column("hostId")?,
-        model.quoted_column("mode")?,
-        model.quoted_column("status")?,
-    ))
-    .bind(host_id)
-    .bind(user_id)
-    .bind(now)
-    .execute(&mut **transaction)
-    .await
-    .map_err(storage_error)?;
+    let mut update = sqlx::QueryBuilder::new("UPDATE ");
+    update
+        .push(model.quoted_table())
+        .push(" SET ")
+        .push(model.quoted_column("status")?)
+        .push("='claimed', ")
+        .push(model.quoted_column("userId")?)
+        .push("=");
+    model
+        .encode("userId", serde_json::json!(user_id))?
+        .push_bind(&mut update);
+    update
+        .push(", ")
+        .push(model.quoted_column("updatedAt")?)
+        .push("=")
+        .push_bind(now)
+        .push(" WHERE ")
+        .push(model.quoted_column("hostId")?)
+        .push("=")
+        .push_bind(host_id.to_owned())
+        .push(" AND ")
+        .push(model.quoted_column("mode")?)
+        .push("='autonomous' AND ")
+        .push(model.quoted_column("status")?)
+        .push("='active'");
+    update
+        .build()
+        .execute(&mut **transaction)
+        .await
+        .map_err(storage_error)?;
     for claimed in &mut claimed_agents {
         claimed.agent.status = AgentStatus::Claimed;
-        claimed.agent.user_id = Some(user_id);
+        claimed.agent.user_id = Some(user_id.to_owned());
         claimed.agent.updated_at = now;
     }
     let revoked = sqlx::query_scalar::<_, String>(&format!(

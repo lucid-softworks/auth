@@ -1,7 +1,47 @@
 use super::{CommetClient, CommetWebhookCallbacks};
-use crate::{AuthUser, DatabaseHookRequest, PluginApiError};
+use crate::{DatabaseCreateRecord, DatabaseHookRequest, PluginApiError};
 use async_trait::async_trait;
 use std::{fmt, sync::Arc};
+
+/// User data visible during Better Auth's ID-less before-create phase.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommetCreateUser {
+    pub id: Option<String>,
+    pub name: String,
+    pub email: String,
+    pub is_anonymous: bool,
+    pub fields: serde_json::Map<String, serde_json::Value>,
+}
+
+impl CommetCreateUser {
+    pub(crate) fn from_record(record: &DatabaseCreateRecord) -> Self {
+        Self {
+            id: string_id(record),
+            name: string_field(record, "name"),
+            email: string_field(record, "email"),
+            is_anonymous: record
+                .get("isAnonymous")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            fields: record.fields().clone(),
+        }
+    }
+}
+
+fn string_id(record: &DatabaseCreateRecord) -> Option<String> {
+    match record.id() {
+        crate::store::DatabaseIdInput::String(id) => Some(id.clone()),
+        _ => None,
+    }
+}
+
+fn string_field(record: &DatabaseCreateRecord, field: &str) -> String {
+    record
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_owned()
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CommetCustomerCreateParams {
@@ -30,7 +70,7 @@ impl CommetCustomerParamsError {
 pub trait CommetCustomerParamsProvider: Send + Sync {
     async fn params(
         &self,
-        user: &AuthUser,
+        user: &CommetCreateUser,
         request: &DatabaseHookRequest,
     ) -> Result<CommetCustomerCreateParams, CommetCustomerParamsError>;
 }

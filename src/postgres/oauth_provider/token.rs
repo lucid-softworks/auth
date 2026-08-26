@@ -1,7 +1,7 @@
 use super::{
     super::{PostgresModel, rows::update_query, storage_error},
     PostgresOAuthProviderStore,
-    rows::{ACCESS_FIELDS, AccessRow, REFRESH_FIELDS, RefreshRow},
+    rows::{self, AccessRow, RefreshRow},
 };
 use crate::{
     AuthError,
@@ -23,11 +23,11 @@ mod write;
 
 fn select_model(
     model: &PostgresModel<'_>,
-    fields: &[(&str, &str)],
+    projection: String,
 ) -> Result<QueryBuilder<'static, sqlx::Postgres>, AuthError> {
     let mut query = QueryBuilder::new("SELECT ");
     query
-        .push(model.projection_as(fields)?)
+        .push(projection)
         .push(" FROM ")
         .push(model.quoted_table());
     Ok(query)
@@ -40,7 +40,8 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
         token: &str,
     ) -> Result<Option<OAuthProviderAccessToken>, AuthError> {
         let model = self.model("oauthAccessToken")?;
-        let mut query = select_model(&model, ACCESS_FIELDS)?;
+        let projection = rows::access_projection(&model)?;
+        let mut query = select_model(&model, projection)?;
         query
             .push(" WHERE ")
             .push(model.quoted_column("token")?)
@@ -59,7 +60,8 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
         token: &str,
     ) -> Result<Option<OAuthProviderRefreshToken>, AuthError> {
         let model = self.model("oauthRefreshToken")?;
-        let mut query = select_model(&model, REFRESH_FIELDS)?;
+        let projection = rows::refresh_projection(&model)?;
+        let mut query = select_model(&model, projection)?;
         query
             .push(" WHERE ")
             .push(model.quoted_column("token")?)
@@ -110,14 +112,15 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
             .push(" AND ")
             .push(refresh.quoted_column("revoked")?)
             .push(" IS NULL RETURNING ")
-            .push(refresh.projection_as(REFRESH_FIELDS)?);
+            .push(rows::refresh_projection(&refresh)?);
         let consumed = consume
             .build_query_as::<RefreshRow>()
             .fetch_optional(&mut *transaction)
             .await
             .map_err(storage_error)?;
         if consumed.is_none() {
-            let mut previous = select_model(&refresh, REFRESH_FIELDS)?;
+            let projection = rows::refresh_projection(&refresh)?;
+            let mut previous = select_model(&refresh, projection)?;
             previous
                 .push(" WHERE \"id\" = ")
                 .push_bind(rotation.previous_refresh_id);
@@ -170,7 +173,7 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
             .push(" WHERE \"id\" = ")
             .push_bind(id)
             .push(" RETURNING ")
-            .push(model.projection_as(ACCESS_FIELDS)?);
+            .push(rows::access_projection(&model)?);
         query
             .build_query_as::<AccessRow>()
             .fetch_optional(self.pool())
@@ -213,7 +216,7 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
     async fn revoke_oauth_refresh_family(
         &self,
         client_id: &str,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<OAuthTokenRevocationCount, AuthError> {
         let refresh = self.model("oauthRefreshToken")?;
         let access = self.model("oauthAccessToken")?;
@@ -227,9 +230,11 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
             .push_bind(client_id.to_owned())
             .push(" AND ")
             .push(refresh.quoted_column("userId")?)
-            .push(" = ")
-            .push_bind(user_id)
-            .push(" FOR UPDATE");
+            .push(" = ");
+        refresh
+            .encode("userId", json!(user_id))?
+            .push_bind(&mut select);
+        select.push(" FOR UPDATE");
         let refresh_ids = select
             .build_query_scalar::<Uuid>()
             .fetch_all(&mut *transaction)
@@ -282,7 +287,7 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
 
     async fn revoke_oauth_tokens_for_session(
         &self,
-        session_id: Uuid,
+        session_id: &str,
         revoked_at: DateTime<Utc>,
         preserve_offline_access: bool,
     ) -> Result<OAuthTokenRevocationCount, AuthError> {
@@ -314,7 +319,7 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
 
     async fn prepare_oauth_session_logout(
         &self,
-        session_id: Uuid,
+        session_id: &str,
     ) -> Result<OAuthSessionLogoutPlan, AuthError> {
         logout::prepare(self, session_id).await
     }

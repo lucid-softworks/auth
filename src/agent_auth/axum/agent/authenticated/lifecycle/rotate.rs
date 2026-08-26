@@ -52,7 +52,7 @@ pub(in crate::agent_auth::axum::agent::authenticated) async fn rotate_for_host(
     events::emit(
         state,
         crate::AgentAuthAuditEventType::AgentKeyRotated,
-        host.host.user_id.map(|user_id| user_id.to_string()),
+        host.host.user_id.clone(),
         Some("system"),
         Some(agent.id.clone()),
         Some(agent.host_id.clone()),

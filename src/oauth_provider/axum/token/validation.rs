@@ -133,7 +133,6 @@ async fn jwt_access_is_active(
     if let Some(session_id) = payload
         .get("sid")
         .and_then(Value::as_str)
-        .and_then(|value| Uuid::parse_str(value).ok())
         && service
             .oauth_provider_session_by_id(session_id)
             .await
@@ -236,14 +235,14 @@ async fn validate_refresh_for_introspection(
         ),
     ]);
     if service
-        .auth_user_by_id(refresh.user_id)
+        .auth_user_by_id(&refresh.user_id)
         .await
         .map_err(server)?
         .is_some()
     {
         payload.insert("sub".into(), Value::String(refresh.user_id.to_string()));
     }
-    if let Some(session_id) = refresh.session_id
+    if let Some(session_id) = refresh.session_id.as_deref()
         && service
             .oauth_provider_session_by_id(session_id)
             .await

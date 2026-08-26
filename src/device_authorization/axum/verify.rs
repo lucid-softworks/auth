@@ -46,7 +46,7 @@ pub(super) async fn verify(
     {
         match state
             .store
-            .bind_pending_user(record.id, session.user.id)
+            .bind_pending_user(record.id, &session.user.id)
             .await
         {
             Ok(Some(bound)) => record = bound,
@@ -56,7 +56,7 @@ pub(super) async fn verify(
     }
     let can_review = session
         .as_ref()
-        .is_some_and(|session| record.user_id == Some(session.user.id));
+        .is_some_and(|session| record.user_id.as_deref() == Some(session.user.id.as_str()));
     let mut response = Map::from_iter([
         ("user_code".into(), Value::String(user_code)),
         ("status".into(), Value::String(record.status.to_string())),

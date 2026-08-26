@@ -3,6 +3,7 @@ use crate::AuthError;
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+#[cfg(test)]
 use uuid::Uuid;
 
 #[derive(Clone, Default)]
@@ -35,12 +36,12 @@ impl AuditStore for MemoryAuditStore {
             .collect())
     }
 
-    async fn anonymize_user(&self, user_id: Uuid) -> Result<(), AuthError> {
+    async fn anonymize_user(&self, user_id: &str) -> Result<(), AuthError> {
         for event in self.events.write().await.iter_mut() {
-            if event.actor_user_id == Some(user_id) {
+            if event.actor_user_id.as_deref() == Some(user_id) {
                 event.actor_user_id = None;
             }
-            if event.subject_user_id == Some(user_id) {
+            if event.subject_user_id.as_deref() == Some(user_id) {
                 event.subject_user_id = None;
             }
         }

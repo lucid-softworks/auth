@@ -5,7 +5,6 @@ use crate::{
     PasskeyRegistrationVerified, SessionWithUser, StoredPasskey,
 };
 use chrono::{Duration, Utc};
-use uuid::Uuid;
 use webauthn_rs::prelude::{
     AuthenticatorAttachment, CreationChallengeResponse, RegisterPublicKeyCredential,
 };
@@ -54,7 +53,7 @@ impl AuthService {
             .resolve_passkey_registration_user(config, actor, request.context.as_deref())
             .await?;
         let webauthn = webauthn::challenge(self, config)?;
-        let credentials = deserialize_credentials(&self.store.list_passkeys(user.id).await?)?;
+        let credentials = deserialize_credentials(&self.store.list_passkeys(&user.id).await?)?;
         let exclude = (!credentials.is_empty()).then(|| {
             credentials
                 .iter()
@@ -129,7 +128,7 @@ impl AuthService {
         else {
             return Err(AuthError::PasskeyChallengeExpired);
         };
-        self.validate_passkey_registration_owner(actor, user_id)?;
+        self.validate_passkey_registration_owner(actor, &user_id)?;
         let metadata = registration_metadata(&verification.response)
             .map_err(|_| AuthError::PasskeyRegistrationFailed)?;
         let credential =
@@ -154,15 +153,19 @@ impl AuthService {
             )
             .await?;
         let stored = self
-            .persist_passkey_registration(user_id, name, credential, metadata)
+            .persist_passkey_registration(user_id.clone(), name, credential, metadata)
             .await?;
         let replacement_session = self
-            .create_passkey_registration_session(verification.create_session, actor, user_id)
+            .create_passkey_registration_session(
+                verification.create_session,
+                actor,
+                user_id.clone(),
+            )
             .await?;
         self.activity(crate::AuthActivity::PasskeyEnrolled {
-            actor_user_id: actor.map(|actor| actor.user.id),
+            actor_user_id: actor.map(|actor| actor.user.id.clone()),
             user_id,
-            passkey_id: stored.id,
+            passkey_id: stored.id.clone(),
         })
         .await;
         Ok(PasskeyRegistrationResult {
@@ -173,15 +176,18 @@ impl AuthService {
 
     async fn persist_passkey_registration(
         &self,
-        user_id: Uuid,
+        user_id: String,
         name: Option<String>,
         credential: Credential,
         metadata: metadata::RegistrationMetadata,
     ) -> Result<StoredPasskey, AuthError> {
         let now = Utc::now();
-        self.store
-            .save_passkey(StoredPasskey {
-                id: Uuid::new_v4(),
+        let passkey = self.prepare_database_create(
+            "passkey",
+            crate::DatabaseIdInput::Absent,
+            false,
+            StoredPasskey {
+                id: String::new(),
                 user_id,
                 name,
                 credential_id: credential_id(&credential)?,
@@ -192,22 +198,23 @@ impl AuthService {
                 transports: metadata.transports,
                 aaguid: metadata.aaguid,
                 created_at: now,
-            })
-            .await
+            },
+        )?;
+        self.store.save_passkey(passkey).await
     }
 
     async fn create_passkey_registration_session(
         &self,
         create_session: bool,
         actor: Option<&SessionWithUser>,
-        user_id: Uuid,
+        user_id: String,
     ) -> Result<Option<SignInResult>, AuthError> {
         if !create_session {
             return Ok(None);
         }
         let user = self
             .store
-            .find_user_by_id(user_id)
+            .find_user_by_id(&user_id)
             .await?
             .ok_or(AuthError::PasskeyResolvedUserInvalid)?;
         self.create_session(
@@ -252,8 +259,8 @@ impl AuthService {
         &self,
         config: &PasskeyConfig,
         input: CallbackInput<'_>,
-    ) -> Result<(Uuid, Option<String>), AuthError> {
-        let mut user_id = input.user.id;
+    ) -> Result<(String, Option<String>), AuthError> {
+        let mut user_id = input.user.id.clone();
         let mut name = normalized_name(input.client_name);
         if let Some(callback) = &config.registration.after_verification {
             let result = callback
@@ -300,7 +307,7 @@ impl AuthService {
     fn validate_passkey_registration_owner(
         &self,
         actor: Option<&SessionWithUser>,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<(), AuthError> {
         if actor.is_some_and(|actor| {
             actor.user.id != user_id
@@ -325,7 +332,7 @@ impl AuthService {
 
 fn session_registration_user(actor: &SessionWithUser) -> PasskeyRegistrationUser {
     PasskeyRegistrationUser {
-        id: actor.user.id,
+        id: actor.user.id.clone(),
         name: actor.user.email.clone(),
         display_name: Some(actor.user.email.clone()),
     }

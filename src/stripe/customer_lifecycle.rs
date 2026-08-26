@@ -27,7 +27,7 @@ pub(crate) async fn after_user_create(
     if !options.create_customer_on_sign_up {
         return;
     }
-    let existing_id = match store.user_customer_id(user.id).await {
+    let existing_id = match store.user_customer_id(&user.id).await {
         Ok(id) => id,
         Err(error) => {
             tracing::error!(message = %error, "Failed to create or link Stripe customer");
@@ -51,7 +51,7 @@ pub(crate) async fn after_user_update(
     if callback_context(context).is_none() {
         return;
     }
-    let customer_id = match store.user_customer_id(user.id).await {
+    let customer_id = match store.user_customer_id(&user.id).await {
         Ok(Some(id)) => id,
         Ok(None) => return,
         Err(error) => {
@@ -88,7 +88,7 @@ async fn create_or_link(
     let mut customer = search_customer(options, &user.email).await;
     if let Some(found) = &customer {
         let owner = found.metadata.get("userId").and_then(Value::as_str);
-        if owner.is_some_and(|owner| owner != user.id.to_string()) || !user.email_verified {
+        if owner.is_some_and(|owner| owner != user.id) || !user.email_verified {
             customer = None;
         }
     }
@@ -98,7 +98,7 @@ async fn create_or_link(
         None => create_customer(options, user, context).await?,
     };
     store
-        .set_user_customer_id(user.id, Some(customer.id.clone()))
+        .set_user_customer_id(&user.id, Some(customer.id.clone()))
         .await?;
     if let Some(callback) = &options.on_customer_create {
         callback

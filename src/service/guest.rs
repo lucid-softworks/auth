@@ -7,7 +7,7 @@ use chrono::{Duration, Utc};
 use uuid::Uuid;
 
 impl AuthService {
-    pub(crate) async fn is_guest_capability_session(&self, session_id: Uuid) -> bool {
+    pub(crate) async fn is_guest_capability_session(&self, session_id: &str) -> bool {
         let Some(plugin) = self.plugins.find::<GuestCapabilityPlugin>() else {
             return false;
         };
@@ -42,13 +42,13 @@ impl AuthService {
                 expires_at: input.expires_at,
                 max_uses: input.max_uses,
                 uses: 0,
-                created_by: actor.user.id,
+                created_by: actor.user.id.clone(),
                 revoked_at: None,
                 created_at: now,
             })
             .await?;
         self.activity(crate::AuthActivity::GuestGrantIssued {
-            actor_user_id: actor.user.id,
+            actor_user_id: actor.user.id.clone(),
             grant_id: grant.id,
             label: grant.label.clone(),
             permissions: grant.permissions.clone(),
@@ -75,14 +75,14 @@ impl AuthService {
             .consume_guest_grant(&hash_token(token), now)
             .await?
             .ok_or(AuthError::InvalidGuestGrant)?;
-        let id = Uuid::new_v4();
+        let email_discriminator = Uuid::new_v4();
         let user = self
             .prepare_user_create(AuthUser {
-                id,
+                id: String::new(),
                 username: None,
                 display_username: None,
                 name: grant.label.clone(),
-                email: format!("guest-{id}@users.localhost"),
+                email: format!("guest-{email_discriminator}@users.localhost"),
                 email_verified: false,
                 image: None,
                 additional_fields: serde_json::Map::new(),
@@ -108,14 +108,14 @@ impl AuthService {
             )
             .await?;
         if !store
-            .attach_guest_session(grant.id, result.session.session.id, Utc::now())
+            .attach_guest_session(grant.id, &result.session.session.id, Utc::now())
             .await?
         {
-            self.store.delete_user(result.session.user.id).await?;
+            self.store.delete_user(&result.session.user.id).await?;
             return Err(AuthError::InvalidGuestGrant);
         }
         self.activity(crate::AuthActivity::GuestGrantRedeemed {
-            user_id: result.session.user.id,
+            user_id: result.session.user.id.clone(),
             grant_id: grant.id,
             label: grant.label,
             uses: grant.uses,
@@ -133,7 +133,7 @@ impl AuthService {
             return Ok(None);
         };
         let Some(grant) = store
-            .find_guest_grant_for_session(session.session.id)
+            .find_guest_grant_for_session(&session.session.id)
             .await?
         else {
             return Ok(None);
@@ -168,7 +168,7 @@ impl AuthService {
         self.require_guest_management(actor).await?;
         store.revoke_guest_grant(grant_id, Utc::now()).await?;
         self.activity(crate::AuthActivity::GuestGrantRevoked {
-            actor_user_id: actor.user.id,
+            actor_user_id: actor.user.id.clone(),
             grant_id,
         })
         .await;

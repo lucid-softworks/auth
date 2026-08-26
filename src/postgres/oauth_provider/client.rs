@@ -5,7 +5,7 @@ use super::{
         storage_error,
     },
     PostgresOAuthProviderStore,
-    rows::{self, CLIENT_FIELDS, ClientRow},
+    rows::{self, ClientRow},
 };
 use crate::{
     AuthError,
@@ -16,7 +16,8 @@ use crate::{
 };
 use async_trait::async_trait;
 use chrono::Utc;
-use sqlx::{PgConnection, QueryBuilder};
+use serde_json::json;
+use sqlx::{PgConnection, Postgres, QueryBuilder};
 use uuid::Uuid;
 
 fn decode(row: ClientRow) -> OAuthProviderClient {
@@ -36,7 +37,7 @@ async fn insert_client(
     let mut query = insert_query_prefix(model, writes);
     query
         .push(" RETURNING ")
-        .push(model.projection_as(CLIENT_FIELDS)?);
+        .push(rows::client_projection(model)?);
     query
         .build_query_as::<ClientRow>()
         .fetch_one(connection)
@@ -67,7 +68,7 @@ async fn update_client(
         .push(" = ")
         .push_bind(client.client_id.clone())
         .push(" RETURNING ")
-        .push(model.projection_as(CLIENT_FIELDS)?);
+        .push(rows::client_projection(model)?);
     query
         .build_query_as::<ClientRow>()
         .fetch_optional(connection)
@@ -119,7 +120,7 @@ async fn write_registered_client(
 ) -> Result<RegistrationWrite, AuthError> {
     let mut query = QueryBuilder::new("SELECT ");
     query
-        .push(model.projection_as(CLIENT_FIELDS)?)
+        .push(rows::client_projection(model)?)
         .push(" FROM ")
         .push(model.quoted_table())
         .push(" WHERE ")
@@ -206,7 +207,7 @@ impl OAuthProviderClientStore for PostgresOAuthProviderStore {
         let model = self.model("oauthClient")?;
         let mut query = QueryBuilder::new("SELECT ");
         query
-            .push(model.projection_as(CLIENT_FIELDS)?)
+            .push(rows::client_projection(&model)?)
             .push(" FROM ")
             .push(model.quoted_table())
             .push(" WHERE ")
@@ -223,27 +224,17 @@ impl OAuthProviderClientStore for PostgresOAuthProviderStore {
 
     async fn list_oauth_clients(
         &self,
-        user_id: Option<Uuid>,
+        user_id: Option<&str>,
         reference_id: Option<&str>,
     ) -> Result<Vec<OAuthProviderClient>, AuthError> {
         let model = self.model("oauthClient")?;
         let mut query = QueryBuilder::new("SELECT ");
         query
-            .push(model.projection_as(CLIENT_FIELDS)?)
+            .push(rows::client_projection(&model)?)
             .push(" FROM ")
-            .push(model.quoted_table())
-            .push(" WHERE (")
-            .push_bind(user_id)
-            .push("::UUID IS NULL AND ")
-            .push_bind(reference_id.map(str::to_owned))
-            .push("::TEXT IS NULL) OR ")
-            .push(model.quoted_column("userId")?)
-            .push(" = ")
-            .push_bind(user_id)
-            .push(" OR ")
-            .push(model.quoted_column("referenceId")?)
-            .push(" = ")
-            .push_bind(reference_id.map(str::to_owned))
+            .push(model.quoted_table());
+        push_client_filter(&mut query, &model, user_id, reference_id)?;
+        query
             .push(" ORDER BY ")
             .push(model.quoted_column("createdAt")?)
             .push(" NULLS FIRST, ")
@@ -314,7 +305,7 @@ impl OAuthProviderClientStore for PostgresOAuthProviderStore {
             .push(" = ")
             .push_bind(client_id.to_owned())
             .push(" RETURNING ")
-            .push(model.projection_as(CLIENT_FIELDS)?);
+            .push(rows::client_projection(&model)?);
         query
             .build_query_as::<ClientRow>()
             .fetch_optional(self.pool())
@@ -322,4 +313,31 @@ impl OAuthProviderClientStore for PostgresOAuthProviderStore {
             .map(|row| row.map(decode))
             .map_err(storage_error)
     }
+}
+
+fn push_client_filter(
+    query: &mut QueryBuilder<'static, Postgres>,
+    model: &PostgresModel<'_>,
+    user_id: Option<&str>,
+    reference_id: Option<&str>,
+) -> Result<(), AuthError> {
+    let mut separator = " WHERE ";
+    if let Some(user_id) = user_id {
+        query
+            .push(separator)
+            .push(model.quoted_column("userId")?)
+            .push(" = ");
+        model.encode("userId", json!(user_id))?.push_bind(query);
+        separator = " OR ";
+    }
+    if let Some(reference_id) = reference_id {
+        query
+            .push(separator)
+            .push(model.quoted_column("referenceId")?)
+            .push(" = ");
+        model
+            .encode("referenceId", json!(reference_id))?
+            .push_bind(query);
+    }
+    Ok(())
 }

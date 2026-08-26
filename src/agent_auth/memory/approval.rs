@@ -3,7 +3,6 @@ use crate::{
     AuthError,
     agent_auth::{AgentApprovalRequest, AgentApprovalStatus, AgentStoreCreateOutcome},
 };
-use uuid::Uuid;
 
 pub(super) fn create(
     store: &MemoryAgentAuthStore,
@@ -39,13 +38,14 @@ pub(super) fn find(
 
 pub(super) fn list_pending(
     store: &MemoryAgentAuthStore,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<Vec<AgentApprovalRequest>, AuthError> {
     let mut approvals: Vec<_> = read(&store.state)?
         .approvals
         .values()
         .filter(|approval| {
-            approval.user_id == Some(user_id) && approval.status == AgentApprovalStatus::Pending
+            approval.user_id.as_deref() == Some(user_id)
+                && approval.status == AgentApprovalStatus::Pending
         })
         .cloned()
         .collect();

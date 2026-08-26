@@ -13,7 +13,6 @@ use axum::{
 use chrono::{Duration, Utc};
 use serde::Serialize;
 use std::sync::Arc;
-use uuid::Uuid;
 
 mod input;
 mod session;
@@ -116,7 +115,7 @@ async fn get_user(
         let id = input
             .get("id")
             .ok_or_else(|| AuthError::InvalidRequest("id is required".into()))?;
-        service.admin_get_user(&actor, parse_uuid(id)?).await
+        service.admin_get_user(&actor, id).await
     }
     .await;
     raw_user_response(&service, result).await
@@ -147,9 +146,10 @@ async fn update_user(
         return auth_error(AuthError::InvalidSession);
     };
     let result = async {
-        let user_id = parse_uuid(&input.user_id)?;
         let update = parse_user_update(input.data)?;
-        service.admin_update_user(&actor, user_id, update).await
+        service
+            .admin_update_user(&actor, &input.user_id, update)
+            .await
     }
     .await;
     raw_user_response(&service, result).await
@@ -169,14 +169,10 @@ async fn has_permission(
             "invalid permission check. no permission(s) were passed".into(),
         ));
     }
-    let user_id = match input.user_id.as_deref().map(parse_uuid).transpose() {
-        Ok(user_id) => user_id,
-        Err(error) => return auth_error(error),
-    };
     match service
         .admin_has_permission(
             &actor,
-            user_id,
+            input.user_id.as_deref(),
             input.role.as_deref(),
             input.permissions.as_ref().expect("checked above"),
         )
@@ -199,14 +195,9 @@ async fn set_user_password(
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(AuthError::InvalidSession);
     };
-    let result = match parse_uuid(&input.user_id) {
-        Ok(user_id) => {
-            service
-                .set_user_password(&actor, user_id, input.new_password)
-                .await
-        }
-        Err(error) => Err(error),
-    };
+    let result = service
+        .set_user_password(&actor, &input.user_id, input.new_password)
+        .await;
     match result {
         Ok(()) => {
             Json(crate::protocol::better_auth::StatusResponse { status: true }).into_response()
@@ -223,10 +214,7 @@ async fn remove_user(
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(AuthError::InvalidSession);
     };
-    let result = match parse_uuid(&input.user_id) {
-        Ok(user_id) => service.remove_user(&actor, user_id).await,
-        Err(error) => Err(error),
-    };
+    let result = service.remove_user(&actor, &input.user_id).await;
     success_response(result)
 }
 
@@ -239,9 +227,8 @@ async fn set_role(
         return auth_error(AuthError::InvalidSession);
     };
     let result = async {
-        let user_id = parse_uuid(&input.user_id)?;
         let role = input.role.stored();
-        service.set_user_role(&actor, user_id, &role).await
+        service.set_user_role(&actor, &input.user_id, &role).await
     }
     .await;
     user_response(&service, result).await
@@ -256,7 +243,6 @@ async fn ban_user(
         return auth_error(AuthError::InvalidSession);
     };
     let result = async {
-        let user_id = parse_uuid(&input.user_id)?;
         let expires_at = input
             .ban_expires_in
             .map(|seconds| {
@@ -270,7 +256,7 @@ async fn ban_user(
             })
             .transpose()?;
         service
-            .ban_user(&actor, user_id, input.ban_reason, expires_at)
+            .ban_user(&actor, &input.user_id, input.ban_reason, expires_at)
             .await
     }
     .await;
@@ -285,15 +271,8 @@ async fn unban_user(
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(AuthError::InvalidSession);
     };
-    let result = match parse_uuid(&input.user_id) {
-        Ok(user_id) => service.unban_user(&actor, user_id).await,
-        Err(error) => Err(error),
-    };
+    let result = service.unban_user(&actor, &input.user_id).await;
     user_response(&service, result).await
-}
-
-fn parse_uuid(value: &str) -> Result<Uuid, AuthError> {
-    Uuid::parse_str(value).map_err(|_| AuthError::InvalidRequest("invalid identifier".into()))
 }
 
 async fn user_response(

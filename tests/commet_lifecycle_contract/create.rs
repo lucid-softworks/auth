@@ -3,7 +3,7 @@ use super::support::{
     invoke_after_update, invoke_before_create, plugin, user,
 };
 use lucid_auth::{
-    BeforeDatabaseHook, CommetCustomerCreate, CommetCustomerCreateParams,
+    BeforeDatabaseCreateHook, CommetCustomerCreate, CommetCustomerCreateParams,
     CommetCustomerParamsError, CommetProviderError, DatabaseHookContext, PluginApiError,
 };
 use serde_json::{Value, json};
@@ -62,15 +62,12 @@ async fn disabled_and_contextless_hooks_skip_side_effects_but_anonymous_users_do
         .unwrap();
     assert_eq!(
         anonymous_client.calls(),
-        [
-            Call::List(anonymous.id.to_string()),
-            Call::Create(CommetCustomerCreate {
-                email: anonymous.email.clone(),
-                id: Some(anonymous.id.to_string()),
-                full_name: Some(anonymous.name.clone()),
-                metadata: None,
-            }),
-        ]
+        [Call::Create(CommetCustomerCreate {
+            email: anonymous.email.clone(),
+            id: None,
+            full_name: Some(anonymous.name.clone()),
+            metadata: None,
+        })]
     );
 }
 
@@ -84,6 +81,9 @@ async fn callback_runs_before_email_validation_and_receives_the_request() {
     let plugin = plugin(client.clone(), true, Some(params.clone()));
     let mut email_less = user(false);
     email_less.email.clear();
+    email_less
+        .additional_fields
+        .insert("customDraft".into(), json!({ "nested": true }));
     let hook_context = context();
 
     let error = invoke_before_create(&plugin, &email_less, &hook_context)
@@ -96,10 +96,12 @@ async fn callback_runs_before_email_validation_and_receives_the_request() {
         "BAD_REQUEST",
         "An email is required to create a customer",
     );
-    assert_eq!(
-        params.calls(),
-        [(email_less.id, hook_context.request.unwrap())]
-    );
+    let calls = params.calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0.id, None);
+    assert_eq!(calls[0].0.email, "");
+    assert_eq!(calls[0].0.fields["customDraft"], json!({ "nested": true }));
+    assert_eq!(calls[0].1, hook_context.request.unwrap());
     assert!(client.calls().is_empty());
 }
 
@@ -143,7 +145,7 @@ async fn before_then_after_performs_the_exact_double_create_and_ignores_domain()
         invoke_before_create(&plugin, &user, &context())
             .await
             .unwrap(),
-        BeforeDatabaseHook::Continue
+        BeforeDatabaseCreateHook::Continue
     );
     invoke_after_create(&plugin, &user, &context())
         .await
@@ -152,10 +154,9 @@ async fn before_then_after_performs_the_exact_double_create_and_ignores_domain()
     assert_eq!(
         client.calls(),
         [
-            Call::List(user.id.to_string()),
             Call::Create(CommetCustomerCreate {
                 email: user.email.clone(),
-                id: Some(user.id.to_string()),
+                id: None,
                 full_name: Some("Custom Name".into()),
                 metadata: Some(Value::Object(custom_metadata)),
             }),
@@ -181,14 +182,14 @@ async fn nullish_custom_name_falls_back_to_user_name() {
         .unwrap();
 
     let calls = client.calls();
-    let [Call::List(_), Call::Create(request)] = calls.as_slice() else {
-        panic!("expected a lookup followed by creation");
+    let [Call::Create(request)] = calls.as_slice() else {
+        panic!("expected customer creation without an ID lookup");
     };
     assert_eq!(request.full_name.as_deref(), Some(user.name.as_str()));
 }
 
 #[tokio::test]
-async fn existing_customer_suppresses_only_the_before_create() {
+async fn idless_before_create_does_not_lookup_a_customer_by_a_fabricated_id() {
     let client = Arc::new(LifecycleClient::default());
     client.set_customers(json!({"data": [{"id": "customer_existing"}]}));
     let plugin = plugin(client.clone(), true, None);
@@ -204,7 +205,12 @@ async fn existing_customer_suppresses_only_the_before_create() {
     assert_eq!(
         client.calls(),
         [
-            Call::List(user.id.to_string()),
+            Call::Create(CommetCustomerCreate {
+                email: user.email.clone(),
+                id: None,
+                full_name: Some(user.name.clone()),
+                metadata: None,
+            }),
             Call::Create(CommetCustomerCreate {
                 email: user.email.clone(),
                 id: Some(user.id.to_string()),
@@ -278,7 +284,7 @@ async fn before_maps_provider_api_message_and_opaque_failures() {
     let user = user(false);
 
     let api_client = Arc::new(LifecycleClient::default());
-    api_client.fail_list(LifecycleClient::api_error("provider policy"));
+    api_client.fail_create(LifecycleClient::api_error("provider policy"));
     let provider_api_error =
         invoke_before_create(&plugin(api_client, true, None), &user, &context())
             .await
@@ -286,7 +292,7 @@ async fn before_maps_provider_api_message_and_opaque_failures() {
     assert_api_error(provider_api_error, 403, "FORBIDDEN", "provider policy");
 
     let ordinary_client = Arc::new(LifecycleClient::default());
-    ordinary_client.fail_list(CommetProviderError::new("provider detail"));
+    ordinary_client.fail_create(CommetProviderError::new("provider detail"));
     let ordinary_error =
         invoke_before_create(&plugin(ordinary_client, true, None), &user, &context())
             .await
@@ -299,7 +305,7 @@ async fn before_maps_provider_api_message_and_opaque_failures() {
     );
 
     let opaque_client = Arc::new(LifecycleClient::default());
-    opaque_client.fail_list(CommetProviderError::opaque());
+    opaque_client.fail_create(CommetProviderError::opaque());
     let opaque_provider_error =
         invoke_before_create(&plugin(opaque_client, true, None), &user, &context())
             .await

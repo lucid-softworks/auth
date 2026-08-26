@@ -64,7 +64,7 @@ fn insert_client_identity(
     if let Some(scopes) = &client.scopes {
         output.insert("scope".into(), json!(scopes.join(" ")));
     }
-    if let Some(user_id) = client.user_id {
+    if let Some(user_id) = client.user_id.as_deref() {
         output.insert("user_id".into(), json!(user_id));
     }
     if let Some(created_at) = client.created_at {

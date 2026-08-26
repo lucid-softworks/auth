@@ -2,7 +2,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{collections::BTreeMap, fmt, str::FromStr};
-use uuid::Uuid;
 
 macro_rules! string_enum {
     ($type:ident, $error:ident, {$($variant:ident => $value:literal,)+}) => {
@@ -129,7 +128,7 @@ string_enum!(AgentApprovalStatus, AgentApprovalStatusParseError, {
 pub struct AgentHost {
     pub id: String,
     pub name: Option<String>,
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<String>,
     pub default_capabilities: Vec<String>,
     pub public_key: Option<String>,
     pub kid: Option<String>,
@@ -149,7 +148,7 @@ pub struct AgentHost {
 pub struct AgentIdentity {
     pub id: String,
     pub name: String,
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<String>,
     pub host_id: String,
     pub status: AgentStatus,
     pub mode: AgentMode,
@@ -204,8 +203,8 @@ pub struct AgentCapabilityGrant {
     pub agent_id: String,
     pub capability: String,
     pub constraints: Option<AgentCapabilityConstraints>,
-    pub denied_by: Option<Uuid>,
-    pub granted_by: Option<Uuid>,
+    pub denied_by: Option<String>,
+    pub granted_by: Option<String>,
     pub expires_at: Option<DateTime<Utc>>,
     pub status: AgentGrantStatus,
     pub reason: Option<String>,
@@ -220,7 +219,7 @@ pub struct AgentApprovalRequest {
     pub method: AgentApprovalMethod,
     pub agent_id: Option<String>,
     pub host_id: Option<String>,
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<String>,
     pub capabilities: Option<String>,
     pub status: AgentApprovalStatus,
     pub user_code_hash: Option<String>,

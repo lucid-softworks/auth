@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{collections::BTreeMap, fmt, sync::Arc};
 use tokio::sync::mpsc;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentEndpointContext {
@@ -32,7 +31,7 @@ pub struct AgentSessionUser {
 pub struct AgentSessionGrant {
     pub capability: String,
     pub constraints: Option<super::AgentCapabilityConstraints>,
-    pub granted_by: Option<Uuid>,
+    pub granted_by: Option<String>,
     pub status: String,
 }
 
@@ -53,7 +52,7 @@ pub struct AgentSessionIdentity {
 #[serde(rename_all = "camelCase")]
 pub struct AgentSessionHost {
     pub id: String,
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<String>,
     pub status: String,
 }
 
@@ -62,7 +61,7 @@ pub struct AgentSessionHost {
 pub struct AgentSession {
     pub r#type: AgentMode,
     pub agent_id: String,
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<String>,
     pub agent: AgentSessionIdentity,
     pub host: Option<AgentSessionHost>,
     pub user: AgentSessionUser,
@@ -78,14 +77,14 @@ pub struct AgentHostSession {
 #[serde(rename_all = "camelCase")]
 pub struct AgentHostSessionIdentity {
     pub id: String,
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<String>,
     pub default_capabilities: Vec<String>,
     pub status: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct AgentApprovalMethodContext {
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<String>,
     pub agent_name: String,
     pub host_id: Option<String>,
     pub capabilities: Vec<String>,
@@ -123,7 +122,7 @@ pub trait AgentDynamicHostRegistrationResolver: Send + Sync {
 pub struct AgentDefaultHostCapabilitiesContext {
     pub endpoint: AgentEndpointContext,
     pub mode: AgentMode,
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<String>,
     pub host_id: Option<String>,
     pub host_name: Option<String>,
 }
@@ -151,8 +150,8 @@ pub trait AgentAutonomousUserResolver: Send + Sync {
 pub struct AgentHostClaimedContext {
     pub endpoint: AgentEndpointContext,
     pub host_id: String,
-    pub user_id: Uuid,
-    pub previous_user_id: Option<Uuid>,
+    pub user_id: String,
+    pub previous_user_id: Option<String>,
 }
 
 #[async_trait]
@@ -165,7 +164,7 @@ pub struct AgentGrantTtlContext {
     pub capability: String,
     pub agent_id: String,
     pub host_id: Option<String>,
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<String>,
 }
 
 #[async_trait]
@@ -315,7 +314,7 @@ pub struct AgentAutonomousClaimedContext {
     pub endpoint: AgentEndpointContext,
     pub agent: AgentIdentity,
     pub host: AgentHost,
-    pub user_id: Uuid,
+    pub user_id: String,
     pub capabilities: Vec<String>,
 }
 

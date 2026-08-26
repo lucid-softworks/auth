@@ -7,7 +7,7 @@ async fn wait_for_customer_id(fixture: &super::support::Fixture, expected: &str)
     for _ in 0..20 {
         let user = fixture
             .store
-            .find_user_by_id(fixture.user_id)
+            .find_user_by_id(&fixture.user_id)
             .await
             .unwrap()
             .unwrap();

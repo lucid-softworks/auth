@@ -31,7 +31,7 @@ struct Reactivation {
 
 pub(in crate::agent_auth::axum::host) async fn create_for_user(
     state: &AgentAuthState,
-    user_id: Uuid,
+    user_id: &str,
     body: CreateHostBody,
     endpoint: AgentEndpointContext,
     now: DateTime<Utc>,
@@ -68,7 +68,7 @@ pub(in crate::agent_auth::axum::host) async fn create_for_user(
 
 async fn resolve_capabilities(
     state: &AgentAuthState,
-    user_id: Uuid,
+    user_id: &str,
     body: &CreateHostBody,
     endpoint: &AgentEndpointContext,
 ) -> Vec<String> {
@@ -80,7 +80,7 @@ async fn resolve_capabilities(
                     .resolve(AgentDefaultHostCapabilitiesContext {
                         endpoint: endpoint.clone(),
                         mode: AgentMode::Delegated,
-                        user_id: Some(user_id),
+                        user_id: Some(user_id.to_owned()),
                         host_id: None,
                         host_name: body.name.clone(),
                     })
@@ -93,7 +93,7 @@ async fn resolve_capabilities(
 
 async fn reactivate_host(
     state: &AgentAuthState,
-    user_id: Uuid,
+    user_id: &str,
     reactivation: Reactivation,
 ) -> Result<Value, HostError> {
     let Reactivation {
@@ -107,12 +107,16 @@ async fn reactivate_host(
     if existing.status == AgentHostStatus::Revoked {
         return Err(HostError::host_revoked());
     }
-    if existing.user_id.is_some_and(|owner| owner != user_id) {
+    if existing
+        .user_id
+        .as_deref()
+        .is_some_and(|owner| owner != user_id)
+    {
         return Err(HostError::host_already_linked());
     }
     let was_unclaimed = existing.user_id.is_none();
     existing.name = body.name.or(existing.name);
-    existing.user_id = Some(user_id);
+    existing.user_id = Some(user_id.to_owned());
     existing.default_capabilities = capabilities.clone();
     existing.public_key = serialized_key;
     existing.kid = body
@@ -136,7 +140,7 @@ async fn reactivate_host(
             .call(AgentHostClaimedContext {
                 endpoint,
                 host_id: existing.id.clone(),
-                user_id,
+                user_id: user_id.to_owned(),
                 previous_user_id: None,
             })
             .await;
@@ -158,7 +162,7 @@ async fn reactivate_host(
 
 async fn create_new_host(
     state: &AgentAuthState,
-    user_id: Uuid,
+    user_id: &str,
     body: CreateHostBody,
     serialized_key: Option<String>,
     capabilities: Vec<String>,
@@ -169,7 +173,7 @@ async fn create_new_host(
     let host = AgentHost {
         id: Uuid::new_v4().to_string(),
         name: body.name,
-        user_id: Some(user_id),
+        user_id: Some(user_id.to_owned()),
         default_capabilities: capabilities.clone(),
         public_key: serialized_key,
         kid: body
@@ -258,7 +262,7 @@ pub(in crate::agent_auth::axum::host) async fn enroll_with_token(
         .and_then(|existing| {
             provisioned
                 .as_ref()
-                .and_then(|provisioned| provisioned.user_id)
+                .and_then(|provisioned| provisioned.user_id.clone())
                 .map(|user_id| (existing.id.clone(), user_id))
         });
     let kid = body
@@ -327,7 +331,7 @@ fn enrolled_host(outcome: AgentHostEnrollmentOutcome) -> Result<AgentHost, HostE
 async fn notify_claimed_host(
     state: &AgentAuthState,
     enrolled: &AgentHost,
-    claimed_user: Option<(String, Uuid)>,
+    claimed_user: Option<(String, String)>,
     endpoint: AgentEndpointContext,
 ) {
     if let Some((host_id, user_id)) = claimed_user

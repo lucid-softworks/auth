@@ -165,7 +165,11 @@ pub(super) async fn plugin_with_options(
     let store = Arc::new(MemoryStore::default());
     let user = user();
     store
-        .create_user_without_account(user.clone())
+        .create_user_without_account(crate::test_utils::factory::fixed_database_create(
+            "user",
+            &user.id,
+            user.clone(),
+        ))
         .await
         .unwrap();
     let mut options = DodoPaymentsOptions::new(client, Vec::new());
@@ -177,7 +181,7 @@ pub(super) async fn plugin_with_options(
 pub(super) fn user() -> AuthUser {
     let now = Utc::now();
     AuthUser {
-        id: Uuid::new_v4(),
+        id: Uuid::new_v4().to_string(),
         username: None,
         display_username: None,
         name: "Ada".into(),

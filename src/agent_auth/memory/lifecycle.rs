@@ -8,6 +8,7 @@ use crate::{
     },
 };
 use chrono::{DateTime, Utc};
+#[cfg(test)]
 use uuid::Uuid;
 
 pub(super) fn enroll(
@@ -97,7 +98,7 @@ fn merge_enrollment(
         .name
         .or(provisioned.name)
         .or(existing.name.clone());
-    existing.user_id = existing.user_id.or(provisioned.user_id);
+    existing.user_id = existing.user_id.take().or(provisioned.user_id);
     existing.kid = enrollment.kid;
     existing.status = AgentHostStatus::Active;
     existing.activated_at = Some(enrollment.now);
@@ -138,14 +139,14 @@ pub(super) fn revoke(
 pub(super) fn switch_account(
     store: &MemoryAgentAuthStore,
     host_id: &str,
-    user_id: Uuid,
+    user_id: &str,
     now: DateTime<Utc>,
 ) -> Result<Option<AgentHostSwitchOutcome>, AuthError> {
     let mut state = write(&store.state)?;
     let Some(host) = state.hosts.get_mut(host_id) else {
         return Ok(None);
     };
-    let previous_user_id = host.user_id.replace(user_id);
+    let previous_user_id = host.user_id.replace(user_id.to_owned());
     host.updated_at = now;
     let host = host.clone();
     let (revoked_agent_ids, claimed_agents) = switch_descendants(&mut state, host_id, user_id, now);
@@ -184,7 +185,7 @@ fn revoke_descendants(state: &mut State, host_id: &str, now: DateTime<Utc>) -> V
 fn switch_descendants(
     state: &mut State,
     host_id: &str,
-    user_id: Uuid,
+    user_id: &str,
     now: DateTime<Utc>,
 ) -> (Vec<String>, Vec<AgentClaimedAutonomousAgent>) {
     let mut revoked = Vec::new();
@@ -206,7 +207,7 @@ fn switch_descendants(
         let agent = state.agents.get_mut(&agent_id).expect("agent exists");
         if agent.mode == AgentMode::Autonomous && agent.status == AgentStatus::Active {
             agent.status = AgentStatus::Claimed;
-            agent.user_id = Some(user_id);
+            agent.user_id = Some(user_id.to_owned());
             agent.updated_at = now;
             claimed.push(AgentClaimedAutonomousAgent {
                 agent: agent.clone(),
@@ -249,7 +250,7 @@ mod tests {
         AgentHost {
             id: id.into(),
             name: None,
-            user_id: Some(user_id),
+            user_id: Some(user_id.to_string()),
             default_capabilities: vec![],
             public_key: Some(format!("key-{id}")),
             kid: None,
@@ -320,7 +321,7 @@ mod tests {
                 .unwrap();
         }
         let outcome = store
-            .switch_host_account_cascade("host", new_user, now)
+            .switch_host_account_cascade("host", &new_user.to_string(), now)
             .await
             .unwrap()
             .unwrap();

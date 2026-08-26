@@ -3,7 +3,6 @@ use crate::{
     AuthError,
     agent_auth::{AgentHost, AgentStoreCreateOutcome},
 };
-use uuid::Uuid;
 
 pub(super) fn create(
     store: &MemoryAgentAuthStore,
@@ -43,12 +42,12 @@ pub(super) fn find(
 
 pub(super) fn list_for_user(
     store: &MemoryAgentAuthStore,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<Vec<AgentHost>, AuthError> {
     let mut hosts: Vec<_> = read(&store.state)?
         .hosts
         .values()
-        .filter(|host| host.user_id == Some(user_id))
+        .filter(|host| host.user_id.as_deref() == Some(user_id))
         .cloned()
         .collect();
     hosts.sort_by_key(|host| (host.created_at, host.id.clone()));

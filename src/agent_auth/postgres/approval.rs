@@ -7,7 +7,6 @@ use crate::{
 };
 use serde_json::{Value, json};
 use sqlx::QueryBuilder;
-use uuid::Uuid;
 
 pub(super) async fn create(
     store: &PostgresAgentAuthStore,
@@ -80,14 +79,11 @@ pub(super) async fn find(
 
 pub(super) async fn list_pending_for_user(
     store: &PostgresAgentAuthStore,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<Vec<AgentApprovalRequest>, AuthError> {
     list_by(
         store,
-        [
-            ("userId", json!(user_id.to_string())),
-            ("status", json!("pending")),
-        ],
+        [("userId", json!(user_id)), ("status", json!("pending"))],
         true,
     )
     .await

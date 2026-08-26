@@ -127,14 +127,15 @@ async fn user_factories_persistence_and_core_hooks_are_exact() {
     assert!(user.image.is_none());
     assert_eq!(user.created_at, user.updated_at);
     assert_eq!(user.additional_fields["tenant"], "fixture");
-    assert!(store.find_user_by_id(user.id).await.unwrap().is_none());
+    assert!(store.find_user_by_id(&user.id).await.unwrap().is_none());
 
     let saved = helpers.save_user(user).await.unwrap();
+    let saved_id = Uuid::parse_str(&saved.id).unwrap();
     assert_eq!(saved.email, "case@test.example");
     assert_eq!(hooks.creates.load(Ordering::SeqCst), 1);
     assert_eq!(hooks.test_method.load(Ordering::SeqCst), 1);
-    helpers.delete_user(saved.id).await.unwrap();
-    helpers.delete_user(saved.id).await.unwrap();
+    helpers.delete_user(saved_id).await.unwrap();
+    helpers.delete_user(saved_id).await.unwrap();
     assert_eq!(hooks.deletes.load(Ordering::SeqCst), 1);
 }
 
@@ -153,7 +154,8 @@ async fn login_headers_and_browser_cookies_authenticate_the_normal_router() {
         .save_user(helpers.create_user(TestUserOverrides::default()))
         .await
         .unwrap();
-    let login = helpers.login(user.id).await.unwrap();
+    let user_id = Uuid::parse_str(&user.id).unwrap();
+    let login = helpers.login(user_id).await.unwrap();
     assert_eq!(login.user.id, user.id);
     assert_eq!(login.session.token, login.token);
     let cookie = &login.cookies[0];
@@ -180,9 +182,9 @@ async fn login_headers_and_browser_cookies_authenticate_the_normal_router() {
         serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
     assert_eq!(body["user"]["id"], user.id.to_string());
 
-    let headers = helpers.get_auth_headers(user.id).await.unwrap();
+    let headers = helpers.get_auth_headers(user_id).await.unwrap();
     let cookies = helpers
-        .get_cookies(user.id, Some("localhost"))
+        .get_cookies(user_id, Some("localhost"))
         .await
         .unwrap();
     assert_ne!(headers["cookie"], login.headers["cookie"]);

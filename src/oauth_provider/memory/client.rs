@@ -15,7 +15,7 @@ impl OAuthProviderClientStore for MemoryOAuthProviderStore {
 
     async fn list_oauth_clients(
         &self,
-        user_id: Option<Uuid>,
+        user_id: Option<&str>,
         reference_id: Option<&str>,
     ) -> Result<Vec<OAuthProviderClient>, AuthError> {
         let mut clients = self
@@ -25,7 +25,7 @@ impl OAuthProviderClientStore for MemoryOAuthProviderStore {
             .clients
             .values()
             .filter(|client| {
-                user_id.is_some_and(|user_id| client.user_id == Some(user_id))
+                user_id.is_some_and(|user_id| client.user_id.as_deref() == Some(user_id))
                     || reference_id.is_some_and(|reference_id| {
                         client.reference_id.as_deref() == Some(reference_id)
                     })

@@ -1,7 +1,6 @@
 use super::AuthService;
 use crate::{AuthError, AuthSession, AuthUser};
 use chrono::Utc;
-use uuid::Uuid;
 
 impl AuthService {
     pub(crate) fn oauth_provider_plugin(&self) -> Option<&crate::OAuthProviderPlugin> {
@@ -20,7 +19,7 @@ impl AuthService {
 
     pub(crate) async fn auth_user_by_id(
         &self,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Option<AuthUser>, AuthError> {
         self.store.find_user_by_id(user_id).await
     }
@@ -34,7 +33,7 @@ impl AuthService {
 
     pub(crate) async fn oauth_provider_session_by_id(
         &self,
-        session_id: Uuid,
+        session_id: &str,
     ) -> Result<Option<AuthSession>, AuthError> {
         Ok(self
             .find_stored_session_by_id(session_id)

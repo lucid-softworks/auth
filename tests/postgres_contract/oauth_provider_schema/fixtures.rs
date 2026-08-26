@@ -4,7 +4,7 @@ use lucid_auth::{
     OAuthProviderResource,
 };
 
-pub(super) fn client(client_id: &str, user_id: Uuid) -> OAuthProviderClient {
+pub(super) fn client(client_id: &str, user_id: &str) -> OAuthProviderClient {
     let now = now();
     OAuthProviderClient {
         id: Uuid::new_v4(),
@@ -17,7 +17,7 @@ pub(super) fn client(client_id: &str, user_id: Uuid) -> OAuthProviderClient {
         subject_type: Some("public".into()),
         scopes: Some(vec!["openid".into(), "offline_access".into()]),
         client_credentials_scopes: vec!["api.read".into()],
-        user_id: Some(user_id),
+        user_id: Some(user_id.to_owned()),
         created_at: Some(now),
         updated_at: Some(now),
         expires_at: None,
@@ -68,14 +68,14 @@ pub(super) fn resource(identifier: &str) -> OAuthProviderResource {
     }
 }
 
-pub(super) fn refresh(token: &str, client_id: &str, user_id: Uuid) -> OAuthProviderRefreshToken {
+pub(super) fn refresh(token: &str, client_id: &str, user_id: &str) -> OAuthProviderRefreshToken {
     let now = now();
     OAuthProviderRefreshToken {
         id: Uuid::new_v4(),
         token: token.into(),
         client_id: client_id.into(),
         session_id: None,
-        user_id,
+        user_id: user_id.to_owned(),
         reference_id: None,
         authorization_code_id: Some("authorization-code-id".into()),
         resources: Some(vec!["https://api.example".into()]),
@@ -95,7 +95,7 @@ pub(super) fn refresh(token: &str, client_id: &str, user_id: Uuid) -> OAuthProvi
 pub(super) fn access(
     token: &str,
     client_id: &str,
-    user_id: Uuid,
+    user_id: &str,
     refresh_id: Uuid,
 ) -> OAuthProviderAccessToken {
     let now = now();
@@ -104,7 +104,7 @@ pub(super) fn access(
         token: token.into(),
         client_id: client_id.into(),
         session_id: None,
-        user_id: Some(user_id),
+        user_id: Some(user_id.to_owned()),
         reference_id: None,
         authorization_code_id: Some("authorization-code-id".into()),
         resources: Some(vec!["https://api.example".into()]),
@@ -118,12 +118,12 @@ pub(super) fn access(
     }
 }
 
-pub(super) fn consent(client_id: &str, user_id: Uuid) -> OAuthProviderConsent {
+pub(super) fn consent(client_id: &str, user_id: &str) -> OAuthProviderConsent {
     let now = now();
     OAuthProviderConsent {
         id: Uuid::new_v4(),
         client_id: client_id.into(),
-        user_id: Some(user_id),
+        user_id: Some(user_id.to_owned()),
         reference_id: None,
         resources: Some(vec!["https://api.example".into()]),
         requested_user_info_claims: Some(vec!["email".into()]),

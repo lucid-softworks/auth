@@ -9,7 +9,6 @@ use crate::{
 };
 use async_trait::async_trait;
 use std::sync::Arc;
-use uuid::Uuid;
 
 const PLUGIN_ID: &str = "lucid-operator-security";
 const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
@@ -28,12 +27,12 @@ pub enum OperatorSecurityError {
 
 #[async_trait]
 pub trait OperatorSecurityStore: Send + Sync {
-    async fn is_temporary_password(&self, user_id: Uuid) -> Result<bool, AuthError>;
-    async fn set_temporary_password(&self, user_id: Uuid, temporary: bool)
+    async fn is_temporary_password(&self, user_id: &str) -> Result<bool, AuthError>;
+    async fn set_temporary_password(&self, user_id: &str, temporary: bool)
     -> Result<(), AuthError>;
     async fn recover_sole_owner(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         owner_role: &str,
         password_hash: String,
     ) -> Result<bool, AuthError>;
@@ -68,14 +67,14 @@ impl OperatorSecurityPlugin {
         }
     }
 
-    pub(crate) async fn status(&self, user_id: Uuid) -> Result<OperatorSecurityStatus, AuthError> {
+    pub(crate) async fn status(&self, user_id: &str) -> Result<OperatorSecurityStatus, AuthError> {
         Ok(OperatorSecurityStatus {
             temporary_password: self.store.is_temporary_password(user_id).await?,
         })
     }
 
     async fn enforce(&self, session: &SessionWithUser) -> Result<(), AuthError> {
-        if self.store.is_temporary_password(session.user.id).await? {
+        if self.store.is_temporary_password(&session.user.id).await? {
             return Err(OperatorSecurityError::TemporaryPasswordRequired.into());
         }
         Ok(())
@@ -127,7 +126,7 @@ impl AuthPlugin for OperatorSecurityPlugin {
             | PasswordCredentialSource::PasswordReset => false,
         };
         self.store
-            .set_temporary_password(event.user_id, temporary)
+            .set_temporary_password(&event.user_id, temporary)
             .await
     }
 
@@ -145,13 +144,13 @@ impl AuthPlugin for OperatorSecurityPlugin {
         self.enforce(operation.session).await
     }
 
-    async fn reset_user_security_state(&self, user_id: Uuid) -> Result<(), AuthError> {
+    async fn reset_user_security_state(&self, user_id: &str) -> Result<(), AuthError> {
         self.store.set_temporary_password(user_id, false).await
     }
 
     async fn after(&self, event: &AfterAuthEvent) {
         if let AfterAuthEvent::UserDeleted { user } = event {
-            let _ = self.store.set_temporary_password(user.id, false).await;
+            let _ = self.store.set_temporary_password(&user.id, false).await;
         }
     }
 }

@@ -32,7 +32,7 @@ impl OrganizationMemberStore for MemoryOrganizationStore {
     async fn find_member(
         &self,
         organization_id: Uuid,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Option<OrganizationMember>, AuthError> {
         Ok(self
             .state

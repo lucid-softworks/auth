@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use uuid::Uuid;
 
 use crate::{
     AgentCapabilityGrant, AgentGrantStatus, AgentHost, AgentHostSession, AgentHostSessionIdentity,
@@ -11,7 +10,7 @@ use crate::{
 pub(in crate::agent_auth::axum) fn agent_session(
     agent: &AgentIdentity,
     host: Option<&AgentHost>,
-    user_id: Option<Uuid>,
+    user_id: Option<String>,
     user: AgentSessionUser,
     grants: Vec<AgentCapabilityGrant>,
 ) -> AgentSession {
@@ -31,7 +30,7 @@ pub(in crate::agent_auth::axum) fn agent_session(
         },
         host: host.map(|host| AgentSessionHost {
             id: host.id.clone(),
-            user_id: host.user_id,
+            user_id: host.user_id.clone(),
             status: host.status.to_string(),
         }),
         user,
@@ -90,7 +89,7 @@ pub(in crate::agent_auth::axum) enum IntrospectionResponse {
         active: bool,
         agent_id: String,
         host_id: String,
-        user_id: Option<Uuid>,
+        user_id: Option<String>,
         agent_capability_grants: Vec<IntrospectionGrant>,
         mode: AgentMode,
         expires_at: Option<DateTime<Utc>>,
@@ -105,7 +104,7 @@ impl IntrospectionResponse {
     pub(super) fn active(
         agent_id: String,
         host_id: String,
-        user_id: Option<Uuid>,
+        user_id: Option<String>,
         agent_capability_grants: Vec<IntrospectionGrant>,
         mode: AgentMode,
         expires_at: Option<DateTime<Utc>>,

@@ -50,7 +50,7 @@ pub(super) async fn after(
         support::schedule_customer_id_write(
             context,
             plugin.auth_store.clone(),
-            user.id,
+            user.id.clone(),
             customer_id,
             "store",
         );
@@ -109,7 +109,7 @@ mod tests {
         assert_eq!(
             plugin
                 .auth_store
-                .find_user_by_id(user.id)
+                .find_user_by_id(&user.id)
                 .await
                 .unwrap()
                 .unwrap()
@@ -185,7 +185,7 @@ mod tests {
     async fn missing_persistence_target_does_not_interrupt_customer_creation() {
         let client = FakeCustomerClient::shared();
         let (plugin, user) = plugin(client.clone()).await;
-        plugin.auth_store.delete_user(user.id).await.unwrap();
+        plugin.auth_store.delete_user(&user.id).await.unwrap();
 
         after(&plugin, &user, &context()).await.unwrap();
         tokio::task::yield_now().await;
@@ -194,7 +194,7 @@ mod tests {
         assert!(
             plugin
                 .auth_store
-                .find_user_by_id(user.id)
+                .find_user_by_id(&user.id)
                 .await
                 .unwrap()
                 .is_none()

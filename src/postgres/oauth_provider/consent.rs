@@ -5,13 +5,14 @@ use super::{
         storage_error,
     },
     PostgresOAuthProviderStore,
-    rows::{self, CONSENT_FIELDS, ConsentRow},
+    rows::{self, ConsentRow},
 };
 use crate::{
     AuthError,
     oauth_provider::{OAuthProviderConsent, OAuthProviderConsentStore},
 };
 use async_trait::async_trait;
+use serde_json::json;
 use sqlx::QueryBuilder;
 use uuid::Uuid;
 
@@ -20,7 +21,7 @@ fn select_consents(
 ) -> Result<QueryBuilder<'static, sqlx::Postgres>, AuthError> {
     let mut query = QueryBuilder::new("SELECT ");
     query
-        .push(model.projection_as(CONSENT_FIELDS)?)
+        .push(rows::consent_projection(model)?)
         .push(" FROM ")
         .push(model.quoted_table());
     Ok(query)
@@ -41,7 +42,7 @@ impl OAuthProviderConsentStore for PostgresOAuthProviderStore {
     async fn find_oauth_consent_for_grant(
         &self,
         client_id: &str,
-        user_id: Uuid,
+        user_id: &str,
         reference_id: Option<&str>,
     ) -> Result<Option<OAuthProviderConsent>, AuthError> {
         let model = self.model("oauthConsent")?;
@@ -53,8 +54,11 @@ impl OAuthProviderConsentStore for PostgresOAuthProviderStore {
             .push_bind(client_id.to_owned())
             .push(" AND ")
             .push(model.quoted_column("userId")?)
-            .push(" = ")
-            .push_bind(user_id)
+            .push(" = ");
+        model
+            .encode("userId", serde_json::json!(user_id))?
+            .push_bind(&mut query);
+        query
             .push(" AND ")
             .push(model.quoted_column("referenceId")?)
             .push(" IS NOT DISTINCT FROM ")
@@ -67,15 +71,18 @@ impl OAuthProviderConsentStore for PostgresOAuthProviderStore {
 
     async fn list_oauth_consents(
         &self,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Vec<OAuthProviderConsent>, AuthError> {
         let model = self.model("oauthConsent")?;
         let mut query = select_consents(&model)?;
         query
             .push(" WHERE ")
             .push(model.quoted_column("userId")?)
-            .push(" = ")
-            .push_bind(user_id)
+            .push(" = ");
+        model
+            .encode("userId", serde_json::json!(user_id))?
+            .push_bind(&mut query);
+        query
             .push(" ORDER BY ")
             .push(model.quoted_column("createdAt")?)
             .push(", \"id\"");
@@ -125,7 +132,7 @@ impl OAuthProviderConsentStore for PostgresOAuthProviderStore {
         };
         query
             .push(" RETURNING ")
-            .push(model.projection_as(CONSENT_FIELDS)?);
+            .push(rows::consent_projection(&model)?);
         let stored = query
             .build_query_as::<ConsentRow>()
             .fetch_one(&mut *transaction)
@@ -146,7 +153,7 @@ impl OAuthProviderConsentStore for PostgresOAuthProviderStore {
             .push(" WHERE \"id\" = ")
             .push_bind(id)
             .push(" RETURNING ")
-            .push(model.projection_as(CONSENT_FIELDS)?);
+            .push(rows::consent_projection(&model)?);
         fetch_optional(query, self.pool()).await
     }
 }
@@ -165,8 +172,11 @@ async fn find_existing_id(
         .push_bind(consent.client_id.clone())
         .push(" AND ")
         .push(model.quoted_column("userId")?)
-        .push(" IS NOT DISTINCT FROM ")
-        .push_bind(consent.user_id)
+        .push(" IS NOT DISTINCT FROM ");
+    model
+        .encode("userId", json!(consent.user_id))?
+        .push_bind(&mut query);
+    query
         .push(" AND ")
         .push(model.quoted_column("referenceId")?)
         .push(" IS NOT DISTINCT FROM ")

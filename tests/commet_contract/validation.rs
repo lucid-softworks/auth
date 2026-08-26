@@ -141,7 +141,7 @@ async fn unsupported_content_types_use_better_call_coded_errors_before_validatio
 #[tokio::test]
 async fn numbers_are_rounded_through_javascript_f64_semantics() {
     let fixture = fixture(features(), true).await;
-    let user_id = fixture.user_id.unwrap().to_string();
+    let user_id = fixture.user_id.clone().unwrap();
     for (path, body) in [
         (
             "/api/auth/commet/usage/track",

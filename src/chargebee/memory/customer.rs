@@ -10,7 +10,7 @@ const CUSTOMER_FIELD: &str = "chargebeeCustomerId";
 
 pub(super) async fn user_customer_id(
     store: &MemoryChargebeeStore,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<Option<String>, ChargebeeStoreError> {
     store
         .auth_store
@@ -29,7 +29,7 @@ pub(super) async fn user_customer_id(
 
 pub(super) async fn set_user_customer_id(
     store: &MemoryChargebeeStore,
-    user_id: Uuid,
+    user_id: &str,
     customer_id: Option<String>,
 ) -> Result<(), ChargebeeStoreError> {
     let _guard = store.customer_write.lock().await;
@@ -61,7 +61,7 @@ pub(super) async fn set_user_customer_id(
 pub(super) async fn user_id_by_customer(
     store: &MemoryChargebeeStore,
     customer_id: &str,
-) -> Result<Option<Uuid>, ChargebeeStoreError> {
+) -> Result<Option<String>, ChargebeeStoreError> {
     let query = AdminListUsersQuery {
         limit: 1,
         conditions: vec![AdminListCondition {

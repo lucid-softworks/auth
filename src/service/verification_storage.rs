@@ -1,5 +1,5 @@
 use super::AuthService;
-use crate::{AuthError, DatabaseRecord, VerificationValue};
+use crate::{AuthError, DatabaseCreate, DatabaseRecord, PreparedDatabaseId, VerificationValue};
 use chrono::{DateTime, Utc};
 
 mod consume;
@@ -20,16 +20,8 @@ impl AuthService {
         mut value: VerificationValue,
     ) -> Result<(), AuthError> {
         value.identifier = self.process_identifier(&value.identifier).await?;
-        let value = match self
-            .before_database_create(DatabaseRecord::Verification(value))
-            .await?
-        {
-            DatabaseRecord::Verification(value) => value,
-            _ => unreachable!("database hook model was validated"),
-        };
-        if self.verification_uses_database() {
-            self.store.create_verification(value.clone()).await?;
-        }
+        let value = self.prepare_verification_create(value).await?;
+        let value = self.persist_new_verification(value).await?;
         self.cache_verification(&value).await?;
         self.after_database_create(&DatabaseRecord::Verification(value))
             .await
@@ -40,24 +32,26 @@ impl AuthService {
         mut value: VerificationValue,
     ) -> Result<(), AuthError> {
         value.identifier = self.process_identifier(&value.identifier).await?;
-        let value = match self
-            .before_database_create(DatabaseRecord::Verification(value))
-            .await?
-        {
-            DatabaseRecord::Verification(value) => value,
-            _ => unreachable!("database hook model was validated"),
-        };
-        if self.verification_uses_database() {
-            let existing = self.store.find_verification(&value.identifier).await?;
+        let value = self.prepare_verification_create(value).await?;
+        let identifier = value.record.identifier.clone();
+        let value = if self.verification_uses_database() {
+            let existing = self.store.find_verification(&identifier).await?;
             if let Some(mut existing) = existing {
-                existing.value = value.value.clone();
-                existing.expires_at = value.expires_at;
+                existing.value = value.record.value.clone();
+                existing.expires_at = value.record.expires_at;
                 existing.updated_at = Utc::now();
-                self.store.update_verification(existing).await?;
+                self.store
+                    .update_verification(existing)
+                    .await?
+                    .ok_or_else(|| {
+                        AuthError::Storage("verification disappeared during replacement".into())
+                    })?
             } else {
-                self.store.create_verification(value.clone()).await?;
+                self.store.create_verification(value).await?
             }
-        }
+        } else {
+            self.materialize_verification(value)?
+        };
         self.cache_verification(&value).await?;
         self.after_database_create(&DatabaseRecord::Verification(value))
             .await
@@ -180,6 +174,33 @@ impl AuthService {
         self.config.secondary_storage.is_none() || self.config.verification.store_in_database
     }
 
+    async fn persist_new_verification(
+        &self,
+        value: DatabaseCreate<VerificationValue>,
+    ) -> Result<VerificationValue, AuthError> {
+        if self.verification_uses_database() {
+            self.store.create_verification(value).await
+        } else {
+            self.materialize_verification(value)
+        }
+    }
+
+    fn materialize_verification(
+        &self,
+        value: DatabaseCreate<VerificationValue>,
+    ) -> Result<VerificationValue, AuthError> {
+        let mut record = value.record;
+        record.id = match value.id.prepare(self.store.as_ref())? {
+            PreparedDatabaseId::Value(value) => value.into_output_string(),
+            PreparedDatabaseId::Deferred | PreparedDatabaseId::DeferredSerial => {
+                return Err(AuthError::Storage(
+                    "verification ID generation was deferred without database storage".into(),
+                ));
+            }
+        };
+        Ok(record)
+    }
+
     async fn cache_verification(&self, value: &VerificationValue) -> Result<(), AuthError> {
         let Some(secondary) = &self.config.secondary_storage else {
             return Ok(());
@@ -218,6 +239,18 @@ mod tests {
     use sha2::{Digest, Sha256};
     use std::sync::Arc;
 
+    fn create(value: VerificationValue) -> DatabaseCreate<VerificationValue> {
+        DatabaseCreate::new(
+            value,
+            crate::DatabaseIdPlan::new(
+                crate::DatabaseIdGeneration::Default,
+                "verification",
+                crate::DatabaseIdInput::Absent,
+                false,
+            ),
+        )
+    }
+
     #[tokio::test]
     async fn deletion_targets_only_the_processed_identifier() {
         let store = Arc::new(MemoryStore::default());
@@ -227,15 +260,15 @@ mod tests {
         let expires_at = Utc::now() + Duration::minutes(1);
         let processed = URL_SAFE_NO_PAD.encode(Sha256::digest(b"plain"));
         store
-            .create_verification(VerificationValue::new(
+            .create_verification(create(VerificationValue::new(
                 processed.clone(),
                 "processed",
                 expires_at,
-            ))
+            )))
             .await
             .unwrap();
         store
-            .create_verification(VerificationValue::new("plain", "plain", expires_at))
+            .create_verification(create(VerificationValue::new("plain", "plain", expires_at)))
             .await
             .unwrap();
 

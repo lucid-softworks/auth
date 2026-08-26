@@ -142,7 +142,7 @@ async fn new_refresh(
     let user = request.user.as_ref().expect("refresh requires a user");
     let row = OAuthProviderRefreshToken {
         id: Uuid::new_v4(), token: stored, client_id: request.client.client_id.clone(),
-        session_id: request.session_id, user_id: user.id, reference_id: request.reference_id.clone(),
+        session_id: request.session_id.clone(), user_id: user.id.clone(), reference_id: request.reference_id.clone(),
         authorization_code_id: request.authorization_code_id.clone(),
         resources: request.previous_refresh.as_ref().and_then(|token| token.resources.clone())
             .or_else(|| request.original_resources.clone()).or_else(|| request.resources.clone()),
@@ -180,7 +180,7 @@ async fn new_access(
     let (plain, stored) = generate_opaque(context.config).await?;
     let row = OAuthProviderAccessToken {
         id: Uuid::new_v4(), token: stored, client_id: request.client.client_id.clone(),
-        session_id: request.session_id, user_id: request.user.as_ref().map(|user| user.id),
+        session_id: request.session_id.clone(), user_id: request.user.as_ref().map(|user| user.id.clone()),
         reference_id: request.reference_id.clone(), authorization_code_id: request.authorization_code_id.clone(),
         resources: request.resources.clone(),
         requested_user_info_claims: (!request.requested_userinfo_claims.is_empty()).then_some(request.requested_userinfo_claims.clone()),
@@ -256,7 +256,7 @@ async fn handle_rotation_outcome(
                     "invalid refresh token".into(),
                 ));
             }
-            store.revoke_oauth_refresh_family(&request.client.client_id, token.user_id).await.map_err(server)?;
+            store.revoke_oauth_refresh_family(&request.client.client_id, &token.user_id).await.map_err(server)?;
             Err(OAuthProviderError::InvalidGrant("invalid refresh token".into()))
         }
         OAuthRefreshRotationOutcome::NotFound => Err(OAuthProviderError::InvalidGrant("invalid refresh token".into())),
@@ -288,7 +288,7 @@ async fn token_response(
     body.insert("expires_at".into(), Value::from(access_expires_at));
     body.insert("scope".into(), Value::String(policy.scopes.join(" ")));
     if let Some(refresh) = refresh {
-        body.insert("refresh_token".into(), Value::String(encode_refresh_token(config, &refresh.plain, request.session_id).await?));
+        body.insert("refresh_token".into(), Value::String(encode_refresh_token(config, &refresh.plain, request.session_id.as_deref()).await?));
     }
     if let Some(id_token) = id_token {
         body.insert("id_token".into(), Value::String(id_token));

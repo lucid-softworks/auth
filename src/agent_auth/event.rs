@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use serde::Serialize;
 use serde_json::{Map, Value};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
@@ -71,7 +70,7 @@ pub struct AgentAuthExecutionEventFields {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub arguments: Option<Map<String, Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]

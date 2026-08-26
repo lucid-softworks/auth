@@ -8,8 +8,9 @@ use axum::{
 use http_body_util::BodyExt;
 use lucid_auth::{
     AdditionalField, AdditionalFieldTransform, AdditionalFieldType, AuthConfig, AuthError,
-    AuthPlugin, AuthService, BeforeDatabaseHook, DatabaseHookContext, DatabaseHooks, DatabaseModel,
-    DatabaseRecord, MemoryStore, PluginDescriptor, PluginSchemaTable,
+    AuthPlugin, AuthService, BeforeDatabaseCreateHook, DatabaseCreatePatch, DatabaseCreateRecord,
+    DatabaseHookContext, DatabaseHooks, DatabaseModel, DatabaseRecord, MemoryStore,
+    PluginDescriptor, PluginSchemaTable,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -28,9 +29,9 @@ struct RecordingHooks {
 impl DatabaseHooks for RecordingHooks {
     async fn before_create(
         &self,
-        record: &DatabaseRecord,
+        record: &DatabaseCreateRecord,
         context: &DatabaseHookContext,
-    ) -> Result<BeforeDatabaseHook, AuthError> {
+    ) -> Result<BeforeDatabaseCreateHook, AuthError> {
         let path = context
             .request
             .as_ref()
@@ -42,13 +43,19 @@ impl DatabaseHooks for RecordingHooks {
             record.model().as_str()
         ));
         if self.cancel {
-            return Ok(BeforeDatabaseHook::Cancel);
+            return Ok(BeforeDatabaseCreateHook::Cancel);
         }
-        let mut replacement = record.clone();
-        if let DatabaseRecord::User(user) = &mut replacement {
-            user.name.push_str(self.label);
+        if record.model() != DatabaseModel::User {
+            return Ok(BeforeDatabaseCreateHook::Continue);
         }
-        Ok(BeforeDatabaseHook::replace(replacement))
+        let name = record
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        Ok(BeforeDatabaseCreateHook::Merge(
+            DatabaseCreatePatch::new()
+                .with_field("name", Value::String(format!("{name}{}", self.label))),
+        ))
     }
 
     async fn after_create(
@@ -227,11 +234,11 @@ async fn plugin_and_host_hooks_wrap_typed_additional_fields_in_better_auth_order
     assert_eq!(response["user"]["timezone"], "EUROPE/LONDON");
     assert_eq!(response["user"]["tier"], "free");
     assert!(response["user"].get("internalCode").is_none());
-    let user_id = uuid::Uuid::parse_str(response["user"]["id"].as_str().unwrap()).unwrap();
+    let user_id = response["user"]["id"].as_str().unwrap();
     let credential = lucid_auth::OAuthAccountStore::find_oauth_account_owner(
         store.as_ref(),
         "local:credential",
-        &user_id.to_string(),
+        user_id,
     )
     .await
     .unwrap()

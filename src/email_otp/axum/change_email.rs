@@ -67,7 +67,7 @@ pub(super) async fn change(
             with_bound_session_cookie(
                 &service,
                 &headers,
-                user.id,
+                &user.id,
                 &session.session.token,
                 Some(true),
                 Json(success()),

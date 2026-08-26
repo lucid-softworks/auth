@@ -17,7 +17,7 @@ const DELIVERY_TIMEOUT: StdDuration = StdDuration::from_secs(5);
 
 #[derive(Clone, Default)]
 pub(super) struct LogoutCoordinator {
-    pending: Arc<Mutex<HashMap<Uuid, PendingLogout>>>,
+    pending: Arc<Mutex<HashMap<String, PendingLogout>>>,
 }
 
 struct PendingLogout {
@@ -36,7 +36,7 @@ impl LogoutCoordinator {
         let DatabaseRecord::Session(session) = record else {
             return;
         };
-        let Ok(token_plan) = store.prepare_oauth_session_logout(session.id).await else {
+        let Ok(token_plan) = store.prepare_oauth_session_logout(&session.id).await else {
             tracing::warn!(session_id = %session.id, "failed to prepare OAuth session logout");
             return;
         };
@@ -57,7 +57,7 @@ impl LogoutCoordinator {
             }
         }
         self.pending.lock().await.insert(
-            session.id,
+            session.id.clone(),
             PendingLogout {
                 token_plan,
                 clients,
@@ -117,7 +117,7 @@ async fn logout_token(
         })?;
     let issuer = super::issuer::normalize_issuer(&issuer);
     let now = Utc::now();
-    let subject = subject_identifier(session.user_id, client, config)?;
+    let subject = subject_identifier(&session.user_id, client, config)?;
     let claims = Map::from_iter([
         ("iss".into(), Value::String(issuer)),
         ("aud".into(), Value::String(client.client_id.clone())),
@@ -199,12 +199,12 @@ async fn deliver(client: OAuthProviderClient, token: String) {
 }
 
 fn subject_identifier(
-    user_id: Uuid,
+    user_id: &str,
     client: &OAuthProviderClient,
     config: &OAuthProviderConfig,
 ) -> Result<String, crate::AuthError> {
     if client.subject_type.as_deref() != Some("pairwise") {
-        return Ok(user_id.to_string());
+        return Ok(user_id.to_owned());
     }
     let secret = config.pairwise_secret.as_deref().ok_or_else(|| {
         crate::AuthError::InvalidConfiguration("pairwise client requires pairwiseSecret".into())
@@ -248,8 +248,8 @@ mod tests {
         let service = AuthService::try_new(Arc::new(MemoryStore::default()), auth).unwrap();
         let now = Utc::now();
         let session = crate::AuthSession {
-            id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
+            id: Uuid::new_v4().to_string(),
+            user_id: Uuid::new_v4().to_string(),
             token: "session-token".into(),
             actor_user_id: None,
             authentication_method: Some(AuthenticationMethod::Password),

@@ -53,7 +53,7 @@ impl DeviceAuthorizationStore for PostgresDeviceAuthorizationStore {
     async fn bind_pending_user(
         &self,
         id: Uuid,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Option<DeviceCode>, AuthError> {
         let model = self.model()?;
         fetch_optional(

@@ -6,12 +6,11 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::RwLock;
-use uuid::Uuid;
 
 #[derive(Default)]
 struct State {
-    sessions: HashMap<Uuid, StepUpSession>,
-    recovery_codes: HashMap<Uuid, HashSet<String>>,
+    sessions: HashMap<String, StepUpSession>,
+    recovery_codes: HashMap<String, HashSet<String>>,
 }
 
 #[derive(Clone, Default)]
@@ -26,47 +25,47 @@ impl StepUpStore for MemoryStepUpStore {
             .write()
             .await
             .sessions
-            .insert(session.session_id, session);
+            .insert(session.session_id.clone(), session);
         Ok(())
     }
 
     async fn find_step_up_session(
         &self,
-        session_id: Uuid,
+        session_id: &str,
     ) -> Result<Option<StepUpSession>, AuthError> {
-        Ok(self.state.read().await.sessions.get(&session_id).cloned())
+        Ok(self.state.read().await.sessions.get(session_id).cloned())
     }
 
-    async fn delete_step_up_session(&self, session_id: Uuid) -> Result<(), AuthError> {
-        self.state.write().await.sessions.remove(&session_id);
+    async fn delete_step_up_session(&self, session_id: &str) -> Result<(), AuthError> {
+        self.state.write().await.sessions.remove(session_id);
         Ok(())
     }
 
-    async fn delete_user_step_up_state(&self, user_id: Uuid) -> Result<(), AuthError> {
+    async fn delete_user_step_up_state(&self, user_id: &str) -> Result<(), AuthError> {
         let mut state = self.state.write().await;
         state
             .sessions
             .retain(|_, session| session.user_id != user_id);
-        state.recovery_codes.remove(&user_id);
+        state.recovery_codes.remove(user_id);
         Ok(())
     }
 
     async fn replace_step_up_recovery_codes(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         code_hashes: Vec<String>,
     ) -> Result<(), AuthError> {
         self.state
             .write()
             .await
             .recovery_codes
-            .insert(user_id, code_hashes.into_iter().collect());
+            .insert(user_id.to_owned(), code_hashes.into_iter().collect());
         Ok(())
     }
 
     async fn consume_step_up_recovery_code(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         code_hash: &str,
     ) -> Result<bool, AuthError> {
         Ok(self
@@ -74,22 +73,22 @@ impl StepUpStore for MemoryStepUpStore {
             .write()
             .await
             .recovery_codes
-            .get_mut(&user_id)
+            .get_mut(user_id)
             .is_some_and(|codes| codes.remove(code_hash)))
     }
 
-    async fn step_up_recovery_code_count(&self, user_id: Uuid) -> Result<usize, AuthError> {
+    async fn step_up_recovery_code_count(&self, user_id: &str) -> Result<usize, AuthError> {
         Ok(self
             .state
             .read()
             .await
             .recovery_codes
-            .get(&user_id)
+            .get(user_id)
             .map_or(0, HashSet::len))
     }
 
-    async fn delete_step_up_recovery_codes(&self, user_id: Uuid) -> Result<(), AuthError> {
-        self.state.write().await.recovery_codes.remove(&user_id);
+    async fn delete_step_up_recovery_codes(&self, user_id: &str) -> Result<(), AuthError> {
+        self.state.write().await.recovery_codes.remove(user_id);
         Ok(())
     }
 }

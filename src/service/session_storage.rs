@@ -1,9 +1,11 @@
 use super::AuthService;
-use crate::{AuthError, AuthSession, AuthUser, SessionStorageMode, SessionWithUser};
+use crate::{
+    AuthError, AuthSession, AuthUser, DatabaseCreate, PreparedDatabaseId, SessionStorageMode,
+    SessionWithUser,
+};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::cmp::max;
-use uuid::Uuid;
 
 use super::session_references::session_id_key;
 
@@ -22,7 +24,7 @@ impl AuthService {
         let Some(secondary) = &self.config.secondary_storage else {
             return Ok(());
         };
-        for reference in self.active_references(user.id).await? {
+        for reference in self.active_references(&user.id).await? {
             let Some(raw) = secondary.get(&reference.token).await? else {
                 continue;
             };
@@ -48,16 +50,27 @@ impl AuthService {
     pub(super) async fn persist_session(
         &self,
         token: &str,
-        session: &AuthSession,
+        session: DatabaseCreate<AuthSession>,
         user: &AuthUser,
-    ) -> Result<(), AuthError> {
+    ) -> Result<AuthSession, AuthError> {
         let secondary = self.config.secondary_storage.as_ref();
         let store_in_database = secondary.is_none()
             && self.config.session.storage_mode == SessionStorageMode::Database
             || secondary.is_some() && self.config.session.store_session_in_database;
-        if store_in_database {
-            self.store.create_session(session.clone()).await?;
-        }
+        let session = if store_in_database {
+            self.store.create_session(session).await?
+        } else {
+            let mut record = session.record;
+            record.id = match session.id.prepare(self.store.as_ref())? {
+                PreparedDatabaseId::Value(value) => value.into_output_string(),
+                PreparedDatabaseId::Deferred | PreparedDatabaseId::DeferredSerial => {
+                    return Err(AuthError::Storage(
+                        "session ID generation was deferred without database storage".into(),
+                    ));
+                }
+            };
+            record
+        };
         let Some(secondary) = secondary else {
             if self.config.session.storage_mode == SessionStorageMode::Stateless {
                 let mut pending = self.pending_stateless_sessions.lock().await;
@@ -70,10 +83,11 @@ impl AuthService {
                     },
                 );
             }
-            return Ok(());
+            return Ok(session);
         };
-        self.persist_secondary_session(secondary.as_ref(), token, session, user)
-            .await
+        self.persist_secondary_session(secondary.as_ref(), token, &session, user)
+            .await?;
+        Ok(session)
     }
 
     async fn persist_secondary_session(
@@ -99,9 +113,9 @@ impl AuthService {
             )
             .await?;
         secondary
-            .set(&session_id_key(session.id), token.into(), Some(ttl))
+            .set(&session_id_key(&session.id), token.into(), Some(ttl))
             .await?;
-        self.add_active_reference(user.id, token, session.expires_at)
+        self.add_active_reference(&user.id, token, session.expires_at)
             .await
     }
 
@@ -158,7 +172,7 @@ impl AuthService {
         let Some(secondary) = &self.config.secondary_storage else {
             return self
                 .store
-                .update_session_fields(current.session.id, fields)
+                .update_session_fields(&current.session.id, fields)
                 .await;
         };
         let Some(raw) = secondary.get(&current.session.token).await? else {
@@ -168,7 +182,7 @@ impl AuthService {
         let updated = if self.config.session.store_session_in_database {
             let Some(updated) = self
                 .store
-                .update_session_fields(current.session.id, fields)
+                .update_session_fields(&current.session.id, fields)
                 .await?
             else {
                 return Ok(None);
@@ -227,7 +241,7 @@ impl AuthService {
 
     pub(super) async fn stored_sessions(
         &self,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Vec<(String, AuthSession)>, AuthError> {
         if self.config.secondary_storage.is_some() {
             let mut sessions = Vec::new();
@@ -252,7 +266,7 @@ impl AuthService {
 
     pub(super) async fn find_stored_session_by_id(
         &self,
-        session_id: Uuid,
+        session_id: &str,
     ) -> Result<Option<(String, AuthSession)>, AuthError> {
         if let Some(secondary) = &self.config.secondary_storage
             && let Some(token) = secondary.get(&session_id_key(session_id)).await?
@@ -276,15 +290,16 @@ impl AuthService {
             secondary.delete(token).await?;
             if let Some(session) = &current {
                 secondary
-                    .delete(&session_id_key(session.session.id))
+                    .delete(&session_id_key(&session.session.id))
                     .await?;
-                self.remove_active_reference(session.user.id, token).await?;
+                self.remove_active_reference(&session.user.id, token)
+                    .await?;
             }
             if self.config.session.store_session_in_database {
                 if self.config.session.preserve_session_in_database {
                     if let Some(session) = &current {
                         self.store
-                            .expire_session(session.session.id, Utc::now())
+                            .expire_session(&session.session.id, Utc::now())
                             .await?;
                     }
                 } else {
@@ -299,7 +314,7 @@ impl AuthService {
 
     pub(super) async fn delete_stored_session_id(
         &self,
-        session_id: Uuid,
+        session_id: &str,
     ) -> Result<Option<AuthSession>, AuthError> {
         if let Some((token, session)) = self.find_stored_session_by_id(session_id).await? {
             if self.config.secondary_storage.is_some() {
@@ -314,7 +329,7 @@ impl AuthService {
 
     pub(super) async fn delete_stored_user_sessions(
         &self,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Vec<AuthSession>, AuthError> {
         if self.config.secondary_storage.is_some() {
             let sessions = self.stored_sessions(user_id).await?;

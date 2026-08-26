@@ -85,7 +85,7 @@ fn with_primary_session_cookie(
 pub(crate) async fn with_bound_session_cookie(
     service: &AuthService,
     headers: &HeaderMap,
-    user_id: uuid::Uuid,
+    user_id: &str,
     token: &str,
     remember_me: Option<bool>,
     body: impl IntoResponse,
@@ -109,7 +109,7 @@ pub(crate) async fn with_bound_session_cookie(
 pub(crate) async fn with_bound_session_cookie_cache(
     service: &AuthService,
     headers: &HeaderMap,
-    user_id: uuid::Uuid,
+    user_id: &str,
     token: &str,
     cache: Option<&str>,
     body: impl IntoResponse,

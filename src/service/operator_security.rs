@@ -6,14 +6,14 @@ const PLUGIN_ID: &str = "lucid-operator-security";
 impl AuthService {
     pub(crate) async fn operator_security_status(
         &self,
-        user_id: uuid::Uuid,
+        user_id: &str,
     ) -> Result<OperatorSecurityStatus, AuthError> {
         self.operator_security_plugin()?.status(user_id).await
     }
 
     pub(crate) async fn set_operator_temporary_password(
         &self,
-        user_id: uuid::Uuid,
+        user_id: &str,
         temporary: bool,
     ) -> Result<(), AuthError> {
         self.operator_security_plugin()?
@@ -40,7 +40,7 @@ impl AuthService {
         if !plugin
             .store
             .recover_sole_owner(
-                target.id,
+                &target.id,
                 owner_policy.owner_role(),
                 hash_password(password).await?,
             )
@@ -49,7 +49,7 @@ impl AuthService {
             return Err(OperatorSecurityError::SoleOwnerRecoveryUnavailable.into());
         }
         self.plugins
-            .reset_user_security_state_except(target.id, PLUGIN_ID)
+            .reset_user_security_state_except(&target.id, PLUGIN_ID)
             .await?;
         self.activity(crate::AuthActivity::SoleOwnerRecovered { user_id: target.id })
             .await;

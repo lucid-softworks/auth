@@ -4,17 +4,16 @@ use crate::{
     agent_auth::{AgentApprovalStatus, AgentCleanupOutcome, AgentKeyRotationOutcome, AgentStatus},
 };
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 
 pub(in crate::agent_auth::memory) fn cleanup(
     store: &MemoryAgentAuthStore,
-    user_id: Uuid,
+    user_id: &str,
     now: DateTime<Utc>,
 ) -> Result<AgentCleanupOutcome, AuthError> {
     let mut state = write(&store.state)?;
     let mut agent_ids = Vec::new();
     for agent in state.agents.values_mut().filter(|agent| {
-        agent.user_id == Some(user_id)
+        agent.user_id.as_deref() == Some(user_id)
             && agent.status == AgentStatus::Active
             && agent.expires_at.is_some_and(|expires_at| expires_at <= now)
     }) {
@@ -24,7 +23,7 @@ pub(in crate::agent_auth::memory) fn cleanup(
     }
     let mut approval_ids = Vec::new();
     for approval in state.approvals.values_mut().filter(|approval| {
-        approval.user_id == Some(user_id)
+        approval.user_id.as_deref() == Some(user_id)
             && approval.status == AgentApprovalStatus::Pending
             && approval.expires_at <= now
     }) {
@@ -70,6 +69,7 @@ mod tests {
     use super::*;
     use crate::agent_auth::memory::agent_lifecycle::fixtures::*;
     use chrono::{Duration, Utc};
+    use uuid::Uuid;
 
     #[test]
     fn cleanup_and_rotation_apply_only_to_eligible_records() {
@@ -87,7 +87,7 @@ mod tests {
             pending.expires_at = now - Duration::seconds(1);
             state.approvals.insert(pending.id.clone(), pending);
         }
-        let cleaned = cleanup(&store, user_id, now).unwrap();
+        let cleaned = cleanup(&store, &user_id.to_string(), now).unwrap();
         assert_eq!(cleaned.agent_ids, ["expired"]);
         assert_eq!(cleaned.approval_ids, ["approval"]);
         assert_eq!(

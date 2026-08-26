@@ -74,7 +74,7 @@ mod tests {
             capability: "mail.read".into(),
             constraints: None,
             denied_by: None,
-            granted_by: Some(Uuid::nil()),
+            granted_by: Some(Uuid::nil().to_string()),
             expires_at: None,
             status,
             reason: None,

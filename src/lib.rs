@@ -93,8 +93,9 @@ pub use api_key::{
     ApiKeyPlugin, ApiKeyRateLimitConfig, ApiKeyReference, ApiKeyStartingCharactersConfig,
 };
 pub use database_hooks::{
-    BeforeDatabaseHook, DatabaseHookContext, DatabaseHookRequest, DatabaseHooks, DatabaseModel,
-    DatabaseRecord, DeferredHookResponse,
+    BeforeDatabaseCreateHook, BeforeDatabaseHook, DatabaseCreatePatch, DatabaseCreateRecord,
+    DatabaseHookContext, DatabaseHookRequest, DatabaseHooks, DatabaseModel, DatabaseRecord,
+    DeferredHookResponse,
 };
 pub use database_schema::*;
 pub use device_authorization::*;
@@ -235,8 +236,11 @@ pub use step_up::{
     StepUpPolicyPlugin, StepUpPolicyService, StepUpSession, StepUpSessionProjection, StepUpStore,
 };
 pub use store::{
-    AccessStore, AccountDeleteOutcome, ApiKeyStore, ApiKeyUseOutcome, AuthStore, OAuthAccountOwner,
-    OAuthAccountStore, OAuthTokenUpdateOutcome, PasskeyDeleteOutcome, SecurityStore,
+    AccessStore, AccountDeleteOutcome, ApiKeyStore, ApiKeyUseOutcome, AuthStore,
+    DatabaseAccountCreate, DatabaseAccountOwnerWrite, DatabaseCreate, DatabaseIdInput,
+    DatabaseIdPlan, DatabaseIdSupplier, DatabaseIdValue, DatabaseWrite, DatabaseWriteOperation,
+    DependentAccountContext, DependentAccountPreparer, OAuthAccountOwner, OAuthAccountStore,
+    OAuthTokenUpdateOutcome, PasskeyDeleteOutcome, PreparedDatabaseId, SecurityStore,
     UserProfileUpdate, VerificationStore,
 };
 pub use user_deletion::{

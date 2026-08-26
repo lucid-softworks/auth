@@ -6,7 +6,6 @@ use crate::{
 use async_trait::async_trait;
 use std::borrow::Cow;
 use std::sync::Arc;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginRequestContext {
@@ -112,7 +111,7 @@ pub enum BeforeAuthEvent {
     SessionCreate {
         user: AuthUser,
         authentication_method: Option<AuthenticationMethod>,
-        actor_user_id: Option<Uuid>,
+        actor_user_id: Option<String>,
     },
     UserDelete {
         user: AuthUser,
@@ -174,7 +173,7 @@ pub enum PasswordCredentialSource {
 }
 
 pub struct PasswordCredentialChanged {
-    pub user_id: Uuid,
+    pub user_id: String,
     pub source: PasswordCredentialSource,
 }
 
@@ -293,7 +292,7 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
     }
 
     /// Clears plugin-owned authentication factors after a host security reset.
-    async fn reset_user_security_state(&self, _user_id: Uuid) -> Result<(), AuthError> {
+    async fn reset_user_security_state(&self, _user_id: &str) -> Result<(), AuthError> {
         Ok(())
     }
 

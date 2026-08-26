@@ -43,9 +43,7 @@ async fn clear_from_metadata(
             }
         }
         Some("user") => {
-            if let Some(id) = mapping::metadata_string(customer.metadata.as_ref(), "userId")
-                .and_then(|id| Uuid::parse_str(id).ok())
-            {
+            if let Some(id) = mapping::metadata_string(customer.metadata.as_ref(), "userId") {
                 store.set_user_customer_id(id, None).await?;
                 tracing::info!(user_id = %id, "Cleared chargebeeCustomerId");
             }
@@ -70,7 +68,7 @@ async fn clear_fallback(options: &ChargebeeOptions, store: &dyn ChargebeeStore, 
     } else {
         let result = async {
             if let Some(id) = store.user_id_by_customer(customer_id).await? {
-                store.set_user_customer_id(id, None).await?;
+                store.set_user_customer_id(&id, None).await?;
             }
             Ok::<_, ChargebeeStoreError>(())
         }

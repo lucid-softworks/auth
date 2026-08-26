@@ -22,7 +22,7 @@ pub(super) async fn all_seven_models(
     let client_id = "mapped-storage-client";
     let registration = store
         .persist_oauth_client_registration(OAuthClientRegistrationWrite {
-            client: client(client_id, user_id),
+            client: client(client_id, &user_id),
             resource_ids: vec![resource_id.into()],
             mode: OAuthClientRegistrationMode::Create,
         })
@@ -34,12 +34,12 @@ pub(super) async fn all_seven_models(
     assert_eq!(store.list_oauth_client_resources(client_id).await?.len(), 1);
 
     let consent = store
-        .upsert_oauth_consent(consent(client_id, user_id))
+        .upsert_oauth_consent(consent(client_id, &user_id))
         .await?;
     assert_eq!(store.find_oauth_consent(consent.id).await?, Some(consent));
 
-    let refresh = refresh("mapped-refresh", client_id, user_id);
-    let access = access("mapped-access", client_id, user_id, refresh.id);
+    let refresh = refresh("mapped-refresh", client_id, &user_id);
+    let access = access("mapped-access", client_id, &user_id, refresh.id);
     store
         .issue_oauth_tokens(OAuthTokenIssuance {
             access_token: Some(access.clone()),

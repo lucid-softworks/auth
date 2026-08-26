@@ -4,7 +4,6 @@ use crate::{
     OAuthTokens, OAuthUserInfo,
 };
 use chrono::Utc;
-use uuid::Uuid;
 
 pub(super) struct OAuthSignInPolicy {
     pub provider_id: String,
@@ -98,8 +97,8 @@ impl AuthService {
             .find_oauth_account_owner(&user_info.issuer, &user_info.account_id)
             .await?
         {
-            account.id = owner.account.id;
-            account.user_id = owner.user.id;
+            account.id.clone_from(&owner.account.id);
+            account.user_id.clone_from(&owner.user.id);
             account.created_at = owner.account.created_at;
             super::account_lifecycle::preserve_oauth_tokens(&mut account, &owner.account);
             let account = self
@@ -138,7 +137,7 @@ impl AuthService {
             {
                 return Err(AuthError::OAuthAccountNotLinked);
             }
-            account.user_id = user.id;
+            account.user_id = user.id.clone();
             let account = self.prepare_account_create(account).await?;
             let account = self.store.link_oauth_account(account).await?;
             self.finish_account_create(&account).await?;
@@ -160,7 +159,7 @@ impl AuthService {
         user = self
             .store
             .update_user_profile(
-                user.id,
+                &user.id,
                 crate::UserProfileUpdate {
                     name: Some(info.name.clone()),
                     image: Some(info.image.clone()),
@@ -173,7 +172,7 @@ impl AuthService {
         if user.email != info.email {
             user = self
                 .store
-                .update_user_email(user.id, &user.email, &info.email, info.email_verified)
+                .update_user_email(&user.id, &user.email, &info.email, info.email_verified)
                 .await?
                 .ok_or_else(|| AuthError::Storage("OAuth user disappeared during update".into()))?;
         }
@@ -195,7 +194,7 @@ impl AuthService {
         let updated = self
             .store
             .update_user_email(
-                user.id,
+                &user.id,
                 &user.email,
                 &candidate.email,
                 candidate.email_verified,
@@ -218,7 +217,7 @@ impl AuthService {
             return Err(AuthError::OAuthSignupDisabled);
         }
         let user = AuthUser {
-            id: Uuid::new_v4(),
+            id: String::new(),
             username: None,
             display_username: None,
             name: user_info.name,
@@ -235,22 +234,15 @@ impl AuthService {
             created_at: now,
             updated_at: now,
         };
-        let user = match self
-            .before_database_create(DatabaseRecord::User(user))
-            .await
-            .map_err(|_| AuthError::OAuthUnableToCreateUser)?
-        {
-            DatabaseRecord::User(user) => user,
-            _ => unreachable!("database hook model was validated"),
-        };
-        account.user_id = user.id;
-        let account = self
-            .prepare_account_create(account)
+        let user = self
+            .prepare_user_create(user)
             .await
             .map_err(|_| AuthError::OAuthUnableToCreateUser)?;
+        account.user_id.clear();
+        let account = self.oauth_account_create(account);
         let owner = self
             .store
-            .create_oauth_user(user, account)
+            .create_oauth_user(user, &account)
             .await
             .map_err(|_| AuthError::OAuthUnableToCreateUser)?;
         self.after_database_create(&DatabaseRecord::User(owner.user.clone()))
@@ -270,8 +262,8 @@ impl AuthService {
         now: chrono::DateTime<Utc>,
     ) -> Result<OAuthAccount, AuthError> {
         Ok(OAuthAccount {
-            id: Uuid::new_v4(),
-            user_id: Uuid::nil(),
+            id: String::new(),
+            user_id: String::new(),
             issuer: user_info.issuer.clone(),
             account_id: user_info.account_id.clone(),
             provider_id: provider_id.into(),

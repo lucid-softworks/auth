@@ -68,7 +68,7 @@ mod tests {
 
     fn user(image: Option<&str>) -> AuthUser {
         AuthUser {
-            id: Uuid::nil(),
+            id: Uuid::nil().to_string(),
             username: None,
             display_username: None,
             name: "Dub User".into(),

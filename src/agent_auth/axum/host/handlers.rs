@@ -34,7 +34,7 @@ pub(in crate::agent_auth::axum) async fn create(
         return HostError::unauthorized_session().into_response();
     };
     let endpoint = endpoint_context(&service, &headers, "POST", "/host/create");
-    result_response(create_for_user(&state, session.user.id, body, endpoint, Utc::now()).await)
+    result_response(create_for_user(&state, &session.user.id, body, endpoint, Utc::now()).await)
 }
 
 pub(in crate::agent_auth::axum) async fn enroll(
@@ -56,7 +56,7 @@ pub(in crate::agent_auth::axum) async fn list(
     let Some(session) = crate::axum::http::current_session(&service, &headers).await else {
         return HostError::unauthorized_session().into_response();
     };
-    result_response(list_for_user(&state, session.user.id, query.status).await)
+    result_response(list_for_user(&state, &session.user.id, query.status).await)
 }
 
 pub(in crate::agent_auth::axum) async fn get(
@@ -68,7 +68,7 @@ pub(in crate::agent_auth::axum) async fn get(
     let Some(session) = crate::axum::http::current_session(&service, &headers).await else {
         return HostError::unauthorized_session().into_response();
     };
-    result_response(get_for_user(&state, session.user.id, &query.host_id).await)
+    result_response(get_for_user(&state, &session.user.id, &query.host_id).await)
 }
 
 pub(in crate::agent_auth::axum) async fn revoke(
@@ -102,7 +102,14 @@ pub(in crate::agent_auth::axum) async fn switch_account(
     };
     let endpoint = endpoint_context(&service, &headers, "POST", "/host/switch-account");
     result_response(
-        switch_to_user(&state, session.user.id, &body.host_id, endpoint, Utc::now()).await,
+        switch_to_user(
+            &state,
+            &session.user.id,
+            &body.host_id,
+            endpoint,
+            Utc::now(),
+        )
+        .await,
     )
 }
 
@@ -115,7 +122,7 @@ pub(in crate::agent_auth::axum) async fn update(
     let Some(session) = crate::axum::http::current_session(&service, &headers).await else {
         return HostError::unauthorized_session().into_response();
     };
-    result_response(update_for_user(&state, session.user.id, body, Utc::now()).await)
+    result_response(update_for_user(&state, &session.user.id, body, Utc::now()).await)
 }
 
 pub(in crate::agent_auth::axum) async fn rotate_key(

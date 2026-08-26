@@ -18,7 +18,7 @@ pub(super) struct BuiltApproval {
 pub(super) struct BuildRequest<'a> {
     pub(super) origin: &'a str,
     pub(super) agent: &'a crate::AgentIdentity,
-    pub(super) user_id: Option<Uuid>,
+    pub(super) user_id: Option<String>,
     pub(super) capabilities: Vec<String>,
     pub(super) preferred: Option<String>,
     pub(super) login_hint: Option<String>,
@@ -26,7 +26,7 @@ pub(super) struct BuildRequest<'a> {
 }
 
 struct ApprovalRecordInput {
-    user_id: Option<Uuid>,
+    user_id: Option<String>,
     capabilities: Vec<String>,
     method: AgentApprovalMethod,
     user_code_hash: Option<String>,
@@ -52,7 +52,7 @@ pub(super) async fn build(
     let method_name = if let Some(resolver) = &state.config.resolve_approval_method {
         resolver
             .resolve(AgentApprovalMethodContext {
-                user_id,
+                user_id: user_id.clone(),
                 agent_name: agent.name.clone(),
                 host_id: Some(agent.host_id.clone()),
                 capabilities: capabilities.clone(),
@@ -70,13 +70,13 @@ pub(super) async fn build(
         .unwrap_or(AgentApprovalMethod::DeviceAuthorization);
     let now = Utc::now();
     if method == AgentApprovalMethod::Ciba
-        && let Some(user_id) = user_id
+        && let Some(user_id) = user_id.as_deref()
         && let Some(user) = service.auth_user_by_id(user_id).await?
     {
         let approval = approval_record(
             agent,
             ApprovalRecordInput {
-                user_id: Some(user_id),
+                user_id: Some(user_id.to_owned()),
                 capabilities,
                 method: AgentApprovalMethod::Ciba,
                 user_code_hash: None,

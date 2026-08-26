@@ -30,16 +30,16 @@ pub(super) async fn record(plugin: &AuditPlugin, activity: &AuthActivity) {
 }
 
 struct MappedActivity {
-    actor_user_id: Option<Uuid>,
-    subject_user_id: Option<Uuid>,
+    actor_user_id: Option<String>,
+    subject_user_id: Option<String>,
     action: &'static str,
     target: Option<String>,
     metadata: Value,
 }
 
 fn mapped(
-    actor_user_id: Option<Uuid>,
-    subject_user_id: Option<Uuid>,
+    actor_user_id: Option<String>,
+    subject_user_id: Option<String>,
     action: &'static str,
     target: Option<String>,
     metadata: Value,
@@ -73,8 +73,8 @@ fn map_user_state(activity: &AuthActivity) -> Option<MappedActivity> {
             previous_role,
             new_role,
         } => mapped(
-            Some(*actor_user_id),
-            Some(*user_id),
+            Some(actor_user_id.clone()),
+            Some(user_id.clone()),
             "user.role.changed",
             Some(user_id.to_string()),
             json!({ "from": previous_role, "to": new_role }),
@@ -85,8 +85,8 @@ fn map_user_state(activity: &AuthActivity) -> Option<MappedActivity> {
             reason,
             expires_at,
         } => mapped(
-            Some(*actor_user_id),
-            Some(*user_id),
+            Some(actor_user_id.clone()),
+            Some(user_id.clone()),
             "user.banned",
             Some(user_id.to_string()),
             json!({ "reason": reason, "expiresAt": expires_at }),
@@ -95,8 +95,8 @@ fn map_user_state(activity: &AuthActivity) -> Option<MappedActivity> {
             actor_user_id,
             user_id,
         } => mapped(
-            Some(*actor_user_id),
-            Some(*user_id),
+            Some(actor_user_id.clone()),
+            Some(user_id.clone()),
             "user.unbanned",
             Some(user_id.to_string()),
             json!({}),
@@ -112,8 +112,8 @@ fn map_admin_accounts(activity: &AuthActivity) -> Option<MappedActivity> {
             actor_user_id,
             user_id,
         } => mapped(
-            Some(*actor_user_id),
-            Some(*user_id),
+            Some(actor_user_id.clone()),
+            Some(user_id.clone()),
             "session.user_revoked",
             Some(user_id.to_string()),
             json!({}),
@@ -124,8 +124,8 @@ fn map_admin_accounts(activity: &AuthActivity) -> Option<MappedActivity> {
             role,
             username,
         } => mapped(
-            Some(*actor_user_id),
-            Some(*user_id),
+            Some(actor_user_id.clone()),
+            Some(user_id.clone()),
             "user.created",
             Some(user_id.to_string()),
             json!({ "role": role, "username": username }),
@@ -134,8 +134,8 @@ fn map_admin_accounts(activity: &AuthActivity) -> Option<MappedActivity> {
             actor_user_id,
             user_id,
         } => mapped(
-            Some(*actor_user_id),
-            Some(*user_id),
+            Some(actor_user_id.clone()),
+            Some(user_id.clone()),
             "password.reset_by_owner",
             Some(user_id.to_string()),
             json!({}),
@@ -147,7 +147,7 @@ fn map_admin_accounts(activity: &AuthActivity) -> Option<MappedActivity> {
             role,
             username,
         } => mapped(
-            Some(*actor_user_id),
+            Some(actor_user_id.clone()),
             None,
             "user.removed",
             Some(user_id.to_string()),
@@ -166,8 +166,8 @@ fn map_impersonation(activity: &AuthActivity) -> Option<MappedActivity> {
             session_id,
             expires_at,
         } => mapped(
-            Some(*actor_user_id),
-            Some(*user_id),
+            Some(actor_user_id.clone()),
+            Some(user_id.clone()),
             "impersonation.started",
             Some(session_id.to_string()),
             json!({ "expiresAt": expires_at }),
@@ -177,8 +177,8 @@ fn map_impersonation(activity: &AuthActivity) -> Option<MappedActivity> {
             user_id,
             session_id,
         } => mapped(
-            Some(*actor_user_id),
-            Some(*user_id),
+            Some(actor_user_id.clone()),
+            Some(user_id.clone()),
             "impersonation.stopped",
             Some(session_id.to_string()),
             json!({}),
@@ -200,10 +200,10 @@ fn map_sessions(activity: &AuthActivity) -> Option<MappedActivity> {
             session_id,
             self_service,
         } => mapped(
-            Some(*actor_user_id),
-            *subject_user_id,
+            Some(actor_user_id.clone()),
+            subject_user_id.clone(),
             "session.revoked",
-            session_id.map(|id| id.to_string()),
+            session_id.clone(),
             if *self_service {
                 json!({ "selfService": true })
             } else {
@@ -214,15 +214,15 @@ fn map_sessions(activity: &AuthActivity) -> Option<MappedActivity> {
             user_id,
             retained_session_id,
         } => mapped(
-            Some(*user_id),
-            Some(*user_id),
+            Some(user_id.clone()),
+            Some(user_id.clone()),
             "session.others_revoked",
             Some(retained_session_id.to_string()),
             json!({}),
         ),
         AuthActivity::AllSessionsRevoked { user_id } => mapped(
-            Some(*user_id),
-            Some(*user_id),
+            Some(user_id.clone()),
+            Some(user_id.clone()),
             "session.all_revoked",
             None,
             json!({}),
@@ -238,8 +238,8 @@ fn map_credentials(activity: &AuthActivity) -> Option<MappedActivity> {
             user_id,
             revoked_other_sessions,
         } => mapped(
-            Some(*user_id),
-            Some(*user_id),
+            Some(user_id.clone()),
+            Some(user_id.clone()),
             "password.changed",
             None,
             json!({ "revokedOtherSessions": revoked_other_sessions }),
@@ -249,8 +249,8 @@ fn map_credentials(activity: &AuthActivity) -> Option<MappedActivity> {
             passkey_id,
             name,
         } => mapped(
-            Some(*user_id),
-            Some(*user_id),
+            Some(user_id.clone()),
+            Some(user_id.clone()),
             "passkey.renamed",
             Some(passkey_id.to_string()),
             json!({ "name": name }),
@@ -260,8 +260,8 @@ fn map_credentials(activity: &AuthActivity) -> Option<MappedActivity> {
             passkey_id,
             remaining,
         } => mapped(
-            Some(*user_id),
-            Some(*user_id),
+            Some(user_id.clone()),
+            Some(user_id.clone()),
             "passkey.deleted",
             Some(passkey_id.to_string()),
             json!({ "remaining": remaining }),
@@ -271,8 +271,8 @@ fn map_credentials(activity: &AuthActivity) -> Option<MappedActivity> {
             user_id,
             passkey_id,
         } => mapped(
-            *actor_user_id,
-            Some(*user_id),
+            actor_user_id.clone(),
+            Some(user_id.clone()),
             "passkey.enrolled",
             Some(passkey_id.to_string()),
             json!({}),
@@ -293,7 +293,7 @@ fn map_extensions(activity: &AuthActivity) -> Option<MappedActivity> {
             expires_at,
             max_uses,
         } => MappedActivity {
-            actor_user_id: Some(*actor_user_id),
+            actor_user_id: Some(actor_user_id.clone()),
             subject_user_id: None,
             action: "guest_grant.issued",
             target: Some(grant_id.to_string()),
@@ -312,7 +312,7 @@ fn map_extensions(activity: &AuthActivity) -> Option<MappedActivity> {
             uses,
         } => MappedActivity {
             actor_user_id: None,
-            subject_user_id: Some(*user_id),
+            subject_user_id: Some(user_id.clone()),
             action: "guest_grant.redeemed",
             target: Some(grant_id.to_string()),
             metadata: json!({ "label": label, "uses": uses }),
@@ -321,7 +321,7 @@ fn map_extensions(activity: &AuthActivity) -> Option<MappedActivity> {
             actor_user_id,
             grant_id,
         } => MappedActivity {
-            actor_user_id: Some(*actor_user_id),
+            actor_user_id: Some(actor_user_id.clone()),
             subject_user_id: None,
             action: "guest_grant.revoked",
             target: Some(grant_id.to_string()),
@@ -329,7 +329,7 @@ fn map_extensions(activity: &AuthActivity) -> Option<MappedActivity> {
         },
         AuthActivity::SoleOwnerRecovered { user_id } => MappedActivity {
             actor_user_id: None,
-            subject_user_id: Some(*user_id),
+            subject_user_id: Some(user_id.clone()),
             action: "operator_security.owner_recovered",
             target: Some(user_id.to_string()),
             metadata: json!({
@@ -339,8 +339,8 @@ fn map_extensions(activity: &AuthActivity) -> Option<MappedActivity> {
             }),
         },
         AuthActivity::StepUpRecoveryCodesGenerated { user_id, count } => MappedActivity {
-            actor_user_id: Some(*user_id),
-            subject_user_id: Some(*user_id),
+            actor_user_id: Some(user_id.clone()),
+            subject_user_id: Some(user_id.clone()),
             action: "step_up.recovery_codes.generated",
             target: None,
             metadata: json!({ "count": count }),
@@ -350,8 +350,8 @@ fn map_extensions(activity: &AuthActivity) -> Option<MappedActivity> {
             session_id,
             remaining,
         } => MappedActivity {
-            actor_user_id: Some(*user_id),
-            subject_user_id: Some(*user_id),
+            actor_user_id: Some(user_id.clone()),
+            subject_user_id: Some(user_id.clone()),
             action: "step_up.recovery_code.used",
             target: Some(session_id.to_string()),
             metadata: json!({ "remaining": remaining }),

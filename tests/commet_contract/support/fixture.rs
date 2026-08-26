@@ -12,13 +12,12 @@ use lucid_auth::{
 use serde_json::Value;
 use std::sync::Arc;
 use tower::ServiceExt;
-use uuid::Uuid;
 
 pub(crate) struct Fixture {
     pub(crate) app: Router,
     pub(crate) client: Arc<FakeCommetClient>,
     pub(crate) cookie: Option<String>,
-    pub(crate) user_id: Option<Uuid>,
+    pub(crate) user_id: Option<String>,
 }
 
 pub(crate) async fn fixture(features: Vec<CommetFeature>, authenticated: bool) -> Fixture {

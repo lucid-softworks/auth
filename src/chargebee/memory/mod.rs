@@ -40,13 +40,13 @@ impl MemoryChargebeeStore {
 
 #[async_trait]
 impl ChargebeeStore for MemoryChargebeeStore {
-    async fn user_customer_id(&self, user_id: Uuid) -> Result<Option<String>, ChargebeeStoreError> {
+    async fn user_customer_id(&self, user_id: &str) -> Result<Option<String>, ChargebeeStoreError> {
         customer::user_customer_id(self, user_id).await
     }
 
     async fn set_user_customer_id(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         customer_id: Option<String>,
     ) -> Result<(), ChargebeeStoreError> {
         customer::set_user_customer_id(self, user_id, customer_id).await
@@ -55,7 +55,7 @@ impl ChargebeeStore for MemoryChargebeeStore {
     async fn user_id_by_customer(
         &self,
         customer_id: &str,
-    ) -> Result<Option<Uuid>, ChargebeeStoreError> {
+    ) -> Result<Option<String>, ChargebeeStoreError> {
         customer::user_id_by_customer(self, customer_id).await
     }
 
@@ -180,26 +180,34 @@ mod tests {
         let first_user = user();
         let second_user = user();
         auth_store
-            .create_user_without_account(first_user.clone())
+            .create_user_without_account(crate::test_utils::factory::fixed_database_create(
+                "user",
+                &first_user.id,
+                first_user.clone(),
+            ))
             .await
             .unwrap();
         auth_store
-            .create_user_without_account(second_user.clone())
+            .create_user_without_account(crate::test_utils::factory::fixed_database_create(
+                "user",
+                &second_user.id,
+                second_user.clone(),
+            ))
             .await
             .unwrap();
         let store = MemoryChargebeeStore::new(auth_store);
 
         store
-            .set_user_customer_id(first_user.id, Some("customer_user".into()))
+            .set_user_customer_id(&first_user.id, Some("customer_user".into()))
             .await
             .unwrap();
         assert_eq!(
             store.user_id_by_customer("customer_user").await.unwrap(),
-            Some(first_user.id)
+            Some(first_user.id.clone())
         );
         assert_eq!(
             store
-                .set_user_customer_id(second_user.id, Some("customer_user".into()))
+                .set_user_customer_id(&second_user.id, Some("customer_user".into()))
                 .await,
             Err(ChargebeeStoreError::DuplicateCustomerId)
         );
@@ -293,7 +301,7 @@ mod tests {
     fn user() -> AuthUser {
         let now = Utc::now();
         AuthUser {
-            id: Uuid::new_v4(),
+            id: Uuid::new_v4().to_string(),
             username: None,
             display_username: None,
             name: "Chargebee user".into(),

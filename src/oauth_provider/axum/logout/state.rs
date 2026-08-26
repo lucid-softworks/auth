@@ -3,7 +3,6 @@ use crate::{AuthService, oauth_provider::OAuthProviderClient};
 use axum::{http::HeaderMap, response::Response};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 const CONFIRMATION_TTL_SECONDS: i64 = 300;
 const COOKIE_SUFFIX: &str = ".oauth_logout_confirmation";
@@ -11,7 +10,7 @@ const COOKIE_SUFFIX: &str = ".oauth_logout_confirmation";
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ConfirmationState {
-    pub(super) session_id: Option<Uuid>,
+    pub(super) session_id: Option<String>,
     pub(super) client_id: Option<String>,
     pub(super) post_logout_redirect_uri: Option<String>,
     pub(super) state: Option<String>,

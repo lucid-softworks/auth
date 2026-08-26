@@ -35,11 +35,8 @@ impl CreemStore for MemoryCreemStore {
         &self,
         reference_id: &str,
     ) -> Result<Option<CreemStoredUser>, CreemStoreError> {
-        let Some(user_id) = native_user_id(reference_id) else {
-            return Ok(None);
-        };
         self.auth_store
-            .find_user_by_id(user_id)
+            .find_user_by_id(reference_id)
             .await
             .map_err(auth_error)
             .map(|user| {
@@ -152,23 +149,16 @@ fn in_order(state: &MemoryCreemState) -> impl Iterator<Item = &CreemSubscription
         .filter_map(|id| state.subscriptions.get(id))
 }
 
-fn native_user_id(reference_id: &str) -> Option<Uuid> {
-    Uuid::parse_str(reference_id).ok()
-}
-
 async fn update_user_field(
     auth_store: &dyn AuthStore,
     reference_id: &str,
     field: &str,
     value: Value,
 ) -> Result<(), CreemStoreError> {
-    let Some(user_id) = native_user_id(reference_id) else {
-        return Ok(());
-    };
     let additional_fields = Map::from_iter([(field.to_owned(), value)]);
     auth_store
         .update_user_profile(
-            user_id,
+            reference_id,
             UserProfileUpdate {
                 additional_fields,
                 ..UserProfileUpdate::default()
@@ -194,7 +184,11 @@ mod tests {
         let auth_store = Arc::new(MemoryStore::default());
         let user = user();
         auth_store
-            .create_user_without_account(user.clone())
+            .create_user_without_account(crate::test_utils::factory::fixed_database_create(
+                "user",
+                &user.id,
+                user.clone(),
+            ))
             .await
             .unwrap();
         let store = MemoryCreemStore::new(auth_store.clone());
@@ -215,7 +209,7 @@ mod tests {
             .unwrap();
         assert_eq!(creem_user.creem_customer_id, Some(Value::from("cust_1")));
         assert_eq!(creem_user.had_trial, Some(Value::Bool(true)));
-        let persisted = auth_store.find_user_by_id(user.id).await.unwrap().unwrap();
+        let persisted = auth_store.find_user_by_id(&user.id).await.unwrap().unwrap();
         assert_eq!(
             persisted.additional_fields.get("creemCustomerId"),
             Some(&Value::from("cust_1"))
@@ -298,7 +292,7 @@ mod tests {
     fn user() -> AuthUser {
         let now = Utc::now();
         AuthUser {
-            id: Uuid::new_v4(),
+            id: Uuid::new_v4().to_string(),
             username: None,
             display_username: None,
             name: "Creem user".into(),

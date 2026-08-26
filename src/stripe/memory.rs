@@ -8,7 +8,7 @@ use uuid::Uuid;
 pub struct MemoryStripeStore {
     subscriptions: RwLock<BTreeMap<Uuid, Subscription>>,
     subscription_order: RwLock<Vec<Uuid>>,
-    user_customers: RwLock<BTreeMap<Uuid, String>>,
+    user_customers: RwLock<BTreeMap<String, String>>,
     organization_customers: RwLock<BTreeMap<Uuid, String>>,
 }
 
@@ -20,29 +20,29 @@ impl MemoryStripeStore {
 
 #[async_trait]
 impl StripeStore for MemoryStripeStore {
-    async fn user_customer_id(&self, user_id: Uuid) -> Result<Option<String>, StripeStoreError> {
-        Ok(self.user_customers.read().await.get(&user_id).cloned())
+    async fn user_customer_id(&self, user_id: &str) -> Result<Option<String>, StripeStoreError> {
+        Ok(self.user_customers.read().await.get(user_id).cloned())
     }
 
     async fn set_user_customer_id(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         customer_id: Option<String>,
     ) -> Result<(), StripeStoreError> {
-        set_customer_id(&self.user_customers, user_id, customer_id).await;
+        set_customer_id(&self.user_customers, user_id.to_owned(), customer_id).await;
         Ok(())
     }
 
     async fn user_id_by_customer(
         &self,
         customer_id: &str,
-    ) -> Result<Option<Uuid>, StripeStoreError> {
+    ) -> Result<Option<String>, StripeStoreError> {
         Ok(self
             .user_customers
             .read()
             .await
             .iter()
-            .find_map(|(id, stored)| (stored == customer_id).then_some(*id)))
+            .find_map(|(id, stored)| (stored == customer_id).then(|| id.clone())))
     }
 
     async fn organization_customer_id(
@@ -184,9 +184,9 @@ impl StripeStore for MemoryStripeStore {
     }
 }
 
-async fn set_customer_id(
-    customers: &RwLock<BTreeMap<Uuid, String>>,
-    owner_id: Uuid,
+async fn set_customer_id<K: Ord>(
+    customers: &RwLock<BTreeMap<K, String>>,
+    owner_id: K,
     customer_id: Option<String>,
 ) {
     let mut customers = customers.write().await;

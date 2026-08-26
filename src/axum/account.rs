@@ -50,7 +50,7 @@ async fn change_email(
                     with_bound_session_cookie(
                         &service,
                         &headers,
-                        current.user.id,
+                        &current.user.id,
                         &token,
                         Some(true),
                         body,
@@ -84,7 +84,7 @@ async fn update_session(
                 with_bound_session_cookie(
                     &service,
                     &headers,
-                    current.user.id,
+                    &current.user.id,
                     &token,
                     Some(true),
                     body,
@@ -131,7 +131,7 @@ async fn update_user(
                     with_bound_session_cookie(
                         &service,
                         &headers,
-                        session.user.id,
+                        &session.user.id,
                         &token,
                         Some(true),
                         response,
@@ -179,7 +179,7 @@ async fn change_password(
         .await
     {
         Ok(changed) => {
-            let user_id = changed.user.id;
+            let user_id = changed.user.id.clone();
             let user = match service.better_auth_user(&changed.user).await {
                 Ok(user) => user,
                 Err(error) => return auth_error(error),
@@ -189,7 +189,7 @@ async fn change_password(
                 with_bound_session_cookie(
                     &service,
                     &headers,
-                    user_id,
+                    &user_id,
                     &token,
                     Some(true),
                     Json(ChangePasswordResponse {

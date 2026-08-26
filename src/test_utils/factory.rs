@@ -12,7 +12,7 @@ static WHITESPACE: LazyLock<Regex> =
 pub(crate) fn user(id: Uuid, default_role: String, overrides: TestUserOverrides) -> AuthUser {
     let now = Utc::now();
     AuthUser {
-        id: overrides.id.unwrap_or(id),
+        id: overrides.id.unwrap_or(id).to_string(),
         username: overrides.username,
         display_username: overrides.display_username,
         name: overrides.name.unwrap_or_else(|| "Test User".into()),
@@ -30,6 +30,23 @@ pub(crate) fn user(id: Uuid, default_role: String, overrides: TestUserOverrides)
         created_at: overrides.created_at.unwrap_or(now),
         updated_at: overrides.updated_at.unwrap_or(now),
     }
+}
+
+#[cfg(test)]
+pub(crate) fn fixed_database_create<T>(
+    model: &str,
+    id: &str,
+    record: T,
+) -> crate::DatabaseCreate<T> {
+    crate::DatabaseCreate::new(
+        record,
+        crate::DatabaseIdPlan::new(
+            crate::DatabaseIdGeneration::Default,
+            model,
+            crate::DatabaseIdInput::String(id.to_owned()),
+            true,
+        ),
+    )
 }
 
 pub(crate) fn organization(id: Uuid, overrides: TestOrganizationOverrides) -> Organization {

@@ -6,20 +6,29 @@ use sqlx::postgres::PgRow;
 pub(super) fn passkey_writes<'a>(
     model: &'a PostgresModel<'a>,
     passkey: &StoredPasskey,
+    id: &crate::store::PreparedDatabaseId,
 ) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
-    model.encode_fields([
-        ("id", json!(passkey.id.to_string())),
-        ("userId", json!(passkey.user_id.to_string())),
-        ("name", optional_string(passkey.name.clone())),
-        ("credentialID", json!(passkey.credential_id)),
-        ("publicKey", json!(passkey.public_key)),
-        ("counter", json!(passkey.counter)),
-        ("deviceType", json!(passkey.device_type)),
-        ("backedUp", json!(passkey.backed_up)),
-        ("transports", optional_string(passkey.transports.clone())),
-        ("aaguid", optional_string(passkey.aaguid.clone())),
-        ("createdAt", json!(passkey.created_at.to_rfc3339())),
-    ])
+    let mut values = Map::from_iter([
+        ("userId".into(), json!(passkey.user_id.to_string())),
+        ("name".into(), optional_string(passkey.name.clone())),
+        ("credentialID".into(), json!(passkey.credential_id)),
+        ("publicKey".into(), json!(passkey.public_key)),
+        ("counter".into(), json!(passkey.counter)),
+        ("deviceType".into(), json!(passkey.device_type)),
+        ("backedUp".into(), json!(passkey.backed_up)),
+        (
+            "transports".into(),
+            optional_string(passkey.transports.clone()),
+        ),
+        ("aaguid".into(), optional_string(passkey.aaguid.clone())),
+        ("createdAt".into(), json!(passkey.created_at.to_rfc3339())),
+    ]);
+    super::super::rows::insert_prepared_id(&mut values, id)?;
+    model.encode_fields(
+        values
+            .iter()
+            .map(|(logical, value)| (logical.as_str(), value.clone())),
+    )
 }
 
 pub(super) fn decode_passkey(
@@ -31,7 +40,7 @@ pub(super) fn decode_passkey(
 
 fn decode_passkey_values(mut values: Map<String, Value>) -> Result<StoredPasskey, AuthError> {
     use super::super::rows::{
-        optional_string_value, required_bool, required_date, required_string, required_uuid,
+        optional_string_value, required_bool, required_date, required_string,
     };
     let counter = values
         .remove("counter")
@@ -39,8 +48,8 @@ fn decode_passkey_values(mut values: Map<String, Value>) -> Result<StoredPasskey
         .and_then(|value| u32::try_from(value).ok())
         .ok_or_else(|| invalid("counter"))?;
     Ok(StoredPasskey {
-        id: required_uuid(&mut values, "id")?,
-        user_id: required_uuid(&mut values, "userId")?,
+        id: required_string(&mut values, "id")?,
+        user_id: required_string(&mut values, "userId")?,
         name: optional_string_value(&mut values, "name")?,
         credential_id: required_string(&mut values, "credentialID")?,
         public_key: required_string(&mut values, "publicKey")?,
@@ -107,8 +116,8 @@ mod tests {
         );
         let now = Utc::now();
         let passkey = StoredPasskey {
-            id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
+            id: Uuid::new_v4().to_string(),
+            user_id: Uuid::new_v4().to_string(),
             name: None,
             credential_id: "credential".into(),
             public_key: "key".into(),
@@ -121,7 +130,12 @@ mod tests {
         };
         let query = super::super::super::rows::insert_query(
             &model,
-            passkey_writes(&model, &passkey).unwrap(),
+            passkey_writes(
+                &model,
+                &passkey,
+                &super::super::super::rows::explicit_id(passkey.id.clone()),
+            )
+            .unwrap(),
         );
         let sql = query.sql();
         assert!(sql.contains("\"passkey\"\" records\"") && sql.contains("\"credential id\""));

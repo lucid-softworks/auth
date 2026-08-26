@@ -150,7 +150,7 @@ async fn verify_magic_link(
             bind_verified_session(
                 &service,
                 &headers,
-                verified.result.session.user.id,
+                &verified.result.session.user.id,
                 &token,
                 response,
             )
@@ -192,7 +192,7 @@ async fn verified_response(
 async fn bind_verified_session(
     service: &AuthService,
     headers: &HeaderMap,
-    user_id: uuid::Uuid,
+    user_id: &str,
     token: &str,
     response: Response,
 ) -> Response {

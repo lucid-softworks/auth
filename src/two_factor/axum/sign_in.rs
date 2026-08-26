@@ -74,13 +74,14 @@ async fn continue_sign_in(
         return auth_error(error);
     }
     let token = result.token.clone();
-    let user_id = result.session.user.id;
+    let user_id = result.session.user.id.clone();
     let body = match crate::axum::sign_in_response(service, result, callback_url.clone()).await {
         Ok(body) => body,
         Err(error) => return auth_error(error),
     };
     let mut response =
-        with_bound_session_cookie(service, headers, user_id, &token, remember_me, Json(body)).await;
+        with_bound_session_cookie(service, headers, &user_id, &token, remember_me, Json(body))
+            .await;
     if let Some(rotated) = rotated_trust_cookie {
         let max_age = service
             .two_factor_plugin()

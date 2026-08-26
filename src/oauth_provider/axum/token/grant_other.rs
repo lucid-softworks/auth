@@ -145,7 +145,7 @@ async fn issue_refreshed_tokens(
     endpoint: String,
 ) -> Result<Value, OAuthProviderError> {
     let user = service
-        .auth_user_by_id(refresh.user_id)
+        .auth_user_by_id(&refresh.user_id)
         .await
         .map_err(server)?
         .ok_or_else(|| OAuthProviderError::InvalidRequest("user not found".into()))?;
@@ -159,7 +159,7 @@ async fn issue_refreshed_tokens(
             endpoint,
             client: authenticated.client,
             user: Some(user),
-            session_id: refresh.session_id,
+            session_id: refresh.session_id.clone(),
             scopes,
             resources: effective_resources,
             original_resources: refresh.resources.clone(),
@@ -251,7 +251,7 @@ async fn reused_refresh_response(
             OAuthProviderError::InvalidGrant("invalid refresh token".into())
         });
     }
-    store.revoke_oauth_refresh_family(client_id, refresh.user_id).await.map_err(server)?;
+    store.revoke_oauth_refresh_family(client_id, &refresh.user_id).await.map_err(server)?;
     Err(OAuthProviderError::InvalidGrant("invalid refresh token".into()))
 }
 

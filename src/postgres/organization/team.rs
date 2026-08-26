@@ -109,7 +109,7 @@ impl OrganizationTeamStore for PostgresStore {
         let model = self.physical_model("teamMember")?;
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
         lock_team(&mut transaction, &team, member.team_id).await?;
-        if team_member_exists(&mut transaction, &model, member.team_id, member.user_id).await? {
+        if team_member_exists(&mut transaction, &model, member.team_id, &member.user_id).await? {
             return Ok(OrganizationTeamWriteOutcome::AlreadyExists);
         }
         if let Some(limit) = maximum_members
@@ -125,7 +125,7 @@ impl OrganizationTeamStore for PostgresStore {
     async fn remove_team_member(
         &self,
         team_id: Uuid,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<OrganizationTeamWriteOutcome, AuthError> {
         let model = self.physical_model("teamMember")?;
         let mut query = delete_team_member_query(&model, team_id, user_id)?;
@@ -157,7 +157,7 @@ impl OrganizationTeamStore for PostgresStore {
             .collect()
     }
 
-    async fn list_user_teams(&self, user_id: Uuid) -> Result<Vec<OrganizationTeam>, AuthError> {
+    async fn list_user_teams(&self, user_id: &str) -> Result<Vec<OrganizationTeam>, AuthError> {
         let team = self.physical_model("team")?;
         let member = self.physical_model("teamMember")?;
         let mut query = list_user_teams_query(&team, &member, user_id)?;

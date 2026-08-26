@@ -18,9 +18,9 @@ const CORE_FIELDS: &[&str] = &[
 pub(in crate::postgres) fn session_writes<'a>(
     model: &'a PostgresModel<'a>,
     session: &AuthSession,
+    id: &crate::store::PreparedDatabaseId,
 ) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
     let mut values = Map::from_iter([
-        ("id".into(), json!(session.id.to_string())),
         ("userId".into(), json!(session.user_id.to_string())),
         ("token".into(), json!(session.token)),
         ("expiresAt".into(), json!(session.expires_at.to_rfc3339())),
@@ -41,12 +41,14 @@ pub(in crate::postgres) fn session_writes<'a>(
                 .map_or(Value::Null, Value::String),
         ),
     ]);
+    super::super::rows::insert_prepared_id(&mut values, id)?;
     if model.has_field("impersonatedBy") {
         values.insert(
             "impersonatedBy".into(),
             session
                 .actor_user_id
-                .map(|value| Value::String(value.to_string()))
+                .as_ref()
+                .map(|value| Value::String(value.clone()))
                 .unwrap_or(Value::Null),
         );
     }
@@ -78,12 +80,10 @@ pub(super) fn decode_session_values(
     model: &PostgresModel<'_>,
     mut values: Map<String, Value>,
 ) -> Result<AuthSession, AuthError> {
-    use super::super::rows::{
-        optional_string_value, required_date, required_string, required_uuid,
-    };
+    use super::super::rows::{optional_string_value, required_date, required_string};
 
-    let id = required_uuid(&mut values, "id")?;
-    let user_id = required_uuid(&mut values, "userId")?;
+    let id = required_string(&mut values, "id")?;
+    let user_id = required_string(&mut values, "userId")?;
     let token = required_string(&mut values, "token")?;
     let expires_at = required_date(&mut values, "expiresAt")?;
     let created_at = required_date(&mut values, "createdAt")?;
@@ -91,12 +91,7 @@ pub(super) fn decode_session_values(
     let ip_address = optional_string_value(&mut values, "ipAddress")?;
     let user_agent = optional_string_value(&mut values, "userAgent")?;
     let actor_user_id = if model.has_field("impersonatedBy") {
-        match optional_string_value(&mut values, "impersonatedBy")? {
-            Some(value) => Some(
-                uuid::Uuid::parse_str(&value).map_err(|_| invalid_session_row("impersonatedBy"))?,
-            ),
-            None => None,
-        }
+        optional_string_value(&mut values, "impersonatedBy")?
     } else {
         None
     };
@@ -113,12 +108,6 @@ pub(super) fn decode_session_values(
         user_agent,
         additional_fields: values,
     })
-}
-
-fn invalid_session_row(field: &str) -> AuthError {
-    AuthError::Storage(format!(
-        "PostgreSQL returned an invalid canonical session field '{field}'"
-    ))
 }
 
 #[cfg(test)]
@@ -161,13 +150,13 @@ mod tests {
         let physical = physical(true);
         let model = physical.model("session").unwrap();
         let now = Utc::now();
-        let actor = Uuid::new_v4();
+        let actor = Uuid::new_v4().to_string();
         let mut additional_fields = Map::new();
         additional_fields.insert("tenantCode".into(), json!("blue"));
         additional_fields.insert("undeclared".into(), json!("omitted"));
         let session = AuthSession {
-            id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
+            id: Uuid::new_v4().to_string(),
+            user_id: Uuid::new_v4().to_string(),
             token: "secret".into(),
             actor_user_id: Some(actor),
             authentication_method: Some(crate::AuthenticationMethod::Passkey),
@@ -178,7 +167,12 @@ mod tests {
             user_agent: None,
             additional_fields,
         };
-        let writes = session_writes(&model, &session).unwrap();
+        let writes = session_writes(
+            &model,
+            &session,
+            &super::super::super::rows::explicit_id(session.id.clone()),
+        )
+        .unwrap();
         let query = super::super::super::rows::insert_query(&model, writes);
         let sql = query.sql();
         assert!(sql.contains("\"session\"\" records\""));
@@ -192,13 +186,46 @@ mod tests {
     }
 
     #[test]
+    fn deferred_id_is_omitted_from_insert_and_returned_from_database() {
+        let physical = physical(false);
+        let model = physical.model("session").unwrap();
+        let now = Utc::now();
+        let session = AuthSession {
+            id: String::new(),
+            user_id: "user-id".into(),
+            token: "secret".into(),
+            actor_user_id: None,
+            authentication_method: None,
+            expires_at: now,
+            created_at: now,
+            updated_at: now,
+            ip_address: None,
+            user_agent: None,
+            additional_fields: Map::new(),
+        };
+        let writes = session_writes(
+            &model,
+            &session,
+            &crate::store::PreparedDatabaseId::Deferred,
+        )
+        .unwrap();
+        assert!(writes.iter().all(|write| write.logical() != "id"));
+
+        let query = super::super::super::rows::insert_query(&model, writes);
+        let sql = query.sql();
+        let (insert, returning) = sql.split_once(" RETURNING ").unwrap();
+        assert!(!insert.contains("\"id\""));
+        assert!(returning.contains("\"id\""));
+    }
+
+    #[test]
     fn decode_without_admin_field_has_no_fabricated_actor_or_authentication_method() {
         let physical = physical(false);
         let model = physical.model("session").unwrap();
         let now = Utc::now();
         let mut values = Map::from_iter([
-            ("id".into(), json!(Uuid::new_v4().to_string())),
-            ("userId".into(), json!(Uuid::new_v4().to_string())),
+            ("id".into(), json!("custom-session-id")),
+            ("userId".into(), json!("custom-user-id")),
             ("token".into(), json!("token")),
             ("expiresAt".into(), json!(now.to_rfc3339())),
             ("createdAt".into(), json!(now.to_rfc3339())),
@@ -208,6 +235,8 @@ mod tests {
             ("tenantCode".into(), json!("blue")),
         ]);
         let session = decode_session_values(&model, std::mem::take(&mut values)).unwrap();
+        assert_eq!(session.id, "custom-session-id");
+        assert_eq!(session.user_id, "custom-user-id");
         assert_eq!(session.actor_user_id, None);
         assert_eq!(session.authentication_method, None);
         assert_eq!(session.additional_fields["tenantCode"], json!("blue"));

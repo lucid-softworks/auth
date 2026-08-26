@@ -90,8 +90,7 @@ async fn session_field_updates_follow_secondary_authority_and_preserve_expiry() 
             cached["session"]["expiresAt"],
             before["session"]["expiresAt"]
         );
-        let user_id =
-            uuid::Uuid::parse_str(signed_up.body["user"]["id"].as_str().unwrap()).unwrap();
+        let user_id = signed_up.body["user"]["id"].as_str().unwrap();
         assert_eq!(
             primary.list_sessions(user_id).await.unwrap().len(),
             usize::from(mirror)

@@ -3,7 +3,7 @@ use super::{fixtures::insert, *};
 pub(super) async fn all_fields_and_unique_codes(
     store: &PostgresDeviceAuthorizationStore,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let owner = Uuid::new_v4();
+    let owner = "device-owner".to_owned();
     let mut expected = code("round-trip", Some(owner));
     expected.expires_at = postgres_timestamp(expected.expires_at);
     expected.last_polled_at = Some(postgres_timestamp(Utc::now()));

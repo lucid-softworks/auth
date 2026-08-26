@@ -45,7 +45,7 @@ pub(super) async fn build_mutations(
             grant.status = AgentGrantStatus::Active;
             grant.expires_at =
                 expires_at(&state.config, &grant.capability, &approval.agent, ttl).await;
-            grant.granted_by = Some(session.user.id);
+            grant.granted_by = Some(session.user.id.clone());
             active
                 .entry(grant.capability.clone())
                 .or_default()
@@ -88,12 +88,12 @@ pub(super) async fn activate(
         state,
         approval.host.as_ref(),
         &approval.agent_id,
-        session.user.id,
+        &session.user.id,
         approval.now,
     )
     .await?;
     approval.agent.status = AgentStatus::Active;
-    approval.agent.user_id = Some(session.user.id);
+    approval.agent.user_id = Some(session.user.id.clone());
     approval.agent.activated_at = Some(approval.now);
     approval.agent.expires_at = (state.config.agent_session_ttl > 0)
         .then(|| approval.now + Duration::seconds(state.config.agent_session_ttl as i64));
@@ -122,7 +122,7 @@ pub(super) async fn apply_approval(
     )
     .await?;
     if let Some(activation) = &activation {
-        super::activation::after_commit(state, activation, approval.user_id).await;
+        super::activation::after_commit(state, activation, &approval.user_id).await;
     }
     super::notifications::deliver(
         &approval.approvals,

@@ -21,7 +21,7 @@ pub(super) struct InvitationAcceptanceContext<'model, 'schema> {
         &'model PostgresModel<'schema>,
     )>,
     pub(super) invitation_id: Uuid,
-    pub(super) user_id: Uuid,
+    pub(super) user_id: &'model str,
     pub(super) now: DateTime<Utc>,
     pub(super) membership_limit: usize,
 }
@@ -98,7 +98,7 @@ async fn write_acceptance(
     member_model: &PostgresModel<'_>,
     team_models: Option<(&PostgresModel<'_>, &PostgresModel<'_>)>,
     invitation: OrganizationInvitation,
-    user_id: Uuid,
+    user_id: &str,
     now: DateTime<Utc>,
 ) -> Result<(), AuthError> {
     insert_member(
@@ -107,7 +107,7 @@ async fn write_acceptance(
         &OrganizationMember {
             id: Uuid::new_v4(),
             organization_id: invitation.organization_id,
-            user_id,
+            user_id: user_id.to_owned(),
             role: invitation.role.clone(),
             created_at: now,
         },
@@ -128,7 +128,7 @@ async fn write_acceptance(
                 OrganizationTeamMember {
                     id: Uuid::new_v4(),
                     team_id,
-                    user_id,
+                    user_id: user_id.to_owned(),
                     created_at: now,
                 },
                 invitation.organization_id,

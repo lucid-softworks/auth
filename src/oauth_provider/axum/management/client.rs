@@ -47,7 +47,7 @@ pub(super) async fn create_client(
         Ok(value) => value,
         Err(response) => return *response,
     };
-    let user_id = reference_id.is_none().then_some(session.user.id);
+    let user_id = reference_id.is_none().then_some(session.user.id.clone());
     match persist_new_client(
         &service,
         &state,
@@ -154,7 +154,7 @@ pub(super) async fn list_clients(
         Ok(value) => value,
         Err(response) => return *response,
     };
-    let user_id = reference_id.is_none().then_some(session.user.id);
+    let user_id = reference_id.is_none().then_some(session.user.id.as_str());
     match state
         .store
         .list_oauth_clients(user_id, reference_id.as_deref())

@@ -15,7 +15,7 @@ impl<'a> OperatorSecurityService<'a> {
         Self { service }
     }
 
-    pub async fn status(&self, user_id: uuid::Uuid) -> Result<OperatorSecurityStatus, AuthError> {
+    pub async fn status(&self, user_id: &str) -> Result<OperatorSecurityStatus, AuthError> {
         self.service.operator_security_status(user_id).await
     }
 
@@ -29,13 +29,13 @@ impl<'a> OperatorSecurityService<'a> {
             .await
     }
 
-    pub async fn require_replacement(&self, user_id: uuid::Uuid) -> Result<(), AuthError> {
+    pub async fn require_replacement(&self, user_id: &str) -> Result<(), AuthError> {
         self.service
             .set_operator_temporary_password(user_id, true)
             .await
     }
 
-    pub async fn clear_replacement(&self, user_id: uuid::Uuid) -> Result<(), AuthError> {
+    pub async fn clear_replacement(&self, user_id: &str) -> Result<(), AuthError> {
         self.service
             .set_operator_temporary_password(user_id, false)
             .await

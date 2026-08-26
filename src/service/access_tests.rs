@@ -56,7 +56,7 @@ async fn protects_the_final_owner_and_rejects_member_administration() {
         Some("owner")
     );
     let error = service
-        .set_user_role(&owner.session, owner.session.user.id, "viewer")
+        .set_user_role(&owner.session, &owner.session.user.id, "viewer")
         .await
         .unwrap_err();
     assert!(matches!(error, AuthError::LastOwner));
@@ -65,7 +65,7 @@ async fn protects_the_final_owner_and_rejects_member_administration() {
         .await
         .unwrap();
     let error = service
-        .set_user_role(&member_session.session, member.id, "viewer")
+        .set_user_role(&member_session.session, &member.id, "viewer")
         .await
         .unwrap_err();
     assert!(matches!(
@@ -109,13 +109,13 @@ async fn core_principal_has_no_host_authorization_role() {
 async fn impersonation_is_bounded_and_returns_to_the_owner() {
     let (service, owner, member) = owner_and_member().await;
     let impersonated = service
-        .impersonate_user(&owner.session, member.id, None, None)
+        .impersonate_user(&owner.session, &member.id, None, None)
         .await
         .unwrap();
     assert_eq!(impersonated.session.user.id, member.id);
     assert_eq!(
         impersonated.session.session.actor_user_id,
-        Some(owner.session.user.id)
+        Some(owner.session.user.id.clone())
     );
     assert!(impersonated.session.session.expires_at <= Utc::now() + chrono::Duration::hours(1));
     let restored = service
@@ -148,7 +148,7 @@ async fn owner_promotion_revokes_sessions_created_under_the_old_role() {
         .await
         .unwrap();
     service
-        .set_user_role(&owner.session, member.id, "owner")
+        .set_user_role(&owner.session, &member.id, "owner")
         .await
         .unwrap();
     assert!(
@@ -166,7 +166,7 @@ async fn an_expired_ban_is_cleared_when_a_session_is_created() {
     service
         .store
         .update_user_ban(
-            member.id,
+            &member.id,
             true,
             Some("expired".into()),
             Some(Utc::now() - chrono::Duration::seconds(1)),

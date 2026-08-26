@@ -69,7 +69,7 @@ pub(in crate::chargebee::axum) async fn customer_id(
         super::super::input::CustomerType::User => super::super::super::customer::user_customer_id(
             &request.state.options,
             request.state.store.as_ref(),
-            request.session.user.id,
+            &request.session.user.id,
             &user,
             request.metadata,
             request.context,

@@ -158,7 +158,7 @@ fn configure_fields(config: &mut AuthConfig) {
     );
 }
 
-async fn assert_hidden_fields_are_not_returned(fixture: &Fixture, cookie: &str, user_id: Uuid) {
+async fn assert_hidden_fields_are_not_returned(fixture: &Fixture, cookie: &str, user_id: &str) {
     fixture
         .store
         .update_user_profile(
@@ -171,7 +171,7 @@ async fn assert_hidden_fields_are_not_returned(fixture: &Fixture, cookie: &str, 
         .await
         .unwrap();
     let (_, current) = get(&fixture.app, "/api/auth/get-session", cookie).await;
-    let session_id = Uuid::parse_str(current["session"]["id"].as_str().unwrap()).unwrap();
+    let session_id = current["session"]["id"].as_str().unwrap();
     fixture
         .store
         .update_session_fields(
@@ -243,7 +243,7 @@ async fn user_and_session_updates_accept_only_configured_mutable_fields() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(updated["session"]["theme"], "dark");
 
-    let user_id = Uuid::parse_str(signed_up["user"]["id"].as_str().unwrap()).unwrap();
+    let user_id = signed_up["user"]["id"].as_str().unwrap();
     assert_hidden_fields_are_not_returned(&fixture, &cookie, user_id).await;
 
     for (path, body) in [

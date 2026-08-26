@@ -18,7 +18,7 @@ pub(crate) struct Fixture {
     pub(crate) app: Router,
     pub(crate) client: Arc<LifecycleClient>,
     pub(crate) store: Arc<MemoryStore>,
-    pub(crate) user_id: uuid::Uuid,
+    pub(crate) user_id: String,
     cookie: String,
 }
 
@@ -62,7 +62,7 @@ pub(crate) async fn fixture(customer_id: Option<&str>) -> Fixture {
         .await
         .unwrap();
     store
-        .update_user_email(user.id, &user.email, &user.email, true)
+        .update_user_email(&user.id, &user.email, &user.email, true)
         .await
         .unwrap();
     let session = service

@@ -1,26 +1,37 @@
 use super::MemoryStore;
+use crate::store::DatabaseCreate;
 use crate::{AuthError, VerificationStore, VerificationValue};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
 #[async_trait]
 impl VerificationStore for MemoryStore {
-    async fn create_verification(&self, value: VerificationValue) -> Result<(), AuthError> {
+    async fn create_verification(
+        &self,
+        value: DatabaseCreate<VerificationValue>,
+    ) -> Result<VerificationValue, AuthError> {
         let mut state = self.state.write().await;
+        let (mut value, id) = value.into_parts(self)?;
+        value.id = self.create_id("verification", id, state.verifications.len())?;
         if state.verifications.contains_key(&value.id) {
             return Err(AuthError::Storage("verification id already exists".into()));
         }
-        state.verifications.insert(value.id, value);
-        Ok(())
+        state.verifications.insert(value.id.clone(), value.clone());
+        Ok(value)
     }
 
-    async fn reserve_verification(&self, value: VerificationValue) -> Result<bool, AuthError> {
+    async fn reserve_verification(
+        &self,
+        value: DatabaseCreate<VerificationValue>,
+    ) -> Result<Option<VerificationValue>, AuthError> {
         let mut state = self.state.write().await;
+        let (mut value, id) = value.into_parts(self)?;
+        value.id = self.create_id("verification", id, state.verifications.len())?;
         if state.verifications.contains_key(&value.id) {
-            return Ok(false);
+            return Ok(None);
         }
-        state.verifications.insert(value.id, value);
-        Ok(true)
+        state.verifications.insert(value.id.clone(), value.clone());
+        Ok(Some(value))
     }
 
     async fn find_verification(
@@ -48,7 +59,7 @@ impl VerificationStore for MemoryStore {
             .values()
             .filter(|value| value.identifier == identifier)
             .max_by_key(|value| value.created_at)
-            .map(|value| value.id);
+            .map(|value| value.id.clone());
         let Some(latest) = latest else {
             return Ok(None);
         };
@@ -70,7 +81,7 @@ impl VerificationStore for MemoryStore {
         if !state.verifications.contains_key(&value.id) {
             return Ok(None);
         }
-        state.verifications.insert(value.id, value.clone());
+        state.verifications.insert(value.id.clone(), value.clone());
         Ok(Some(value))
     }
 
@@ -104,6 +115,7 @@ impl VerificationStore for MemoryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::{DatabaseIdInput, DatabaseIdPlan};
     use chrono::Duration;
     use std::sync::Arc;
 
@@ -111,12 +123,37 @@ mod tests {
         VerificationValue::new(format!("test:{identifier}"), identifier, expires_at)
     }
 
+    fn create(value: VerificationValue) -> DatabaseCreate<VerificationValue> {
+        DatabaseCreate::new(
+            value,
+            DatabaseIdPlan::new(
+                crate::DatabaseIdGeneration::Default,
+                "verification",
+                DatabaseIdInput::Absent,
+                false,
+            ),
+        )
+    }
+
+    fn forced(value: VerificationValue) -> DatabaseCreate<VerificationValue> {
+        let id = value.identifier.clone();
+        DatabaseCreate::new(
+            value,
+            DatabaseIdPlan::new(
+                crate::DatabaseIdGeneration::Default,
+                "verification",
+                DatabaseIdInput::String(id),
+                true,
+            ),
+        )
+    }
+
     #[tokio::test]
     async fn consumes_once_atomically_and_returns_expired_values() {
         let store = Arc::new(MemoryStore::default());
         let now = Utc::now();
         store
-            .create_verification(value("live", now + Duration::minutes(1)))
+            .create_verification(create(value("live", now + Duration::minutes(1))))
             .await
             .unwrap();
         let (left, right) = tokio::join!(
@@ -129,7 +166,7 @@ mod tests {
         );
 
         store
-            .create_verification(value("expired", now - Duration::seconds(1)))
+            .create_verification(create(value("expired", now - Duration::seconds(1))))
             .await
             .unwrap();
         assert_eq!(
@@ -142,13 +179,13 @@ mod tests {
             "test:expired"
         );
         store
-            .create_verification(value("cleanup", now - Duration::seconds(1)))
+            .create_verification(create(value("cleanup", now - Duration::seconds(1))))
             .await
             .unwrap();
         assert_eq!(store.delete_expired_verifications(now).await.unwrap(), 1);
 
         store
-            .create_verification(value("equal", now))
+            .create_verification(create(value("equal", now)))
             .await
             .unwrap();
         assert_eq!(store.delete_expired_verifications(now).await.unwrap(), 0);
@@ -167,9 +204,12 @@ mod tests {
         let expires_at = Utc::now() + Duration::minutes(1);
         let reservation = value("reservation", expires_at);
         let (left, right) = tokio::join!(
-            store.reserve_verification(reservation.clone()),
-            store.reserve_verification(reservation),
+            store.reserve_verification(forced(reservation.clone())),
+            store.reserve_verification(forced(reservation)),
         );
-        assert_eq!(usize::from(left.unwrap()) + usize::from(right.unwrap()), 1);
+        assert_eq!(
+            usize::from(left.unwrap().is_some()) + usize::from(right.unwrap().is_some()),
+            1
+        );
     }
 }

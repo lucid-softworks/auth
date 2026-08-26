@@ -275,7 +275,7 @@ pub(super) async fn member_exists(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
     organization_id: Uuid,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<bool, AuthError> {
     let mut query = QueryBuilder::new("SELECT EXISTS(SELECT 1 FROM ");
     query
@@ -291,7 +291,7 @@ pub(super) async fn member_exists(
         .push(model.quoted_column("userId")?)
         .push(" = ");
     model
-        .encode("userId", uuid_value(user_id))?
+        .encode("userId", json!(user_id))?
         .push_bind(&mut query);
     query.push(")");
     query

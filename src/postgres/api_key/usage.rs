@@ -1,11 +1,10 @@
 use super::{codec, select_query};
 use crate::{ApiKey, ApiKeyUseOutcome, AuthError};
 use chrono::{DateTime, Duration, Utc};
-use uuid::Uuid;
 
 pub(super) async fn claim_usage(
     store: &super::super::PostgresStore,
-    api_key_id: Uuid,
+    api_key_id: &str,
     now: DateTime<Utc>,
 ) -> Result<ApiKeyUseOutcome, AuthError> {
     let model = store.api_key_model()?;
@@ -15,10 +14,9 @@ pub(super) async fn claim_usage(
         .await
         .map_err(super::super::storage_error)?;
     let mut query = select_query(&model);
-    query
-        .push(" WHERE \"id\" = ")
-        .push_bind(api_key_id)
-        .push(" FOR UPDATE");
+    query.push(" WHERE \"id\" = ");
+    super::super::rows::push_model_value(&mut query, &model, "id", serde_json::json!(api_key_id))?;
+    query.push(" FOR UPDATE");
     let row = query
         .build()
         .fetch_optional(&mut *transaction)
@@ -49,7 +47,8 @@ pub(super) async fn claim_usage(
     api_key.updated_at = now;
     let writes = codec::api_key_usage_writes(&model, &api_key)?;
     let mut update = super::super::rows::update_query(&model, writes);
-    update.push(" WHERE \"id\" = ").push_bind(api_key.id);
+    update.push(" WHERE \"id\" = ");
+    super::super::rows::push_model_value(&mut update, &model, "id", serde_json::json!(api_key.id))?;
     update
         .build()
         .execute(&mut *transaction)

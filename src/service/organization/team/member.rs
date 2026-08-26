@@ -10,16 +10,16 @@ impl AuthService {
     pub async fn list_user_organization_teams(
         &self,
         session: &SessionWithUser,
-        user_id: Option<Uuid>,
+        user_id: Option<String>,
         organization_id: Option<Uuid>,
     ) -> Result<Vec<OrganizationTeam>, AuthError> {
         let plugin = self.organization_plugin()?;
-        let target = user_id.unwrap_or(session.user.id);
+        let target = user_id.as_deref().unwrap_or(&session.user.id);
         if target != session.user.id {
             let organization_id = active_or(session, organization_id)?;
             let actor = plugin
                 .store
-                .find_member(organization_id, session.user.id)
+                .find_member(organization_id, &session.user.id)
                 .await?
                 .ok_or_else(member_not_found)?;
             require_member_update(
@@ -74,7 +74,7 @@ impl AuthService {
             .ok_or_else(team_not_found)?;
         let organization_member = plugin
             .store
-            .find_member(team.organization_id, session.user.id)
+            .find_member(team.organization_id, &session.user.id)
             .await?;
         let team_member = plugin
             .store
@@ -97,13 +97,13 @@ impl AuthService {
         session: &SessionWithUser,
         organization_id: Option<Uuid>,
         team_id: Uuid,
-        user_id: Uuid,
+        user_id: String,
     ) -> Result<OrganizationTeamMember, AuthError> {
         let organization_id = active_or(session, organization_id)?;
         let plugin = self.organization_plugin()?;
         let actor = plugin
             .store
-            .find_member(organization_id, session.user.id)
+            .find_member(organization_id, &session.user.id)
             .await?
             .ok_or_else(member_not_found)?;
         require_member_update(
@@ -113,7 +113,7 @@ impl AuthService {
             "You are not allowed to create a new member",
         )
         .await?;
-        require_target_and_team(plugin, organization_id, team_id, user_id).await?;
+        require_target_and_team(plugin, organization_id, team_id, &user_id).await?;
         let team = plugin
             .store
             .find_team(team_id)
@@ -126,13 +126,13 @@ impl AuthService {
             .ok_or_else(team_not_found)?;
         let target_user = self
             .store
-            .find_user_by_id(user_id)
+            .find_user_by_id(&user_id)
             .await?
             .ok_or_else(|| AuthError::InvalidRequest("User not found".into()))?;
         let mut team_member = OrganizationTeamMember {
             id: Uuid::new_v4(),
             team_id,
-            user_id,
+            user_id: user_id.clone(),
             created_at: Utc::now(),
         };
         if let Some(hooks) = &plugin.config.hooks {
@@ -177,13 +177,13 @@ impl AuthService {
         session: &SessionWithUser,
         organization_id: Option<Uuid>,
         team_id: Uuid,
-        user_id: Uuid,
+        user_id: String,
     ) -> Result<(), AuthError> {
         let organization_id = active_or(session, organization_id)?;
         let plugin = self.organization_plugin()?;
         let actor = plugin
             .store
-            .find_member(organization_id, session.user.id)
+            .find_member(organization_id, &session.user.id)
             .await?
             .ok_or_else(member_not_found)?;
         require_member_update(
@@ -193,7 +193,7 @@ impl AuthService {
             "You are not allowed to remove a team member",
         )
         .await?;
-        require_target_and_team(plugin, organization_id, team_id, user_id).await?;
+        require_target_and_team(plugin, organization_id, team_id, &user_id).await?;
         let team = plugin
             .store
             .find_team(team_id)
@@ -218,7 +218,7 @@ impl AuthService {
             })?;
         let target_user = self
             .store
-            .find_user_by_id(user_id)
+            .find_user_by_id(&user_id)
             .await?
             .ok_or_else(|| AuthError::InvalidRequest("User not found".into()))?;
         if let Some(hooks) = &plugin.config.hooks {
@@ -226,7 +226,7 @@ impl AuthService {
                 .before_remove_team_member(&team_member, &team, &target_user, &organization)
                 .await?;
         }
-        match plugin.store.remove_team_member(team_id, user_id).await? {
+        match plugin.store.remove_team_member(team_id, &user_id).await? {
             OrganizationTeamWriteOutcome::Written => {
                 if let Some(hooks) = &plugin.config.hooks {
                     hooks
@@ -248,7 +248,7 @@ async fn require_target_and_team(
     plugin: &crate::OrganizationPlugin,
     organization_id: Uuid,
     team_id: Uuid,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), AuthError> {
     if plugin
         .store

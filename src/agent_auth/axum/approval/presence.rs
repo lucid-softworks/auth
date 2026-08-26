@@ -45,7 +45,7 @@ pub(super) async fn verify(
     body: &ApproveCapabilityBody,
     headers: &HeaderMap,
 ) -> Result<()> {
-    if service.list_passkeys(session.user.id).await?.is_empty() {
+    if service.list_passkeys(&session.user.id).await?.is_empty() {
         return Err(FlowError::code(
             StatusCode::FORBIDDEN,
             crate::AgentAuthErrorCode::WebauthnNotEnrolled,
@@ -54,7 +54,7 @@ pub(super) async fn verify(
     let config = config(service, state, headers)?;
     let Some(assertion) = &body.webauthn_response else {
         let options = service
-            .start_agent_presence_verification(&config, session.user.id, agent_id)
+            .start_agent_presence_verification(&config, &session.user.id, agent_id)
             .await?;
         return Err(FlowError::with_extra(
             StatusCode::FORBIDDEN,
@@ -71,7 +71,7 @@ pub(super) async fn verify(
         )
     })?;
     service
-        .finish_agent_presence_verification(&config, session.user.id, agent_id, assertion)
+        .finish_agent_presence_verification(&config, &session.user.id, agent_id, assertion)
         .await
         .map_err(|error| {
             let message = match error {

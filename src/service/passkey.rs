@@ -9,7 +9,6 @@ use crate::{
 use chrono::Duration;
 #[cfg(any(feature = "axum", test))]
 use chrono::Utc;
-use uuid::Uuid;
 use webauthn_rs::prelude::{PublicKeyCredential, RequestChallengeResponse};
 use webauthn_rs_core::proto::{
     AuthenticationResult, Credential, RequestAuthenticationExtensions, UserVerificationPolicy,
@@ -27,14 +26,14 @@ pub use registration::{
 };
 
 impl AuthService {
-    pub async fn list_passkeys(&self, user_id: Uuid) -> Result<Vec<StoredPasskey>, AuthError> {
+    pub async fn list_passkeys(&self, user_id: &str) -> Result<Vec<StoredPasskey>, AuthError> {
         self.store.list_passkeys(user_id).await
     }
 
     pub async fn rename_passkey(
         &self,
         actor: &SessionWithUser,
-        passkey_id: Uuid,
+        passkey_id: &str,
         name: &str,
     ) -> Result<StoredPasskey, AuthError> {
         require_account_session(actor)?;
@@ -54,12 +53,12 @@ impl AuthService {
         }
         let passkey = self
             .store
-            .update_passkey_name(actor.user.id, passkey_id, name.clone())
+            .update_passkey_name(&actor.user.id, passkey_id, name.clone())
             .await?
             .ok_or(AuthError::PasskeyNotFound)?;
         self.activity(crate::AuthActivity::PasskeyRenamed {
-            user_id: actor.user.id,
-            passkey_id,
+            user_id: actor.user.id.clone(),
+            passkey_id: passkey_id.to_owned(),
             name,
         })
         .await;
@@ -69,7 +68,7 @@ impl AuthService {
     pub async fn delete_passkey(
         &self,
         actor: &SessionWithUser,
-        passkey_id: Uuid,
+        passkey_id: &str,
     ) -> Result<(), AuthError> {
         require_account_session(actor)?;
         let passkey = self
@@ -82,7 +81,7 @@ impl AuthService {
         }
         let remaining = match self
             .store
-            .delete_passkey(actor.user.id, passkey_id, 0)
+            .delete_passkey(&actor.user.id, passkey_id, 0)
             .await?
         {
             PasskeyDeleteOutcome::Deleted { remaining } => remaining,
@@ -90,8 +89,8 @@ impl AuthService {
             PasskeyDeleteOutcome::MinimumRequired => return Err(AuthError::LastPasskey),
         };
         self.activity(crate::AuthActivity::PasskeyDeleted {
-            user_id: actor.user.id,
-            passkey_id,
+            user_id: actor.user.id.clone(),
+            passkey_id: passkey_id.to_owned(),
             remaining,
         })
         .await;
@@ -104,7 +103,7 @@ impl AuthService {
         current_session: Option<&SessionWithUser>,
     ) -> Result<(String, RequestChallengeResponse), AuthError> {
         let stored = match current_session {
-            Some(session) => self.store.list_passkeys(session.user.id).await?,
+            Some(session) => self.store.list_passkeys(&session.user.id).await?,
             None => Vec::new(),
         };
         let extensions = authentication_extensions(config).await?;
@@ -134,7 +133,7 @@ impl AuthService {
     pub(crate) async fn start_agent_presence_verification(
         &self,
         config: &PasskeyConfig,
-        user_id: Uuid,
+        user_id: &str,
         agent_id: &str,
     ) -> Result<RequestChallengeResponse, AuthError> {
         let passkeys = self.store.list_passkeys(user_id).await?;
@@ -165,7 +164,7 @@ impl AuthService {
     pub(crate) async fn finish_agent_presence_verification(
         &self,
         config: &PasskeyConfig,
-        user_id: Uuid,
+        user_id: &str,
         agent_id: &str,
         response: PublicKeyCredential,
     ) -> Result<(), AuthError> {
@@ -232,7 +231,7 @@ impl AuthService {
         stored = self.persist_authentication_result(stored, &result).await?;
         let user = self
             .store
-            .find_user_by_id(stored.user_id)
+            .find_user_by_id(&stored.user_id)
             .await?
             .ok_or(AuthError::InvalidCredentials)?;
         self.create_session(
@@ -257,8 +256,8 @@ impl AuthService {
         };
         callback
             .after_verification(PasskeyAuthenticationVerified {
-                passkey_id: stored.id,
-                user_id: stored.user_id,
+                passkey_id: stored.id.clone(),
+                user_id: stored.user_id.clone(),
                 response: serde_json::to_value(response)
                     .map_err(|error| AuthError::Storage(error.to_string()))?,
                 counter: result.counter(),
@@ -292,7 +291,7 @@ impl AuthService {
 }
 
 #[cfg(feature = "axum")]
-fn presence_identifier(user_id: Uuid, agent_id: &str) -> String {
+fn presence_identifier(user_id: &str, agent_id: &str) -> String {
     format!("{user_id}:{agent_id}")
 }
 

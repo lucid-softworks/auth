@@ -4,11 +4,11 @@ pub(super) async fn claim_and_consume_are_single_winner(
     store: &PostgresDeviceAuthorizationStore,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let unclaimed = insert(store, code("claim", None)).await?;
-    let left_user = Uuid::new_v4();
-    let right_user = Uuid::new_v4();
+    let left_user = "left-user".to_owned();
+    let right_user = "right-user".to_owned();
     let (left, right) = tokio::join!(
-        store.bind_pending_user(unclaimed.id, left_user),
-        store.bind_pending_user(unclaimed.id, right_user),
+        store.bind_pending_user(unclaimed.id, &left_user),
+        store.bind_pending_user(unclaimed.id, &right_user),
     );
     let claims = [left?, right?];
     assert_eq!(claims.iter().filter(|claim| claim.is_some()).count(), 1);
@@ -19,7 +19,7 @@ pub(super) async fn claim_and_consume_are_single_winner(
         .expect("one atomic claim");
     assert!(winner.user_id == Some(left_user) || winner.user_id == Some(right_user));
 
-    let mut approved = code("consume", Some(Uuid::new_v4()));
+    let mut approved = code("consume", Some("approved-user".into()));
     approved.status = DeviceCodeStatus::Approved;
     let approved = insert(store, approved).await?;
     assert!(

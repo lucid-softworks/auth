@@ -2,13 +2,12 @@ use super::AuthService;
 use crate::{AuthError, StoredPasskey, VerificationValue};
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use webauthn_rs_core::proto::{AuthenticationState, RegistrationState};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) enum PasskeyCeremony {
     Registration {
-        user_id: Uuid,
+        user_id: String,
         user_name: String,
         user_display_name: Option<String>,
         state: RegistrationState,

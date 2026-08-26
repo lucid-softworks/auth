@@ -10,7 +10,7 @@ pub struct DeviceCode {
     pub id: Uuid,
     pub device_code: String,
     pub user_code: String,
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<String>,
     pub expires_at: DateTime<Utc>,
     pub status: DeviceCodeStatus,
     pub last_polled_at: Option<DateTime<Utc>>,

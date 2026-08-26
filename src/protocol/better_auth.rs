@@ -371,7 +371,7 @@ impl BetterAuthSession {
             ip_address: session.ip_address.clone(),
             user_agent: session.user_agent.clone(),
             additional_fields: session.additional_fields.clone(),
-            impersonated_by: session.actor_user_id.map(|id| id.to_string()),
+            impersonated_by: session.actor_user_id.clone(),
         }
     }
 }

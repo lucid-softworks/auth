@@ -16,7 +16,6 @@ use crate::{
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 
 #[async_trait]
 impl AgentAuthStore for PostgresAgentAuthStore {
@@ -49,7 +48,7 @@ impl AgentAuthStore for PostgresAgentAuthStore {
         host::find(self, "enrollmentTokenHash", hash).await
     }
 
-    async fn list_hosts_for_user(&self, user_id: Uuid) -> Result<Vec<AgentHost>, AuthError> {
+    async fn list_hosts_for_user(&self, user_id: &str) -> Result<Vec<AgentHost>, AuthError> {
         host::list_for_user(self, user_id).await
     }
 
@@ -76,7 +75,7 @@ impl AgentAuthStore for PostgresAgentAuthStore {
     async fn switch_host_account_cascade(
         &self,
         host_id: &str,
-        user_id: Uuid,
+        user_id: &str,
         now: DateTime<Utc>,
     ) -> Result<Option<AgentHostSwitchOutcome>, AuthError> {
         host_lifecycle::switch_account_cascade(self, host_id, user_id, now).await
@@ -108,7 +107,7 @@ impl AgentAuthStore for PostgresAgentAuthStore {
         agent::find(self, "kid", kid).await
     }
 
-    async fn list_agents_for_user(&self, user_id: Uuid) -> Result<Vec<AgentIdentity>, AuthError> {
+    async fn list_agents_for_user(&self, user_id: &str) -> Result<Vec<AgentIdentity>, AuthError> {
         agent::list_for_user(self, user_id).await
     }
 
@@ -145,7 +144,7 @@ impl AgentAuthStore for PostgresAgentAuthStore {
 
     async fn cleanup_expired_for_user(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         now: DateTime<Utc>,
     ) -> Result<AgentCleanupOutcome, AuthError> {
         agent_lifecycle::cleanup(self, user_id, now).await
@@ -217,7 +216,7 @@ impl AgentAuthStore for PostgresAgentAuthStore {
 
     async fn list_pending_approvals(
         &self,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Vec<AgentApprovalRequest>, AuthError> {
         approval::list_pending_for_user(self, user_id).await
     }

@@ -59,28 +59,28 @@ async fn refresh_rotation_and_issuance_rollback(
     let client_id = "mapped-atomic-client";
     store
         .persist_oauth_client_registration(lucid_auth::OAuthClientRegistrationWrite {
-            client: client(client_id, user_id),
+            client: client(client_id, &user_id),
             resource_ids: Vec::new(),
             mode: lucid_auth::OAuthClientRegistrationMode::Create,
         })
         .await?;
 
-    let original = refresh("atomic-original", client_id, user_id);
-    let existing_access = access("atomic-access", client_id, user_id, original.id);
+    let original = refresh("atomic-original", client_id, &user_id);
+    let existing_access = access("atomic-access", client_id, &user_id, original.id);
     store
         .issue_oauth_tokens(OAuthTokenIssuance {
             access_token: Some(existing_access.clone()),
             refresh_token: Some(original.clone()),
         })
         .await?;
-    assert_issuance_rolls_back(store, client_id, user_id, existing_access).await?;
-    assert_rotation_is_compare_and_swap(store, client_id, user_id, original.id).await
+    assert_issuance_rolls_back(store, client_id, &user_id, existing_access).await?;
+    assert_rotation_is_compare_and_swap(store, client_id, &user_id, original.id).await
 }
 
 async fn assert_issuance_rolls_back(
     store: &PostgresOAuthProviderStore,
     client_id: &str,
-    user_id: Uuid,
+    user_id: &str,
     duplicate_access: lucid_auth::OAuthProviderAccessToken,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let candidate = refresh("must-not-persist", client_id, user_id);
@@ -105,7 +105,7 @@ async fn assert_issuance_rolls_back(
 async fn assert_rotation_is_compare_and_swap(
     store: &PostgresOAuthProviderStore,
     client_id: &str,
-    user_id: Uuid,
+    user_id: &str,
     previous_refresh_id: Uuid,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let rotation = |suffix: &str| OAuthRefreshRotation {

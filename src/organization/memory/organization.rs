@@ -94,7 +94,7 @@ impl OrganizationDataStore for MemoryOrganizationStore {
             .cloned())
     }
 
-    async fn list_organizations(&self, user_id: Uuid) -> Result<Vec<Organization>, AuthError> {
+    async fn list_organizations(&self, user_id: &str) -> Result<Vec<Organization>, AuthError> {
         let state = self.state.read().await;
         let mut organizations: Vec<_> = state
             .members

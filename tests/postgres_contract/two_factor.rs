@@ -30,12 +30,12 @@ pub(super) async fn assert_exact_schema(pool: &PgPool) -> Result<(), Box<dyn std
 pub(super) async fn assert_atomic(
     store: &PostgresStore,
     pool: &PgPool,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let record = store
         .upsert_two_factor(TwoFactorRecord {
             id: Uuid::new_v4(),
-            user_id,
+            user_id: user_id.to_owned(),
             encrypted_secret: "encrypted-secret".into(),
             encrypted_backup_codes: "encrypted-backup-codes".into(),
             verified: true,

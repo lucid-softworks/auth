@@ -166,7 +166,7 @@ pub(in crate::oauth_provider) async fn provider_api_issue_tokens(
     let user = match input.user_id {
         Some(user_id) => Some(
             service
-                .auth_user_by_id(user_id)
+                .auth_user_by_id(&user_id)
                 .await
                 .map_err(server)?
                 .ok_or_else(|| OAuthProviderError::InvalidUser("user not found".into()))?,

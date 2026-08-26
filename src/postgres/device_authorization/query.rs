@@ -46,9 +46,9 @@ pub(super) fn update_field(
 pub(super) fn bind_pending_user(
     model: &PostgresModel<'_>,
     id: uuid::Uuid,
-    user_id: uuid::Uuid,
+    user_id: &str,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
-    let writes = model.encode_fields([("userId", Value::String(user_id.to_string()))])?;
+    let writes = model.encode_fields([("userId", Value::String(user_id.to_owned()))])?;
     let mut query = super::super::rows::update_query(model, writes);
     query
         .push(" WHERE \"id\" = ")
@@ -190,7 +190,7 @@ mod tests {
             .unwrap()
             .sql()
             .to_owned(),
-            bind_pending_user(&model, code.id, uuid::Uuid::new_v4())
+            bind_pending_user(&model, code.id, &uuid::Uuid::new_v4().to_string())
                 .unwrap()
                 .sql()
                 .to_owned(),

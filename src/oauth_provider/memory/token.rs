@@ -138,7 +138,7 @@ impl OAuthProviderTokenStore for MemoryOAuthProviderStore {
     async fn revoke_oauth_refresh_family(
         &self,
         client_id: &str,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<OAuthTokenRevocationCount, AuthError> {
         let mut state = self.state.write().await;
         let refresh_ids = state
@@ -192,22 +192,20 @@ impl OAuthProviderTokenStore for MemoryOAuthProviderStore {
 
     async fn revoke_oauth_tokens_for_session(
         &self,
-        session_id: Uuid,
+        session_id: &str,
         revoked_at: DateTime<Utc>,
         preserve_offline_access: bool,
     ) -> Result<OAuthTokenRevocationCount, AuthError> {
         let mut state = self.state.write().await;
         let mut counts = OAuthTokenRevocationCount::default();
-        for access in state
-            .access_tokens
-            .values_mut()
-            .filter(|access| access.session_id == Some(session_id) && access.revoked.is_none())
-        {
+        for access in state.access_tokens.values_mut().filter(|access| {
+            access.session_id.as_deref() == Some(session_id) && access.revoked.is_none()
+        }) {
             access.revoked = Some(revoked_at);
             counts.access_tokens += 1;
         }
         for refresh in state.refresh_tokens.values_mut().filter(|refresh| {
-            refresh.session_id == Some(session_id)
+            refresh.session_id.as_deref() == Some(session_id)
                 && refresh.revoked.is_none()
                 && !(preserve_offline_access
                     && refresh.scopes.iter().any(|scope| scope == "offline_access"))
@@ -220,17 +218,17 @@ impl OAuthProviderTokenStore for MemoryOAuthProviderStore {
 
     async fn prepare_oauth_session_logout(
         &self,
-        session_id: Uuid,
+        session_id: &str,
     ) -> Result<OAuthSessionLogoutPlan, AuthError> {
         let state = self.state.read().await;
         let access = state
             .access_tokens
             .values()
-            .filter(|token| token.session_id == Some(session_id));
+            .filter(|token| token.session_id.as_deref() == Some(session_id));
         let refresh = state
             .refresh_tokens
             .values()
-            .filter(|token| token.session_id == Some(session_id));
+            .filter(|token| token.session_id.as_deref() == Some(session_id));
         let mut client_ids = access
             .clone()
             .map(|token| token.client_id.clone())
@@ -342,7 +340,7 @@ mod tests {
             token: token.into(),
             client_id: "client".into(),
             session_id: None,
-            user_id,
+            user_id: user_id.to_string(),
             reference_id: None,
             authorization_code_id: None,
             resources: None,

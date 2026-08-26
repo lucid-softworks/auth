@@ -13,7 +13,7 @@ pub(super) struct OAuthFixture {
     pub(super) app: Router,
     pub(super) devices: Arc<MemoryDeviceAuthorizationStore>,
     pub(super) cookie: String,
-    pub(super) user_id: Uuid,
+    pub(super) user_id: String,
 }
 
 pub(super) async fn oauth_fixture() -> OAuthFixture {
@@ -152,7 +152,7 @@ fn resource() -> OAuthProviderResource {
 pub(super) fn oauth_record(
     device_code: &str,
     user_code: &str,
-    user_id: Option<Uuid>,
+    user_id: Option<String>,
     status: DeviceCodeStatus,
 ) -> DeviceCode {
     let mut record = record(device_code, user_code, user_id, status);

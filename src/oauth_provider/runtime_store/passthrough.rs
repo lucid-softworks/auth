@@ -16,7 +16,7 @@ impl OAuthProviderConsentStore for OAuthProviderRuntimeStore {
     async fn find_oauth_consent_for_grant(
         &self,
         client_id: &str,
-        user_id: Uuid,
+        user_id: &str,
         reference_id: Option<&str>,
     ) -> Result<Option<OAuthProviderConsent>, AuthError> {
         self.inner
@@ -26,7 +26,7 @@ impl OAuthProviderConsentStore for OAuthProviderRuntimeStore {
 
     async fn list_oauth_consents(
         &self,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Vec<OAuthProviderConsent>, AuthError> {
         self.inner.list_oauth_consents(user_id).await
     }
@@ -101,7 +101,7 @@ impl OAuthProviderTokenStore for OAuthProviderRuntimeStore {
     async fn revoke_oauth_refresh_family(
         &self,
         client_id: &str,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<OAuthTokenRevocationCount, AuthError> {
         self.inner
             .revoke_oauth_refresh_family(client_id, user_id)
@@ -119,7 +119,7 @@ impl OAuthProviderTokenStore for OAuthProviderRuntimeStore {
 
     async fn revoke_oauth_tokens_for_session(
         &self,
-        session_id: Uuid,
+        session_id: &str,
         revoked_at: DateTime<Utc>,
         preserve_offline_access: bool,
     ) -> Result<OAuthTokenRevocationCount, AuthError> {
@@ -130,7 +130,7 @@ impl OAuthProviderTokenStore for OAuthProviderRuntimeStore {
 
     async fn prepare_oauth_session_logout(
         &self,
-        session_id: Uuid,
+        session_id: &str,
     ) -> Result<OAuthSessionLogoutPlan, AuthError> {
         self.inner.prepare_oauth_session_logout(session_id).await
     }

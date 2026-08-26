@@ -9,7 +9,6 @@ use crate::{
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use sqlx::{Postgres, QueryBuilder, Transaction};
-use uuid::Uuid;
 
 use super::{
     super::{PostgresAgentAuthStore, lock_creation, query, rows, storage_error},
@@ -159,7 +158,7 @@ async fn update_agent(
 
 pub(in crate::agent_auth::postgres) async fn cleanup(
     store: &PostgresAgentAuthStore,
-    user_id: Uuid,
+    user_id: &str,
     now: DateTime<Utc>,
 ) -> Result<AgentCleanupOutcome, AuthError> {
     let mut transaction = store.pool().begin().await.map_err(storage_error)?;
@@ -191,7 +190,7 @@ pub(in crate::agent_auth::postgres) async fn cleanup(
 async fn cleanup_model(
     model: &PostgresModel<'_>,
     transaction: &mut Transaction<'_, Postgres>,
-    user_id: Uuid,
+    user_id: &str,
     now: DateTime<Utc>,
     current_status: &str,
     next_status: &str,
@@ -217,7 +216,7 @@ async fn cleanup_model(
         .push(model.quoted_column("userId")?)
         .push(" = ");
     model
-        .encode("userId", json!(user_id.to_string()))?
+        .encode("userId", json!(user_id))?
         .push_bind(&mut query);
     query
         .push(" AND ")

@@ -86,8 +86,8 @@ async fn assert_invitation_is_atomic(
         )
         .await?;
     let (left, right) = tokio::join!(
-        store.accept_invitation(invitation.id, invitee.id, chrono::Utc::now(), 100),
-        store.accept_invitation(invitation.id, invitee.id, chrono::Utc::now(), 100),
+        store.accept_invitation(invitation.id, &invitee.id, chrono::Utc::now(), 100),
+        store.accept_invitation(invitation.id, &invitee.id, chrono::Utc::now(), 100),
     );
     let outcomes = [left?, right?];
     assert_eq!(
@@ -99,7 +99,7 @@ async fn assert_invitation_is_atomic(
     );
     assert!(
         store
-            .find_member(organization_id, invitee.id)
+            .find_member(organization_id, &invitee.id)
             .await?
             .is_some()
     );

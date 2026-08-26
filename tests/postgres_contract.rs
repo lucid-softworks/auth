@@ -38,6 +38,8 @@ mod email_otp;
 mod guest_capability;
 #[path = "postgres_contract/hostile_remap.rs"]
 mod hostile_remap;
+#[path = "postgres_contract/id_strategies.rs"]
+mod id_strategies;
 #[path = "postgres_contract/last_login_method.rs"]
 mod last_login_method;
 #[path = "postgres_contract/magic_link.rs"]
@@ -70,6 +72,8 @@ mod signup;
 mod siwe;
 #[path = "postgres_contract/step_up.rs"]
 mod step_up;
+#[path = "postgres_contract/support.rs"]
+mod support;
 #[path = "postgres_contract/test_utils.rs"]
 mod test_utils;
 #[path = "postgres_contract/two_factor.rs"]
@@ -80,6 +84,7 @@ mod user_deletion;
 mod verification;
 
 use passkey::passkey_counters_are_atomic;
+use support::*;
 
 #[tokio::test]
 #[ignore = "requires a PostgreSQL server in DATABASE_URL"]
@@ -142,13 +147,13 @@ async fn run_authentication_contracts(
     api_keys: &lucid_auth::ApiKeyConfiguration,
     phone_numbers: &phone_number::Fixture,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    chargebee::assert_migration_and_persistence(service, store, pool, user.id).await?;
-    agent_auth::assert_switch_contract(store, pool, user.id).await?;
+    chargebee::assert_migration_and_persistence(service, store, pool, &user.id).await?;
+    agent_auth::assert_switch_contract(store, pool, &user.id).await?;
     anonymous::assert_lifecycle(service, store).await?;
     let signed_in = authenticate_owner(service, user).await?;
-    dodo_payments::assert_schema_and_persistence(service, store, user.id).await?;
+    dodo_payments::assert_schema_and_persistence(service, store, &user.id).await?;
     multi_session::assert_http_round_trip(service).await?;
-    last_login_method::assert_http_round_trip(service, store, user.id).await?;
+    last_login_method::assert_http_round_trip(service, store, &user.id).await?;
     session_refresh::assert_atomic(service, store).await?;
     organization::assert_persistence(service, store, &signed_in.session).await?;
     admin::assert_query_and_update(service, &signed_in.session).await?;
@@ -176,7 +181,7 @@ async fn run_atomic_contracts(
     phone_numbers: &phone_number::Fixture,
     signed_in: &lucid_auth::SignInResult,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    verification::values_are_atomic(store, user.id).await?;
+    verification::values_are_atomic(store, &user.id).await?;
     mcp::assert_durable_dpop_replay(store, pool).await?;
     email_otp::assert_redemption_is_atomic(service, pool).await?;
     phone_number::assert_atomic_and_persistent(service, store, pool, phone_numbers).await?;
@@ -186,12 +191,12 @@ async fn run_atomic_contracts(
     signup::username_is_atomic(service, pool).await?;
     guest_capability::assert_atomic(store, service, pool, &signed_in.session).await?;
     user_deletion::assert_transactional(service, pool).await?;
-    passkey_counters_are_atomic(store, user.id).await?;
+    passkey_counters_are_atomic(store, &user.id).await?;
     rate_limit::assert_atomic(store, pool).await?;
-    two_factor::assert_atomic(store, pool, user.id).await?;
+    two_factor::assert_atomic(store, pool, &user.id).await?;
     api_key::assert_limits_are_atomic(service, api_keys, &signed_in.session).await?;
-    audit::assert_retention_is_atomic(store, pool, user.id).await?;
-    operator_security::assert_atomic(service, store, signed_in, user.id).await?;
+    audit::assert_retention_is_atomic(store, pool, &user.id).await?;
+    operator_security::assert_atomic(service, store, signed_in, &user.id).await?;
     schema::assert_clean_and_detects_drift(store, pool, &service.plugin_migrations()).await?;
     Ok(())
 }

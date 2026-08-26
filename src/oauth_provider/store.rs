@@ -87,7 +87,7 @@ pub trait OAuthProviderClientStore: Send + Sync {
 
     async fn list_oauth_clients(
         &self,
-        user_id: Option<Uuid>,
+        user_id: Option<&str>,
         reference_id: Option<&str>,
     ) -> Result<Vec<OAuthProviderClient>, AuthError>;
 
@@ -156,13 +156,13 @@ pub trait OAuthProviderConsentStore: Send + Sync {
     async fn find_oauth_consent_for_grant(
         &self,
         client_id: &str,
-        user_id: Uuid,
+        user_id: &str,
         reference_id: Option<&str>,
     ) -> Result<Option<OAuthProviderConsent>, AuthError>;
 
     async fn list_oauth_consents(
         &self,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Vec<OAuthProviderConsent>, AuthError>;
 
     async fn upsert_oauth_consent(
@@ -218,7 +218,7 @@ pub trait OAuthProviderTokenStore: Send + Sync {
     async fn revoke_oauth_refresh_family(
         &self,
         client_id: &str,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<OAuthTokenRevocationCount, AuthError>;
 
     async fn revoke_oauth_tokens_for_authorization_code(
@@ -228,14 +228,14 @@ pub trait OAuthProviderTokenStore: Send + Sync {
 
     async fn revoke_oauth_tokens_for_session(
         &self,
-        session_id: Uuid,
+        session_id: &str,
         revoked_at: DateTime<Utc>,
         preserve_offline_access: bool,
     ) -> Result<OAuthTokenRevocationCount, AuthError>;
 
     async fn prepare_oauth_session_logout(
         &self,
-        session_id: Uuid,
+        session_id: &str,
     ) -> Result<OAuthSessionLogoutPlan, AuthError>;
 
     async fn apply_oauth_session_logout(

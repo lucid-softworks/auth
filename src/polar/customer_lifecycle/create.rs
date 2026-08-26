@@ -3,10 +3,10 @@ use crate::{AuthError, AuthUser, DatabaseHookContext};
 
 pub(super) async fn before(
     options: &super::super::PolarOptions,
-    user: &AuthUser,
+    user: &crate::polar::PolarUser,
     context: &DatabaseHookContext,
 ) -> Result<(), AuthError> {
-    if !enabled(options, user, context) {
+    if !enabled(options, user.is_anonymous, context) {
         return Ok(());
     }
 
@@ -52,7 +52,7 @@ pub(super) async fn after(
     user: &AuthUser,
     context: &DatabaseHookContext,
 ) -> Result<(), AuthError> {
-    if !enabled(options, user, context) {
+    if !enabled(options, user.is_anonymous, context) {
         return Ok(());
     }
 
@@ -87,6 +87,16 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
 
+    fn draft(user: &AuthUser) -> crate::polar::PolarUser {
+        crate::polar::PolarUser {
+            id: None,
+            name: user.name.clone(),
+            email: user.email.clone(),
+            is_anonymous: user.is_anonymous,
+            fields: serde_json::Map::new(),
+        }
+    }
+
     struct CustomerParams;
 
     #[async_trait]
@@ -114,7 +124,7 @@ mod tests {
         options.get_customer_create_params = Some(Arc::new(CustomerParams));
         let user = user();
 
-        before(&options, &user, &context()).await.unwrap();
+        before(&options, &draft(&user), &context()).await.unwrap();
 
         assert_eq!(
             client.calls.lock().unwrap().as_slice(),
@@ -138,8 +148,10 @@ mod tests {
         let options = options(client.clone());
         let mut anonymous = user();
         anonymous.is_anonymous = true;
-        before(&options, &anonymous, &context()).await.unwrap();
-        before(&options, &user(), &DatabaseHookContext::default())
+        before(&options, &draft(&anonymous), &context())
+            .await
+            .unwrap();
+        before(&options, &draft(&user()), &DatabaseHookContext::default())
             .await
             .unwrap();
         client
@@ -147,7 +159,7 @@ mod tests {
             .lock()
             .unwrap()
             .push(FakePolarClient::customer("first", None));
-        before(&options, &user(), &context()).await.unwrap();
+        before(&options, &draft(&user()), &context()).await.unwrap();
 
         assert_eq!(
             client.calls.lock().unwrap().as_slice(),
@@ -160,7 +172,7 @@ mod tests {
     async fn create_failures_keep_the_exact_plugin_api_error() {
         let client = Arc::new(FakePolarClient::default());
         *client.list_error.lock().unwrap() = Some(crate::polar::PolarProviderError::new("offline"));
-        let error = before(&options(client), &user(), &context())
+        let error = before(&options(client), &draft(&user()), &context())
             .await
             .unwrap_err();
         let crate::AuthError::PluginApi(error) = error else {

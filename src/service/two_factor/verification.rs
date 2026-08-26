@@ -24,7 +24,7 @@ impl AuthService {
             .await?;
         let record = plugin
             .store
-            .find_two_factor(context.user.id)
+            .find_two_factor(&context.user.id)
             .await?
             .ok_or(TwoFactorError::TotpNotEnabled)?;
         if context.is_sign_in() && !record.verified {
@@ -54,20 +54,20 @@ impl AuthService {
             return Err(TwoFactorError::InvalidCode.into());
         };
         let completing_enrollment =
-            !record.verified || !plugin.store.two_factor_enabled(context.user.id).await?;
+            !record.verified || !plugin.store.two_factor_enabled(&context.user.id).await?;
         if completing_enrollment
             && !plugin
                 .store
-                .complete_two_factor_enrollment(context.user.id)
+                .complete_two_factor_enrollment(&context.user.id)
                 .await?
         {
             return Err(TwoFactorError::TotpNotEnabled.into());
         }
         if completing_enrollment && let Some((session, token)) = context.active.as_ref() {
-            self.reset_two_factor_failures(context.user.id).await?;
+            self.reset_two_factor_failures(&context.user.id).await?;
             let result = self.rotate_active_session(session, token).await?;
             let trust_cookie = if trust_device {
-                Some(self.create_trust_device(context.user.id).await?)
+                Some(self.create_trust_device(&context.user.id).await?)
             } else {
                 None
             };
@@ -131,9 +131,9 @@ impl AuthService {
         let context = self
             .verification_context(active, challenge_identifier)
             .await?;
-        let existing = plugin.store.find_two_factor(context.user.id).await?;
+        let existing = plugin.store.find_two_factor(&context.user.id).await?;
         if context.is_sign_in() {
-            if !plugin.store.two_factor_enabled(context.user.id).await? {
+            if !plugin.store.two_factor_enabled(&context.user.id).await? {
                 return Err(TwoFactorError::OtpNotEnabled.into());
             }
             if let Some(record) = existing.as_ref() {
@@ -158,14 +158,14 @@ impl AuthService {
             ))
             .await?;
             if context.is_sign_in() {
-                self.record_two_factor_failure(context.user.id).await?;
+                self.record_two_factor_failure(&context.user.id).await?;
             }
             return Err(TwoFactorError::InvalidCode.into());
         }
-        if !plugin.store.two_factor_enabled(context.user.id).await? {
+        if !plugin.store.two_factor_enabled(&context.user.id).await? {
             plugin
                 .store
-                .set_two_factor_enabled(context.user.id, true)
+                .set_two_factor_enabled(&context.user.id, true)
                 .await?;
             if let Some((session, token)) = context.active.as_ref() {
                 let result = self.rotate_active_session(session, token).await?;
@@ -193,7 +193,7 @@ impl AuthService {
         let plugin = self.two_factor_plugin()?;
         let record = plugin
             .store
-            .find_two_factor(context.user.id)
+            .find_two_factor(&context.user.id)
             .await?
             .ok_or(TwoFactorError::BackupCodesNotEnabled)?;
         if context.is_sign_in() {
@@ -221,7 +221,7 @@ impl AuthService {
         let replacement = crate::two_factor::crypto::encrypt(&self.config.secret, &encoded)?;
         if !plugin
             .store
-            .replace_backup_codes(context.user.id, encrypted, replacement)
+            .replace_backup_codes(&context.user.id, encrypted, replacement)
             .await?
         {
             return Err(TwoFactorError::BackupCodeConflict.into());

@@ -1,6 +1,5 @@
 use lucid_auth::{AuthService, AuthStore, OperatorSecurityStore, postgres::PostgresStore};
 use sqlx::PgPool;
-use uuid::Uuid;
 
 pub async fn assert_table_absent(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
     assert!(
@@ -17,7 +16,7 @@ pub async fn assert_atomic(
     service: &AuthService,
     store: &PostgresStore,
     signed_in: &lucid_auth::SignInResult,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     service
         .operator_security()

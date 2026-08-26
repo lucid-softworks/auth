@@ -1,3 +1,4 @@
+use super::database_id_plan;
 use lucid_auth::{RateLimitOutcome, RateLimitRule, SecurityStore, postgres::PostgresStore};
 use std::sync::Arc;
 
@@ -12,8 +13,10 @@ pub(super) async fn assert_atomic(
         let store = store.clone();
         let key = key.clone();
         tasks.push(tokio::spawn(async move {
+            let id_store = store.clone();
+            let prepare_id = move || database_id_plan("rateLimit").prepare(id_store.as_ref());
             store
-                .consume_rate_limit(&key, now, RateLimitRule::new(60, 5), 60)
+                .consume_rate_limit(&prepare_id, &key, now, RateLimitRule::new(60, 5), 60)
                 .await
         }));
     }
@@ -43,13 +46,21 @@ pub(super) async fn assert_atomic(
     sqlx::query(
         "INSERT INTO \"rateLimit\" (id, key, count, \"lastRequest\") VALUES ($1, $2, 1, $3)",
     )
-    .bind(uuid::Uuid::new_v4())
+    .bind(uuid::Uuid::new_v4().to_string())
     .bind(&stale)
     .bind((now - chrono::Duration::minutes(2)).timestamp_millis())
     .execute(pool)
     .await?;
+    let id_store = store.clone();
+    let prepare_id = move || database_id_plan("rateLimit").prepare(id_store.as_ref());
     store
-        .consume_rate_limit("cleanup|/probe", now, RateLimitRule::new(10, 100), 60)
+        .consume_rate_limit(
+            &prepare_id,
+            "cleanup|/probe",
+            now,
+            RateLimitRule::new(10, 100),
+            60,
+        )
         .await?;
     assert!(
         !sqlx::query_scalar::<_, bool>(

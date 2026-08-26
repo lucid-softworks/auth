@@ -31,7 +31,7 @@ impl OrganizationMemberStore for PostgresStore {
     async fn find_member(
         &self,
         organization_id: Uuid,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Option<OrganizationMember>, AuthError> {
         let model = self.physical_model("member")?;
         find(
@@ -39,7 +39,7 @@ impl OrganizationMemberStore for PostgresStore {
             &model,
             [
                 ("organizationId", uuid_value(organization_id)),
-                ("userId", uuid_value(user_id)),
+                ("userId", serde_json::json!(user_id)),
             ],
             false,
         )
@@ -80,7 +80,7 @@ impl OrganizationMemberStore for PostgresStore {
             &mut transaction,
             &member_model,
             member.organization_id,
-            member.user_id,
+            &member.user_id,
         )
         .await?
         {
@@ -185,7 +185,7 @@ impl OrganizationMemberStore for PostgresStore {
                     team,
                     team_member,
                     current.organization_id,
-                    current.user_id,
+                    &current.user_id,
                 )
                 .await?;
             }

@@ -68,7 +68,7 @@ impl AuthService {
     ) -> Result<IssuedApiKey, AuthError> {
         self.plugins.authorize_application_access(actor).await?;
         let reference_id = match config.reference {
-            ApiKeyReference::User => actor.user.id.to_string(),
+            ApiKeyReference::User => actor.user.id.clone(),
             ApiKeyReference::Organization => {
                 let organization_id = organization_id.ok_or(ApiKeyError::OrganizationIdRequired)?;
                 self.authorize_organization_api_key(actor, organization_id, "create")
@@ -87,10 +87,12 @@ impl AuthService {
         let remaining = input.remaining.or(input.refill_amount);
         let key = generate_key(config, input.prefix.as_deref()).await?;
         let now = Utc::now();
-        let api_key = self
-            .store
-            .create_api_key(ApiKey {
-                id: Uuid::new_v4(),
+        let api_key = self.prepare_database_create(
+            "apikey",
+            crate::DatabaseIdInput::Absent,
+            false,
+            ApiKey {
+                id: String::new(),
                 config_id: config.config_id.clone(),
                 name: input.name,
                 start: config.starting_characters.store.then(|| {
@@ -118,8 +120,9 @@ impl AuthService {
                 metadata: input.metadata,
                 created_at: now,
                 updated_at: now,
-            })
-            .await?;
+            },
+        )?;
+        let api_key = self.store.create_api_key(api_key).await?;
         Ok(IssuedApiKey { api_key, key })
     }
 
@@ -127,7 +130,7 @@ impl AuthService {
         &self,
         actor: &SessionWithUser,
         config: &ApiKeyConfiguration,
-        api_key_id: Uuid,
+        api_key_id: &str,
     ) -> Result<ApiKey, AuthError> {
         self.plugins.authorize_application_access(actor).await?;
         self.owned_api_key(actor, config, api_key_id, "read").await
@@ -175,7 +178,9 @@ impl AuthService {
             self.authorize_organization_api_key(actor, organization_id, "read")
                 .await?;
         }
-        let reference_id = organization_id.unwrap_or(actor.user.id).to_string();
+        let reference_id = organization_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| actor.user.id.clone());
         let mut keys = self.store.list_api_keys(&reference_id, config_id).await?;
         if let Some(sort_by) = sort_by {
             sort_api_keys(&mut keys, sort_by, direction);
@@ -187,7 +192,7 @@ impl AuthService {
         &self,
         actor: &SessionWithUser,
         config: &ApiKeyConfiguration,
-        api_key_id: Uuid,
+        api_key_id: &str,
         update: ApiKeyUpdate,
     ) -> Result<ApiKey, AuthError> {
         self.plugins.authorize_application_access(actor).await?;
@@ -207,7 +212,7 @@ impl AuthService {
         &self,
         actor: &SessionWithUser,
         config: &ApiKeyConfiguration,
-        api_key_id: Uuid,
+        api_key_id: &str,
     ) -> Result<(), AuthError> {
         self.plugins.authorize_application_access(actor).await?;
         self.owned_api_key(actor, config, api_key_id, "delete")
@@ -244,18 +249,22 @@ impl AuthService {
             .expires_at
             .is_some_and(|expires_at| expires_at < Utc::now())
         {
-            self.store.delete_api_key(stored.id).await?;
+            self.store.delete_api_key(&stored.id).await?;
             return Err(ApiKeyError::Expired.into());
         }
         if permissions.is_some_and(|required| !permits_all(&stored, required)) {
             return Err(ApiKeyError::PermissionDenied.into());
         }
-        let api_key = match self.store.record_api_key_use(stored.id, Utc::now()).await? {
+        let api_key = match self
+            .store
+            .record_api_key_use(&stored.id, Utc::now())
+            .await?
+        {
             ApiKeyUseOutcome::Allowed(api_key) => *api_key,
             ApiKeyUseOutcome::Invalid => return Err(ApiKeyError::Invalid.into()),
             ApiKeyUseOutcome::UsageExceeded => {
                 if stored.refill_amount.is_none() {
-                    self.store.delete_api_key(stored.id).await?;
+                    self.store.delete_api_key(&stored.id).await?;
                 }
                 return Err(ApiKeyError::UsageExceeded.into());
             }
@@ -269,13 +278,9 @@ impl AuthService {
             }
         };
         let user = if configuration.reference == ApiKeyReference::User {
-            let user_id = api_key
-                .reference_id
-                .parse()
-                .map_err(|_| ApiKeyError::Invalid)?;
             Some(
                 self.store
-                    .find_user_by_id(user_id)
+                    .find_user_by_id(&api_key.reference_id)
                     .await?
                     .ok_or(ApiKeyError::Invalid)?,
             )
@@ -293,7 +298,7 @@ impl AuthService {
         &self,
         actor: &SessionWithUser,
         config: &ApiKeyConfiguration,
-        api_key_id: Uuid,
+        api_key_id: &str,
         action: &str,
     ) -> Result<ApiKey, AuthError> {
         let api_key = self
@@ -303,7 +308,7 @@ impl AuthService {
             .filter(|api_key| api_key.config_id == config.config_id)
             .ok_or(ApiKeyError::NotFound)?;
         match config.reference {
-            ApiKeyReference::User if api_key.reference_id != actor.user.id.to_string() => {
+            ApiKeyReference::User if api_key.reference_id != actor.user.id => {
                 Err(ApiKeyError::NotFound.into())
             }
             ApiKeyReference::Organization => {
@@ -331,7 +336,7 @@ impl AuthService {
             .ok_or(ApiKeyError::OrganizationPluginRequired)?;
         let member = plugin
             .store
-            .find_member(organization_id, actor.user.id)
+            .find_member(organization_id, &actor.user.id)
             .await?
             .ok_or(ApiKeyError::UserNotOrganizationMember)?;
         let required = BTreeMap::from([("apiKey".into(), vec![action.into()])]);

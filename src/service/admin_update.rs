@@ -1,12 +1,11 @@
 use super::{AuthService, access::admin_user_error, user::validate_admin_roles};
 use crate::{AdminUserUpdate, AuthError, AuthUser, SessionWithUser};
-use uuid::Uuid;
 
 impl AuthService {
     pub async fn admin_update_user(
         &self,
         actor: &SessionWithUser,
-        user_id: Uuid,
+        user_id: &str,
         mut update: AdminUserUpdate,
     ) -> Result<AuthUser, AuthError> {
         self.require_admin_permission(actor, "user", &["update"])
@@ -141,7 +140,7 @@ fn admin_update_from_candidate(user: AuthUser) -> AdminUserUpdate {
 
 async fn validate_updated_email(
     service: &AuthService,
-    user_id: Uuid,
+    user_id: &str,
     email: Option<&str>,
 ) -> Result<(), AuthError> {
     let Some(email) = email else {

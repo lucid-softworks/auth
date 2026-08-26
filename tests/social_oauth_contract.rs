@@ -6,8 +6,9 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use lucid_auth::{
-    AuthConfig, AuthError, AuthService, AuthStore, AuthUser, AuthorizationRequest, MemoryStore,
-    OAuthAccountStore, OAuthTokens, OAuthUserInfo, SocialProvider,
+    AuthConfig, AuthError, AuthService, AuthStore, AuthUser, AuthorizationRequest, DatabaseCreate,
+    DatabaseIdGeneration, DatabaseIdInput, DatabaseIdPlan, MemoryStore, OAuthAccountStore,
+    OAuthTokens, OAuthUserInfo, SocialProvider,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -157,23 +158,31 @@ fn application_with_policy(
 async fn insert_local_email_owner(store: &MemoryStore, email_verified: bool) {
     let now = chrono::Utc::now();
     store
-        .create_user_without_account(AuthUser {
-            id: uuid::Uuid::new_v4(),
-            username: None,
-            display_username: None,
-            name: "Existing Local User".into(),
-            email: "oauth.casey@example.com".into(),
-            email_verified,
-            image: None,
-            additional_fields: serde_json::Map::new(),
-            role: "user".into(),
-            is_anonymous: false,
-            banned: false,
-            ban_reason: None,
-            ban_expires: None,
-            created_at: now,
-            updated_at: now,
-        })
+        .create_user_without_account(DatabaseCreate::new(
+            AuthUser {
+                id: String::new(),
+                username: None,
+                display_username: None,
+                name: "Existing Local User".into(),
+                email: "oauth.casey@example.com".into(),
+                email_verified,
+                image: None,
+                additional_fields: serde_json::Map::new(),
+                role: "user".into(),
+                is_anonymous: false,
+                banned: false,
+                ban_reason: None,
+                ban_expires: None,
+                created_at: now,
+                updated_at: now,
+            },
+            DatabaseIdPlan::new(
+                DatabaseIdGeneration::Default,
+                "user",
+                DatabaseIdInput::Absent,
+                false,
+            ),
+        ))
         .await
         .unwrap();
 }

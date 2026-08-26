@@ -182,7 +182,7 @@ async fn verify_registration(
                 with_bound_session_cookie(
                     &service,
                     &headers,
-                    replacement.session.user.id,
+                    &replacement.session.user.id,
                     &replacement.token,
                     Some(true),
                     body,
@@ -276,7 +276,7 @@ async fn verify_authentication(
                     with_bound_session_cookie(
                         &service,
                         &headers,
-                        result.session.user.id,
+                        &result.session.user.id,
                         &result.token,
                         Some(true),
                         Json(response),
@@ -297,7 +297,7 @@ async fn list_user_passkeys(
     let Some(session) = current_session(&service, &headers).await else {
         return auth_error(AuthError::Unauthorized);
     };
-    match service.list_passkeys(session.user.id).await {
+    match service.list_passkeys(&session.user.id).await {
         Ok(passkeys) => Json(
             passkeys
                 .iter()
@@ -317,10 +317,7 @@ async fn delete_passkey(
     let Some(session) = current_session(&service, &headers).await else {
         return auth_error(AuthError::Unauthorized);
     };
-    let Ok(passkey_id) = input.id.parse() else {
-        return auth_error(AuthError::PasskeyNotFound);
-    };
-    match service.delete_passkey(&session, passkey_id).await {
+    match service.delete_passkey(&session, &input.id).await {
         Ok(()) => Json(StatusResponse { status: true }).into_response(),
         Err(error) => auth_error(error),
     }
@@ -334,11 +331,8 @@ async fn update_passkey(
     let Some(session) = current_session(&service, &headers).await else {
         return auth_error(AuthError::Unauthorized);
     };
-    let Ok(passkey_id) = input.id.parse() else {
-        return auth_error(AuthError::PasskeyNotFound);
-    };
     match service
-        .rename_passkey(&session, passkey_id, &input.name)
+        .rename_passkey(&session, &input.id, &input.name)
         .await
     {
         Ok(passkey) => Json(UpdatePasskeyResponse {

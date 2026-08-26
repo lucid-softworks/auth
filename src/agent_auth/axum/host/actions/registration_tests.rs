@@ -36,11 +36,11 @@ async fn creates_and_consumes_hash_only_enrollment_tokens() {
         ..AgentAuthConfig::default()
     };
     let state = state(config);
-    let user = Uuid::new_v4();
+    let user = Uuid::new_v4().to_string();
     let now = Utc::now();
     let created = create_for_user(
         &state,
-        user,
+        &user,
         CreateHostBody {
             name: Some("Laptop".into()),
             public_key: None,
@@ -113,7 +113,7 @@ async fn emits_the_exact_host_reactivated_event() {
         ..AgentAuthConfig::default()
     };
     let state = state(config);
-    let user = Uuid::new_v4();
+    let user = Uuid::new_v4().to_string();
     let key = public_key("reactivated-key");
     let body = |name: &str| CreateHostBody {
         name: Some(name.into()),
@@ -123,7 +123,7 @@ async fn emits_the_exact_host_reactivated_event() {
     };
     create_for_user(
         &state,
-        user,
+        &user,
         body("Original"),
         endpoint("/host/create"),
         Utc::now(),
@@ -135,7 +135,7 @@ async fn emits_the_exact_host_reactivated_event() {
 
     let reactivated = create_for_user(
         &state,
-        user,
+        &user,
         body("Reactivated"),
         endpoint("/host/create"),
         Utc::now(),
@@ -175,7 +175,7 @@ async fn rejects_blocked_unknown_and_wrong_algorithm_host_creation() {
         assert_eq!(
             create_for_user(
                 &state,
-                Uuid::new_v4(),
+                &Uuid::new_v4().to_string(),
                 body(capability, public_key(kid)),
                 endpoint("/host/create"),
                 Utc::now(),
@@ -190,7 +190,7 @@ async fn rejects_blocked_unknown_and_wrong_algorithm_host_creation() {
     assert_eq!(
         create_for_user(
             &state,
-            Uuid::new_v4(),
+            &Uuid::new_v4().to_string(),
             body("mail.read", ec),
             endpoint("/host/create"),
             Utc::now(),

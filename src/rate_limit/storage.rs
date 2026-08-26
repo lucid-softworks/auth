@@ -17,6 +17,7 @@ pub(crate) enum RateLimiter {
     Memory(MemoryRateLimitStorage),
     Database {
         store: Arc<dyn AuthStore>,
+        id_generation: crate::DatabaseIdGeneration,
         longest_window: AtomicU64,
     },
     External(Arc<dyn RateLimitStorage>),
@@ -26,6 +27,7 @@ impl RateLimiter {
     pub(crate) fn new(
         config: &RateLimitConfig,
         store: Arc<dyn AuthStore>,
+        id_generation: crate::DatabaseIdGeneration,
         plugin_rules: &[PluginRateLimit],
         secondary_storage: Option<Arc<dyn SecondaryStorage>>,
     ) -> Self {
@@ -37,6 +39,7 @@ impl RateLimiter {
             RateLimitStorageMode::Memory => Self::Memory(MemoryRateLimitStorage::default()),
             RateLimitStorageMode::Database => Self::Database {
                 store,
+                id_generation,
                 longest_window: AtomicU64::new(config.longest_window(plugin_rules)),
             },
             RateLimitStorageMode::SecondaryStorage(storage)
@@ -53,11 +56,20 @@ impl RateLimiter {
             Self::Memory(storage) => storage.consume(key, rule).await,
             Self::Database {
                 store,
+                id_generation,
                 longest_window,
             } => {
                 longest_window.fetch_max(rule.window, Ordering::Relaxed);
+                let id = crate::DatabaseIdPlan::new(
+                    id_generation.clone(),
+                    "rateLimit",
+                    crate::DatabaseIdInput::Absent,
+                    false,
+                );
+                let prepare_id = || id.prepare(store.as_ref());
                 store
                     .consume_rate_limit(
+                        &prepare_id,
                         key,
                         Utc::now(),
                         rule,

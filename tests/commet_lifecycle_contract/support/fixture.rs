@@ -1,18 +1,18 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use lucid_auth::{
-    AuthError, AuthUser, BeforeDatabaseHook, CommetCustomerCreateParams, CommetCustomerParamsError,
-    CommetCustomerParamsProvider, CommetOptions, CommetPlugin, DatabaseHookContext,
-    DatabaseHookRequest, DatabaseHooks, DatabaseRecord, PluginApiError,
+    AuthError, AuthUser, BeforeDatabaseCreateHook, CommetCreateUser, CommetCustomerCreateParams,
+    CommetCustomerParamsError, CommetCustomerParamsProvider, CommetOptions, CommetPlugin,
+    DatabaseCreateRecord, DatabaseHookContext, DatabaseHookRequest, DatabaseHooks, DatabaseModel,
+    DatabaseRecord, PluginApiError,
 };
 use std::sync::{Arc, Mutex};
-use uuid::Uuid;
 
 use super::LifecycleClient;
 
 pub(crate) struct CustomerParams {
     result: Result<CommetCustomerCreateParams, CommetCustomerParamsError>,
-    calls: Mutex<Vec<(Uuid, DatabaseHookRequest)>>,
+    calls: Mutex<Vec<(CommetCreateUser, DatabaseHookRequest)>>,
 }
 
 impl CustomerParams {
@@ -25,7 +25,7 @@ impl CustomerParams {
         })
     }
 
-    pub(crate) fn calls(&self) -> Vec<(Uuid, DatabaseHookRequest)> {
+    pub(crate) fn calls(&self) -> Vec<(CommetCreateUser, DatabaseHookRequest)> {
         self.calls.lock().unwrap().clone()
     }
 }
@@ -34,10 +34,13 @@ impl CustomerParams {
 impl CommetCustomerParamsProvider for CustomerParams {
     async fn params(
         &self,
-        user: &AuthUser,
+        user: &CommetCreateUser,
         request: &DatabaseHookRequest,
     ) -> Result<CommetCustomerCreateParams, CommetCustomerParamsError> {
-        self.calls.lock().unwrap().push((user.id, request.clone()));
+        self.calls
+            .lock()
+            .unwrap()
+            .push((user.clone(), request.clone()));
         self.result.clone()
     }
 }
@@ -56,7 +59,7 @@ pub(crate) fn plugin(
 pub(crate) fn user(is_anonymous: bool) -> AuthUser {
     let now = Utc::now();
     AuthUser {
-        id: Uuid::new_v4(),
+        id: uuid::Uuid::new_v4().to_string(),
         username: None,
         display_username: None,
         name: "User Name".into(),
@@ -90,9 +93,18 @@ pub(crate) async fn invoke_before_create(
     plugin: &CommetPlugin,
     user: &AuthUser,
     context: &DatabaseHookContext,
-) -> Result<BeforeDatabaseHook, AuthError> {
+) -> Result<BeforeDatabaseCreateHook, AuthError> {
+    let mut fields = serde_json::to_value(user)
+        .expect("serialize user draft")
+        .as_object()
+        .expect("user draft object")
+        .clone();
+    fields.remove("id");
     plugin
-        .before_create(&DatabaseRecord::User(user.clone()), context)
+        .before_create(
+            &DatabaseCreateRecord::new(DatabaseModel::User, fields),
+            context,
+        )
         .await
 }
 

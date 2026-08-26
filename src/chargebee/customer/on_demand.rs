@@ -9,7 +9,7 @@ use uuid::Uuid;
 pub(crate) async fn user_customer_id(
     options: &ChargebeeOptions,
     store: &dyn ChargebeeStore,
-    user_id: Uuid,
+    user_id: &str,
     user: &ChargebeeUserSnapshot,
     metadata: Option<&serde_json::Map<String, Value>>,
     context: &ChargebeeCallbackContext,

@@ -11,7 +11,7 @@ const MAX_GENERATION_ATTEMPTS: usize = 3;
 
 struct PreparedRequest {
     client_id: String,
-    user_id: Option<Uuid>,
+    user_id: Option<String>,
     scope: Option<String>,
     expires_at: DateTime<Utc>,
     expires_ms: f64,
@@ -99,19 +99,7 @@ async fn prepare(
     })?;
     let expires_at = javascript_expiry(Utc::now(), expires_ms)
         .ok_or_else(|| Box::new(error::internal("Invalid device-code expiration", true)))?;
-    let user_id = input
-        .user_id
-        .as_deref()
-        .map(Uuid::parse_str)
-        .transpose()
-        .map_err(|_| {
-            Box::new(error::protocol(
-                StatusCode::BAD_REQUEST,
-                "invalid_request",
-                "user_id is invalid",
-                true,
-            ))
-        })?;
+    let user_id = input.user_id;
     Ok(PreparedRequest {
         client_id: client_id.to_owned(),
         user_id,
@@ -137,7 +125,7 @@ async fn create(
             id: Uuid::new_v4(),
             device_code: device_code.clone(),
             user_code: user_code.clone(),
-            user_id: prepared.user_id,
+            user_id: prepared.user_id.clone(),
             expires_at: prepared.expires_at,
             status: DeviceCodeStatus::Pending,
             last_polled_at: None,

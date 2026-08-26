@@ -37,8 +37,8 @@ async fn sign_access_token(
         ("exp".into(), Value::from(exp)),
         ("jti".into(), Value::String(random_letters(32))),
     ]));
-    if let Some(session_id) = request.session_id {
-        claims.insert("sid".into(), Value::String(session_id.to_string()));
+    if let Some(session_id) = request.session_id.as_ref() {
+        claims.insert("sid".into(), Value::String(session_id.clone()));
     }
     if let Some(confirmation) = confirmation {
         claims.insert("cnf".into(), confirmation);
@@ -108,7 +108,7 @@ async fn id_token_claims(
             "iss".into(),
             Value::String(provider_issuer(service, headers, config)),
         ),
-        ("sub".into(), Value::String(subject_identifier(user.id, &request.client, config)?)),
+        ("sub".into(), Value::String(subject_identifier(&user.id, &request.client, config)?)),
         (
             "aud".into(),
             Value::String(request.client.client_id.clone()),
@@ -131,8 +131,8 @@ async fn id_token_claims(
         claims.insert("nonce".into(), Value::String(nonce.clone()));
     }
     let emit_sid = request.client.enable_end_session.unwrap_or(false) || request.client.backchannel_logout_uri.is_some();
-    if emit_sid && let Some(session_id) = request.session_id {
-        claims.insert("sid".into(), Value::String(session_id.to_string()));
+    if emit_sid && let Some(session_id) = request.session_id.as_ref() {
+        claims.insert("sid".into(), Value::String(session_id.clone()));
     }
     Ok(claims)
 }
@@ -223,12 +223,12 @@ fn oidc_hash(value: &str, algorithm: &str) -> String {
 }
 
 fn subject_identifier(
-    user_id: Uuid,
+    user_id: &str,
     client: &OAuthProviderClient,
     config: &OAuthProviderConfig,
 ) -> Result<String, OAuthProviderError> {
     if client.subject_type.as_deref() != Some("pairwise") {
-        return Ok(user_id.to_string());
+        return Ok(user_id.to_owned());
     }
     let secret = config.pairwise_secret.as_deref().ok_or_else(|| {
         OAuthProviderError::ServerError("pairwise client requires pairwiseSecret".into())
@@ -290,12 +290,13 @@ mod sign_tests {
         config.pairwise_secret = Some("12345678901234567890123456789012".into());
         let mut client = test_client();
         let user_id = Uuid::nil();
-        let first = subject_identifier(user_id, &client, &config).unwrap();
-        assert_eq!(first, subject_identifier(user_id, &client, &config).unwrap());
+        let user_id = user_id.to_string();
+        let first = subject_identifier(&user_id, &client, &config).unwrap();
+        assert_eq!(first, subject_identifier(&user_id, &client, &config).unwrap());
         client.redirect_uris[0] = "https://other.example/callback".into();
-        assert_ne!(first, subject_identifier(user_id, &client, &config).unwrap());
+        assert_ne!(first, subject_identifier(&user_id, &client, &config).unwrap());
         client.redirect_uris[0] = "https://example.com:8443/callback".into();
-        assert_ne!(first, subject_identifier(user_id, &client, &config).unwrap());
+        assert_ne!(first, subject_identifier(&user_id, &client, &config).unwrap());
     }
 
     fn test_client() -> OAuthProviderClient {

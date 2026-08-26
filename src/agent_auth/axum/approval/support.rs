@@ -201,7 +201,7 @@ pub(super) async fn expires_at(
                 capability: capability.to_owned(),
                 agent_id: agent.id.clone(),
                 host_id: Some(agent.host_id.clone()),
-                user_id: agent.user_id,
+                user_id: agent.user_id.clone(),
             })
             .await
     } else {
@@ -287,7 +287,7 @@ pub(super) fn format_grants(grants: &[AgentCapabilityGrant], config: &AgentAuthC
                     ("status".into(), json!(grant.status.as_str())),
                 ]);
                 if grant.status == AgentGrantStatus::Active {
-                    if let Some(granted_by) = grant.granted_by {
+                    if let Some(granted_by) = grant.granted_by.as_ref() {
                         value.insert("granted_by".into(), json!(granted_by));
                     }
                     if let Some(constraints) = &grant.constraints {

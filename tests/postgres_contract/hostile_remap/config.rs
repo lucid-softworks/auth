@@ -1,4 +1,4 @@
-use lucid_auth::{AuthConfig, AuthError, RateLimitStorageMode};
+use lucid_auth::{AuthConfig, AuthError, RateLimitStorageMode, UsernamePlugin};
 
 pub(super) fn hostile_config() -> Result<AuthConfig, AuthError> {
     let mut config = AuthConfig::new([95; 32])?;
@@ -48,6 +48,7 @@ pub(super) fn hostile_config() -> Result<AuthConfig, AuthError> {
     config.rate_limit.fields.key = mapped("limit key");
     config.rate_limit.fields.count = mapped("hit count");
     config.rate_limit.fields.last_request = mapped("last request ms");
+    config.add_plugin(UsernamePlugin::default())?;
     Ok(config)
 }
 

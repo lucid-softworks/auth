@@ -110,7 +110,7 @@ pub(super) async fn customer_id(
         }
     };
     let store = plugin.auth_store.clone();
-    let user_id = session.user.id;
+    let user_id = session.user.id.clone();
     let persisted_id = customer_id.clone();
     tokio::spawn(async move {
         let update = UserProfileUpdate {
@@ -120,7 +120,7 @@ pub(super) async fn customer_id(
             )]),
             ..UserProfileUpdate::default()
         };
-        let _ = store.update_user_profile(user_id, update).await;
+        let _ = store.update_user_profile(&user_id, update).await;
     });
     Ok(customer_id)
 }

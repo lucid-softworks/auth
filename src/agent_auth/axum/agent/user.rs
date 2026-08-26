@@ -14,7 +14,6 @@ use axum::{Extension, http::HeaderMap, response::Response};
 use chrono::Utc;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
-use uuid::Uuid;
 
 pub(in crate::agent_auth::axum) async fn list(
     Extension(service): Extension<Arc<AuthService>>,
@@ -25,7 +24,7 @@ pub(in crate::agent_auth::axum) async fn list(
     let Some(user_id) = user_id(&service, &headers).await else {
         return AgentError::unauthorized_session().into_response();
     };
-    response(list_for_user(&state, user_id, query).await)
+    response(list_for_user(&state, &user_id, query).await)
 }
 
 pub(in crate::agent_auth::axum) async fn get(
@@ -37,7 +36,7 @@ pub(in crate::agent_auth::axum) async fn get(
     let Some(user_id) = user_id(&service, &headers).await else {
         return AgentError::unauthorized_session().into_response();
     };
-    response(get_for_user(&state, user_id, &query.agent_id).await)
+    response(get_for_user(&state, &user_id, &query.agent_id).await)
 }
 
 pub(in crate::agent_auth::axum) async fn update(
@@ -49,7 +48,7 @@ pub(in crate::agent_auth::axum) async fn update(
     let Some(user_id) = user_id(&service, &headers).await else {
         return AgentError::unauthorized_session().into_response();
     };
-    response(update_for_user(&state, user_id, body).await)
+    response(update_for_user(&state, &user_id, body).await)
 }
 
 pub(in crate::agent_auth::axum) async fn cleanup(
@@ -61,10 +60,10 @@ pub(in crate::agent_auth::axum) async fn cleanup(
     let Some(user_id) = user_id(&service, &headers).await else {
         return AgentError::unauthorized_session().into_response();
     };
-    response(cleanup_for_user(&state, user_id).await)
+    response(cleanup_for_user(&state, &user_id).await)
 }
 
-async fn user_id(service: &AuthService, headers: &HeaderMap) -> Option<Uuid> {
+async fn user_id(service: &AuthService, headers: &HeaderMap) -> Option<String> {
     crate::axum::http::current_session(service, headers)
         .await
         .map(|session| session.user.id)
@@ -72,7 +71,7 @@ async fn user_id(service: &AuthService, headers: &HeaderMap) -> Option<Uuid> {
 
 async fn list_for_user(
     state: &AgentAuthState,
-    user_id: Uuid,
+    user_id: &str,
     query: ListQuery,
 ) -> Result<Value, AgentError> {
     if query.limit.is_some_and(|limit| limit <= 0.0)
@@ -135,7 +134,7 @@ async fn list_for_user(
 
 async fn get_for_user(
     state: &AgentAuthState,
-    user_id: Uuid,
+    user_id: &str,
     agent_id: &str,
 ) -> Result<Value, AgentError> {
     let agent = state
@@ -143,7 +142,7 @@ async fn get_for_user(
         .find_agent(agent_id)
         .await
         .map_err(AgentError::store)?
-        .filter(|agent| agent.user_id == Some(user_id))
+        .filter(|agent| agent.user_id.as_deref() == Some(user_id))
         .ok_or_else(AgentError::not_found)?;
     let grants = state
         .store
@@ -168,7 +167,7 @@ async fn get_for_user(
 
 async fn update_for_user(
     state: &AgentAuthState,
-    user_id: Uuid,
+    user_id: &str,
     body: UpdateBody,
 ) -> Result<Value, AgentError> {
     let event_name = body.name.clone();
@@ -188,7 +187,7 @@ async fn update_for_user(
         .find_agent(&body.agent_id)
         .await
         .map_err(AgentError::store)?
-        .filter(|agent| agent.user_id == Some(user_id))
+        .filter(|agent| agent.user_id.as_deref() == Some(user_id))
         .ok_or_else(AgentError::not_found)?;
     if let Some(name) = body.name {
         agent.name = name;
@@ -225,7 +224,7 @@ async fn update_for_user(
     }))
 }
 
-async fn cleanup_for_user(state: &AgentAuthState, user_id: Uuid) -> Result<Value, AgentError> {
+async fn cleanup_for_user(state: &AgentAuthState, user_id: &str) -> Result<Value, AgentError> {
     let outcome = state
         .store
         .cleanup_expired_for_user(user_id, Utc::now())

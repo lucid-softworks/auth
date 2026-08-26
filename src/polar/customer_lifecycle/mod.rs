@@ -5,19 +5,27 @@ mod test_support;
 mod update;
 
 use super::PolarPlugin;
-use crate::{AuthError, BeforeDatabaseHook, DatabaseHookContext, DatabaseHooks, DatabaseRecord};
+use crate::{
+    AuthError, BeforeDatabaseCreateHook, DatabaseCreateRecord, DatabaseHookContext, DatabaseHooks,
+    DatabaseModel, DatabaseRecord,
+};
 
 #[async_trait::async_trait]
 impl DatabaseHooks for PolarPlugin {
     async fn before_create(
         &self,
-        record: &DatabaseRecord,
+        record: &DatabaseCreateRecord,
         context: &DatabaseHookContext,
-    ) -> Result<BeforeDatabaseHook, AuthError> {
-        if let DatabaseRecord::User(user) = record {
-            create::before(&self.options, user, context).await?;
+    ) -> Result<BeforeDatabaseCreateHook, AuthError> {
+        if record.model() == DatabaseModel::User {
+            create::before(
+                &self.options,
+                &crate::polar::PolarUser::from_record(record),
+                context,
+            )
+            .await?;
         }
-        Ok(BeforeDatabaseHook::Continue)
+        Ok(BeforeDatabaseCreateHook::Continue)
     }
 
     async fn after_create(
@@ -56,8 +64,8 @@ impl DatabaseHooks for PolarPlugin {
 
 pub(super) fn enabled(
     options: &super::PolarOptions,
-    user: &crate::AuthUser,
+    is_anonymous: bool,
     context: &DatabaseHookContext,
 ) -> bool {
-    options.create_customer_on_sign_up && context.request.is_some() && !user.is_anonymous
+    options.create_customer_on_sign_up && context.request.is_some() && !is_anonymous
 }

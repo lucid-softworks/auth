@@ -155,7 +155,7 @@ mod tests {
         let user_id = Uuid::new_v4();
         let organization_id = Uuid::new_v4();
         store
-            .set_user_customer_id(user_id, Some("cus_1".into()))
+            .set_user_customer_id(&user_id.to_string(), Some("cus_1".into()))
             .await
             .unwrap();
         store

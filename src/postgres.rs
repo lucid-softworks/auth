@@ -2,7 +2,6 @@ use crate::{AuthError, AuthSession, AuthStore, AuthUser, PasskeyDeleteOutcome, S
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::sync::Arc;
-use uuid::Uuid;
 
 mod access;
 mod adapter;
@@ -43,13 +42,24 @@ pub use schema::{
 };
 
 impl PostgresStore {
-    async fn load_user_by_id(&self, id: Uuid) -> Result<Option<AuthUser>, AuthError> {
+    async fn load_user_by_id(&self, id: &str) -> Result<Option<AuthUser>, AuthError> {
         user::load_by_id(self, id).await
     }
 }
 
 #[async_trait]
 impl AuthStore for PostgresStore {
+    fn database_adapter_name(&self) -> &str {
+        "PostgreSQL Adapter"
+    }
+
+    fn database_id_capabilities(&self) -> crate::DatabaseIdAdapterCapabilities {
+        crate::DatabaseIdAdapterCapabilities {
+            supports_uuids: true,
+            ..crate::DatabaseIdAdapterCapabilities::default()
+        }
+    }
+
     fn bind_schema(&self, schema: Arc<crate::AuthSchemaCatalog>) -> Result<(), AuthError> {
         self.bind_catalog(schema)
     }
@@ -60,25 +70,31 @@ impl AuthStore for PostgresStore {
 
     async fn create_password_user(
         &self,
-        user: AuthUser,
-        credential_account: crate::OAuthAccount,
-    ) -> Result<AuthUser, AuthError> {
+        user: crate::store::DatabaseCreate<AuthUser>,
+        credential_account: &dyn crate::store::DependentAccountPreparer,
+    ) -> Result<crate::OAuthAccountOwner, AuthError> {
         user::create_password_user(self, user, credential_account).await
     }
 
     async fn upsert_password_user(
         &self,
-        user: AuthUser,
-        credential_account: crate::OAuthAccount,
-    ) -> Result<AuthUser, AuthError> {
+        user: crate::store::DatabaseWrite<AuthUser>,
+        credential_account: &dyn crate::store::DependentAccountPreparer,
+    ) -> Result<crate::store::DatabaseAccountOwnerWrite, AuthError> {
         user::upsert_password_user(self, user, credential_account).await
     }
 
-    async fn create_anonymous_user(&self, user: AuthUser) -> Result<AuthUser, AuthError> {
+    async fn create_anonymous_user(
+        &self,
+        user: crate::store::DatabaseCreate<AuthUser>,
+    ) -> Result<AuthUser, AuthError> {
         user::create_without_account(self, user).await
     }
 
-    async fn create_user_without_account(&self, user: AuthUser) -> Result<AuthUser, AuthError> {
+    async fn create_user_without_account(
+        &self,
+        user: crate::store::DatabaseCreate<AuthUser>,
+    ) -> Result<AuthUser, AuthError> {
         user::create_without_account(self, user).await
     }
 
@@ -92,7 +108,7 @@ impl AuthStore for PostgresStore {
 
     async fn update_user_profile(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         update: crate::UserProfileUpdate,
     ) -> Result<Option<AuthUser>, AuthError> {
         user::update_profile(self, user_id, update).await
@@ -100,7 +116,7 @@ impl AuthStore for PostgresStore {
 
     async fn update_user_email(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         expected_email: &str,
         new_email: &str,
         email_verified: bool,
@@ -110,19 +126,19 @@ impl AuthStore for PostgresStore {
 
     async fn promote_email_owner(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         now: DateTime<Utc>,
     ) -> Result<Option<AuthUser>, AuthError> {
         user::promote_email_owner(self, user_id, now).await
     }
 
-    async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError> {
+    async fn find_password_hash(&self, user_id: &str) -> Result<Option<String>, AuthError> {
         user::find_password_hash(self, user_id).await
     }
 
     async fn update_password_hash(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         password_hash: String,
     ) -> Result<(), AuthError> {
         user::update_password_hash(self, user_id, password_hash).await
@@ -130,17 +146,21 @@ impl AuthStore for PostgresStore {
 
     async fn set_password_hash(
         &self,
-        user_id: Uuid,
+        account_id: &dyn crate::store::DatabaseIdSupplier,
+        user_id: &str,
         password_hash: String,
     ) -> Result<(), AuthError> {
-        user::set_password_hash(self, user_id, password_hash).await
+        user::set_password_hash(self, account_id, user_id, password_hash).await
     }
 
-    async fn save_passkey(&self, passkey: StoredPasskey) -> Result<StoredPasskey, AuthError> {
+    async fn save_passkey(
+        &self,
+        passkey: crate::store::DatabaseCreate<StoredPasskey>,
+    ) -> Result<StoredPasskey, AuthError> {
         passkey::save(self, passkey).await
     }
 
-    async fn list_passkeys(&self, user_id: Uuid) -> Result<Vec<StoredPasskey>, AuthError> {
+    async fn list_passkeys(&self, user_id: &str) -> Result<Vec<StoredPasskey>, AuthError> {
         passkey::list_for_user(self, user_id).await
     }
 
@@ -153,7 +173,7 @@ impl AuthStore for PostgresStore {
 
     async fn find_passkey_by_id(
         &self,
-        passkey_id: Uuid,
+        passkey_id: &str,
     ) -> Result<Option<StoredPasskey>, AuthError> {
         passkey::find_by_id(self, passkey_id).await
     }
@@ -168,8 +188,8 @@ impl AuthStore for PostgresStore {
 
     async fn update_passkey_name(
         &self,
-        user_id: Uuid,
-        passkey_id: Uuid,
+        user_id: &str,
+        passkey_id: &str,
         name: String,
     ) -> Result<Option<StoredPasskey>, AuthError> {
         passkey::rename(self, user_id, passkey_id, name).await
@@ -177,22 +197,25 @@ impl AuthStore for PostgresStore {
 
     async fn delete_passkey(
         &self,
-        user_id: Uuid,
-        passkey_id: Uuid,
+        user_id: &str,
+        passkey_id: &str,
         minimum_remaining: usize,
     ) -> Result<PasskeyDeleteOutcome, AuthError> {
         passkey::delete(self, user_id, passkey_id, minimum_remaining).await
     }
 
-    async fn delete_user_passkeys(&self, user_id: Uuid) -> Result<(), AuthError> {
+    async fn delete_user_passkeys(&self, user_id: &str) -> Result<(), AuthError> {
         passkey::delete_for_user(self, user_id).await
     }
 
-    async fn find_user_by_id(&self, user_id: Uuid) -> Result<Option<AuthUser>, AuthError> {
+    async fn find_user_by_id(&self, user_id: &str) -> Result<Option<AuthUser>, AuthError> {
         self.load_user_by_id(user_id).await
     }
 
-    async fn create_session(&self, session: AuthSession) -> Result<(), AuthError> {
+    async fn create_session(
+        &self,
+        session: crate::store::DatabaseCreate<AuthSession>,
+    ) -> Result<AuthSession, AuthError> {
         session::create(self, session).await
     }
 
@@ -203,13 +226,13 @@ impl AuthStore for PostgresStore {
         session::find(self, token).await
     }
 
-    async fn find_session_by_id(&self, session_id: Uuid) -> Result<Option<AuthSession>, AuthError> {
+    async fn find_session_by_id(&self, session_id: &str) -> Result<Option<AuthSession>, AuthError> {
         session::find_by_id(self, session_id).await
     }
 
     async fn update_session_fields(
         &self,
-        session_id: Uuid,
+        session_id: &str,
         fields: serde_json::Map<String, serde_json::Value>,
     ) -> Result<Option<AuthSession>, AuthError> {
         session::update_fields(self, session_id, fields).await
@@ -230,7 +253,7 @@ impl AuthStore for PostgresStore {
 
     async fn expire_session(
         &self,
-        session_id: Uuid,
+        session_id: &str,
         expires_at: DateTime<Utc>,
     ) -> Result<(), AuthError> {
         session::expire(self, session_id, expires_at).await

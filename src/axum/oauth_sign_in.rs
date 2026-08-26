@@ -87,7 +87,7 @@ async fn social_sign_in_response(
             let response = with_bound_session_cookie(
                 service,
                 headers,
-                result.session.user.id,
+                &result.session.user.id,
                 &result.token,
                 Some(true),
                 Json(crate::protocol::better_auth::SignInResponse {
@@ -101,7 +101,7 @@ async fn social_sign_in_response(
             with_provider_account_cookie(
                 service,
                 headers,
-                result.session.user.id,
+                &result.session.user.id,
                 provider_id,
                 response,
             )

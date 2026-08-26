@@ -87,7 +87,7 @@ async fn run_authorize(
         method: AgentApprovalMethod::Ciba,
         agent_id: body.agent_id.clone(),
         host_id: Some(host_id.to_owned()),
-        user_id: Some(user.id),
+        user_id: Some(user.id.clone()),
         capabilities: body.capabilities.as_ref().map(|items| items.join(" ")),
         status: AgentApprovalStatus::Pending,
         user_code_hash: None,
@@ -110,7 +110,7 @@ async fn run_authorize(
         &state.config,
         AgentAuthAuditEventType::ApprovalCreated,
         AgentAuthEventFields {
-            actor_id: Some(user.id.to_string()),
+            actor_id: Some(user.id),
             host_id: Some(host_id.to_owned()),
             target_id: Some(approval.id.clone()),
             target_type: Some("approvalRequest".into()),
@@ -141,10 +141,10 @@ pub(in crate::agent_auth::axum) async fn pending(
         )
         .into_response();
     };
-    response(run_pending(&state, session.user.id).await)
+    response(run_pending(&state, &session.user.id).await)
 }
 
-async fn run_pending(state: &AgentAuthState, user_id: Uuid) -> Result<Value> {
+async fn run_pending(state: &AgentAuthState, user_id: &str) -> Result<Value> {
     let now = Utc::now();
     let mut approvals = state.store.list_pending_approvals(user_id).await?;
     approvals.retain(|approval| approval.expires_at > now);

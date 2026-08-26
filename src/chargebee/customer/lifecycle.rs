@@ -55,7 +55,7 @@ pub(crate) async fn after_user_create(
         }
     };
     if let Err(error) = store
-        .set_user_customer_id(user.id, Some(customer.id.clone()))
+        .set_user_customer_id(&user.id, Some(customer.id.clone()))
         .await
     {
         tracing::error!(user_id = %user.id, %error, "Error persisting Chargebee customer for user");
@@ -76,7 +76,7 @@ pub(crate) async fn after_user_update(
     if options.organization_enabled() {
         return;
     }
-    let Ok(Some(customer_id)) = store.user_customer_id(user.id).await else {
+    let Ok(Some(customer_id)) = store.user_customer_id(&user.id).await else {
         return;
     };
     let _ = options

@@ -37,7 +37,7 @@ pub(super) async fn find_owner_tx(
     let Some(wallet) = wallet else {
         return Ok(None);
     };
-    let user = super::super::user::load_by_id_transaction(transaction, user_model, wallet.user_id)
+    let user = super::super::user::load_by_id_transaction(transaction, user_model, &wallet.user_id)
         .await?
         .ok_or_else(|| AuthError::Storage("SIWE wallet owner is missing".into()))?;
     Ok(Some(WalletAddressOwner { wallet, user }))
@@ -82,7 +82,7 @@ fn decode_wallet(model: &PostgresModel<'_>, row: &PgRow) -> Result<WalletAddress
     let mut values = model.decode_all(row)?;
     Ok(WalletAddress {
         id: required_uuid(&mut values, "id")?,
-        user_id: required_uuid(&mut values, "userId")?,
+        user_id: required_string(&mut values, "userId")?,
         address: required_string(&mut values, "address")?,
         chain_id: required_number(&mut values, "chainId")?,
         created_at: required_date(&mut values, "createdAt")?,
@@ -154,10 +154,11 @@ pub(super) async fn insert_wallet_and_account(
     account_model: &PostgresModel<'_>,
     wallet: &WalletAddress,
     account: &crate::OAuthAccount,
+    account_id: &crate::PreparedDatabaseId,
 ) -> Result<(), AuthError> {
     let writes = wallet_model.encode_fields([
         ("id", json!(wallet.id.to_string())),
-        ("userId", json!(wallet.user_id.to_string())),
+        ("userId", json!(wallet.user_id)),
         ("address", json!(wallet.address)),
         ("chainId", chain_id_value(wallet.chain_id)?),
         ("createdAt", json!(wallet.created_at.to_rfc3339())),
@@ -169,7 +170,13 @@ pub(super) async fn insert_wallet_and_account(
         .execute(&mut **transaction)
         .await
         .map_err(storage_error)?;
-    super::super::oauth::insert_account_transaction(transaction, account_model, account).await?;
+    super::super::oauth::insert_account_transaction(
+        transaction,
+        account_model,
+        account,
+        account_id,
+    )
+    .await?;
     Ok(())
 }
 

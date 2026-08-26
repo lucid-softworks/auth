@@ -40,7 +40,7 @@ impl AuthService {
             let updated = self
                 .store
                 .update_user_email(
-                    session.user.id,
+                    &session.user.id,
                     &session.user.email,
                     &candidate.email,
                     candidate.email_verified,

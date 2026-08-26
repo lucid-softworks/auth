@@ -28,7 +28,7 @@ impl AuthService {
             .await?;
         let password_hash = self
             .store
-            .find_password_hash(actor.user.id)
+            .find_password_hash(&actor.user.id)
             .await?
             .ok_or(AuthError::CredentialAccountNotFound)?;
         if !verify_password(password, Some(password_hash)).await? {
@@ -43,10 +43,10 @@ impl AuthService {
             .collect();
         plugin
             .store
-            .replace_step_up_recovery_codes(actor.user.id, hashes)
+            .replace_step_up_recovery_codes(&actor.user.id, hashes)
             .await?;
         self.activity(crate::AuthActivity::StepUpRecoveryCodesGenerated {
-            user_id: actor.user.id,
+            user_id: actor.user.id.clone(),
             count: codes.len(),
         })
         .await;
@@ -62,7 +62,7 @@ impl AuthService {
         Ok(RecoveryCodeStatus {
             remaining: plugin
                 .store
-                .step_up_recovery_code_count(actor.user.id)
+                .step_up_recovery_code_count(&actor.user.id)
                 .await?,
         })
     }
@@ -91,16 +91,16 @@ impl AuthService {
         plugin
             .store
             .upsert_step_up_session(StepUpSession {
-                session_id: result.session.session.id,
-                user_id: result.session.user.id,
+                session_id: result.session.session.id.clone(),
+                user_id: result.session.user.id.clone(),
                 assurance: StepUpAssurance::Recovery,
                 authenticated_at,
             })
             .await?;
-        self.delete_session_id_with_hooks(actor.session.id).await?;
+        self.delete_session_id_with_hooks(&actor.session.id).await?;
         plugin
             .store
-            .delete_step_up_session(state.session_id)
+            .delete_step_up_session(&state.session_id)
             .await?;
         self.emit_recovery_activity(plugin, actor, &result).await?;
         Ok(result)
@@ -114,19 +114,27 @@ impl AuthService {
     ) -> Result<(StepUpSession, chrono::DateTime<Utc>), AuthError> {
         let state = plugin
             .store
-            .find_step_up_session(actor.session.id)
+            .find_step_up_session(&actor.session.id)
             .await?
             .filter(|state| {
                 state.user_id == actor.user.id && state.assurance == StepUpAssurance::PendingPasskey
             })
             .ok_or(AuthError::Forbidden)?;
-        let limit_key = recovery_limit_key(actor.user.id);
+        let limit_key = recovery_limit_key(&actor.user.id);
         let now = Utc::now();
         let window = u64::try_from(plugin.config.recovery_rate_limit_window.num_seconds())
             .unwrap_or(u64::MAX);
+        let id = crate::DatabaseIdPlan::new(
+            self.config.database_id_generation.clone(),
+            "rateLimit",
+            crate::DatabaseIdInput::Absent,
+            false,
+        );
+        let prepare_id = || id.prepare(self.store.as_ref());
         let outcome = self
             .store
             .consume_rate_limit(
+                &prepare_id,
                 &limit_key,
                 now,
                 crate::RateLimitRule::new(window, plugin.config.recovery_rate_limit_max),
@@ -138,7 +146,7 @@ impl AuthService {
         }
         if plugin
             .store
-            .step_up_recovery_code_count(actor.user.id)
+            .step_up_recovery_code_count(&actor.user.id)
             .await?
             == 0
         {
@@ -146,7 +154,7 @@ impl AuthService {
         }
         let valid = plugin
             .store
-            .consume_step_up_recovery_code(actor.user.id, &self.recovery_code_hash(code))
+            .consume_step_up_recovery_code(&actor.user.id, &self.recovery_code_hash(code))
             .await?;
         if !valid {
             return Err(StepUpError::InvalidRecoveryCode.into());
@@ -162,11 +170,11 @@ impl AuthService {
     ) -> Result<(), AuthError> {
         let remaining = plugin
             .store
-            .step_up_recovery_code_count(actor.user.id)
+            .step_up_recovery_code_count(&actor.user.id)
             .await?;
         self.activity(crate::AuthActivity::StepUpRecoveryCodeUsed {
-            user_id: actor.user.id,
-            session_id: result.session.session.id,
+            user_id: actor.user.id.clone(),
+            session_id: result.session.session.id.clone(),
             remaining,
         })
         .await;
@@ -210,6 +218,6 @@ fn normalize_recovery_code(code: &str) -> String {
         .collect()
 }
 
-fn recovery_limit_key(user_id: uuid::Uuid) -> String {
+fn recovery_limit_key(user_id: &str) -> String {
     format!("step-up-recovery:{user_id}")
 }

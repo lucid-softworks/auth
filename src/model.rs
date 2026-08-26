@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use uuid::Uuid;
 
 /// Neutral provenance for the credential that created a core session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,7 +33,7 @@ impl AuthenticationMethod {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthUser {
-    pub id: Uuid,
+    pub id: String,
     pub username: Option<String>,
     pub display_username: Option<String>,
     pub name: String,
@@ -56,8 +55,8 @@ pub struct AuthUser {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuthAccount {
-    pub id: Uuid,
-    pub user_id: Uuid,
+    pub id: String,
+    pub user_id: String,
     pub issuer: String,
     pub account_id: String,
     pub provider_id: String,
@@ -92,8 +91,8 @@ pub struct NewPasswordUser {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoredPasskey {
-    pub id: Uuid,
-    pub user_id: Uuid,
+    pub id: String,
+    pub user_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(rename = "credentialID")]
@@ -113,7 +112,7 @@ pub struct StoredPasskey {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VerificationValue {
-    pub id: Uuid,
+    pub id: String,
     pub identifier: String,
     pub value: String,
     pub expires_at: DateTime<Utc>,
@@ -129,7 +128,8 @@ impl VerificationValue {
     ) -> Self {
         let now = Utc::now();
         Self {
-            id: Uuid::new_v4(),
+            // Ordinary creates carry no ID until the adapter create boundary.
+            id: String::new(),
             identifier: identifier.into(),
             value: value.into(),
             expires_at,
@@ -143,7 +143,7 @@ impl VerificationValue {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKey {
-    pub id: Uuid,
+    pub id: String,
     pub config_id: String,
     pub name: Option<String>,
     pub start: Option<String>,
@@ -212,11 +212,11 @@ pub struct VerifiedApiKey {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthSession {
-    pub id: Uuid,
-    pub user_id: Uuid,
+    pub id: String,
+    pub user_id: String,
     pub token: String,
     #[serde(rename = "impersonatedBy", skip_serializing_if = "Option::is_none")]
-    pub actor_user_id: Option<Uuid>,
+    pub actor_user_id: Option<String>,
     /// Transient credential context available only on freshly-created native
     /// sessions. Better Auth does not persist this field.
     #[serde(skip)]
@@ -239,9 +239,9 @@ pub struct SessionWithUser {
 /// Identity information passed to the host application's authorizer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Principal {
-    pub actor_id: Uuid,
-    pub subject_id: Uuid,
-    pub session_id: Uuid,
+    pub actor_id: String,
+    pub subject_id: String,
+    pub session_id: String,
     /// Host authorization role projected only by an enabled policy plugin.
     pub role: Option<String>,
     pub authentication_method: Option<AuthenticationMethod>,
@@ -253,9 +253,13 @@ pub struct Principal {
 impl SessionWithUser {
     pub fn principal(&self) -> Principal {
         Principal {
-            actor_id: self.session.actor_user_id.unwrap_or(self.user.id),
-            subject_id: self.user.id,
-            session_id: self.session.id,
+            actor_id: self
+                .session
+                .actor_user_id
+                .clone()
+                .unwrap_or_else(|| self.user.id.clone()),
+            subject_id: self.user.id.clone(),
+            session_id: self.session.id.clone(),
             role: None,
             authentication_method: self.session.authentication_method,
             authenticated_at: self.session.created_at,

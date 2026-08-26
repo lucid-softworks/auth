@@ -26,7 +26,9 @@ fn member_queries_remap_filters_sorting_counts_and_team_cleanup_join() {
     let count = count_query(&member, organization_id).unwrap();
     assert_eq!(count.sql().matches('$').count(), 1);
 
-    let cleanup = delete_team_members_query(&team, &team_member, organization_id, user_id).unwrap();
+    let cleanup =
+        delete_team_members_query(&team, &team_member, organization_id, &user_id.to_string())
+            .unwrap();
     assert!(
         cleanup
             .sql()

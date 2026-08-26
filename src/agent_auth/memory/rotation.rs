@@ -84,7 +84,7 @@ mod tests {
         AgentHost {
             id: id.into(),
             name: None,
-            user_id: Some(Uuid::new_v4()),
+            user_id: Some(Uuid::new_v4().to_string()),
             default_capabilities: vec![],
             public_key: Some("old-key".into()),
             kid: None,

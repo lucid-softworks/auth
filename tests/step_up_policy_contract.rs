@@ -1,12 +1,12 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{
     AdminPlugin, AuthConfig, AuthError, AuthService, AuthStore, AuthenticationMethod,
-    MemoryStepUpStore, MemoryStore, NewPasswordUser, OwnerPolicyPlugin, PasskeyConfig,
-    PasskeyPlugin, StepUpAssurance, StepUpPolicyConfig, StepUpPolicyPlugin, StepUpSession,
-    StepUpStore, StoredPasskey, TwoFactorConfig, TwoFactorPlugin,
+    DatabaseCreate, DatabaseIdGeneration, DatabaseIdInput, DatabaseIdPlan, MemoryStepUpStore,
+    MemoryStore, NewPasswordUser, OwnerPolicyPlugin, PasskeyConfig, PasskeyPlugin, StepUpAssurance,
+    StepUpPolicyConfig, StepUpPolicyPlugin, StepUpSession, StepUpStore, StoredPasskey,
+    TwoFactorConfig, TwoFactorPlugin,
 };
 use std::sync::Arc;
-use uuid::Uuid;
 
 struct Fixture {
     service: AuthService,
@@ -102,7 +102,7 @@ async fn policy_tracks_enrollment_and_blocks_sensitive_operations_until_step_up(
     let fixture = fixture(Duration::days(1)).await;
     let state = fixture
         .step_up_store
-        .find_step_up_session(fixture.owner.session.session.id)
+        .find_step_up_session(&fixture.owner.session.session.id)
         .await
         .unwrap()
         .unwrap();
@@ -124,7 +124,7 @@ async fn policy_tracks_enrollment_and_blocks_sensitive_operations_until_step_up(
     assert!(matches!(
         fixture
             .service
-            .set_user_role(&fixture.owner.session, fixture.member.id, "viewer")
+            .set_user_role(&fixture.owner.session, &fixture.member.id, "viewer")
             .await,
         Err(AuthError::StepUpRequired)
     ));
@@ -140,7 +140,7 @@ async fn policy_tracks_enrollment_and_blocks_sensitive_operations_until_step_up(
         .unwrap();
     fixture
         .service
-        .set_user_role(&fixture.owner.session, fixture.member.id, "viewer")
+        .set_user_role(&fixture.owner.session, &fixture.member.id, "viewer")
         .await
         .unwrap();
 }
@@ -151,8 +151,8 @@ async fn stale_step_up_state_is_rejected() {
     fixture
         .step_up_store
         .upsert_step_up_session(StepUpSession {
-            session_id: fixture.owner.session.session.id,
-            user_id: fixture.owner.session.user.id,
+            session_id: fixture.owner.session.session.id.clone(),
+            user_id: fixture.owner.session.user.id.clone(),
             assurance: StepUpAssurance::StrongTwoFactor,
             authenticated_at: Utc::now() - Duration::hours(2),
         })
@@ -162,7 +162,7 @@ async fn stale_step_up_state_is_rejected() {
     assert!(matches!(
         fixture
             .service
-            .set_user_role(&fixture.owner.session, fixture.member.id, "viewer")
+            .set_user_role(&fixture.owner.session, &fixture.member.id, "viewer")
             .await,
         Err(AuthError::StepUpRequired)
     ));
@@ -200,32 +200,44 @@ async fn enabling_policy_invalidates_untracked_existing_required_role_sessions()
     assert!(hardened.session(&existing.token).await.unwrap().is_none());
 }
 
+async fn seed_passkey(fixture: &Fixture, now: chrono::DateTime<Utc>) {
+    fixture
+        .auth_store
+        .save_passkey(DatabaseCreate::new(
+            StoredPasskey {
+                id: String::new(),
+                user_id: fixture.owner.session.user.id.clone(),
+                name: Some("Passkey".into()),
+                credential_id: "credential".into(),
+                public_key: "public-key".into(),
+                counter: 0,
+                device_type: "singleDevice".into(),
+                backed_up: false,
+                transports: None,
+                aaguid: None,
+                created_at: now,
+            },
+            DatabaseIdPlan::new(
+                DatabaseIdGeneration::Default,
+                "passkey",
+                DatabaseIdInput::Absent,
+                false,
+            ),
+        ))
+        .await
+        .unwrap();
+}
+
 #[tokio::test]
 async fn passkey_enrollment_produces_pending_state_and_recovery_codes_are_one_time() {
     let fixture = fixture(Duration::days(1)).await;
     let now = Utc::now();
-    fixture
-        .auth_store
-        .save_passkey(StoredPasskey {
-            id: Uuid::new_v4(),
-            user_id: fixture.owner.session.user.id,
-            name: Some("Passkey".into()),
-            credential_id: "credential".into(),
-            public_key: "public-key".into(),
-            counter: 0,
-            device_type: "singleDevice".into(),
-            backed_up: false,
-            transports: None,
-            aaguid: None,
-            created_at: now,
-        })
-        .await
-        .unwrap();
+    seed_passkey(&fixture, now).await;
     fixture
         .step_up_store
         .upsert_step_up_session(StepUpSession {
-            session_id: fixture.owner.session.session.id,
-            user_id: fixture.owner.session.user.id,
+            session_id: fixture.owner.session.session.id.clone(),
+            user_id: fixture.owner.session.user.id.clone(),
             assurance: StepUpAssurance::StrongPasskey,
             authenticated_at: now,
         })
@@ -246,7 +258,7 @@ async fn passkey_enrollment_produces_pending_state_and_recovery_codes_are_one_ti
     assert_eq!(
         fixture
             .step_up_store
-            .find_step_up_session(pending.session.session.id)
+            .find_step_up_session(&pending.session.session.id)
             .await
             .unwrap()
             .unwrap()
@@ -262,7 +274,7 @@ async fn passkey_enrollment_produces_pending_state_and_recovery_codes_are_one_ti
     assert_eq!(
         fixture
             .step_up_store
-            .find_step_up_session(recovered.session.session.id)
+            .find_step_up_session(&recovered.session.session.id)
             .await
             .unwrap()
             .unwrap()

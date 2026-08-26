@@ -191,8 +191,14 @@ async fn plugin_owns_sign_in_replay_and_deletion_routes() {
         .unwrap();
     assert_eq!(deleted.status(), StatusCode::OK);
     assert_eq!(json_body(deleted).await, json!({ "success": true }));
-    let id = uuid::Uuid::parse_str(user_id).unwrap();
-    assert!(fixture.store.find_user_by_id(id).await.unwrap().is_none());
+    assert!(
+        fixture
+            .store
+            .find_user_by_id(user_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -231,13 +237,13 @@ async fn email_upgrade_calls_once_cleans_up_and_is_concurrency_safe() {
     {
         let links = fixture.links.0.lock().unwrap();
         assert_eq!(links.len(), 1);
-        assert_eq!(links[0].anonymous_user.user.id.to_string(), anonymous_id);
+        assert_eq!(links[0].anonymous_user.user.id, anonymous_id);
         assert!(!links[0].new_user.user.is_anonymous);
     }
     assert!(
         fixture
             .store
-            .find_user_by_id(uuid::Uuid::parse_str(&anonymous_id).unwrap())
+            .find_user_by_id(&anonymous_id)
             .await
             .unwrap()
             .is_none()
@@ -248,7 +254,7 @@ async fn email_upgrade_calls_once_cleans_up_and_is_concurrency_safe() {
 async fn social_upgrade_replaces_the_anonymous_identity_without_orphaning_it() {
     let fixture = fixture();
     let (anonymous, cookie) = anonymous_sign_in(&fixture.app, None).await;
-    let anonymous_id = uuid::Uuid::parse_str(anonymous["user"]["id"].as_str().unwrap()).unwrap();
+    let anonymous_id = anonymous["user"]["id"].as_str().unwrap().to_owned();
     let response = fixture
         .app
         .clone()
@@ -269,7 +275,7 @@ async fn social_upgrade_replaces_the_anonymous_identity_without_orphaning_it() {
     assert!(
         fixture
             .store
-            .find_user_by_id(anonymous_id)
+            .find_user_by_id(&anonymous_id)
             .await
             .unwrap()
             .is_none()

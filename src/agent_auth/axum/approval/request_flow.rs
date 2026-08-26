@@ -16,7 +16,6 @@ use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
-use uuid::Uuid;
 
 pub(super) async fn run(
     service: &AuthService,
@@ -41,7 +40,7 @@ struct Request {
     approvals: Vec<crate::AgentApprovalRequest>,
     capability_ids: Vec<String>,
     constraints: BTreeMap<String, Option<AgentCapabilityConstraints>>,
-    owner_id: Option<Uuid>,
+    owner_id: Option<String>,
     reason: Option<String>,
     binding_message: Option<String>,
     preferred_method: Option<String>,
@@ -83,7 +82,7 @@ impl Request {
                 .await?,
             capability_ids: normalized.iter().map(|(name, _)| name.clone()).collect(),
             constraints: constraint_map(&normalized),
-            owner_id: session.host.as_ref().and_then(|host| host.user_id),
+            owner_id: session.host.as_ref().and_then(|host| host.user_id.clone()),
             reason: sanitize_display(body.reason, 500),
             binding_message: sanitize_display(body.binding_message, 500),
             preferred_method: body.preferred_method,
@@ -186,7 +185,7 @@ async fn resolve_new(
         && request
             .host
             .as_ref()
-            .and_then(|host| host.user_id)
+            .and_then(|host| host.user_id.as_ref())
             .is_none()
     {
         needs.clear();
@@ -233,7 +232,7 @@ async fn automatic_grants(
             super::request::GrantInput {
                 capability: name,
                 constraints: request.constraints.get(name).cloned().flatten(),
-                granted_by: request.owner_id,
+                granted_by: request.owner_id.clone(),
                 status: AgentGrantStatus::Active,
                 reason: request.reason.clone(),
                 expires_at: expires_at(&state.config, name, &request.agent, None).await,
@@ -298,7 +297,7 @@ async fn resolve_pending(
             super::request::GrantInput {
                 capability: name,
                 constraints: request.constraints.get(name).cloned().flatten(),
-                granted_by: request.owner_id,
+                granted_by: request.owner_id.clone(),
                 status: AgentGrantStatus::Pending,
                 reason: request.reason.clone(),
                 expires_at: None,
@@ -319,7 +318,7 @@ async fn resolve_pending(
     .await?;
     emit_requested(
         state,
-        request.owner_id,
+        request.owner_id.clone(),
         &request.agent,
         request.reason.as_ref(),
         &auto,
@@ -346,7 +345,7 @@ async fn build_approval(
         super::request_approval::BuildRequest {
             origin,
             agent: &request.agent,
-            user_id: request.owner_id,
+            user_id: request.owner_id.clone(),
             capabilities,
             preferred: request.preferred_method.clone(),
             login_hint: request.login_hint.clone(),
@@ -358,7 +357,7 @@ async fn build_approval(
 
 async fn emit_requested(
     state: &AgentAuthState,
-    owner_id: Option<Uuid>,
+    owner_id: Option<String>,
     agent: &crate::AgentIdentity,
     reason: Option<&String>,
     auto: &[String],
@@ -368,7 +367,7 @@ async fn emit_requested(
         &state.config,
         AgentAuthAuditEventType::CapabilityRequested,
         AgentAuthEventFields {
-            actor_id: owner_id.map(|id| id.to_string()),
+            actor_id: owner_id,
             actor_type: Some("agent".into()),
             agent_id: Some(agent.id.clone()),
             host_id: Some(agent.host_id.clone()),

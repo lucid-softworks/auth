@@ -43,7 +43,7 @@ pub(super) fn confirmation_required(
         };
         return protocol_error(headers, &OAuthProviderError::InvalidRequest(message.into()));
     }
-    state.session_id = current.map(|session| session.id);
+    state.session_id = current.map(|session| session.id.clone());
     set_confirmation(service, state, confirmation_page(service))
 }
 

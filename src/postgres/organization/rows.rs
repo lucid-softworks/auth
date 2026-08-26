@@ -44,7 +44,7 @@ pub(super) fn member_writes<'a>(
     model.encode_fields([
         ("id", uuid_value(member.id)),
         ("organizationId", uuid_value(member.organization_id)),
-        ("userId", uuid_value(member.user_id)),
+        ("userId", json!(member.user_id)),
         ("role", json!(member.role)),
         ("createdAt", date_value(member.created_at)),
     ])
@@ -58,7 +58,7 @@ pub(super) fn decode_member(
     Ok(OrganizationMember {
         id: required_uuid(&mut values, "id")?,
         organization_id: required_uuid(&mut values, "organizationId")?,
-        user_id: required_uuid(&mut values, "userId")?,
+        user_id: required_string(&mut values, "userId")?,
         role: required_string(&mut values, "role")?,
         created_at: required_date(&mut values, "createdAt")?,
     })
@@ -74,7 +74,7 @@ pub(super) fn invitation_writes<'a>(
         ("email", json!(invitation.email.to_lowercase())),
         ("role", json!(invitation.role)),
         ("status", json!(status_name(invitation.status))),
-        ("inviterId", uuid_value(invitation.inviter_id)),
+        ("inviterId", json!(invitation.inviter_id)),
         ("expiresAt", date_value(invitation.expires_at)),
         ("createdAt", date_value(invitation.created_at)),
     ];
@@ -104,7 +104,7 @@ pub(super) fn decode_invitation(
         } else {
             None
         },
-        inviter_id: required_uuid(&mut values, "inviterId")?,
+        inviter_id: required_string(&mut values, "inviterId")?,
         expires_at: required_date(&mut values, "expiresAt")?,
         created_at: required_date(&mut values, "createdAt")?,
     })
@@ -148,13 +148,13 @@ pub(super) fn team_member_writes<'a>(
     let mut values = vec![
         ("id", uuid_value(member.id)),
         ("teamId", uuid_value(member.team_id)),
-        ("userId", uuid_value(member.user_id)),
+        ("userId", json!(member.user_id)),
         ("createdAt", date_value(member.created_at)),
     ];
     if model.has_field("membershipKey") {
         values.push((
             "membershipKey",
-            json!(membership_key(member.team_id, member.user_id)),
+            json!(membership_key(member.team_id, &member.user_id)),
         ));
     }
     model.encode_fields(values)
@@ -168,7 +168,7 @@ pub(super) fn decode_team_member(
     Ok(OrganizationTeamMember {
         id: required_uuid(&mut values, "id")?,
         team_id: required_uuid(&mut values, "teamId")?,
-        user_id: required_uuid(&mut values, "userId")?,
+        user_id: required_string(&mut values, "userId")?,
         created_at: required_date(&mut values, "createdAt")?,
     })
 }
@@ -227,9 +227,9 @@ fn invitation_status(value: &str) -> Result<OrganizationInvitationStatus, AuthEr
     }
 }
 
-fn membership_key(team_id: uuid::Uuid, user_id: uuid::Uuid) -> String {
-    let input = serde_json::to_vec(&[team_id.to_string(), user_id.to_string()])
-        .expect("UUID strings always serialize");
+fn membership_key(team_id: uuid::Uuid, user_id: &str) -> String {
+    let input = serde_json::to_vec(&[team_id.to_string(), user_id.to_owned()])
+        .expect("membership strings always serialize");
     URL_SAFE_NO_PAD.encode(Sha256::digest(input))
 }
 
@@ -310,7 +310,7 @@ mod tests {
         let expected = URL_SAFE_NO_PAD.encode(Sha256::digest(
             br#"["00000000-0000-0000-0000-000000000000","00000000-0000-0000-0000-000000000001"]"#,
         ));
-        assert_eq!(membership_key(team, user), expected);
+        assert_eq!(membership_key(team, &user.to_string()), expected);
     }
 
     #[test]

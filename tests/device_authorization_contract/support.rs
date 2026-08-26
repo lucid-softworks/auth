@@ -22,7 +22,7 @@ pub(super) struct Fixture {
     pub(super) service: Arc<AuthService>,
     pub(super) devices: Arc<MemoryDeviceAuthorizationStore>,
     pub(super) cookie: String,
-    pub(super) user_id: Uuid,
+    pub(super) user_id: String,
 }
 
 pub(super) async fn fixture() -> Fixture {
@@ -155,7 +155,7 @@ pub(super) async fn token(app: &Router, device_code: &str) -> (StatusCode, Heade
 pub(super) fn record(
     device_code: &str,
     user_code: &str,
-    user_id: Option<Uuid>,
+    user_id: Option<String>,
     status: DeviceCodeStatus,
 ) -> DeviceCode {
     DeviceCode {

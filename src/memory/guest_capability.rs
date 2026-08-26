@@ -37,7 +37,7 @@ impl GuestCapabilityStore for MemoryStore {
     async fn attach_guest_session(
         &self,
         grant_id: Uuid,
-        session_id: Uuid,
+        session_id: &str,
         now: DateTime<Utc>,
     ) -> Result<bool, AuthError> {
         let mut state = self.state.write().await;
@@ -52,18 +52,18 @@ impl GuestCapabilityStore for MemoryStore {
         {
             return Ok(false);
         }
-        state.guest_sessions.insert(session_id, grant_id);
+        state.guest_sessions.insert(session_id.to_owned(), grant_id);
         Ok(true)
     }
 
     async fn find_guest_grant_for_session(
         &self,
-        session_id: Uuid,
+        session_id: &str,
     ) -> Result<Option<GuestGrant>, AuthError> {
         let state = self.state.read().await;
         Ok(state
             .guest_sessions
-            .get(&session_id)
+            .get(session_id)
             .and_then(|grant_id| state.guest_grants.get(grant_id))
             .cloned())
     }
@@ -96,7 +96,8 @@ impl GuestCapabilityStore for MemoryStore {
         let session_ids: Vec<_> = state
             .guest_sessions
             .iter()
-            .filter_map(|(session_id, attached)| (*attached == grant_id).then_some(*session_id))
+            .filter(|(_, attached)| **attached == grant_id)
+            .map(|(session_id, _)| session_id.clone())
             .collect();
         state
             .sessions

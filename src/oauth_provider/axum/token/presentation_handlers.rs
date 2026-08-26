@@ -83,7 +83,7 @@ async fn pairwise_introspection_subject(
     caller_id: &str,
     payload: &mut Map<String, Value>,
 ) -> Result<(), OAuthProviderError> {
-    let Some(subject) = payload.get("sub").and_then(Value::as_str).and_then(|value| Uuid::parse_str(value).ok()) else { return Ok(()); };
+    let Some(subject) = payload.get("sub").and_then(Value::as_str) else { return Ok(()); };
     let issuing_id = payload.get("client_id").and_then(Value::as_str).unwrap_or(caller_id);
     if let Some(issuing) = resolve_client(config, store, headers, issuing_id).await? {
         payload.insert("sub".into(), Value::String(subject_identifier(subject, &issuing, config)?));
@@ -330,7 +330,6 @@ async fn userinfo_payload(
             .payload
             .get("sub")
             .and_then(Value::as_str)
-            .and_then(|value| Uuid::parse_str(value).ok())
             .ok_or_else(|| OAuthProviderError::InvalidRequest("user not found".into()))?;
         let user = service
             .auth_user_by_id(user_id)
@@ -347,7 +346,7 @@ async fn userinfo_payload(
             None => None,
         };
         let subject = match &client {
-            Some(client) => subject_identifier(user.id, client, config)?,
+            Some(client) => subject_identifier(&user.id, client, config)?,
             None => user.id.to_string(),
         };
         let requested = validation.requested_claims;

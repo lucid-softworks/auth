@@ -25,7 +25,7 @@ impl AuthService {
         let plugin = self.organization_plugin()?;
         let inviter = plugin
             .store
-            .find_member(organization_id, session.user.id)
+            .find_member(organization_id, &session.user.id)
             .await?
             .ok_or_else(member_not_found)?;
         require_permission(self, &inviter, "create").await?;
@@ -35,7 +35,7 @@ impl AuthService {
         if let Some(user) = self.store.find_user_by_email(&email).await?
             && plugin
                 .store
-                .find_member(organization_id, user.id)
+                .find_member(organization_id, &user.id)
                 .await?
                 .is_some()
         {
@@ -150,7 +150,7 @@ fn new_invitation(
                 .collect::<Vec<_>>()
                 .join(",")
         }),
-        inviter_id: session.user.id,
+        inviter_id: session.user.id.clone(),
         expires_at: now + Duration::seconds(plugin.config.invitation_expires_in_seconds),
         created_at: now,
     }

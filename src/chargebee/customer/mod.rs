@@ -17,7 +17,7 @@ pub(crate) async fn user_snapshot(
     store: &dyn ChargebeeStore,
     user: &AuthUser,
 ) -> ChargebeeUserSnapshot {
-    let customer_id = store.user_customer_id(user.id).await.ok().flatten();
+    let customer_id = store.user_customer_id(&user.id).await.ok().flatten();
     ChargebeeUserSnapshot {
         id: user.id.to_string(),
         name: user.name.clone(),

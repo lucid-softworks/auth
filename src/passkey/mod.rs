@@ -8,7 +8,6 @@ use crate::{
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
-use uuid::Uuid;
 use webauthn_rs::prelude::AuthenticatorAttachment;
 use webauthn_rs_core::proto::{ResidentKeyRequirement, UserVerificationPolicy};
 
@@ -124,7 +123,7 @@ impl Default for PasskeyRegistrationConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PasskeyRegistrationUser {
-    pub id: Uuid,
+    pub id: String,
     pub name: String,
     pub display_name: Option<String>,
 }
@@ -149,7 +148,7 @@ pub struct PasskeyRegistrationVerified {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PasskeyRegistrationOverride {
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<String>,
     pub name: Option<String>,
 }
 
@@ -169,8 +168,8 @@ pub struct PasskeyAuthenticationConfig {
 
 #[derive(Debug, Clone)]
 pub struct PasskeyAuthenticationVerified {
-    pub passkey_id: Uuid,
-    pub user_id: Uuid,
+    pub passkey_id: String,
+    pub user_id: String,
     pub response: Value,
     pub counter: u32,
     pub backed_up: bool,

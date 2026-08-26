@@ -290,8 +290,9 @@ async fn build_agent_session(
         .map_err(AgentAuthenticationError::storage)?;
     let user_id = agent
         .user_id
-        .or(host.as_ref().and_then(|host| host.user_id));
-    let user = match user_id {
+        .clone()
+        .or_else(|| host.as_ref().and_then(|host| host.user_id.clone()));
+    let user = match user_id.as_deref() {
         Some(user_id) => service
             .auth_user_by_id(user_id)
             .await

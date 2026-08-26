@@ -15,7 +15,6 @@ use super::{
 use crate::AuthService;
 use chrono::Utc;
 use std::sync::Arc;
-use uuid::Uuid;
 
 use support::{context_user_id, server_error};
 
@@ -68,7 +67,7 @@ impl OAuthProviderClientAdmin {
         &self,
         service: &AuthService,
         input: OAuthProviderClientAdminCreateInput,
-        user_id: Option<Uuid>,
+        user_id: Option<String>,
         reference_id: Option<String>,
         context: &OAuthCallbackContext,
     ) -> Result<OAuthProviderClientAdminRegistration, OAuthProviderError> {
@@ -212,13 +211,13 @@ impl OAuthProviderClientAdmin {
     async fn owner(
         &self,
         context: &OAuthCallbackContext,
-    ) -> Result<(Option<Uuid>, Option<String>), OAuthProviderError> {
+    ) -> Result<(Option<String>, Option<String>), OAuthProviderError> {
         let reference_id = match &self.config.callbacks.client_reference {
             Some(callback) => callback.resolve(context).await.map_err(server_error)?,
             None => None,
         };
         Ok(if reference_id.is_none() {
-            (Some(context_user_id(context)?), None)
+            (Some(context_user_id(context)?.to_owned()), None)
         } else {
             (None, reference_id)
         })
@@ -229,7 +228,7 @@ impl OAuthProviderClientAdmin {
         client: &OAuthProviderClient,
         context: &OAuthCallbackContext,
     ) -> Result<bool, OAuthProviderError> {
-        if let Some(owner) = client.user_id {
+        if let Some(owner) = client.user_id.as_deref() {
             return Ok(context_user_id(context).is_ok_and(|actual| actual == owner));
         }
         let (Some(expected), Some(callback)) = (
@@ -372,7 +371,7 @@ mod tests {
         assert!(created.client.expires_at.is_some());
         assert_eq!(
             created.client.user_id,
-            Some(context_user_id(&context()).unwrap())
+            Some(context_user_id(&context()).unwrap().to_owned())
         );
         assert_eq!(created.client.client_credentials_scopes, ["api.read"]);
         assert_eq!(created.client.metadata, Some(json!({"tenant":"one"})));

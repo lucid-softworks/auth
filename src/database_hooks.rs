@@ -7,6 +7,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+mod create;
+
+pub use create::{BeforeDatabaseCreateHook, DatabaseCreatePatch, DatabaseCreateRecord};
+
 /// Better Auth core database models that support schema fields and hooks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DatabaseModel {
@@ -118,8 +122,8 @@ impl DatabaseHookContext {
     }
 }
 
-/// Better Auth before-hook result: continue, replace/merge data, or return
-/// `false` and cancel the database operation.
+/// Better Auth before-update result: continue, replace the typed candidate,
+/// or return `false` and cancel the database operation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BeforeDatabaseHook {
     Continue,
@@ -137,10 +141,10 @@ impl BeforeDatabaseHook {
 pub trait DatabaseHooks: Send + Sync {
     async fn before_create(
         &self,
-        _record: &DatabaseRecord,
+        _record: &DatabaseCreateRecord,
         _context: &DatabaseHookContext,
-    ) -> Result<BeforeDatabaseHook, AuthError> {
-        Ok(BeforeDatabaseHook::Continue)
+    ) -> Result<BeforeDatabaseCreateHook, AuthError> {
+        Ok(BeforeDatabaseCreateHook::Continue)
     }
 
     async fn after_create(

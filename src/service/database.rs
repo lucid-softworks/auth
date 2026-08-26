@@ -1,19 +1,49 @@
 use super::AuthService;
-use crate::{AuthError, BeforeDatabaseHook, DatabaseModel, DatabaseRecord};
+use crate::store::{DatabaseCreate, DatabaseIdInput, DatabaseIdPlan, DatabaseWrite};
+use crate::{AuthError, BeforeDatabaseHook, DatabaseCreateRecord, DatabaseModel, DatabaseRecord};
 use chrono::{DateTime, Utc};
 
+mod create;
+mod delete;
+
+use create::{
+    CredentialAccountCreate, OAuthAccountCreate, apply_create_before, create_hook_record,
+    decode_create_hook_record,
+};
+
 impl AuthService {
+    pub(super) fn credential_account_create(
+        &self,
+        password_hash: String,
+        now: DateTime<Utc>,
+    ) -> CredentialAccountCreate {
+        CredentialAccountCreate {
+            service: self.clone(),
+            password_hash,
+            now,
+        }
+    }
+
+    pub(super) fn oauth_account_create(&self, account: crate::OAuthAccount) -> OAuthAccountCreate {
+        OAuthAccountCreate {
+            service: self.clone(),
+            account,
+        }
+    }
+
     pub(super) async fn prepare_user_create(
         &self,
         mut user: crate::AuthUser,
-    ) -> Result<crate::AuthUser, AuthError> {
+    ) -> Result<DatabaseCreate<crate::AuthUser>, AuthError> {
         user.additional_fields =
             self.create_additional_fields(DatabaseModel::User, user.additional_fields)?;
-        match self
-            .before_database_create(DatabaseRecord::User(user))
-            .await?
-        {
-            DatabaseRecord::User(user) => Ok(user),
+        let draft = create_hook_record(DatabaseRecord::User(user))?;
+        let (record, id, id_present) =
+            decode_create_hook_record(self.before_database_create(draft).await?, None)?;
+        match record {
+            DatabaseRecord::User(user) => {
+                self.prepare_database_create(DatabaseModel::User.as_str(), id, id_present, user)
+            }
             _ => unreachable!("database hook model was validated"),
         }
     }
@@ -61,21 +91,17 @@ impl AuthService {
 
     pub(super) async fn before_database_create(
         &self,
-        record: DatabaseRecord,
-    ) -> Result<DatabaseRecord, AuthError> {
+        record: DatabaseCreateRecord,
+    ) -> Result<DatabaseCreateRecord, AuthError> {
         let context = crate::database_hooks::current_context();
-        let record = self
+        let mut record = self
             .plugins
             .before_database_create(record, &context)
             .await?;
-        match &self.config.database_hooks {
-            Some(hooks) => apply_before(
-                hooks.before_create(&record, &context).await?,
-                record,
-                "create",
-            ),
-            None => Ok(record),
+        if let Some(hooks) = &self.config.database_hooks {
+            apply_create_before(hooks.before_create(&record, &context).await?, &mut record)?;
         }
+        Ok(record)
     }
 
     pub(super) async fn after_database_create(
@@ -161,30 +187,74 @@ impl AuthService {
     pub(super) async fn prepare_account_create(
         &self,
         mut account: crate::OAuthAccount,
-    ) -> Result<crate::OAuthAccount, AuthError> {
+    ) -> Result<DatabaseCreate<crate::OAuthAccount>, AuthError> {
         account.additional_fields =
             self.create_additional_fields(DatabaseModel::Account, account.additional_fields)?;
-        match self
-            .before_database_create(DatabaseRecord::Account(account))
-            .await?
-        {
-            DatabaseRecord::Account(account) => Ok(account),
+        let draft = create_hook_record(DatabaseRecord::Account(account))?;
+        let (record, id, id_present) =
+            decode_create_hook_record(self.before_database_create(draft).await?, None)?;
+        match record {
+            DatabaseRecord::Account(account) => self.prepare_database_create(
+                DatabaseModel::Account.as_str(),
+                id,
+                id_present,
+                account,
+            ),
+            _ => unreachable!("database hook model was validated"),
+        }
+    }
+
+    pub(super) async fn prepare_session_create(
+        &self,
+        session: crate::AuthSession,
+    ) -> Result<DatabaseCreate<crate::AuthSession>, AuthError> {
+        let authentication_method = session.authentication_method;
+        let draft = create_hook_record(DatabaseRecord::Session(session))?;
+        let (record, id, id_present) = decode_create_hook_record(
+            self.before_database_create(draft).await?,
+            authentication_method,
+        )?;
+        match record {
+            DatabaseRecord::Session(session) => self.prepare_database_create(
+                DatabaseModel::Session.as_str(),
+                id,
+                id_present,
+                session,
+            ),
+            _ => unreachable!("database hook model was validated"),
+        }
+    }
+
+    pub(super) async fn prepare_verification_create(
+        &self,
+        value: crate::VerificationValue,
+    ) -> Result<DatabaseCreate<crate::VerificationValue>, AuthError> {
+        let draft = create_hook_record(DatabaseRecord::Verification(value))?;
+        let (record, id, id_present) =
+            decode_create_hook_record(self.before_database_create(draft).await?, None)?;
+        match record {
+            DatabaseRecord::Verification(value) => self.prepare_database_create(
+                DatabaseModel::Verification.as_str(),
+                id,
+                id_present,
+                value,
+            ),
             _ => unreachable!("database hook model was validated"),
         }
     }
 
     pub(super) async fn prepare_credential_account(
         &self,
-        user_id: uuid::Uuid,
+        user_id: String,
         password_hash: String,
         now: DateTime<Utc>,
-        updating: bool,
-    ) -> Result<crate::OAuthAccount, AuthError> {
+        existing: Option<&crate::OAuthAccount>,
+    ) -> Result<DatabaseWrite<crate::OAuthAccount>, AuthError> {
         let mut account = crate::OAuthAccount {
-            id: uuid::Uuid::new_v4(),
-            user_id,
+            id: String::new(),
+            user_id: user_id.clone(),
             issuer: "local:credential".into(),
-            account_id: user_id.to_string(),
+            account_id: user_id.clone(),
             provider_id: "credential".into(),
             access_token: None,
             refresh_token: None,
@@ -197,19 +267,17 @@ impl AuthService {
             created_at: now,
             updated_at: now,
         };
-        if updating
-            && let Some(existing) = self
-                .store
-                .find_oauth_account_owner("local:credential", &user_id.to_string())
-                .await?
-                .map(|owner| owner.account)
-        {
-            account.id = existing.id;
-            account.created_at = existing.created_at;
-            account.additional_fields = existing.additional_fields;
-            return self.prepare_account_update(account).await;
+        if let Some(existing) = existing {
+            account = existing.clone();
+            account.updated_at = now;
+            return self
+                .prepare_account_update(account)
+                .await
+                .map(DatabaseWrite::Update);
         }
-        self.prepare_account_create(account).await
+        self.prepare_account_create(account)
+            .await
+            .map(DatabaseWrite::Create)
     }
 
     pub(super) async fn finish_account_create(
@@ -217,6 +285,41 @@ impl AuthService {
         account: &crate::OAuthAccount,
     ) -> Result<(), AuthError> {
         self.after_database_create(&DatabaseRecord::Account(account.clone()))
+            .await
+    }
+
+    pub(crate) fn prepare_database_create<T>(
+        &self,
+        model: &str,
+        input: DatabaseIdInput,
+        force_allow_id: bool,
+        record: T,
+    ) -> Result<DatabaseCreate<T>, AuthError> {
+        Ok(DatabaseCreate::new(
+            record,
+            DatabaseIdPlan::new(
+                self.config.database_id_generation.clone(),
+                model,
+                input,
+                force_allow_id,
+            ),
+        ))
+    }
+
+    pub(super) async fn set_password_hash_with_database_id(
+        &self,
+        user_id: &str,
+        password_hash: String,
+    ) -> Result<(), AuthError> {
+        let id = DatabaseIdPlan::new(
+            self.config.database_id_generation.clone(),
+            DatabaseModel::Account.as_str(),
+            DatabaseIdInput::Absent,
+            false,
+        );
+        let prepare_id = || id.prepare(self.store.as_ref());
+        self.store
+            .set_password_hash(&prepare_id, user_id, password_hash)
             .await
     }
 
@@ -239,72 +342,6 @@ impl AuthService {
     ) -> Result<(), AuthError> {
         self.after_database_update(&DatabaseRecord::Account(account.clone()))
             .await
-    }
-
-    pub(super) async fn delete_session_token_with_hooks(
-        &self,
-        token: &str,
-    ) -> Result<(), AuthError> {
-        let record = self
-            .find_stored_session(token)
-            .await?
-            .map(|session| DatabaseRecord::Session(session.session));
-        if let Some(record) = &record {
-            self.before_database_delete(record).await?;
-        }
-        self.delete_stored_session_token(token).await?;
-        if let Some(record) = &record {
-            self.after_database_delete(record).await?;
-        }
-        Ok(())
-    }
-
-    pub(super) async fn delete_user_record_with_hooks(
-        &self,
-        user: &crate::AuthUser,
-    ) -> Result<(), AuthError> {
-        let record = DatabaseRecord::User(user.clone());
-        self.before_database_delete(&record).await?;
-        self.store.delete_user(user.id).await?;
-        self.after_database_delete(&record).await
-    }
-
-    pub(super) async fn delete_session_id_with_hooks(
-        &self,
-        session_id: uuid::Uuid,
-    ) -> Result<(), AuthError> {
-        let record = self
-            .find_stored_session_by_id(session_id)
-            .await?
-            .map(|(_, session)| DatabaseRecord::Session(session));
-        if let Some(record) = &record {
-            self.before_database_delete(record).await?;
-        }
-        self.delete_stored_session_id(session_id).await?;
-        if let Some(record) = &record {
-            self.after_database_delete(record).await?;
-        }
-        Ok(())
-    }
-
-    pub(super) async fn delete_user_sessions_with_hooks(
-        &self,
-        user_id: uuid::Uuid,
-    ) -> Result<(), AuthError> {
-        let records: Vec<_> = self
-            .stored_sessions(user_id)
-            .await?
-            .into_iter()
-            .map(|(_, session)| DatabaseRecord::Session(session))
-            .collect();
-        for record in &records {
-            self.before_database_delete(record).await?;
-        }
-        self.delete_stored_user_sessions(user_id).await?;
-        for record in &records {
-            self.after_database_delete(record).await?;
-        }
-        Ok(())
     }
 }
 

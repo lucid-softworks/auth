@@ -64,13 +64,13 @@ impl OrganizationDataStore for PostgresStore {
             None
         };
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
-        lock_user(&mut transaction, &user_model, owner.user_id).await?;
+        lock_user(&mut transaction, &user_model, &owner.user_id).await?;
         advisory_slug_lock(&mut transaction, &organization.slug).await?;
         if slug_exists(&mut transaction, &organization_model, &organization.slug).await? {
             return Ok(OrganizationCreateOutcome::SlugTaken);
         }
         if let Some(limit) = organization_limit {
-            let count = count_by(&mut transaction, &member_model, "userId", owner.user_id).await?;
+            let count = count_by(&mut transaction, &member_model, "userId", &owner.user_id).await?;
             if count >= limit as i64 {
                 return Ok(OrganizationCreateOutcome::LimitReached);
             }
@@ -100,7 +100,7 @@ impl OrganizationDataStore for PostgresStore {
         fetch_organization(&self.pool, &model, "slug", json!(slug)).await
     }
 
-    async fn list_organizations(&self, user_id: Uuid) -> Result<Vec<Organization>, AuthError> {
+    async fn list_organizations(&self, user_id: &str) -> Result<Vec<Organization>, AuthError> {
         let organization = self.physical_model("organization")?;
         let member = self.physical_model("member")?;
         let mut query = list_query(&organization, &member, user_id)?;

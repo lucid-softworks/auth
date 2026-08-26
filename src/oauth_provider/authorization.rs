@@ -33,9 +33,9 @@ pub(crate) struct OAuthAuthorizationCodePayload {
     pub kind: String,
     pub query: OAuthAuthorizationQuery,
     #[serde(rename = "sessionId")]
-    pub session_id: uuid::Uuid,
+    pub session_id: String,
     #[serde(rename = "userId")]
-    pub user_id: uuid::Uuid,
+    pub user_id: String,
     #[serde(rename = "referenceId", skip_serializing_if = "Option::is_none")]
     pub reference_id: Option<String>,
     #[serde(rename = "authTime", skip_serializing_if = "Option::is_none")]

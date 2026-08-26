@@ -6,7 +6,6 @@ use crate::{AuthError, TwoFactorError};
 use crate::{SessionWithUser, TwoFactorRecord};
 #[cfg(feature = "axum")]
 use rand::RngExt;
-use uuid::Uuid;
 
 impl AuthService {
     #[cfg(feature = "axum")]
@@ -17,7 +16,7 @@ impl AuthService {
         password: Option<String>,
         issuer: Option<String>,
     ) -> Result<TwoFactorEnableResult, AuthError> {
-        self.require_two_factor_password(session.user.id, password)
+        self.require_two_factor_password(&session.user.id, password)
             .await?;
         let plugin = self.two_factor_plugin()?;
         if plugin.config.totp.disabled {
@@ -34,7 +33,7 @@ impl AuthService {
             .map_err(|error| AuthError::Storage(error.to_string()))?;
         let encrypted_backup_codes =
             crate::two_factor::crypto::encrypt(&self.config.secret, &encoded_codes)?;
-        let existing = plugin.store.find_two_factor(session.user.id).await?;
+        let existing = plugin.store.find_two_factor(&session.user.id).await?;
         let already_verified = existing.as_ref().is_some_and(|record| record.verified);
         let verified = already_verified || plugin.config.skip_verification_on_enable;
         plugin
@@ -43,7 +42,7 @@ impl AuthService {
                 id: existing
                     .as_ref()
                     .map_or_else(uuid::Uuid::new_v4, |record| record.id),
-                user_id: session.user.id,
+                user_id: session.user.id.clone(),
                 encrypted_secret,
                 encrypted_backup_codes,
                 verified,
@@ -54,7 +53,7 @@ impl AuthService {
         if verified {
             plugin
                 .store
-                .set_two_factor_enabled(session.user.id, true)
+                .set_two_factor_enabled(&session.user.id, true)
                 .await?;
         }
         let replacement_session = if verified {
@@ -87,7 +86,7 @@ impl AuthService {
         token: &str,
         password: Option<String>,
     ) -> Result<TwoFactorEnableResult, AuthError> {
-        self.require_two_factor_password(session.user.id, password)
+        self.require_two_factor_password(&session.user.id, password)
             .await?;
         let plugin = self.two_factor_plugin()?;
         if plugin.config.otp.is_none() {
@@ -95,7 +94,7 @@ impl AuthService {
         }
         plugin
             .store
-            .set_two_factor_enabled(session.user.id, true)
+            .set_two_factor_enabled(&session.user.id, true)
             .await?;
         let replacement = self.rotate_active_session(session, token).await?;
         Ok(TwoFactorEnableResult {
@@ -119,11 +118,11 @@ impl AuthService {
         {
             return Err(AuthError::SessionNotFresh);
         }
-        self.require_two_factor_password(session.user.id, password)
+        self.require_two_factor_password(&session.user.id, password)
             .await?;
         self.two_factor_plugin()?
             .store
-            .delete_two_factor(session.user.id)
+            .delete_two_factor(&session.user.id)
             .await?;
         self.revoke_trust_device(trust_cookie).await?;
         self.rotate_active_session(session, token).await
@@ -141,11 +140,11 @@ impl AuthService {
         }
         let record = plugin
             .store
-            .find_two_factor(session.user.id)
+            .find_two_factor(&session.user.id)
             .await?
             .ok_or(TwoFactorError::TotpNotEnabled)?;
         let encrypted = record.encrypted_secret;
-        self.require_two_factor_password(session.user.id, password)
+        self.require_two_factor_password(&session.user.id, password)
             .await?;
         let secret = String::from_utf8(crate::two_factor::crypto::decrypt(
             &self.config.secret,
@@ -172,15 +171,15 @@ impl AuthService {
         session: &SessionWithUser,
         password: Option<String>,
     ) -> Result<Vec<String>, AuthError> {
-        self.require_two_factor_password(session.user.id, password)
+        self.require_two_factor_password(&session.user.id, password)
             .await?;
         let plugin = self.two_factor_plugin()?;
         let mut record = plugin
             .store
-            .find_two_factor(session.user.id)
+            .find_two_factor(&session.user.id)
             .await?
             .ok_or(TwoFactorError::NotEnabled)?;
-        if !plugin.store.two_factor_enabled(session.user.id).await? {
+        if !plugin.store.two_factor_enabled(&session.user.id).await? {
             return Err(TwoFactorError::NotEnabled.into());
         }
         let codes = generate_backup_codes(
@@ -197,7 +196,7 @@ impl AuthService {
 
     pub async fn view_two_factor_backup_codes(
         &self,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Vec<String>, AuthError> {
         let record = self
             .two_factor_plugin()?

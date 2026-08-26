@@ -139,7 +139,7 @@ async fn prepare_customer(
 ) -> Result<CustomerState, StripeError> {
     let callback_user_customer_id = plugin
         .store
-        .user_customer_id(session.user.id)
+        .user_customer_id(&session.user.id)
         .await
         .map_err(policy::store_error)?;
     let customer_type = input.effective_customer_type();

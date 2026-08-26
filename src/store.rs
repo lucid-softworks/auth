@@ -3,7 +3,14 @@ use crate::{
 };
 use async_trait::async_trait;
 use std::sync::Arc;
-use uuid::Uuid;
+
+mod database_id;
+
+pub use database_id::{
+    DatabaseAccountCreate, DatabaseAccountOwnerWrite, DatabaseCreate, DatabaseIdInput,
+    DatabaseIdPlan, DatabaseIdSupplier, DatabaseIdValue, DatabaseWrite, DatabaseWriteOperation,
+    DependentAccountContext, DependentAccountPreparer, PreparedDatabaseId,
+};
 
 /// Result of atomically removing a passkey while preserving a configured minimum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,6 +55,20 @@ pub enum OAuthTokenUpdateOutcome {
 pub trait AuthStore:
     AccessStore + ApiKeyStore + OAuthAccountStore + SecurityStore + VerificationStore + Send + Sync
 {
+    fn database_adapter_name(&self) -> &str {
+        "Auth Adapter"
+    }
+
+    /// Better Auth adapter capabilities that participate in ID preparation.
+    fn database_id_capabilities(&self) -> crate::DatabaseIdAdapterCapabilities {
+        crate::DatabaseIdAdapterCapabilities::default()
+    }
+
+    /// Optional adapter-level custom ID generator.
+    fn database_id_generator(&self) -> Option<&dyn crate::DatabaseIdGenerator> {
+        None
+    }
+
     /// Binds the complete Better Auth schema after plugin validation.
     fn bind_schema(&self, schema: Arc<crate::AuthSchemaCatalog>) -> Result<(), AuthError>;
 
@@ -57,19 +78,25 @@ pub trait AuthStore:
 
     async fn create_password_user(
         &self,
-        user: AuthUser,
-        credential_account: OAuthAccount,
-    ) -> Result<AuthUser, AuthError>;
+        user: DatabaseCreate<AuthUser>,
+        credential_account: &dyn DependentAccountPreparer,
+    ) -> Result<OAuthAccountOwner, AuthError>;
 
     async fn upsert_password_user(
         &self,
-        user: AuthUser,
-        credential_account: OAuthAccount,
+        user: DatabaseWrite<AuthUser>,
+        credential_account: &dyn DependentAccountPreparer,
+    ) -> Result<DatabaseAccountOwnerWrite, AuthError>;
+
+    async fn create_anonymous_user(
+        &self,
+        user: DatabaseCreate<AuthUser>,
     ) -> Result<AuthUser, AuthError>;
 
-    async fn create_anonymous_user(&self, user: AuthUser) -> Result<AuthUser, AuthError>;
-
-    async fn create_user_without_account(&self, user: AuthUser) -> Result<AuthUser, AuthError>;
+    async fn create_user_without_account(
+        &self,
+        user: DatabaseCreate<AuthUser>,
+    ) -> Result<AuthUser, AuthError>;
 
     async fn find_user_by_username(&self, username: &str) -> Result<Option<AuthUser>, AuthError>;
 
@@ -77,13 +104,13 @@ pub trait AuthStore:
 
     async fn update_user_profile(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         update: UserProfileUpdate,
     ) -> Result<Option<AuthUser>, AuthError>;
 
     async fn update_user_email(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         expected_email: &str,
         new_email: &str,
         email_verified: bool,
@@ -91,31 +118,35 @@ pub trait AuthStore:
 
     async fn promote_email_owner(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<Option<AuthUser>, AuthError>;
 
-    async fn find_password_hash(&self, user_id: Uuid) -> Result<Option<String>, AuthError>;
+    async fn find_password_hash(&self, user_id: &str) -> Result<Option<String>, AuthError>;
 
     async fn update_password_hash(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         password_hash: String,
     ) -> Result<(), AuthError>;
 
     async fn set_password_hash(
         &self,
-        user_id: Uuid,
+        account_id: &dyn DatabaseIdSupplier,
+        user_id: &str,
         password_hash: String,
     ) -> Result<(), AuthError>;
 
-    async fn save_passkey(&self, passkey: StoredPasskey) -> Result<StoredPasskey, AuthError>;
+    async fn save_passkey(
+        &self,
+        passkey: DatabaseCreate<StoredPasskey>,
+    ) -> Result<StoredPasskey, AuthError>;
 
-    async fn list_passkeys(&self, user_id: Uuid) -> Result<Vec<StoredPasskey>, AuthError>;
+    async fn list_passkeys(&self, user_id: &str) -> Result<Vec<StoredPasskey>, AuthError>;
 
     async fn find_passkey_by_id(
         &self,
-        passkey_id: Uuid,
+        passkey_id: &str,
     ) -> Result<Option<StoredPasskey>, AuthError>;
 
     async fn find_passkey_by_credential_id(
@@ -133,32 +164,35 @@ pub trait AuthStore:
 
     async fn update_passkey_name(
         &self,
-        user_id: Uuid,
-        passkey_id: Uuid,
+        user_id: &str,
+        passkey_id: &str,
         name: String,
     ) -> Result<Option<StoredPasskey>, AuthError>;
 
     async fn delete_passkey(
         &self,
-        user_id: Uuid,
-        passkey_id: Uuid,
+        user_id: &str,
+        passkey_id: &str,
         minimum_remaining: usize,
     ) -> Result<PasskeyDeleteOutcome, AuthError>;
 
-    async fn delete_user_passkeys(&self, user_id: Uuid) -> Result<(), AuthError>;
+    async fn delete_user_passkeys(&self, user_id: &str) -> Result<(), AuthError>;
 
-    async fn find_user_by_id(&self, user_id: Uuid) -> Result<Option<AuthUser>, AuthError>;
+    async fn find_user_by_id(&self, user_id: &str) -> Result<Option<AuthUser>, AuthError>;
 
-    async fn create_session(&self, session: AuthSession) -> Result<(), AuthError>;
+    async fn create_session(
+        &self,
+        session: DatabaseCreate<AuthSession>,
+    ) -> Result<AuthSession, AuthError>;
 
     async fn find_session(&self, token: &str)
     -> Result<Option<(AuthSession, AuthUser)>, AuthError>;
 
-    async fn find_session_by_id(&self, session_id: Uuid) -> Result<Option<AuthSession>, AuthError>;
+    async fn find_session_by_id(&self, session_id: &str) -> Result<Option<AuthSession>, AuthError>;
 
     async fn update_session_fields(
         &self,
-        session_id: Uuid,
+        session_id: &str,
         fields: serde_json::Map<String, serde_json::Value>,
     ) -> Result<Option<AuthSession>, AuthError>;
 
@@ -175,7 +209,7 @@ pub trait AuthStore:
 
     async fn expire_session(
         &self,
-        session_id: Uuid,
+        session_id: &str,
         expires_at: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), AuthError>;
 
@@ -194,19 +228,22 @@ pub trait OAuthAccountStore: Send + Sync {
     ) -> Result<Option<OAuthAccountOwner>, AuthError>;
     async fn create_oauth_user(
         &self,
-        user: AuthUser,
-        account: OAuthAccount,
+        user: DatabaseCreate<AuthUser>,
+        account: &dyn DependentAccountPreparer,
     ) -> Result<OAuthAccountOwner, AuthError>;
-    async fn link_oauth_account(&self, account: OAuthAccount) -> Result<OAuthAccount, AuthError>;
+    async fn link_oauth_account(
+        &self,
+        account: DatabaseCreate<OAuthAccount>,
+    ) -> Result<OAuthAccount, AuthError>;
     async fn update_oauth_account_tokens(
         &self,
         account: OAuthAccount,
     ) -> Result<OAuthAccount, AuthError>;
-    async fn list_user_accounts(&self, user_id: Uuid) -> Result<Vec<OAuthAccount>, AuthError>;
+    async fn list_user_accounts(&self, user_id: &str) -> Result<Vec<OAuthAccount>, AuthError>;
     async fn delete_user_account(
         &self,
-        user_id: Uuid,
-        account_id: Uuid,
+        user_id: &str,
+        account_id: &str,
         allow_last: bool,
     ) -> Result<AccountDeleteOutcome, AuthError>;
     async fn compare_and_swap_oauth_tokens(
@@ -220,10 +257,16 @@ pub trait OAuthAccountStore: Send + Sync {
 /// Durable one-time state for verification, OAuth, and challenge flows.
 #[async_trait]
 pub trait VerificationStore: Send + Sync {
-    async fn create_verification(&self, value: VerificationValue) -> Result<(), AuthError>;
+    async fn create_verification(
+        &self,
+        value: DatabaseCreate<VerificationValue>,
+    ) -> Result<VerificationValue, AuthError>;
 
     /// Atomically creates a verification reservation only when its key is free.
-    async fn reserve_verification(&self, value: VerificationValue) -> Result<bool, AuthError>;
+    async fn reserve_verification(
+        &self,
+        value: DatabaseCreate<VerificationValue>,
+    ) -> Result<Option<VerificationValue>, AuthError>;
 
     async fn find_verification(
         &self,
@@ -257,9 +300,9 @@ pub trait VerificationStore: Send + Sync {
 /// Persistence boundary for Better Auth-compatible API keys.
 #[async_trait]
 pub trait ApiKeyStore: Send + Sync {
-    async fn create_api_key(&self, api_key: ApiKey) -> Result<ApiKey, AuthError>;
+    async fn create_api_key(&self, api_key: DatabaseCreate<ApiKey>) -> Result<ApiKey, AuthError>;
 
-    async fn find_api_key(&self, api_key_id: Uuid) -> Result<Option<ApiKey>, AuthError>;
+    async fn find_api_key(&self, api_key_id: &str) -> Result<Option<ApiKey>, AuthError>;
 
     async fn find_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>, AuthError>;
 
@@ -271,7 +314,7 @@ pub trait ApiKeyStore: Send + Sync {
 
     async fn update_api_key(&self, api_key: ApiKey) -> Result<Option<ApiKey>, AuthError>;
 
-    async fn delete_api_key(&self, api_key_id: Uuid) -> Result<bool, AuthError>;
+    async fn delete_api_key(&self, api_key_id: &str) -> Result<bool, AuthError>;
 
     async fn delete_expired_api_keys(
         &self,
@@ -282,7 +325,7 @@ pub trait ApiKeyStore: Send + Sync {
     /// rate-limited keys.
     async fn record_api_key_use(
         &self,
-        api_key_id: Uuid,
+        api_key_id: &str,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<ApiKeyUseOutcome, AuthError>;
 }
@@ -301,6 +344,7 @@ pub trait SecurityStore: Send + Sync {
     /// Atomically consumes one request from a Better Auth rolling window.
     async fn consume_rate_limit(
         &self,
+        id: &dyn DatabaseIdSupplier,
         key: &str,
         now: chrono::DateTime<chrono::Utc>,
         rule: crate::RateLimitRule,
@@ -321,11 +365,11 @@ pub trait AccessStore: Send + Sync {
 
     async fn count_users_by_role(&self, role: &str) -> Result<i64, AuthError>;
 
-    async fn update_user_role(&self, user_id: Uuid, role: &str) -> Result<AuthUser, AuthError>;
+    async fn update_user_role(&self, user_id: &str, role: &str) -> Result<AuthUser, AuthError>;
 
     async fn update_user_ban(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         banned: bool,
         reason: Option<String>,
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
@@ -333,15 +377,15 @@ pub trait AccessStore: Send + Sync {
 
     async fn admin_update_user(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         update: crate::AdminUserUpdate,
     ) -> Result<AuthUser, AuthError>;
 
-    async fn delete_user(&self, user_id: Uuid) -> Result<(), AuthError>;
+    async fn delete_user(&self, user_id: &str) -> Result<(), AuthError>;
 
-    async fn list_sessions(&self, user_id: Uuid) -> Result<Vec<AuthSession>, AuthError>;
+    async fn list_sessions(&self, user_id: &str) -> Result<Vec<AuthSession>, AuthError>;
 
-    async fn delete_session_by_id(&self, session_id: Uuid) -> Result<(), AuthError>;
+    async fn delete_session_by_id(&self, session_id: &str) -> Result<(), AuthError>;
 
-    async fn delete_user_sessions(&self, user_id: Uuid) -> Result<(), AuthError>;
+    async fn delete_user_sessions(&self, user_id: &str) -> Result<(), AuthError>;
 }

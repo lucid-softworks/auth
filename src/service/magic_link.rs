@@ -8,7 +8,6 @@ use chrono::Utc;
 use rand::RngExt;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
-use uuid::Uuid;
 
 const TOKEN_ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -104,7 +103,7 @@ impl AuthService {
         let name = payload.get("name").and_then(Value::as_str);
         let (mut user, is_new_user) = self.magic_link_user(config, email, name).await?;
         if !user.email_verified {
-            let Some(promoted) = self.store.promote_email_owner(user.id, Utc::now()).await? else {
+            let Some(promoted) = self.store.promote_email_owner(&user.id, Utc::now()).await? else {
                 return redirect_error("user_not_found", None);
             };
             user = promoted;
@@ -202,7 +201,7 @@ impl AuthService {
 fn new_magic_link_user(email: &str, name: Option<&str>, default_role: &str) -> AuthUser {
     let now = Utc::now();
     AuthUser {
-        id: Uuid::new_v4(),
+        id: String::new(),
         username: None,
         display_username: None,
         name: name.unwrap_or("").to_owned(),

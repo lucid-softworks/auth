@@ -8,7 +8,7 @@ CREATE TABLE lucid_auth_guest_grants (
     expires_at TIMESTAMPTZ NOT NULL,
     max_uses INTEGER,
     uses INTEGER NOT NULL DEFAULT 0,
-    created_by UUID NOT NULL REFERENCES {{lucid-auth:user-table}}(id) ON DELETE CASCADE,
+    created_by {{lucid-auth:user-id-type}} NOT NULL REFERENCES {{lucid-auth:user-table}}(id) ON DELETE CASCADE,
     revoked_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL,
     CONSTRAINT lucid_auth_guest_grant_uses CHECK (max_uses IS NULL OR max_uses > 0),
@@ -16,7 +16,7 @@ CREATE TABLE lucid_auth_guest_grants (
 );
 
 CREATE TABLE lucid_auth_guest_grant_sessions (
-    session_id UUID PRIMARY KEY REFERENCES {{lucid-auth:session-table}}(id) ON DELETE CASCADE,
+    session_id {{lucid-auth:session-id-type}} PRIMARY KEY REFERENCES {{lucid-auth:session-table}}(id) ON DELETE CASCADE,
     grant_id UUID NOT NULL REFERENCES lucid_auth_guest_grants(id) ON DELETE CASCADE
 );
 

@@ -91,7 +91,7 @@ async fn load_and_consume(
         )));
     };
     let user = service
-        .device_authorization_user(user_id)
+        .device_authorization_user(&user_id)
         .await
         .map_err(|_| {
             Box::new(error::internal(

@@ -53,10 +53,7 @@ async fn list_user_teams(
     let Some(session) = current_session(&service, &headers).await else {
         return auth_error(AuthError::Unauthorized);
     };
-    let user_id = match optional_id(query.user_id) {
-        Ok(id) => id,
-        Err(error) => return auth_error(error),
-    };
+    let user_id = query.user_id;
     let organization_id = match optional_id(query.organization_id) {
         Ok(id) => id,
         Err(error) => return auth_error(error),
@@ -134,10 +131,7 @@ async fn mutate_member(
         Ok(id) => id,
         Err(error) => return auth_error(error),
     };
-    let user_id = match id(&input.user_id) {
-        Ok(id) => id,
-        Err(error) => return auth_error(error),
-    };
+    let user_id = input.user_id;
     let organization_id = match optional_id(input.organization_id) {
         Ok(id) => id,
         Err(error) => return auth_error(error),

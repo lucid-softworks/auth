@@ -7,7 +7,6 @@ use crate::AuthService;
 use ::axum::http::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::{Map, Value};
 use std::{collections::BTreeMap, sync::Arc};
-use uuid::Uuid;
 
 /// Request data binding the native OAuth Provider capability facade.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,9 +60,9 @@ pub struct OAuthProviderClientAssertionInput {
 pub struct OAuthProviderApiTokenIssueInput {
     pub client: OAuthProviderClient,
     pub scopes: Vec<String>,
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<String>,
     pub reference_id: Option<String>,
-    pub session_id: Option<Uuid>,
+    pub session_id: Option<String>,
     pub nonce: Option<String>,
     pub refresh_token: Option<OAuthProviderRefreshToken>,
     pub auth_time: Option<i64>,
@@ -196,7 +195,7 @@ impl OAuthProviderApi {
 
     pub(crate) async fn load_user(
         &self,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Option<crate::AuthUser>, OAuthProviderError> {
         self.service
             .auth_user_by_id(user_id)

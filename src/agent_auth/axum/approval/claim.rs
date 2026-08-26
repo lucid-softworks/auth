@@ -48,13 +48,13 @@ pub(super) async fn run(
         .await;
     }
     agent.status = AgentStatus::Claimed;
-    agent.user_id = Some(session.user.id);
+    agent.user_id = Some(session.user.id.clone());
     agent.updated_at = now;
     let mut host_update = None;
     if let Some(mut host) = host.clone()
         && host.user_id.is_none()
     {
-        host.user_id = Some(session.user.id);
+        host.user_id = Some(session.user.id.clone());
         host.updated_at = now;
         host_update = Some(host.clone());
     }
@@ -156,7 +156,7 @@ async fn after_claim(
             .call(crate::AgentHostClaimedContext {
                 endpoint: crate::AgentEndpointContext::default(),
                 host_id: claimed_host.id.clone(),
-                user_id: session.user.id,
+                user_id: session.user.id.clone(),
                 previous_user_id: None,
             })
             .await;
@@ -169,7 +169,7 @@ async fn after_claim(
                 endpoint: crate::AgentEndpointContext::default(),
                 agent: agent.clone(),
                 host,
-                user_id: session.user.id,
+                user_id: session.user.id.clone(),
                 capabilities: active.to_vec(),
             })
             .await;

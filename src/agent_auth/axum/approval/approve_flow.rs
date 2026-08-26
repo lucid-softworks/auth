@@ -50,7 +50,7 @@ pub(super) async fn run(
 }
 
 pub(super) struct Approval {
-    pub(super) user_id: uuid::Uuid,
+    pub(super) user_id: String,
     pub(super) agent_id: String,
     pub(super) agent: crate::AgentIdentity,
     pub(super) expected_agent: crate::AgentIdentity,
@@ -78,7 +78,12 @@ impl Approval {
             )
         })?;
         let is_claim = agent.mode == AgentMode::Autonomous && agent.status == AgentStatus::Active;
-        if !is_claim && agent.user_id.is_some_and(|owner| owner != session.user.id) {
+        if !is_claim
+            && agent
+                .user_id
+                .as_deref()
+                .is_some_and(|owner| owner != session.user.id)
+        {
             return Err(FlowError::code(
                 StatusCode::FORBIDDEN,
                 crate::AgentAuthErrorCode::CapabilityRequestOwnerMismatch,
@@ -96,7 +101,7 @@ impl Approval {
             .cloned()
             .collect();
         Ok(Self {
-            user_id: session.user.id,
+            user_id: session.user.id.clone(),
             agent_id,
             expected_agent: agent.clone(),
             host: state.store.find_host(&agent.host_id).await?,
@@ -196,7 +201,7 @@ async fn deny(
         .collect();
     if approval.agent_pending {
         approval.agent.status = AgentStatus::Rejected;
-        approval.agent.user_id = Some(session.user.id);
+        approval.agent.user_id = Some(session.user.id.clone());
     }
     if let Some(reason) = &reason {
         approval

@@ -2,6 +2,7 @@ use super::OAuthProviderRuntimeStore;
 use crate::{AuthError, oauth_provider::*};
 use async_trait::async_trait;
 use chrono::Utc;
+#[cfg(test)]
 use uuid::Uuid;
 
 #[async_trait]
@@ -39,7 +40,7 @@ impl OAuthProviderClientStore for OAuthProviderRuntimeStore {
 
     async fn list_oauth_clients(
         &self,
-        user_id: Option<Uuid>,
+        user_id: Option<&str>,
         reference_id: Option<&str>,
     ) -> Result<Vec<OAuthProviderClient>, AuthError> {
         self.inner.list_oauth_clients(user_id, reference_id).await

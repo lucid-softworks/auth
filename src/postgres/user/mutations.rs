@@ -5,15 +5,15 @@ use crate::{AuthError, AuthUser, UserProfileUpdate, UsernameError};
 use chrono::{DateTime, Utc};
 use serde_json::{Map, Value, json};
 use sqlx::{Postgres, QueryBuilder, Transaction};
-use uuid::Uuid;
 
 pub(in crate::postgres) async fn create_without_account(
     store: &super::super::PostgresStore,
-    mut user: AuthUser,
+    user: crate::store::DatabaseCreate<AuthUser>,
 ) -> Result<AuthUser, AuthError> {
+    let (mut user, id) = user.into_parts(store)?;
     let model = store.user_model()?;
     user.email = user.email.to_lowercase();
-    let writes = user_writes(&model, &user)?;
+    let writes = user_writes(&model, &user, &id)?;
     let mut query = super::super::rows::insert_query(&model, writes);
     let row = query
         .build()
@@ -25,7 +25,7 @@ pub(in crate::postgres) async fn create_without_account(
 
 pub(in crate::postgres) async fn update_profile(
     store: &super::super::PostgresStore,
-    user_id: Uuid,
+    user_id: &str,
     update: UserProfileUpdate,
 ) -> Result<Option<AuthUser>, AuthError> {
     let model = store.user_model()?;
@@ -59,11 +59,9 @@ pub(in crate::postgres) async fn update_profile(
             .map(|(logical, value)| (logical.as_str(), value.clone())),
     )?;
     let mut query = super::super::rows::update_query(&model, writes);
-    query
-        .push(" WHERE \"id\" = ")
-        .push_bind(user_id)
-        .push(" RETURNING ")
-        .push(model.all_projection());
+    query.push(" WHERE \"id\" = ");
+    super::super::rows::push_model_value(&mut query, &model, "id", json!(user_id))?;
+    query.push(" RETURNING ").push(model.all_projection());
     let row = query
         .build()
         .fetch_optional(&store.pool)
@@ -80,7 +78,7 @@ pub(in crate::postgres) async fn update_profile(
 
 pub(in crate::postgres) async fn update_email(
     store: &super::super::PostgresStore,
-    user_id: Uuid,
+    user_id: &str,
     expected_email: &str,
     new_email: &str,
     email_verified: bool,
@@ -93,9 +91,9 @@ pub(in crate::postgres) async fn update_email(
     ];
     let writes = model.encode_fields(values)?;
     let mut query = super::super::rows::update_query(&model, writes);
+    query.push(" WHERE \"id\" = ");
+    super::super::rows::push_model_value(&mut query, &model, "id", json!(user_id))?;
     query
-        .push(" WHERE \"id\" = ")
-        .push_bind(user_id)
         .push(" AND LOWER(")
         .push(model.quoted_column("email")?)
         .push(") = LOWER(")
@@ -118,7 +116,7 @@ pub(in crate::postgres) async fn update_email(
 
 pub(in crate::postgres) async fn promote_email_owner(
     store: &super::super::PostgresStore,
-    user_id: Uuid,
+    user_id: &str,
     now: DateTime<Utc>,
 ) -> Result<Option<AuthUser>, AuthError> {
     let user_model = store.user_model()?;
@@ -151,11 +149,9 @@ pub(in crate::postgres) async fn promote_email_owner(
         ("updatedAt", json!(now.to_rfc3339())),
     ])?;
     let mut query = super::super::rows::update_query(&user_model, writes);
-    query
-        .push(" WHERE \"id\" = ")
-        .push_bind(user_id)
-        .push(" RETURNING ")
-        .push(user_model.all_projection());
+    query.push(" WHERE \"id\" = ");
+    super::super::rows::push_model_value(&mut query, &user_model, "id", json!(user_id))?;
+    query.push(" RETURNING ").push(user_model.all_projection());
     let row = query
         .build()
         .fetch_one(&mut *transaction)
@@ -172,15 +168,15 @@ pub(in crate::postgres) async fn promote_email_owner(
 async fn delete_for_user(
     transaction: &mut Transaction<'_, Postgres>,
     model: &super::super::PostgresModel<'_>,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), AuthError> {
     let mut query = QueryBuilder::new("DELETE FROM ");
     query
         .push(model.quoted_table())
         .push(" WHERE ")
         .push(model.quoted_column("userId")?)
-        .push(" = ")
-        .push_bind(user_id);
+        .push(" = ");
+    super::super::rows::push_model_value(&mut query, model, "userId", json!(user_id))?;
     query
         .build()
         .execute(&mut **transaction)
@@ -192,12 +188,13 @@ async fn delete_for_user(
 pub(super) async fn touch_user(
     transaction: &mut Transaction<'_, Postgres>,
     model: &super::super::PostgresModel<'_>,
-    user_id: Uuid,
+    user_id: &str,
     now: DateTime<Utc>,
 ) -> Result<u64, AuthError> {
     let writes = model.encode_fields([("updatedAt", json!(now.to_rfc3339()))])?;
     let mut query = super::super::rows::update_query(model, writes);
-    query.push(" WHERE \"id\" = ").push_bind(user_id);
+    query.push(" WHERE \"id\" = ");
+    super::super::rows::push_model_value(&mut query, model, "id", json!(user_id))?;
     query
         .build()
         .execute(&mut **transaction)

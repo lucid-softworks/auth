@@ -34,7 +34,7 @@ impl AuthService {
         let now = Utc::now();
         self.create_verification_record(VerificationValue::new(
             format!("{RESET_IDENTIFIER_PREFIX}{token}"),
-            user.id.to_string(),
+            user.id.clone(),
             now + self
                 .config
                 .email_and_password
@@ -65,16 +65,16 @@ impl AuthService {
         else {
             return Err(AuthError::InvalidPasswordResetToken);
         };
-        let user_id = uuid::Uuid::parse_str(&value.value)
-            .map_err(|_| AuthError::Storage("password reset value is invalid".into()))?;
-        if self.store.find_user_by_id(user_id).await?.is_none() {
+        let user_id = value.value;
+        if self.store.find_user_by_id(&user_id).await?.is_none() {
             return Err(AuthError::PasswordResetUserNotFound);
         }
         let password_hash = self.hash_password(password).await?;
-        self.store.set_password_hash(user_id, password_hash).await?;
+        self.set_password_hash_with_database_id(&user_id, password_hash)
+            .await?;
         let user = self
             .store
-            .update_user_profile(user_id, crate::UserProfileUpdate::default())
+            .update_user_profile(&user_id, crate::UserProfileUpdate::default())
             .await?
             .ok_or_else(|| AuthError::Storage("password reset user disappeared".into()))?;
         if let Some(callback) = &self.config.email_and_password.on_password_reset {
@@ -85,12 +85,12 @@ impl AuthService {
             .email_and_password
             .revoke_sessions_on_password_reset
         {
-            self.delete_user_sessions_with_hooks(user.id).await?;
+            self.delete_user_sessions_with_hooks(&user.id).await?;
         }
         self.refresh_secondary_user_sessions(&user).await?;
         self.plugins
             .password_credential_changed(&PasswordCredentialChanged {
-                user_id: user.id,
+                user_id: user.id.clone(),
                 source: PasswordCredentialSource::PasswordReset,
             })
             .await?;

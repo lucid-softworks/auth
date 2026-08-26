@@ -43,7 +43,7 @@ pub async fn assert_query_and_update(
     let updated = service
         .admin_update_user(
             actor,
-            user.id,
+            &user.id,
             AdminUserUpdate {
                 name: Some("Updated PostgreSQL Admin Query".into()),
                 email_verified: Some(true),
@@ -53,6 +53,6 @@ pub async fn assert_query_and_update(
         .await?;
     assert_eq!(updated.name, "Updated PostgreSQL Admin Query");
     assert!(updated.email_verified);
-    service.remove_user(actor, user.id).await?;
+    service.remove_user(actor, &user.id).await?;
     Ok(())
 }

@@ -155,10 +155,10 @@ async fn complete_hint_logout(
     let session_id = payload
         .get("sid")
         .and_then(serde_json::Value::as_str)
-        .and_then(|value| uuid::Uuid::parse_str(value).ok());
+        .map(str::to_owned);
     let matches_current = current
         .as_ref()
-        .is_some_and(|session| Some(session.id) == session_id);
+        .is_some_and(|session| Some(session.id.as_str()) == session_id.as_deref());
     if current.is_some() && !matches_current {
         return confirmation_required(
             service,
@@ -169,7 +169,7 @@ async fn complete_hint_logout(
     }
     let redirect = validate_redirect(&client, &input);
     let hinted = match session_id {
-        Some(id) => match hinted_session(service, id).await {
+        Some(id) => match hinted_session(service, &id).await {
             Ok(session) => session,
             Err(error) => return protocol_error(headers, &error),
         },

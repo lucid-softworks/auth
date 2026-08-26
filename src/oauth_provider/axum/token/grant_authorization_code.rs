@@ -225,10 +225,10 @@ fn validate_code_pkce(
 async fn code_principal(
     service: &AuthService,
     payload: &OAuthAuthorizationCodePayload,
-) -> Result<(crate::AuthUser, Uuid), OAuthProviderError> {
-    let user = service.auth_user_by_id(payload.user_id).await.map_err(server)?
+) -> Result<(crate::AuthUser, String), OAuthProviderError> {
+    let user = service.auth_user_by_id(&payload.user_id).await.map_err(server)?
         .ok_or_else(|| OAuthProviderError::InvalidUser("missing user, user may have been deleted".into()))?;
-    let session = service.oauth_provider_session_by_id(payload.session_id).await.map_err(server)?
+    let session = service.oauth_provider_session_by_id(&payload.session_id).await.map_err(server)?
         .ok_or_else(|| OAuthProviderError::InvalidRequest("session no longer exists".into()))?;
     Ok((user, session.id))
 }

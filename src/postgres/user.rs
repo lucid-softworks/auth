@@ -15,7 +15,6 @@ pub(super) use mutations::{
     create_without_account, promote_email_owner, update_email, update_profile,
 };
 use sqlx::{Postgres, QueryBuilder, Transaction};
-use uuid::Uuid;
 
 impl PostgresStore {
     pub(super) fn user_model(&self) -> Result<PostgresModel<'_>, AuthError> {
@@ -25,11 +24,12 @@ impl PostgresStore {
 
 pub(super) async fn load_by_id(
     store: &PostgresStore,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<Option<AuthUser>, AuthError> {
     let model = store.user_model()?;
     let mut query = super::rows::select_query(&model);
-    query.push(" WHERE \"id\" = ").push_bind(user_id);
+    query.push(" WHERE \"id\" = ");
+    super::rows::push_model_value(&mut query, &model, "id", serde_json::json!(user_id))?;
     fetch_optional(&model, query, &store.pool).await
 }
 
@@ -65,13 +65,12 @@ pub(super) async fn load_by_email(
 pub(super) async fn load_by_id_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<Option<AuthUser>, AuthError> {
     let mut query = super::rows::select_query(model);
-    query
-        .push(" WHERE \"id\" = ")
-        .push_bind(user_id)
-        .push(" FOR UPDATE");
+    query.push(" WHERE \"id\" = ");
+    super::rows::push_model_value(&mut query, model, "id", serde_json::json!(user_id))?;
+    query.push(" FOR UPDATE");
     let row = query
         .build()
         .fetch_optional(&mut **transaction)
@@ -104,9 +103,10 @@ pub(super) async fn insert_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
     mut user: AuthUser,
+    id: &crate::store::PreparedDatabaseId,
 ) -> Result<AuthUser, AuthError> {
     user.email = user.email.to_lowercase();
-    let writes = user_writes(model, &user)?;
+    let writes = user_writes(model, &user, id)?;
     let mut query = super::rows::insert_query(model, writes);
     let row = query
         .build()

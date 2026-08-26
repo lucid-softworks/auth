@@ -1,12 +1,11 @@
 use super::AuthService;
 use crate::{AuthError, AuthUser, AuthenticationMethod, SignInResult};
 use axum::http::HeaderMap;
-use uuid::Uuid;
 
 impl AuthService {
     pub(crate) async fn device_authorization_user(
         &self,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Option<AuthUser>, AuthError> {
         self.store.find_user_by_id(user_id).await
     }

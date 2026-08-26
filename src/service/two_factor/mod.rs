@@ -54,7 +54,7 @@ pub(crate) struct BackupCodeVerification {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ChallengePayload {
-    user_id: uuid::Uuid,
+    user_id: String,
     session_expires_at: DateTime<Utc>,
     remember_me: Option<bool>,
     ip_address: Option<String>,
@@ -94,7 +94,7 @@ impl AuthService {
     }
 
     #[cfg(feature = "axum")]
-    pub(crate) async fn two_factor_enabled(&self, user_id: uuid::Uuid) -> Result<bool, AuthError> {
+    pub(crate) async fn two_factor_enabled(&self, user_id: &str) -> Result<bool, AuthError> {
         let Some(plugin) = self.plugins.find::<TwoFactorPlugin>() else {
             return Ok(false);
         };
@@ -104,7 +104,7 @@ impl AuthService {
     #[cfg(feature = "axum")]
     async fn require_two_factor_password(
         &self,
-        user_id: uuid::Uuid,
+        user_id: &str,
         password: Option<String>,
     ) -> Result<(), AuthError> {
         let plugin = self.two_factor_plugin()?;
@@ -136,14 +136,14 @@ impl AuthService {
         if record.locked_until.is_some() {
             plugin
                 .store
-                .reset_two_factor_failures(record.user_id)
+                .reset_two_factor_failures(&record.user_id)
                 .await?;
         }
         Ok(())
     }
 
     #[cfg(feature = "axum")]
-    async fn record_two_factor_failure(&self, user_id: uuid::Uuid) -> Result<(), AuthError> {
+    async fn record_two_factor_failure(&self, user_id: &str) -> Result<(), AuthError> {
         let plugin = self.two_factor_plugin()?;
         let config = &plugin.config.account_lockout;
         if config.enabled {
@@ -160,7 +160,7 @@ impl AuthService {
     }
 
     #[cfg(feature = "axum")]
-    async fn reset_two_factor_failures(&self, user_id: uuid::Uuid) -> Result<(), AuthError> {
+    async fn reset_two_factor_failures(&self, user_id: &str) -> Result<(), AuthError> {
         let plugin = self.two_factor_plugin()?;
         if plugin.config.account_lockout.enabled {
             plugin.store.reset_two_factor_failures(user_id).await?;

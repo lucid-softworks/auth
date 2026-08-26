@@ -1,12 +1,11 @@
 use super::AuthService;
 use crate::{AuthError, DatabaseRecord, UserProfileUpdate};
 use serde_json::Value;
-use uuid::Uuid;
 
 impl AuthService {
     pub(crate) async fn update_last_login_method(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         method: String,
     ) -> Result<(), AuthError> {
         let Some(original) = self.store.find_user_by_id(user_id).await? else {

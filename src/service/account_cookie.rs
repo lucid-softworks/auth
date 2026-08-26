@@ -6,15 +6,14 @@ use super::{
 use crate::{AuthError, OAuthAccount, SessionWithUser};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 const ACCOUNT_COOKIE_SALT: &[u8] = b"better-auth-account";
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AccountCookiePayload {
-    id: Uuid,
-    user_id: Uuid,
+    id: String,
+    user_id: String,
     issuer: String,
     account_id: String,
     provider_id: String,
@@ -131,7 +130,7 @@ impl AuthService {
 
     pub(crate) async fn account_cookie_for_provider(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         provider_id: &str,
     ) -> Result<Option<OAuthAccount>, AuthError> {
         Ok(self
@@ -145,8 +144,8 @@ impl AuthService {
 
     pub(crate) async fn account_cookie_for_id(
         &self,
-        user_id: Uuid,
-        account_id: Uuid,
+        user_id: &str,
+        account_id: &str,
     ) -> Result<Option<OAuthAccount>, AuthError> {
         Ok(self
             .store

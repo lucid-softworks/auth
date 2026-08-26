@@ -5,7 +5,6 @@ use crate::{AuthError, AuthSession, AuthUser};
 use chrono::{DateTime, Utc};
 use serde_json::json;
 use sqlx::{Postgres, QueryBuilder};
-use uuid::Uuid;
 
 pub(super) use codec::{decode_session, session_writes};
 
@@ -15,16 +14,20 @@ impl PostgresStore {
     }
 }
 
-pub(super) async fn create(store: &PostgresStore, session: AuthSession) -> Result<(), AuthError> {
+pub(super) async fn create(
+    store: &PostgresStore,
+    session: crate::store::DatabaseCreate<AuthSession>,
+) -> Result<AuthSession, AuthError> {
+    let (session, id) = session.into_parts(store)?;
     let model = store.session_model()?;
-    let writes = session_writes(&model, &session)?;
-    let mut query = super::rows::insert_query_prefix(&model, writes);
+    let writes = session_writes(&model, &session, &id)?;
+    let mut query = super::rows::insert_query(&model, writes);
     query
         .build()
-        .execute(&store.pool)
+        .fetch_one(&store.pool)
         .await
-        .map(|_| ())
         .map_err(storage_error)
+        .and_then(|row| decode_session(&model, &row))
 }
 
 pub(super) async fn find(
@@ -41,23 +44,24 @@ pub(super) async fn find(
     let Some(session) = fetch_optional(&model, query, &store.pool).await? else {
         return Ok(None);
     };
-    let user = super::user::load_by_id(store, session.user_id).await?;
+    let user = super::user::load_by_id(store, &session.user_id).await?;
     Ok(user.map(|user| (session, user)))
 }
 
 pub(super) async fn find_by_id(
     store: &PostgresStore,
-    session_id: Uuid,
+    session_id: &str,
 ) -> Result<Option<AuthSession>, AuthError> {
     let model = store.session_model()?;
     let mut query = select_query(&model);
-    query.push(" WHERE \"id\" = ").push_bind(session_id);
+    query.push(" WHERE \"id\" = ");
+    super::rows::push_model_value(&mut query, &model, "id", json!(session_id))?;
     fetch_optional(&model, query, &store.pool).await
 }
 
 pub(super) async fn update_fields(
     store: &PostgresStore,
-    session_id: Uuid,
+    session_id: &str,
     fields: serde_json::Map<String, serde_json::Value>,
 ) -> Result<Option<AuthSession>, AuthError> {
     let model = store.session_model()?;
@@ -72,11 +76,9 @@ pub(super) async fn update_fields(
             ))),
     )?;
     let mut query = super::rows::update_query(&model, writes);
-    query
-        .push(" WHERE \"id\" = ")
-        .push_bind(session_id)
-        .push(" RETURNING ")
-        .push(model.all_projection());
+    query.push(" WHERE \"id\" = ");
+    super::rows::push_model_value(&mut query, &model, "id", json!(session_id))?;
+    query.push(" RETURNING ").push(model.all_projection());
     fetch_optional(&model, query, &store.pool).await
 }
 
@@ -104,7 +106,7 @@ pub(super) async fn refresh(
 
 pub(super) async fn expire(
     store: &PostgresStore,
-    session_id: Uuid,
+    session_id: &str,
     expires_at: DateTime<Utc>,
 ) -> Result<(), AuthError> {
     let model = store.session_model()?;
@@ -113,7 +115,8 @@ pub(super) async fn expire(
         ("updatedAt", json!(expires_at.to_rfc3339())),
     ])?;
     let mut query = super::rows::update_query(&model, writes);
-    query.push(" WHERE \"id\" = ").push_bind(session_id);
+    query.push(" WHERE \"id\" = ");
+    super::rows::push_model_value(&mut query, &model, "id", json!(session_id))?;
     query
         .build()
         .execute(&store.pool)
@@ -126,12 +129,12 @@ pub(super) async fn delete(store: &PostgresStore, token: &str) -> Result<(), Aut
     delete_where(store, "token", json!(token)).await
 }
 
-pub(super) async fn delete_by_id(store: &PostgresStore, id: Uuid) -> Result<(), AuthError> {
-    delete_where(store, "id", json!(id.to_string())).await
+pub(super) async fn delete_by_id(store: &PostgresStore, id: &str) -> Result<(), AuthError> {
+    delete_where(store, "id", json!(id)).await
 }
 
-pub(super) async fn delete_for_user(store: &PostgresStore, user_id: Uuid) -> Result<(), AuthError> {
-    delete_where(store, "userId", json!(user_id.to_string())).await
+pub(super) async fn delete_for_user(store: &PostgresStore, user_id: &str) -> Result<(), AuthError> {
+    delete_where(store, "userId", json!(user_id)).await
 }
 
 pub(super) async fn delete_expired(

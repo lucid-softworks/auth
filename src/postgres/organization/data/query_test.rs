@@ -27,7 +27,8 @@ fn organization_queries_remap_create_find_sort_count_update_and_delete() {
     let find = crate::postgres::rows::select_query(&organization_model);
     assert!(find.sql().contains("\"public\"\"slug\" AS \"slug\""));
 
-    let list = list_query(&organization_model, &member_model, Uuid::from_u128(12)).unwrap();
+    let user_id = Uuid::from_u128(12).to_string();
+    let list = list_query(&organization_model, &member_model, &user_id).unwrap();
     assert!(list.sql().contains("FROM \"org\"\"members\""));
     assert!(
         list.sql()
@@ -35,7 +36,7 @@ fn organization_queries_remap_create_find_sort_count_update_and_delete() {
     );
     assert!(list.sql().contains("ORDER BY \"created time\" ASC"));
 
-    let count = count_query(&member_model, "organizationId", id).unwrap();
+    let count = count_query(&member_model, "organizationId", &id.to_string()).unwrap();
     assert_eq!(
         count.sql(),
         "SELECT count(*) FROM \"org\"\"members\" WHERE \"tenant id\" = $1"

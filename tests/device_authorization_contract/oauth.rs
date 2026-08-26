@@ -178,7 +178,7 @@ async fn resource_subset_validation_happens_before_atomic_consumption() {
         oauth_record(
             "resource-device",
             "RESOURC1",
-            Some(fixture.user_id),
+            Some(fixture.user_id.clone()),
             DeviceCodeStatus::Approved,
         ),
     )
@@ -235,7 +235,7 @@ async fn missing_user_is_a_server_error_before_atomic_consumption() {
         oauth_record(
             "missing-user-device",
             "NOUSER01",
-            Some(Uuid::new_v4()),
+            Some("missing-user".into()),
             DeviceCodeStatus::Approved,
         ),
     )

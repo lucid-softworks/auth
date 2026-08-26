@@ -205,7 +205,7 @@ pub(super) async fn team_member_exists(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
     team_id: Uuid,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<bool, AuthError> {
     let mut query = QueryBuilder::new("SELECT EXISTS(SELECT 1 FROM ");
     query
@@ -221,7 +221,7 @@ pub(super) async fn team_member_exists(
         .push(model.quoted_column("userId")?)
         .push(" = ");
     model
-        .encode("userId", uuid_value(user_id))?
+        .encode("userId", json!(user_id))?
         .push_bind(&mut query);
     query.push(")");
     query
@@ -255,7 +255,7 @@ pub(super) async fn team_member_count(
 pub(super) fn delete_team_member_query(
     model: &PostgresModel<'_>,
     team_id: Uuid,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
     let mut query = QueryBuilder::new("DELETE FROM ");
     query
@@ -271,7 +271,7 @@ pub(super) fn delete_team_member_query(
         .push(model.quoted_column("userId")?)
         .push(" = ");
     model
-        .encode("userId", uuid_value(user_id))?
+        .encode("userId", json!(user_id))?
         .push_bind(&mut query);
     Ok(query)
 }
@@ -298,7 +298,7 @@ pub(super) fn list_team_members_query(
 pub(super) fn list_user_teams_query(
     team: &PostgresModel<'_>,
     member: &PostgresModel<'_>,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
     let mut query = crate::postgres::rows::select_query(team);
     query
@@ -312,7 +312,7 @@ pub(super) fn list_user_teams_query(
         .push(member.quoted_column("userId")?)
         .push(" = ");
     member
-        .encode("userId", uuid_value(user_id))?
+        .encode("userId", json!(user_id))?
         .push_bind(&mut query);
     query
         .push(") ORDER BY ")

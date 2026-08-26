@@ -172,6 +172,8 @@ fn expected_columns() -> Vec<String> {
                 "avatar url",
                 "created at",
                 "updated at",
+                "username",
+                "displayUsername",
             ]
             .as_slice(),
         ),
@@ -211,6 +213,7 @@ fn expected_indexes() -> Vec<String> {
         "auth sessions|auth sessions_session token_key|true|session token",
         "auth users|auth users_login email_key|true|login email",
         "auth users|auth users_pkey|true|id",
+        "auth users|auth users_username_key|true|username",
         "auth verifications|auth verifications_lookup key_idx|false|lookup key",
         "auth verifications|auth verifications_pkey|true|id",
         "request buckets|request buckets_limit key_key|true|limit key",

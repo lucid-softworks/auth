@@ -14,7 +14,7 @@ impl AuthService {
         let organization_id = Self::active_organization_id(session).ok_or_else(no_active)?;
         self.organization_plugin()?
             .store
-            .find_member(organization_id, session.user.id)
+            .find_member(organization_id, &session.user.id)
             .await?
             .ok_or_else(member_not_found)
     }
@@ -30,7 +30,7 @@ impl AuthService {
         let plugin = self.organization_plugin()?;
         if plugin
             .store
-            .find_member(organization_id, session.user.id)
+            .find_member(organization_id, &session.user.id)
             .await?
             .is_none()
         {
@@ -49,7 +49,7 @@ impl AuthService {
             .await?;
         let mut output = Vec::with_capacity(members.len());
         for member in members {
-            if let Some(user) = self.store.find_user_by_id(member.user_id).await? {
+            if let Some(user) = self.store.find_user_by_id(&member.user_id).await? {
                 output.push(crate::OrganizationMemberWithUser { member, user });
             }
         }
@@ -69,7 +69,7 @@ impl AuthService {
         let plugin = self.organization_plugin()?;
         let actor = plugin
             .store
-            .find_member(organization_id, session.user.id)
+            .find_member(organization_id, &session.user.id)
             .await?
             .ok_or_else(member_not_found)?;
         let target = plugin
@@ -95,7 +95,7 @@ impl AuthService {
             .ok_or_else(no_active)?;
         let target_user = self
             .store
-            .find_user_by_id(target.user_id)
+            .find_user_by_id(&target.user_id)
             .await?
             .ok_or_else(|| AuthError::InvalidRequest("User not found".into()))?;
         if let Some(hooks) = &plugin.config.hooks {
@@ -145,13 +145,13 @@ impl AuthService {
         let plugin = self.organization_plugin()?;
         let actor = plugin
             .store
-            .find_member(organization_id, session.user.id)
+            .find_member(organization_id, &session.user.id)
             .await?
             .ok_or_else(member_not_found)?;
         require_member_permission(self, &actor, "delete", false).await?;
         let target = if member_id_or_email.contains('@') {
             match self.store.find_user_by_email(member_id_or_email).await? {
-                Some(user) => plugin.store.find_member(organization_id, user.id).await?,
+                Some(user) => plugin.store.find_member(organization_id, &user.id).await?,
                 None => None,
             }
         } else {
@@ -172,7 +172,7 @@ impl AuthService {
             .ok_or_else(no_active)?;
         let target_user = self
             .store
-            .find_user_by_id(target.user_id)
+            .find_user_by_id(&target.user_id)
             .await?
             .ok_or_else(|| AuthError::InvalidRequest("User not found".into()))?;
         if let Some(hooks) = &plugin.config.hooks {
@@ -216,7 +216,7 @@ impl AuthService {
         let plugin = self.organization_plugin()?;
         let member = plugin
             .store
-            .find_member(organization_id, session.user.id)
+            .find_member(organization_id, &session.user.id)
             .await?
             .ok_or_else(member_not_found)?;
         let organization = plugin
@@ -259,7 +259,7 @@ impl AuthService {
         &self,
         session: &SessionWithUser,
         organization_id: Option<Uuid>,
-        user_id: Option<Uuid>,
+        user_id: Option<String>,
     ) -> Result<String, AuthError> {
         let organization_id = organization_id
             .or_else(|| Self::active_organization_id(session))
@@ -267,7 +267,7 @@ impl AuthService {
         let plugin = self.organization_plugin()?;
         if plugin
             .store
-            .find_member(organization_id, session.user.id)
+            .find_member(organization_id, &session.user.id)
             .await?
             .is_none()
         {
@@ -275,7 +275,10 @@ impl AuthService {
         }
         plugin
             .store
-            .find_member(organization_id, user_id.unwrap_or(session.user.id))
+            .find_member(
+                organization_id,
+                user_id.as_deref().unwrap_or(&session.user.id),
+            )
             .await?
             .map(|member| member.role)
             .ok_or_else(not_member)
@@ -293,7 +296,7 @@ impl AuthService {
         let member = self
             .organization_plugin()?
             .store
-            .find_member(organization_id, session.user.id)
+            .find_member(organization_id, &session.user.id)
             .await?
             .ok_or_else(|| {
                 OrganizationError::unauthorized(

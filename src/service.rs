@@ -82,7 +82,6 @@ use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use uuid::Uuid;
 
 pub use api_key::{ApiKeySortDirection, ApiKeyUpdate};
 #[cfg(feature = "axum")]
@@ -137,6 +136,7 @@ impl AuthService {
         let rate_limiter = RateLimiter::new(
             &config.rate_limit,
             store.clone(),
+            config.database_id_generation.clone(),
             plugins.rate_limits(),
             config.secondary_storage.clone(),
         );
@@ -186,11 +186,11 @@ impl AuthService {
             return None;
         }
         let now = Utc::now();
-        let id = Uuid::nil();
+        let id = "00000000-0000-0000-0000-000000000000".to_owned();
         Some(SessionWithUser {
             session: AuthSession {
-                id,
-                user_id: id,
+                id: id.clone(),
+                user_id: id.clone(),
                 token: String::new(),
                 actor_user_id: None,
                 authentication_method: Some(AuthenticationMethod::Password),

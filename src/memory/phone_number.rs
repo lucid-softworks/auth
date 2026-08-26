@@ -1,12 +1,11 @@
 use super::MemoryStore;
 use crate::{
-    AuthError, AuthUser,
+    AuthError, AuthUser, DatabaseCreate,
     phone_number::{PhoneNumberStore, PhoneNumberWriteOutcome},
 };
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::{Map, Value};
-use uuid::Uuid;
 
 const PHONE_NUMBER_FIELD: &str = "phoneNumber";
 const PHONE_NUMBER_VERIFIED_FIELD: &str = "phoneNumberVerified";
@@ -28,11 +27,13 @@ impl PhoneNumberStore for MemoryStore {
 
     async fn create_phone_number_user(
         &self,
-        mut user: AuthUser,
+        user: DatabaseCreate<AuthUser>,
     ) -> Result<PhoneNumberWriteOutcome<AuthUser>, AuthError> {
+        let (mut user, id) = user.into_parts(self)?;
         let phone_number = required_phone_number(&user)?.to_owned();
         user.email = user.email.to_lowercase();
         let mut state = self.state.write().await;
+        user.id = self.create_id("user", id, state.users.len())?;
         if !phone_number_available(&state, &phone_number, None) {
             return Ok(PhoneNumberWriteOutcome::AlreadyExists);
         }
@@ -45,17 +46,17 @@ impl PhoneNumberStore for MemoryStore {
             return Err(AuthError::UserAlreadyExists);
         }
         if let Some(username) = &user.username {
-            state.usernames.insert(username.clone(), user.id);
+            state.usernames.insert(username.clone(), user.id.clone());
         }
-        state.emails.insert(user.email.clone(), user.id);
-        state.phone_numbers.insert(phone_number, user.id);
-        state.users.insert(user.id, user.clone());
+        state.emails.insert(user.email.clone(), user.id.clone());
+        state.phone_numbers.insert(phone_number, user.id.clone());
+        state.users.insert(user.id.clone(), user.clone());
         Ok(PhoneNumberWriteOutcome::Written(user))
     }
 
     async fn update_user_phone_number(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         phone_number: Option<String>,
         verified: bool,
     ) -> Result<PhoneNumberWriteOutcome<AuthUser>, AuthError> {
@@ -67,12 +68,12 @@ impl PhoneNumberStore for MemoryStore {
         }
         let previous = state
             .users
-            .get(&user_id)
+            .get(user_id)
             .map(user_phone_number)
             .transpose()?
             .flatten()
             .map(str::to_owned);
-        let Some(user) = state.users.get_mut(&user_id) else {
+        let Some(user) = state.users.get_mut(user_id) else {
             return Ok(PhoneNumberWriteOutcome::NotFound);
         };
         match &phone_number {
@@ -121,12 +122,12 @@ pub(super) fn phone_number_from_fields(
 pub(super) fn phone_number_available(
     state: &super::MemoryState,
     phone_number: &str,
-    user_id: Option<Uuid>,
+    user_id: Option<&str>,
 ) -> bool {
     state
         .phone_numbers
         .get(phone_number)
-        .is_none_or(|owner| Some(*owner) == user_id)
+        .is_none_or(|owner| Some(owner.as_str()) == user_id)
 }
 
 pub(super) fn index_phone_number(
@@ -134,14 +135,16 @@ pub(super) fn index_phone_number(
     user: &AuthUser,
 ) -> Result<(), AuthError> {
     if let Some(phone_number) = user_phone_number(user)? {
-        state.phone_numbers.insert(phone_number.to_owned(), user.id);
+        state
+            .phone_numbers
+            .insert(phone_number.to_owned(), user.id.clone());
     }
     Ok(())
 }
 
 pub(super) fn replace_phone_number_index(
     state: &mut super::MemoryState,
-    user_id: Uuid,
+    user_id: &str,
     previous: Option<String>,
     current: Option<String>,
 ) {
@@ -149,11 +152,14 @@ pub(super) fn replace_phone_number_index(
         return;
     }
     if let Some(previous) = previous
-        && state.phone_numbers.get(&previous) == Some(&user_id)
+        && state
+            .phone_numbers
+            .get(&previous)
+            .is_some_and(|owner| owner == user_id)
     {
         state.phone_numbers.remove(&previous);
     }
     if let Some(current) = current {
-        state.phone_numbers.insert(current, user_id);
+        state.phone_numbers.insert(current, user_id.to_owned());
     }
 }

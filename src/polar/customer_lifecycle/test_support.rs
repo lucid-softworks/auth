@@ -3,7 +3,6 @@ use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::{Value, json};
 use std::sync::Mutex;
-use uuid::Uuid;
 
 #[derive(Default)]
 pub(super) struct FakePolarClient {
@@ -174,7 +173,7 @@ impl PolarClient for FakePolarClient {
 
 pub(super) fn user() -> crate::AuthUser {
     crate::AuthUser {
-        id: Uuid::new_v4(),
+        id: uuid::Uuid::new_v4().to_string(),
         username: None,
         display_username: None,
         name: "Ada".into(),

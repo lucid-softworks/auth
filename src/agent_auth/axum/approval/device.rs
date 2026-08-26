@@ -144,7 +144,7 @@ fn approval(agent: &crate::AgentIdentity, user_code: &str) -> AgentApprovalReque
         method: AgentApprovalMethod::DeviceAuthorization,
         agent_id: Some(agent.id.clone()),
         host_id: Some(agent.host_id.clone()),
-        user_id: agent.user_id,
+        user_id: agent.user_id.clone(),
         capabilities: None,
         status: AgentApprovalStatus::Pending,
         user_code_hash: Some(hash_token(user_code)),

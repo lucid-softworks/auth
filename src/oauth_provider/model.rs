@@ -17,7 +17,7 @@ pub struct OAuthProviderClient {
     pub subject_type: Option<String>,
     pub scopes: Option<Vec<String>>,
     pub client_credentials_scopes: Vec<String>,
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
     /// RFC 7591 client-secret expiry. Better Auth 1.7.1 omits this value from
@@ -91,8 +91,8 @@ pub struct OAuthProviderRefreshToken {
     #[serde(skip_serializing)]
     pub token: String,
     pub client_id: String,
-    pub session_id: Option<Uuid>,
-    pub user_id: Uuid,
+    pub session_id: Option<String>,
+    pub user_id: String,
     pub reference_id: Option<String>,
     pub authorization_code_id: Option<String>,
     pub resources: Option<Vec<String>>,
@@ -118,8 +118,8 @@ pub struct OAuthProviderAccessToken {
     #[serde(skip_serializing)]
     pub token: String,
     pub client_id: String,
-    pub session_id: Option<Uuid>,
-    pub user_id: Option<Uuid>,
+    pub session_id: Option<String>,
+    pub user_id: Option<String>,
     pub reference_id: Option<String>,
     pub authorization_code_id: Option<String>,
     pub resources: Option<Vec<String>>,
@@ -138,7 +138,7 @@ pub struct OAuthProviderAccessToken {
 pub struct OAuthProviderConsent {
     pub id: Uuid,
     pub client_id: String,
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<String>,
     pub reference_id: Option<String>,
     pub resources: Option<Vec<String>>,
     pub requested_user_info_claims: Option<Vec<String>>,

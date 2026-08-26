@@ -59,7 +59,7 @@ pub struct SiweVerificationRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SiweVerificationResult {
     pub token: String,
-    pub user_id: uuid::Uuid,
+    pub user_id: String,
     pub wallet_address: String,
     pub chain_id: f64,
 }

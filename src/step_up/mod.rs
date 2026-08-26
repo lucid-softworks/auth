@@ -11,7 +11,6 @@ use crate::{
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use std::sync::Arc;
-use uuid::Uuid;
 
 const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
     "lucid-step-up-policy-schema",
@@ -68,8 +67,8 @@ impl StepUpAssurance {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StepUpSession {
-    pub session_id: Uuid,
-    pub user_id: Uuid,
+    pub session_id: String,
+    pub user_id: String,
     pub assurance: StepUpAssurance,
     pub authenticated_at: DateTime<Utc>,
 }
@@ -89,22 +88,22 @@ pub trait StepUpStore: Send + Sync {
     async fn upsert_step_up_session(&self, session: StepUpSession) -> Result<(), AuthError>;
     async fn find_step_up_session(
         &self,
-        session_id: Uuid,
+        session_id: &str,
     ) -> Result<Option<StepUpSession>, AuthError>;
-    async fn delete_step_up_session(&self, session_id: Uuid) -> Result<(), AuthError>;
-    async fn delete_user_step_up_state(&self, user_id: Uuid) -> Result<(), AuthError>;
+    async fn delete_step_up_session(&self, session_id: &str) -> Result<(), AuthError>;
+    async fn delete_user_step_up_state(&self, user_id: &str) -> Result<(), AuthError>;
     async fn replace_step_up_recovery_codes(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         code_hashes: Vec<String>,
     ) -> Result<(), AuthError>;
     async fn consume_step_up_recovery_code(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         code_hash: &str,
     ) -> Result<bool, AuthError>;
-    async fn step_up_recovery_code_count(&self, user_id: Uuid) -> Result<usize, AuthError>;
-    async fn delete_step_up_recovery_codes(&self, user_id: Uuid) -> Result<(), AuthError>;
+    async fn step_up_recovery_code_count(&self, user_id: &str) -> Result<usize, AuthError>;
+    async fn delete_step_up_recovery_codes(&self, user_id: &str) -> Result<(), AuthError>;
 }
 
 #[derive(Debug, Clone)]
@@ -164,7 +163,7 @@ impl StepUpPolicyPlugin {
             Some(AuthenticationMethod::TwoFactor) => Ok(StepUpAssurance::StrongTwoFactor),
             _ if self
                 .auth_store
-                .list_passkeys(session.user.id)
+                .list_passkeys(&session.user.id)
                 .await?
                 .is_empty() =>
             {
@@ -189,7 +188,7 @@ impl StepUpPolicyPlugin {
         }
         let state = self
             .store
-            .find_step_up_session(session.session.id)
+            .find_step_up_session(&session.session.id)
             .await?
             .filter(|state| state.user_id == session.user.id);
         let fresh = state.as_ref().is_some_and(|state| {
@@ -249,19 +248,19 @@ impl AuthPlugin for StepUpPolicyPlugin {
 
     async fn initialize_session(&self, session: &SessionWithUser) -> Result<(), AuthError> {
         if !self.requires(&session.user.role) || session.session.actor_user_id.is_some() {
-            return self.store.delete_step_up_session(session.session.id).await;
+            return self.store.delete_step_up_session(&session.session.id).await;
         }
         self.store
             .upsert_step_up_session(StepUpSession {
-                session_id: session.session.id,
-                user_id: session.user.id,
+                session_id: session.session.id.clone(),
+                user_id: session.user.id.clone(),
                 assurance: self.initial_assurance(session).await?,
                 authenticated_at: session.session.created_at,
             })
             .await
     }
 
-    async fn reset_user_security_state(&self, user_id: Uuid) -> Result<(), AuthError> {
+    async fn reset_user_security_state(&self, user_id: &str) -> Result<(), AuthError> {
         self.store.delete_user_step_up_state(user_id).await
     }
 
@@ -271,7 +270,7 @@ impl AuthPlugin for StepUpPolicyPlugin {
         }
         Ok(self
             .store
-            .find_step_up_session(session.session.id)
+            .find_step_up_session(&session.session.id)
             .await?
             .is_some_and(|state| state.user_id == session.user.id))
     }
@@ -285,7 +284,7 @@ impl AuthPlugin for StepUpPolicyPlugin {
         }
         let state = self
             .store
-            .find_step_up_session(operation.session.session.id)
+            .find_step_up_session(&operation.session.session.id)
             .await?
             .ok_or(AuthError::StepUpRequired)?;
         if !state.assurance.is_strong()
@@ -298,7 +297,7 @@ impl AuthPlugin for StepUpPolicyPlugin {
 
     async fn after(&self, event: &AfterAuthEvent) {
         if let AfterAuthEvent::UserDeleted { user } = event {
-            let _ = self.store.delete_user_step_up_state(user.id).await;
+            let _ = self.store.delete_user_step_up_state(&user.id).await;
         }
     }
 }

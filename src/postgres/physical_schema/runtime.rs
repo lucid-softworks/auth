@@ -167,6 +167,11 @@ impl<'a> PostgresModel<'a> {
         Ok(values)
     }
 
+    pub(crate) fn decode_id(&self, row: &PgRow, field: &str) -> Result<Option<String>, AuthError> {
+        let value = decode_id(row, self.logical.id_type, field)?;
+        Ok(value.as_str().map(str::to_owned))
+    }
+
     fn unknown_field(&self, logical: &str) -> AuthError {
         AuthError::InvalidConfiguration(format!(
             "PostgreSQL schema model '{}' has no logical field '{logical}'",

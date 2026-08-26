@@ -74,7 +74,7 @@ async fn stateless_cache_and_secondary_storage_modes_follow_better_auth_authorit
     );
     let signed_up = sign_up(&app, "secondary@example.com").await;
     let token = signed_up.body["token"].as_str().unwrap();
-    let user_id = uuid::Uuid::parse_str(signed_up.body["user"]["id"].as_str().unwrap()).unwrap();
+    let user_id = signed_up.body["user"]["id"].as_str().unwrap();
     assert!(primary.list_sessions(user_id).await.unwrap().is_empty());
     assert!(service.session(token).await.unwrap().is_some());
     service.sign_out(token).await.unwrap();
@@ -94,7 +94,7 @@ async fn preserved_database_sessions_are_expired_when_secondary_sessions_are_rev
     );
     let signed_up = sign_up(&app, "preserved@example.com").await;
     let token = signed_up.body["token"].as_str().unwrap();
-    let user_id = uuid::Uuid::parse_str(signed_up.body["user"]["id"].as_str().unwrap()).unwrap();
+    let user_id = signed_up.body["user"]["id"].as_str().unwrap();
     assert_eq!(primary.list_sessions(user_id).await.unwrap().len(), 1);
 
     service.sign_out(token).await.unwrap();

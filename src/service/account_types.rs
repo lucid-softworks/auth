@@ -2,18 +2,17 @@ use crate::OAuthAccount;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::Value;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LinkedAccount {
-    pub id: Uuid,
+    pub id: String,
     pub provider_id: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub issuer: String,
     pub account_id: String,
-    pub user_id: Uuid,
+    pub user_id: String,
     pub scopes: Vec<String>,
     #[serde(flatten)]
     pub additional_fields: serde_json::Map<String, Value>,
@@ -54,7 +53,7 @@ pub struct ProviderTokenResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub account_id: Option<Uuid>,
+    pub account_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,7 +76,7 @@ pub struct ProviderAccountUser {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderAccountIdentity {
-    pub id: Uuid,
+    pub id: String,
     pub provider_id: String,
     pub issuer: String,
     pub account_id: String,

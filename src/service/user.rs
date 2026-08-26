@@ -4,7 +4,6 @@ use crate::{
     PasswordCredentialSource, SessionWithUser, UsernameError,
 };
 use chrono::Utc;
-use uuid::Uuid;
 
 impl AuthService {
     pub async fn create_user(
@@ -74,14 +73,14 @@ impl AuthService {
         if has_password {
             self.plugins
                 .password_credential_changed(&PasswordCredentialChanged {
-                    user_id: user.id,
+                    user_id: user.id.clone(),
                     source: PasswordCredentialSource::AdministratorCreated,
                 })
                 .await?;
         }
         self.activity(crate::AuthActivity::UserCreated {
-            actor_user_id: actor.user.id,
-            user_id: user.id,
+            actor_user_id: actor.user.id.clone(),
+            user_id: user.id.clone(),
             role: user.role.clone(),
             username: user.username.clone(),
         })
@@ -102,8 +101,11 @@ impl AuthService {
         };
         let password_hash = self.hash_password(password).await?;
         let credential = self
-            .prepare_credential_account(user.id, password_hash, user.created_at, false)
+            .prepare_credential_account(user.id.clone(), password_hash, user.created_at, None)
             .await?;
+        let crate::DatabaseWrite::Create(credential) = credential else {
+            unreachable!("a newly persisted user cannot have a credential account")
+        };
         let credential = self.store.link_oauth_account(credential).await?;
         self.finish_account_create(&credential).await?;
         Ok(user)
@@ -112,7 +114,7 @@ impl AuthService {
     pub async fn set_user_password(
         &self,
         actor: &SessionWithUser,
-        user_id: Uuid,
+        user_id: &str,
         password: String,
     ) -> Result<(), AuthError> {
         self.require_admin_permission(actor, "user", &["set-password"])
@@ -126,18 +128,17 @@ impl AuthService {
         if target.is_anonymous {
             return Err(AuthError::Forbidden);
         }
-        self.store
-            .set_password_hash(user_id, self.hash_password(password).await?)
+        self.set_password_hash_with_database_id(user_id, self.hash_password(password).await?)
             .await?;
         self.plugins
             .password_credential_changed(&PasswordCredentialChanged {
-                user_id,
+                user_id: user_id.to_owned(),
                 source: PasswordCredentialSource::AdministratorReset,
             })
             .await?;
         self.activity(crate::AuthActivity::AdministratorResetPassword {
-            actor_user_id: actor.user.id,
-            user_id,
+            actor_user_id: actor.user.id.clone(),
+            user_id: user_id.to_owned(),
         })
         .await;
         Ok(())
@@ -146,7 +147,7 @@ impl AuthService {
     pub async fn remove_user(
         &self,
         actor: &SessionWithUser,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<(), AuthError> {
         self.require_admin_permission(actor, "user", &["delete"])
             .await?;
@@ -172,8 +173,8 @@ impl AuthService {
             .await?;
         self.delete_user_with_hooks(target.clone()).await?;
         self.activity(crate::AuthActivity::UserRemoved {
-            actor_user_id: actor.user.id,
-            user_id,
+            actor_user_id: actor.user.id.clone(),
+            user_id: user_id.to_owned(),
             name: target.name,
             role: target.role,
             username: target.username,
@@ -203,7 +204,7 @@ fn admin_user_from_input(input: &mut AdminCreateUser, role: String) -> Result<Au
     let now = Utc::now();
     crate::admin::sanitize_additional_fields(&mut input.data);
     Ok(AuthUser {
-        id: Uuid::new_v4(),
+        id: String::new(),
         username,
         display_username: raw_username,
         name: name.to_owned(),
@@ -335,7 +336,7 @@ mod tests {
         );
 
         service
-            .set_user_password(&owner, user.id, "replacement-password".into())
+            .set_user_password(&owner, &user.id, "replacement-password".into())
             .await
             .unwrap();
         assert!(
@@ -351,11 +352,11 @@ mod tests {
                 .is_ok()
         );
 
-        service.remove_user(&owner, user.id).await.unwrap();
+        service.remove_user(&owner, &user.id).await.unwrap();
         assert!(
             service
                 .store
-                .find_user_by_id(user.id)
+                .find_user_by_id(&user.id)
                 .await
                 .unwrap()
                 .is_none()
@@ -380,7 +381,7 @@ mod tests {
             .unwrap_err();
         assert!(matches!(duplicate, AuthError::UserAlreadyExists));
         let removal = service
-            .remove_user(&owner, owner.user.id)
+            .remove_user(&owner, &owner.user.id)
             .await
             .unwrap_err();
         assert!(matches!(

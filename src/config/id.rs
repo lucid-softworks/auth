@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use rand::RngExt as _;
 
+mod prepare;
+
 const ID_ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 /// Better Auth `advanced.database.generateId` behavior.
@@ -85,6 +87,26 @@ impl DatabaseIdGeneration {
             )));
         }
         Ok(())
+    }
+
+    pub(crate) fn prepare(
+        &self,
+        adapter_name: &str,
+        model: &str,
+        capabilities: DatabaseIdAdapterCapabilities,
+        adapter_generator: Option<&dyn DatabaseIdGenerator>,
+        force_allow_id: bool,
+        input: crate::store::DatabaseIdInput,
+    ) -> Result<crate::store::PreparedDatabaseId, crate::AuthError> {
+        prepare::prepare_database_id(
+            self,
+            adapter_name,
+            model,
+            capabilities,
+            adapter_generator,
+            force_allow_id,
+            input,
+        )
     }
 }
 

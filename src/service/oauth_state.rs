@@ -1,7 +1,6 @@
 use super::SignInResult;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct OAuthCallbackResult {
@@ -31,12 +30,12 @@ pub(crate) struct OAuthState {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link: Option<OAuthLinkState>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub anonymous_user_id: Option<Uuid>,
+    pub anonymous_user_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct OAuthLinkState {
-    pub user_id: Uuid,
+    pub user_id: String,
     pub email: String,
 }

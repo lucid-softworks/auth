@@ -5,7 +5,6 @@ use lucid_auth::{
 };
 use serde_json::{Map, Value};
 use std::sync::Arc;
-use uuid::Uuid;
 
 pub(super) fn register(
     config: &mut AuthConfig,
@@ -22,7 +21,7 @@ pub(super) fn register(
 pub(super) async fn assert_schema_and_persistence(
     service: &AuthService,
     store: &PostgresStore,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let fields = service.database_schema_fields(DatabaseModel::User);
     let field = fields

@@ -2,19 +2,27 @@ mod create;
 mod update;
 
 use super::CommetPlugin;
-use crate::{AuthError, BeforeDatabaseHook, DatabaseHookContext, DatabaseHooks, DatabaseRecord};
+use crate::{
+    AuthError, BeforeDatabaseCreateHook, DatabaseCreateRecord, DatabaseHookContext, DatabaseHooks,
+    DatabaseModel, DatabaseRecord,
+};
 
 #[async_trait::async_trait]
 impl DatabaseHooks for CommetPlugin {
     async fn before_create(
         &self,
-        record: &DatabaseRecord,
+        record: &DatabaseCreateRecord,
         context: &DatabaseHookContext,
-    ) -> Result<BeforeDatabaseHook, AuthError> {
-        if let DatabaseRecord::User(user) = record {
-            create::before(self, user, context).await?;
+    ) -> Result<BeforeDatabaseCreateHook, AuthError> {
+        if record.model() == DatabaseModel::User {
+            create::before(
+                self,
+                &crate::commet::CommetCreateUser::from_record(record),
+                context,
+            )
+            .await?;
         }
-        Ok(BeforeDatabaseHook::Continue)
+        Ok(BeforeDatabaseCreateHook::Continue)
     }
 
     async fn after_create(

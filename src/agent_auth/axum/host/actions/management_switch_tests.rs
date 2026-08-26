@@ -39,7 +39,7 @@ fn state(config: AgentAuthConfig) -> (AgentAuthState, Arc<MemoryAgentAuthStore>)
     )
 }
 
-async fn create_host(state: &AgentAuthState, user: Uuid, kid: &str) -> String {
+async fn create_host(state: &AgentAuthState, user: &str, kid: &str) -> String {
     let created = super::super::registration::create_for_user(
         state,
         user,
@@ -59,8 +59,8 @@ async fn create_host(state: &AgentAuthState, user: Uuid, kid: &str) -> String {
 
 async fn install_shared_organization(
     state: &mut AgentAuthState,
-    member: Uuid,
-    owner: Uuid,
+    member: &str,
+    owner: &str,
     now: DateTime<Utc>,
 ) {
     let store = Arc::new(MemoryOrganizationStore::default());
@@ -73,10 +73,10 @@ async fn install_shared_organization(
         metadata: None,
         created_at: now,
     };
-    let membership = |user_id, role: &str| OrganizationMember {
+    let membership = |user_id: &str, role: &str| OrganizationMember {
         id: Uuid::new_v4(),
         organization_id,
-        user_id,
+        user_id: user_id.to_owned(),
         role: role.into(),
         created_at: now,
     };
@@ -99,7 +99,7 @@ async fn install_shared_organization(
 
 async fn assert_management_access(
     state: &AgentAuthState,
-    member: Uuid,
+    member: &str,
     ids: &[String; 3],
     now: DateTime<Utc>,
     allowed: bool,
@@ -120,7 +120,7 @@ async fn assert_management_access(
     let switched = switch_to_user(state, member, &ids[1], endpoint(), now).await;
     let revoked = revoke_authorized(
         state,
-        HostAuthorization::User(member),
+        HostAuthorization::User(member.to_owned()),
         Some(ids[2].clone()),
         now,
     )
@@ -133,17 +133,17 @@ async fn assert_management_access(
 #[tokio::test]
 async fn shared_organization_members_match_host_management_authorization() {
     let (mut state, _) = state(AgentAuthConfig::default());
-    let owner = Uuid::new_v4();
-    let member = Uuid::new_v4();
+    let owner = Uuid::new_v4().to_string();
+    let member = Uuid::new_v4().to_string();
     let now = Utc::now();
     let ids = [
-        create_host(&state, owner, "org-update").await,
-        create_host(&state, owner, "org-switch").await,
-        create_host(&state, owner, "org-revoke").await,
+        create_host(&state, &owner, "org-update").await,
+        create_host(&state, &owner, "org-switch").await,
+        create_host(&state, &owner, "org-revoke").await,
     ];
-    assert_management_access(&state, member, &ids, now, false).await;
-    install_shared_organization(&mut state, member, owner, now).await;
-    assert_management_access(&state, member, &ids, now, true).await;
+    assert_management_access(&state, &member, &ids, now, false).await;
+    install_shared_organization(&mut state, &member, &owner, now).await;
+    assert_management_access(&state, &member, &ids, now, true).await;
 }
 
 #[derive(Clone, Default)]
@@ -159,7 +159,7 @@ impl AgentAutonomousClaimedCallback for AutonomousClaimRecorder {
 async fn seed_autonomous_claim(
     state: &AgentAuthState,
     store: &MemoryAgentAuthStore,
-    user: Uuid,
+    user: &str,
     now: DateTime<Utc>,
 ) -> (String, DateTime<Utc>) {
     let host_id = create_host(state, user, "claim-host").await;
@@ -228,18 +228,18 @@ async fn switch_preserves_lifecycle_and_emits_autonomous_claim_contract() {
     };
     let (state, store) = state(config);
     let now = Utc::now();
-    let user = Uuid::new_v4();
-    let (host_id, activated_at) = seed_autonomous_claim(&state, &store, user, now).await;
+    let user = Uuid::new_v4().to_string();
+    let (host_id, activated_at) = seed_autonomous_claim(&state, &store, &user, now).await;
     events.wait_for(1).await;
     events.clear().await;
 
-    let response = switch_to_user(&state, user, &host_id, endpoint(), now)
+    let response = switch_to_user(&state, &user, &host_id, endpoint(), now)
         .await
         .unwrap();
     assert_eq!(response["status"], "rejected");
     assert_preserved_host(&store, &host_id, activated_at).await;
     assert_claim_callback(&claims, &host_id).await;
-    assert_claim_event(&events, user, &host_id).await;
+    assert_claim_event(&events, &user, &host_id).await;
 }
 
 async fn assert_preserved_host(
@@ -262,7 +262,7 @@ async fn assert_claim_callback(claims: &AutonomousClaimRecorder, host_id: &str) 
     assert_eq!(recorded[0].capabilities, ["mail.read"]);
 }
 
-async fn assert_claim_event(events: &EventRecorder, user: Uuid, host_id: &str) {
+async fn assert_claim_event(events: &EventRecorder, user: &str, host_id: &str) {
     let emitted = events.wait_for(2).await;
     let expected = json!({
         "type": "agent.claimed",

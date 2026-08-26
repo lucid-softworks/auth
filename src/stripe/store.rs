@@ -77,18 +77,18 @@ fn apply_nullable<T>(patch: Option<Option<T>>, target: &mut Option<T>) {
 
 #[async_trait]
 pub trait StripeStore: Send + Sync {
-    async fn user_customer_id(&self, user_id: Uuid) -> Result<Option<String>, StripeStoreError>;
+    async fn user_customer_id(&self, user_id: &str) -> Result<Option<String>, StripeStoreError>;
 
     async fn set_user_customer_id(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         customer_id: Option<String>,
     ) -> Result<(), StripeStoreError>;
 
     async fn user_id_by_customer(
         &self,
         customer_id: &str,
-    ) -> Result<Option<Uuid>, StripeStoreError>;
+    ) -> Result<Option<String>, StripeStoreError>;
 
     async fn organization_customer_id(
         &self,

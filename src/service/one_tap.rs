@@ -365,12 +365,12 @@ mod tests {
                 auth.add_plugin(AnonymousPlugin::default()).unwrap();
             });
         let anonymous = service.sign_in_anonymous(None, None).await.unwrap();
-        let source_id = anonymous.session.user.id;
+        let source_id = anonymous.session.user.id.clone();
         let upgraded = service
             .sign_in_one_tap_with_source(&token, None, None, Some(anonymous.session))
             .await
             .unwrap();
         assert!(!upgraded.session.user.is_anonymous);
-        assert!(store.find_user_by_id(source_id).await.unwrap().is_none());
+        assert!(store.find_user_by_id(&source_id).await.unwrap().is_none());
     }
 }

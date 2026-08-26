@@ -65,6 +65,18 @@ mod tests {
     use sha2::{Digest, Sha256};
     use std::sync::Arc;
 
+    fn create(value: VerificationValue) -> crate::DatabaseCreate<VerificationValue> {
+        crate::DatabaseCreate::new(
+            value,
+            crate::DatabaseIdPlan::new(
+                crate::DatabaseIdGeneration::Default,
+                "verification",
+                crate::DatabaseIdInput::Absent,
+                false,
+            ),
+        )
+    }
+
     #[tokio::test]
     async fn non_plain_lookup_and_consume_never_read_the_plain_alias() {
         let store = Arc::new(MemoryStore::default());
@@ -73,7 +85,7 @@ mod tests {
         let service = AuthService::new(store.clone(), config);
         let expires_at = Utc::now() + Duration::minutes(1);
         store
-            .create_verification(VerificationValue::new("plain", "value", expires_at))
+            .create_verification(create(VerificationValue::new("plain", "value", expires_at)))
             .await
             .unwrap();
         assert!(
@@ -102,19 +114,19 @@ mod tests {
         let now = Utc::now();
         let processed = URL_SAFE_NO_PAD.encode(Sha256::digest(b"plain"));
         store
-            .create_verification(VerificationValue::new(
+            .create_verification(create(VerificationValue::new(
                 processed.clone(),
                 "processed",
                 now + Duration::minutes(1),
-            ))
+            )))
             .await
             .unwrap();
         store
-            .create_verification(VerificationValue::new(
+            .create_verification(create(VerificationValue::new(
                 "plain",
                 "alias",
                 now + Duration::minutes(1),
-            ))
+            )))
             .await
             .unwrap();
         assert_eq!(

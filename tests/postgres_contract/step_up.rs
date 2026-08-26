@@ -1,9 +1,9 @@
+use super::database_create;
 use chrono::Utc;
 use lucid_auth::{
     AuthService, AuthStore, NewPasswordUser, StepUpAssurance, StepUpSession, StepUpStore,
     StoredPasskey, postgres::PostgresStore,
 };
-use uuid::Uuid;
 
 pub async fn assert_tables_absent(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     for table in [
@@ -28,7 +28,7 @@ pub async fn assert_atomic(
     signed_in: &lucid_auth::SignInResult,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let state = store
-        .find_step_up_session(signed_in.session.session.id)
+        .find_step_up_session(&signed_in.session.session.id)
         .await?
         .unwrap();
     assert_eq!(state.assurance, StepUpAssurance::PendingPasskey);
@@ -69,19 +69,22 @@ pub async fn authenticate_fixture(
         .await?;
     let now = Utc::now();
     store
-        .save_passkey(StoredPasskey {
-            id: Uuid::new_v4(),
-            user_id: user.id,
-            name: Some("Step-up key".into()),
-            credential_id: format!("step-up-credential-{}", user.id),
-            public_key: "public-key".into(),
-            counter: 0,
-            device_type: "singleDevice".into(),
-            backed_up: false,
-            transports: None,
-            aaguid: None,
-            created_at: now,
-        })
+        .save_passkey(database_create(
+            StoredPasskey {
+                id: String::new(),
+                user_id: user.id.clone(),
+                name: Some("Step-up key".into()),
+                credential_id: format!("step-up-credential-{}", user.id),
+                public_key: "public-key".into(),
+                counter: 0,
+                device_type: "singleDevice".into(),
+                backed_up: false,
+                transports: None,
+                aaguid: None,
+                created_at: now,
+            },
+            "passkey",
+        ))
         .await?;
     Ok(service
         .sign_in_username("step_up_user", "step-up password".into(), None, None)

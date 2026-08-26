@@ -1,11 +1,11 @@
-use crate::{AuthUser, OAuthAccount};
+use crate::{AuthUser, DatabaseCreate, OAuthAccount};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WalletAddress {
     pub id: Uuid,
-    pub user_id: Uuid,
+    pub user_id: String,
     pub address: String,
     pub chain_id: f64,
     pub is_primary: bool,
@@ -20,15 +20,10 @@ pub struct WalletAddressOwner {
 
 #[derive(Debug, Clone)]
 pub enum SiweIdentityWrite {
-    Create {
-        user: Box<AuthUser>,
-        wallet: WalletAddress,
-        account: Box<OAuthAccount>,
-    },
     AddChain {
-        expected_user_id: Uuid,
+        expected_user_id: String,
         wallet: WalletAddress,
-        account: Box<OAuthAccount>,
+        account: DatabaseCreate<OAuthAccount>,
     },
 }
 

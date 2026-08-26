@@ -12,6 +12,7 @@ use sqlx::{Postgres, QueryBuilder, Row};
 impl SecurityStore for PostgresStore {
     async fn consume_rate_limit(
         &self,
+        id: &dyn crate::store::DatabaseIdSupplier,
         key: &str,
         now: DateTime<Utc>,
         rule: RateLimitRule,
@@ -52,7 +53,7 @@ impl SecurityStore for PostgresStore {
             .transpose()?;
         let outcome = match current {
             None => {
-                insert_query(&model, key, now_milliseconds)?
+                insert_query(&model, id.prepare()?, key, now_milliseconds)?
                     .build()
                     .execute(&mut *transaction)
                     .await
@@ -137,15 +138,21 @@ fn select_query(
 
 fn insert_query(
     model: &PostgresModel<'_>,
+    id: crate::store::PreparedDatabaseId,
     key: &str,
     last_request: i64,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
-    let writes = model.encode_fields([
-        ("id", json!(uuid::Uuid::new_v4().to_string())),
-        ("key", json!(key)),
-        ("count", json!(1)),
-        ("lastRequest", json!(last_request)),
-    ])?;
+    let mut values = serde_json::Map::from_iter([
+        ("key".into(), json!(key)),
+        ("count".into(), json!(1)),
+        ("lastRequest".into(), json!(last_request)),
+    ]);
+    super::rows::insert_prepared_id(&mut values, &id)?;
+    let writes = model.encode_fields(
+        values
+            .iter()
+            .map(|(logical, value)| (logical.as_str(), value.clone())),
+    )?;
     Ok(super::rows::insert_query_prefix(model, writes))
 }
 
@@ -202,7 +209,17 @@ mod tests {
         let sql = [
             prune_query(&model, 1).unwrap().sql().to_owned(),
             select_query(&model, "key").unwrap().sql().to_owned(),
-            insert_query(&model, "key", 2).unwrap().sql().to_owned(),
+            insert_query(
+                &model,
+                crate::store::PreparedDatabaseId::Value(crate::store::DatabaseIdValue::String(
+                    "rate-id".into(),
+                )),
+                "key",
+                2,
+            )
+            .unwrap()
+            .sql()
+            .to_owned(),
             update_query(&model, "key", 2, 3).unwrap().sql().to_owned(),
         ]
         .join("\n");

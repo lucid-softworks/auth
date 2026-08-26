@@ -16,7 +16,7 @@ const MAX_GENERATION_ATTEMPTS: usize = 3;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DeviceAuthorizationRequest {
     pub client_id: String,
-    pub user_id: Option<Uuid>,
+    pub user_id: Option<String>,
     pub scope: Option<String>,
     pub resources: Option<Vec<String>>,
     pub oauth_client_id: Option<String>,
@@ -104,7 +104,7 @@ pub(crate) async fn generate_device_authorization_at(
             id: Uuid::new_v4(),
             device_code,
             user_code,
-            user_id: request.user_id,
+            user_id: request.user_id.clone(),
             expires_at,
             status: DeviceCodeStatus::Pending,
             last_polled_at: None,

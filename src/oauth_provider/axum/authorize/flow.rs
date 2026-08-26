@@ -160,7 +160,7 @@ async fn complete_consent(
     let existing = match store
         .find_oauth_consent_for_grant(
             query.client_id.as_deref().expect("validated client id"),
-            session.user.id,
+            &session.user.id,
             reference_id.as_deref(),
         )
         .await
@@ -174,7 +174,7 @@ async fn complete_consent(
             .as_ref()
             .map_or_else(uuid::Uuid::new_v4, |value| value.id),
         client_id: query.client_id.clone().expect("validated client id"),
-        user_id: Some(session.user.id),
+        user_id: Some(session.user.id.clone()),
         reference_id: reference_id.clone(),
         resources: (!query.resource.is_empty()).then_some(query.resource.clone()),
         requested_user_info_claims: Some(selection.userinfo_claims.clone()),
@@ -295,8 +295,8 @@ pub(super) async fn issue_code(
     let payload = OAuthAuthorizationCodePayload {
         kind: "authorization_code".into(),
         query: query.clone(),
-        session_id: session.session.id,
-        user_id: session.user.id,
+        session_id: session.session.id.clone(),
+        user_id: session.user.id.clone(),
         reference_id,
         auth_time: Some(session.session.created_at.timestamp_millis()),
         resource: query.resource.clone(),

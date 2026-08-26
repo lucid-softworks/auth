@@ -6,7 +6,6 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::json;
 use sqlx::{Postgres, QueryBuilder};
-use uuid::Uuid;
 
 use codec::{decode_two_factor, two_factor_update_writes, two_factor_writes};
 
@@ -18,15 +17,15 @@ impl PostgresStore {
 
 #[async_trait]
 impl TwoFactorStore for PostgresStore {
-    async fn two_factor_enabled(&self, user_id: Uuid) -> Result<bool, AuthError> {
+    async fn two_factor_enabled(&self, user_id: &str) -> Result<bool, AuthError> {
         let model = self.user_model()?;
         let mut query = QueryBuilder::<Postgres>::new("SELECT ");
         query
             .push(model.quoted_column("twoFactorEnabled")?)
             .push(" FROM ")
             .push(model.quoted_table())
-            .push(" WHERE \"id\" = ")
-            .push_bind(user_id);
+            .push(" WHERE \"id\" = ");
+        model.encode("id", json!(user_id))?.push_bind(&mut query);
         query
             .build_query_scalar::<Option<bool>>()
             .fetch_optional(&self.pool)
@@ -35,11 +34,12 @@ impl TwoFactorStore for PostgresStore {
             .map_err(storage_error)
     }
 
-    async fn set_two_factor_enabled(&self, user_id: Uuid, enabled: bool) -> Result<(), AuthError> {
+    async fn set_two_factor_enabled(&self, user_id: &str, enabled: bool) -> Result<(), AuthError> {
         let model = self.user_model()?;
         let writes = model.encode_fields([("twoFactorEnabled", json!(enabled))])?;
         let mut query = super::rows::update_query(&model, writes);
-        query.push(" WHERE \"id\" = ").push_bind(user_id);
+        query.push(" WHERE \"id\" = ");
+        model.encode("id", json!(user_id))?.push_bind(&mut query);
         let result = query
             .build()
             .execute(&self.pool)
@@ -51,7 +51,7 @@ impl TwoFactorStore for PostgresStore {
         Ok(())
     }
 
-    async fn find_two_factor(&self, user_id: Uuid) -> Result<Option<TwoFactorRecord>, AuthError> {
+    async fn find_two_factor(&self, user_id: &str) -> Result<Option<TwoFactorRecord>, AuthError> {
         let model = self.two_factor_model()?;
         let mut query = select_query(&model);
         push_user_predicate(&mut query, &model, user_id)?;
@@ -67,9 +67,11 @@ impl TwoFactorStore for PostgresStore {
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
         let mut lock = QueryBuilder::<Postgres>::new("SELECT \"id\" FROM ");
         lock.push(user_model.quoted_table())
-            .push(" WHERE \"id\" = ")
-            .push_bind(record.user_id)
-            .push(" FOR UPDATE");
+            .push(" WHERE \"id\" = ");
+        user_model
+            .encode("id", json!(record.user_id))?
+            .push_bind(&mut lock);
+        lock.push(" FOR UPDATE");
         if lock
             .build()
             .fetch_optional(&mut *transaction)
@@ -82,7 +84,7 @@ impl TwoFactorStore for PostgresStore {
 
         let updates = two_factor_update_writes(&model, &record)?;
         let mut update = super::rows::update_query(&model, updates);
-        push_user_predicate(&mut update, &model, record.user_id)?;
+        push_user_predicate(&mut update, &model, &record.user_id)?;
         update.push(" RETURNING ").push(model.all_projection());
         if let Some(row) = update
             .build()
@@ -107,7 +109,7 @@ impl TwoFactorStore for PostgresStore {
         Ok(stored)
     }
 
-    async fn delete_two_factor(&self, user_id: Uuid) -> Result<(), AuthError> {
+    async fn delete_two_factor(&self, user_id: &str) -> Result<(), AuthError> {
         let user_model = self.user_model()?;
         let model = self.two_factor_model()?;
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
@@ -121,7 +123,10 @@ impl TwoFactorStore for PostgresStore {
             .map_err(storage_error)?;
         let writes = user_model.encode_fields([("twoFactorEnabled", json!(false))])?;
         let mut update = super::rows::update_query(&user_model, writes);
-        update.push(" WHERE \"id\" = ").push_bind(user_id);
+        update.push(" WHERE \"id\" = ");
+        user_model
+            .encode("id", json!(user_id))?
+            .push_bind(&mut update);
         update
             .build()
             .execute(&mut *transaction)
@@ -132,7 +137,7 @@ impl TwoFactorStore for PostgresStore {
 
     async fn replace_backup_codes(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         expected: &str,
         replacement: String,
     ) -> Result<bool, AuthError> {
@@ -155,7 +160,7 @@ impl TwoFactorStore for PostgresStore {
             .map_err(storage_error)
     }
 
-    async fn complete_two_factor_enrollment(&self, user_id: Uuid) -> Result<bool, AuthError> {
+    async fn complete_two_factor_enrollment(&self, user_id: &str) -> Result<bool, AuthError> {
         let user_model = self.user_model()?;
         let model = self.two_factor_model()?;
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
@@ -174,7 +179,10 @@ impl TwoFactorStore for PostgresStore {
         }
         let writes = user_model.encode_fields([("twoFactorEnabled", json!(true))])?;
         let mut update_user = super::rows::update_query(&user_model, writes);
-        update_user.push(" WHERE \"id\" = ").push_bind(user_id);
+        update_user.push(" WHERE \"id\" = ");
+        user_model
+            .encode("id", json!(user_id))?
+            .push_bind(&mut update_user);
         update_user
             .build()
             .execute(&mut *transaction)
@@ -186,7 +194,7 @@ impl TwoFactorStore for PostgresStore {
 
     async fn record_two_factor_failure(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         max_attempts: u32,
         locked_until: DateTime<Utc>,
     ) -> Result<bool, AuthError> {
@@ -228,7 +236,7 @@ impl TwoFactorStore for PostgresStore {
             .map_err(storage_error)
     }
 
-    async fn reset_two_factor_failures(&self, user_id: Uuid) -> Result<(), AuthError> {
+    async fn reset_two_factor_failures(&self, user_id: &str) -> Result<(), AuthError> {
         let model = self.two_factor_model()?;
         let writes = model.encode_fields([
             ("failedVerificationCount", json!(0)),
@@ -257,15 +265,13 @@ fn select_query(model: &PostgresModel<'_>) -> QueryBuilder<'static, Postgres> {
 fn push_user_predicate(
     query: &mut QueryBuilder<'static, Postgres>,
     model: &PostgresModel<'_>,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), AuthError> {
     query
         .push(" WHERE ")
         .push(model.quoted_column("userId")?)
         .push(" = ");
-    model
-        .encode("userId", json!(user_id.to_string()))?
-        .push_bind(query);
+    model.encode("userId", json!(user_id))?.push_bind(query);
     Ok(())
 }
 

@@ -100,13 +100,13 @@ async fn stateful_session_response(
         Err(error) => return auth_error(error),
     };
     if non_persistent || query.disable_refresh == Some(true) {
-        return refresh_account_cookie(service, headers, session.user.id, Json(Some(response)));
+        return refresh_account_cookie(service, headers, &session.user.id, Json(Some(response)));
     }
     let needs_refresh = service.session_needs_refresh(&session, Utc::now());
     if service.defer_session_refresh() && method == Method::GET {
         let response =
             deferred_response(service, headers, token, &session, response, needs_refresh).await;
-        return refresh_account_cookie(service, headers, session.user.id, response);
+        return refresh_account_cookie(service, headers, &session.user.id, response);
     }
     if needs_refresh {
         return refreshed_response(service, headers, token, &session).await;
@@ -120,7 +120,7 @@ async fn stateful_session_response(
         Json(Some(response)),
     )
     .await;
-    refresh_account_cookie(service, headers, session.user.id, response)
+    refresh_account_cookie(service, headers, &session.user.id, response)
 }
 
 async fn deferred_response(
@@ -175,7 +175,7 @@ async fn refreshed_response(
     with_bound_session_cookie(
         service,
         headers,
-        refreshed.user.id,
+        &refreshed.user.id,
         token,
         Some(true),
         Json(response),
@@ -230,9 +230,7 @@ async fn cached_session_response(
     if disabled || !service.cookie_cache_enabled() {
         return Ok((None, false));
     }
-    let user_id = value["user"]["id"]
-        .as_str()
-        .and_then(|value| uuid::Uuid::parse_str(value).ok());
+    let user_id = value["user"]["id"].as_str().map(str::to_owned);
     let mut response = Json(value).into_response();
     if service.should_refresh_cookie_cache(expires_at) {
         let Some(refreshed) = service.refresh_session_cookie_cache(&cache).await? else {
@@ -257,7 +255,7 @@ async fn cached_session_response(
         );
     }
     if let Some(user_id) = user_id {
-        response = refresh_account_cookie(service, headers, user_id, response);
+        response = refresh_account_cookie(service, headers, &user_id, response);
     }
     Ok((Some(cache_headers(response)), false))
 }

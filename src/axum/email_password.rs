@@ -134,7 +134,7 @@ async fn verify_email(
         .await
     {
         Ok(result) => {
-            let user_id = result.user.id;
+            let user_id = result.user.id.clone();
             if let (Some(source), Some(token)) = (session.as_ref(), result.session_token.as_ref())
                 && source.user.is_anonymous
             {
@@ -169,7 +169,7 @@ async fn verify_email(
                     with_bound_session_cookie(
                         &service,
                         &headers,
-                        user_id,
+                        &user_id,
                         &token,
                         Some(true),
                         response,
@@ -258,7 +258,7 @@ async fn sign_up_email(
         .await
     {
         Ok(result) => {
-            let user_id = result.user.id;
+            let user_id = result.user.id.clone();
             if let (Some(source), Some(token)) = (anonymous.as_ref(), result.token.as_ref()) {
                 let upgraded = match service.session(token).await {
                     Ok(Some(session)) => crate::SignInResult {
@@ -286,7 +286,7 @@ async fn sign_up_email(
                     with_bound_session_cookie(
                         &service,
                         &headers,
-                        user_id,
+                        &user_id,
                         &token,
                         remember_me,
                         response,

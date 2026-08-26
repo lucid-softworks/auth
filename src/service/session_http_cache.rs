@@ -123,7 +123,7 @@ impl AuthService {
         Some(SessionWithUser {
             session,
             user: crate::AuthUser {
-                id: uuid::Uuid::parse_str(&user.id).ok()?,
+                id: user.id,
                 username: user.username,
                 display_username: user.display_username,
                 name: user.name,
@@ -208,13 +208,10 @@ fn native_cookie_session(
     session: crate::protocol::better_auth::BetterAuthSession,
 ) -> Option<crate::AuthSession> {
     Some(crate::AuthSession {
-        id: uuid::Uuid::parse_str(&session.id).ok()?,
-        user_id: uuid::Uuid::parse_str(&session.user_id).ok()?,
+        id: session.id,
+        user_id: session.user_id,
         token: token.into(),
-        actor_user_id: session
-            .impersonated_by
-            .as_deref()
-            .and_then(|value| uuid::Uuid::parse_str(value).ok()),
+        actor_user_id: session.impersonated_by,
         authentication_method: None,
         expires_at: session.expires_at,
         created_at: session.created_at,
@@ -271,6 +268,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(session.authentication_method, None);
-        assert_eq!(session.actor_user_id, Some(actor));
+        assert_eq!(session.actor_user_id, Some(actor.to_string()));
     }
 }

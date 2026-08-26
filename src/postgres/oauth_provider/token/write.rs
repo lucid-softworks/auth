@@ -1,6 +1,6 @@
 use super::super::{
     super::{PostgresModel, rows::insert_query_prefix, storage_error},
-    rows::{self, ACCESS_FIELDS, AccessRow, REFRESH_FIELDS, RefreshRow},
+    rows::{self, AccessRow, RefreshRow},
 };
 use crate::{
     AuthError,
@@ -28,7 +28,7 @@ pub(super) async fn insert_refresh_token(
     let mut query = insert_query_prefix(model, writes);
     query
         .push(" RETURNING ")
-        .push(model.projection_as(REFRESH_FIELDS)?);
+        .push(rows::refresh_projection(model)?);
     query
         .build_query_as::<RefreshRow>()
         .fetch_one(connection)
@@ -50,7 +50,7 @@ pub(super) async fn insert_access_token(
     let mut query = insert_query_prefix(model, writes);
     query
         .push(" RETURNING ")
-        .push(model.projection_as(ACCESS_FIELDS)?);
+        .push(rows::access_projection(model)?);
     query
         .build_query_as::<AccessRow>()
         .fetch_one(connection)

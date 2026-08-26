@@ -16,7 +16,6 @@ use crate::{
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 
 #[async_trait]
 impl AgentAuthStore for MemoryAgentAuthStore {
@@ -43,7 +42,7 @@ impl AgentAuthStore for MemoryAgentAuthStore {
             value.enrollment_token_hash.as_deref() == Some(hash)
         })
     }
-    async fn list_hosts_for_user(&self, user_id: Uuid) -> Result<Vec<AgentHost>, AuthError> {
+    async fn list_hosts_for_user(&self, user_id: &str) -> Result<Vec<AgentHost>, AuthError> {
         host::list_for_user(self, user_id)
     }
     async fn update_host(&self, value: AgentHost) -> Result<Option<AgentHost>, AuthError> {
@@ -66,7 +65,7 @@ impl AgentAuthStore for MemoryAgentAuthStore {
     async fn switch_host_account_cascade(
         &self,
         id: &str,
-        user_id: Uuid,
+        user_id: &str,
         now: DateTime<Utc>,
     ) -> Result<Option<AgentHostSwitchOutcome>, AuthError> {
         lifecycle::switch_account(self, id, user_id, now)
@@ -93,8 +92,8 @@ impl AgentAuthStore for MemoryAgentAuthStore {
     async fn find_agent_by_kid(&self, kid: &str) -> Result<Option<AgentIdentity>, AuthError> {
         agent::find(self, |value| value.kid.as_deref() == Some(kid))
     }
-    async fn list_agents_for_user(&self, user_id: Uuid) -> Result<Vec<AgentIdentity>, AuthError> {
-        agent::list(self, |value| value.user_id == Some(user_id))
+    async fn list_agents_for_user(&self, user_id: &str) -> Result<Vec<AgentIdentity>, AuthError> {
+        agent::list(self, |value| value.user_id.as_deref() == Some(user_id))
     }
     async fn list_agents_for_host(&self, host_id: &str) -> Result<Vec<AgentIdentity>, AuthError> {
         agent::list(self, |value| value.host_id == host_id)
@@ -124,7 +123,7 @@ impl AgentAuthStore for MemoryAgentAuthStore {
     }
     async fn cleanup_expired_for_user(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         now: DateTime<Utc>,
     ) -> Result<AgentCleanupOutcome, AuthError> {
         agent_lifecycle::cleanup(self, user_id, now)
@@ -186,7 +185,7 @@ impl AgentAuthStore for MemoryAgentAuthStore {
     }
     async fn list_pending_approvals(
         &self,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Vec<AgentApprovalRequest>, AuthError> {
         approval::list_pending(self, user_id)
     }

@@ -4,7 +4,6 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::Utc;
 use rand::RngExt;
 use sha2::{Digest, Sha256};
-use uuid::Uuid;
 
 impl AuthService {
     pub async fn list_current_sessions(
@@ -13,7 +12,7 @@ impl AuthService {
     ) -> Result<Vec<AuthSession>, AuthError> {
         require_account_session(actor)?;
         Ok(self
-            .stored_sessions(actor.user.id)
+            .stored_sessions(&actor.user.id)
             .await?
             .into_iter()
             .map(|(_, session)| session)
@@ -23,21 +22,21 @@ impl AuthService {
     pub async fn revoke_current_user_session(
         &self,
         actor: &SessionWithUser,
-        session_id: Uuid,
+        session_id: &str,
     ) -> Result<(), AuthError> {
         require_account_session(actor)?;
         let owned = self
             .store
-            .list_sessions(actor.user.id)
+            .list_sessions(&actor.user.id)
             .await?
             .into_iter()
             .any(|session| session.id == session_id && session.expires_at > Utc::now());
         if owned {
             self.delete_session_id_with_hooks(session_id).await?;
             self.activity(crate::AuthActivity::SessionRevoked {
-                actor_user_id: actor.user.id,
-                subject_user_id: Some(actor.user.id),
-                session_id: Some(session_id),
+                actor_user_id: actor.user.id.clone(),
+                subject_user_id: Some(actor.user.id.clone()),
+                session_id: Some(session_id.to_owned()),
                 self_service: true,
             })
             .await;
@@ -52,7 +51,7 @@ impl AuthService {
     ) -> Result<(), AuthError> {
         require_account_session(actor)?;
         let owned = self
-            .stored_sessions(actor.user.id)
+            .stored_sessions(&actor.user.id)
             .await?
             .into_iter()
             .any(|(candidate, session)| candidate == token && session.expires_at > Utc::now());
@@ -63,8 +62,8 @@ impl AuthService {
                 .map(|session| session.session.id);
             self.delete_session_token_with_hooks(token).await?;
             self.activity(crate::AuthActivity::SessionRevoked {
-                actor_user_id: actor.user.id,
-                subject_user_id: Some(actor.user.id),
+                actor_user_id: actor.user.id.clone(),
+                subject_user_id: Some(actor.user.id.clone()),
                 session_id,
                 self_service: true,
             })
@@ -75,15 +74,15 @@ impl AuthService {
 
     pub async fn revoke_other_sessions(&self, actor: &SessionWithUser) -> Result<(), AuthError> {
         require_account_session(actor)?;
-        let sessions = self.stored_sessions(actor.user.id).await?;
+        let sessions = self.stored_sessions(&actor.user.id).await?;
         for (_, session) in sessions {
             if session.id != actor.session.id {
-                self.delete_session_id_with_hooks(session.id).await?;
+                self.delete_session_id_with_hooks(&session.id).await?;
             }
         }
         self.activity(crate::AuthActivity::OtherSessionsRevoked {
-            user_id: actor.user.id,
-            retained_session_id: actor.session.id,
+            user_id: actor.user.id.clone(),
+            retained_session_id: actor.session.id.clone(),
         })
         .await;
         Ok(())
@@ -94,9 +93,9 @@ impl AuthService {
         actor: &SessionWithUser,
     ) -> Result<(), AuthError> {
         require_account_session(actor)?;
-        self.delete_user_sessions_with_hooks(actor.user.id).await?;
+        self.delete_user_sessions_with_hooks(&actor.user.id).await?;
         self.activity(crate::AuthActivity::AllSessionsRevoked {
-            user_id: actor.user.id,
+            user_id: actor.user.id.clone(),
         })
         .await;
         Ok(())

@@ -6,12 +6,11 @@ use lucid_auth::{AuthService, AuthStore, postgres::PostgresStore};
 use serde_json::json;
 use std::sync::Arc;
 use tower::ServiceExt;
-use uuid::Uuid;
 
 pub(crate) async fn assert_http_round_trip(
     service: &Arc<AuthService>,
     store: &PostgresStore,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let response = lucid_auth::axum::router(service.clone())
         .oneshot(

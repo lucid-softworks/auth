@@ -25,7 +25,7 @@ impl AuthService {
             }
         }
         if self.plugins.find::<crate::TwoFactorPlugin>().is_some() {
-            output.two_factor_enabled = Some(self.two_factor_enabled(user.id).await?);
+            output.two_factor_enabled = Some(self.two_factor_enabled(&user.id).await?);
         }
         if self.plugins.find::<crate::AdminPlugin>().is_none() {
             output.role = None;
@@ -140,7 +140,7 @@ impl AuthService {
         let normalized = config.normalize(username);
         let user = self.store.find_user_by_username(&normalized).await?;
         let password_hash = match &user {
-            Some(user) => self.store.find_password_hash(user.id).await?,
+            Some(user) => self.store.find_password_hash(&user.id).await?,
             None => None,
         };
         let valid = verify_password(password, password_hash).await?;
@@ -204,7 +204,7 @@ impl AuthService {
         let updated = if has_profile_update {
             let updated = self
                 .store
-                .update_user_profile(session.user.id, update)
+                .update_user_profile(&session.user.id, update)
                 .await?
                 .ok_or(AuthError::InvalidSession)?;
             self.after_database_update(&DatabaseRecord::User(updated.clone()))

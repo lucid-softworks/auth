@@ -5,7 +5,6 @@ use super::{
 use crate::AuthError;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,7 +16,7 @@ pub(super) struct SessionReference {
 impl AuthService {
     pub(super) async fn active_references(
         &self,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Vec<SessionReference>, AuthError> {
         let Some(secondary) = &self.config.secondary_storage else {
             return Ok(Vec::new());
@@ -35,7 +34,7 @@ impl AuthService {
 
     pub(super) async fn add_active_reference(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         token: &str,
         expires_at: DateTime<Utc>,
     ) -> Result<(), AuthError> {
@@ -66,7 +65,7 @@ impl AuthService {
 
     pub(super) async fn remove_active_reference(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         token: &str,
     ) -> Result<(), AuthError> {
         let secondary = self
@@ -91,10 +90,10 @@ impl AuthService {
     }
 }
 
-fn active_key(user_id: Uuid) -> String {
+fn active_key(user_id: &str) -> String {
     format!("active-sessions-{user_id}")
 }
 
-pub(super) fn session_id_key(session_id: Uuid) -> String {
+pub(super) fn session_id_key(session_id: &str) -> String {
     format!("session-id:{session_id}")
 }

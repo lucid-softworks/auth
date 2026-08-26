@@ -27,9 +27,9 @@ async fn an_account_can_rename_and_delete_its_own_passkey() {
         .session;
     let now = Utc::now();
     let passkey = store
-        .save_passkey(StoredPasskey {
-            id: Uuid::new_v4(),
-            user_id: session.user.id,
+        .save_passkey(fixed_passkey_create(StoredPasskey {
+            id: uuid::Uuid::new_v4().to_string(),
+            user_id: session.user.id.clone(),
             name: Some("Original".into()),
             credential_id: "credential".into(),
             public_key: "public-key".into(),
@@ -39,18 +39,18 @@ async fn an_account_can_rename_and_delete_its_own_passkey() {
             transports: None,
             aaguid: None,
             created_at: now,
-        })
+        }))
         .await
         .unwrap();
     let renamed = service
-        .rename_passkey(&session, passkey.id, " Security key ")
+        .rename_passkey(&session, &passkey.id, " Security key ")
         .await
         .unwrap();
     assert_eq!(renamed.name.as_deref(), Some("Security key"));
-    service.delete_passkey(&session, passkey.id).await.unwrap();
+    service.delete_passkey(&session, &passkey.id).await.unwrap();
     assert!(
         service
-            .list_passkeys(session.user.id)
+            .list_passkeys(&session.user.id)
             .await
             .unwrap()
             .is_empty()
@@ -77,18 +77,24 @@ async fn better_auth_deletion_does_not_apply_native_role_policy() {
         .unwrap()
         .session;
     let now = Utc::now();
-    let first = test_passkey(session.user.id, "first", now);
-    let second = test_passkey(session.user.id, "second", now);
-    store.save_passkey(first.clone()).await.unwrap();
-    store.save_passkey(second.clone()).await.unwrap();
+    let first = test_passkey(session.user.id.clone(), "first", now);
+    let second = test_passkey(session.user.id.clone(), "second", now);
+    store
+        .save_passkey(fixed_passkey_create(first.clone()))
+        .await
+        .unwrap();
+    store
+        .save_passkey(fixed_passkey_create(second.clone()))
+        .await
+        .unwrap();
     let (left, right) = tokio::join!(
-        service.delete_passkey(&session, first.id),
-        service.delete_passkey(&session, second.id)
+        service.delete_passkey(&session, &first.id),
+        service.delete_passkey(&session, &second.id)
     );
     assert!(left.is_ok());
     assert!(right.is_ok());
     assert_eq!(
-        service.list_passkeys(session.user.id).await.unwrap().len(),
+        service.list_passkeys(&session.user.id).await.unwrap().len(),
         0
     );
 }
@@ -183,8 +189,11 @@ async fn registration_requires_a_fresh_session() {
 async fn passkey_counter_updates_compare_and_swap() {
     let store = MemoryStore::default();
     let now = Utc::now();
-    let passkey = test_passkey(Uuid::new_v4(), "counter", now);
-    store.save_passkey(passkey.clone()).await.unwrap();
+    let passkey = test_passkey(uuid::Uuid::new_v4().to_string(), "counter", now);
+    store
+        .save_passkey(fixed_passkey_create(passkey.clone()))
+        .await
+        .unwrap();
     let mut left = passkey.clone();
     left.counter = 1;
     let mut right = passkey;
@@ -224,7 +233,7 @@ async fn passkey_first_registration_resolves_the_context_user_without_a_session(
     config.registration.require_session = false;
     config.registration.resolve_user =
         Some(Arc::new(RegistrationResolver(PasskeyRegistrationUser {
-            id: user.id,
+            id: user.id.clone(),
             name: "resolved@example.com".into(),
             display_name: Some("Resolved User".into()),
         })));
@@ -255,9 +264,9 @@ async fn passkey_first_registration_resolves_the_context_user_without_a_session(
     ));
 }
 
-fn test_passkey(user_id: Uuid, credential_id: &str, now: DateTime<Utc>) -> StoredPasskey {
+fn test_passkey(user_id: String, credential_id: &str, now: DateTime<Utc>) -> StoredPasskey {
     StoredPasskey {
-        id: Uuid::new_v4(),
+        id: uuid::Uuid::new_v4().to_string(),
         user_id,
         name: Some(credential_id.into()),
         credential_id: credential_id.into(),
@@ -269,4 +278,9 @@ fn test_passkey(user_id: Uuid, credential_id: &str, now: DateTime<Utc>) -> Store
         aaguid: None,
         created_at: now,
     }
+}
+
+fn fixed_passkey_create(passkey: StoredPasskey) -> crate::DatabaseCreate<StoredPasskey> {
+    let id = passkey.id.clone();
+    crate::test_utils::factory::fixed_database_create("passkey", &id, passkey)
 }

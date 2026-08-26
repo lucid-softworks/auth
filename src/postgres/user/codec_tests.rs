@@ -53,7 +53,7 @@ fn nullable_plugin_fields_decode_to_domain_defaults() {
     let model = physical.model("user").unwrap();
     let now = Utc::now();
     let mut values = Map::from_iter([
-        ("id".into(), json!(Uuid::nil().to_string())),
+        ("id".into(), json!("custom-user-id")),
         ("name".into(), json!("Ada")),
         ("email".into(), json!("ada@example.com")),
         ("emailVerified".into(), json!(false)),
@@ -72,6 +72,7 @@ fn nullable_plugin_fields_decode_to_domain_defaults() {
     }
 
     let user = super::super::rows::decode_user_values(&model, values).unwrap();
+    assert_eq!(user.id, "custom-user-id");
     assert_eq!(user.role, "user");
     assert!(!user.banned);
     assert!(!user.is_anonymous);
@@ -89,7 +90,7 @@ fn user_insert_uses_catalog_identifiers_and_individual_dynamic_columns() {
     additional_fields.insert("tenantCode".into(), json!("blue"));
     additional_fields.insert("undeclared".into(), json!("omitted"));
     let user = AuthUser {
-        id: Uuid::nil(),
+        id: Uuid::nil().to_string(),
         username: None,
         display_username: None,
         name: "Ada".into(),
@@ -105,7 +106,12 @@ fn user_insert_uses_catalog_identifiers_and_individual_dynamic_columns() {
         created_at: now,
         updated_at: now,
     };
-    let writes = super::user_writes(&model, &user).unwrap();
+    let writes = super::user_writes(
+        &model,
+        &user,
+        &super::super::rows::explicit_id(user.id.clone()),
+    )
+    .unwrap();
     let query = super::super::rows::insert_query(&model, writes);
     assert!(query.sql().contains("INSERT INTO \"tenant\"\"users\""));
     assert!(query.sql().contains("\"mail address\""));

@@ -10,7 +10,6 @@ use rand::RngExt;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -108,7 +107,7 @@ impl AuthService {
         provider: &dyn crate::SocialProvider,
         input: SocialSignInInput,
         link: Option<OAuthLinkState>,
-        anonymous_user_id: Option<Uuid>,
+        anonymous_user_id: Option<String>,
         redirect_uri: Option<String>,
     ) -> Result<SocialSignInResult, AuthError> {
         let base_url = self.oauth_base_url()?;

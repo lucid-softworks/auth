@@ -14,13 +14,19 @@ impl AuthService {
                 "reserveVerificationValue requires database-backed verification storage. Set verification.storeInDatabase to true for flows that reserve verification values.".into(),
             ));
         }
-        value.id = reservation_id(&value.identifier);
+        value.id = reservation_id(&value.identifier).to_string();
         value.identifier = self.process_identifier(&value.identifier).await?;
-        let reserved = self.store.reserve_verification(value.clone()).await?;
-        if reserved {
-            self.cache_verification(&value).await?;
+        let value = self.prepare_database_create(
+            "verification",
+            crate::DatabaseIdInput::String(value.id.clone()),
+            true,
+            value,
+        )?;
+        let reserved = self.store.reserve_verification(value).await?;
+        if let Some(value) = &reserved {
+            self.cache_verification(value).await?;
         }
-        Ok(reserved)
+        Ok(reserved.is_some())
     }
 
     pub(super) async fn process_identifier(&self, identifier: &str) -> Result<String, AuthError> {

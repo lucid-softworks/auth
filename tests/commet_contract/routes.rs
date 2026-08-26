@@ -23,7 +23,7 @@ fn all_features(return_url: Option<&str>) -> Vec<CommetFeature> {
 #[tokio::test]
 async fn portal_subscription_and_feature_routes_translate_and_project() {
     let fixture = fixture(all_features(None), true).await;
-    let user_id = fixture.user_id.unwrap().to_string();
+    let user_id = fixture.user_id.clone().unwrap();
     assert_eq!(
         get(&fixture, "/api/auth/commet/portal").await,
         (StatusCode::OK, json!({"url": PORTAL_URL, "redirect": true}))
@@ -80,7 +80,7 @@ async fn portal_subscription_and_feature_routes_translate_and_project() {
 #[tokio::test]
 async fn usage_route_translates_exact_numbers_and_strips_unknown_fields() {
     let fixture = fixture(all_features(None), true).await;
-    let user_id = fixture.user_id.unwrap().to_string();
+    let user_id = fixture.user_id.clone().unwrap();
     assert_eq!(
         post(
             &fixture,
@@ -107,7 +107,7 @@ async fn usage_route_translates_exact_numbers_and_strips_unknown_fields() {
 #[tokio::test]
 async fn all_five_seat_routes_translate_and_project() {
     let fixture = fixture(all_features(None), true).await;
-    let user_id = fixture.user_id.unwrap().to_string();
+    let user_id = fixture.user_id.clone().unwrap();
     assert_eq!(
         get(&fixture, "/api/auth/commet/seats").await.1,
         json!({"members": 3})
@@ -171,7 +171,7 @@ fn expected_seat_calls(user_id: &str) -> Vec<CommetCall> {
 #[tokio::test]
 async fn usage_preserves_js_property_order_and_truthy_idempotency_only() {
     let fixture = fixture(all_features(None), true).await;
-    let user_id = fixture.user_id.unwrap().to_string();
+    let user_id = fixture.user_id.clone().unwrap();
     let mut properties = Map::new();
     properties.insert("zeta".into(), json!("last-string"));
     properties.insert("10".into(), json!("ten"));

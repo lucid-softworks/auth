@@ -75,16 +75,16 @@ fn apply_nullable<T>(patch: Option<Option<T>>, target: &mut Option<T>) {
 /// and can expose partially completed work after a later failure.
 #[async_trait]
 pub trait ChargebeeStore: Send + Sync {
-    async fn user_customer_id(&self, user_id: Uuid) -> Result<Option<String>, ChargebeeStoreError>;
+    async fn user_customer_id(&self, user_id: &str) -> Result<Option<String>, ChargebeeStoreError>;
     async fn set_user_customer_id(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         customer_id: Option<String>,
     ) -> Result<(), ChargebeeStoreError>;
     async fn user_id_by_customer(
         &self,
         customer_id: &str,
-    ) -> Result<Option<Uuid>, ChargebeeStoreError>;
+    ) -> Result<Option<String>, ChargebeeStoreError>;
 
     async fn organization_customer_id(
         &self,

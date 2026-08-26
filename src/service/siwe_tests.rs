@@ -228,7 +228,7 @@ async fn email_mode_and_generated_nonce_bounds_are_exact() {
         .unwrap();
     assert_eq!(
         store
-            .find_user_by_id(verified.user_id)
+            .find_user_by_id(&verified.user_id)
             .await
             .unwrap()
             .unwrap()
@@ -314,16 +314,10 @@ async fn concurrent_duplicate_email_falls_back_to_the_wallet_address() {
             None,
         )
     );
-    let first = store
-        .find_user_by_id(first.unwrap().user_id)
-        .await
-        .unwrap()
-        .unwrap();
-    let second = store
-        .find_user_by_id(second.unwrap().user_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let first_id = first.unwrap().user_id;
+    let first = store.find_user_by_id(&first_id).await.unwrap().unwrap();
+    let second_id = second.unwrap().user_id;
+    let second = store.find_user_by_id(&second_id).await.unwrap().unwrap();
     let emails = [first.email, second.email];
     assert_eq!(
         emails
@@ -358,7 +352,7 @@ async fn ens_lookup_receives_the_checksum_and_preserves_present_empty_values() {
         .await
         .unwrap();
     let user = store
-        .find_user_by_id(verified.user_id)
+        .find_user_by_id(&verified.user_id)
         .await
         .unwrap()
         .unwrap();

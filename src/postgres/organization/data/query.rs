@@ -107,7 +107,7 @@ where
 pub(super) fn list_query(
     organization: &PostgresModel<'_>,
     member: &PostgresModel<'_>,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
     let mut query = crate::postgres::rows::select_query(organization);
     query
@@ -121,7 +121,7 @@ pub(super) fn list_query(
         .push(member.quoted_column("userId")?)
         .push(" = ");
     member
-        .encode("userId", uuid_value(user_id))?
+        .encode("userId", json!(user_id))?
         .push_bind(&mut query);
     query
         .push(") ORDER BY ")
@@ -190,7 +190,7 @@ pub(super) fn delete_query(
 pub(super) async fn lock_user(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), AuthError> {
     let mut query = QueryBuilder::new("SELECT ");
     query
@@ -198,9 +198,7 @@ pub(super) async fn lock_user(
         .push(" FROM ")
         .push(model.quoted_table())
         .push(" WHERE \"id\" = ");
-    model
-        .encode("id", uuid_value(user_id))?
-        .push_bind(&mut query);
+    model.encode("id", json!(user_id))?.push_bind(&mut query);
     query.push(" FOR UPDATE");
     query
         .build()
@@ -278,7 +276,7 @@ pub(super) async fn count_by(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
     field: &str,
-    id: Uuid,
+    id: &str,
 ) -> Result<i64, AuthError> {
     let mut query = count_query(model, field, id)?;
     query
@@ -291,7 +289,7 @@ pub(super) async fn count_by(
 pub(super) fn count_query(
     model: &PostgresModel<'_>,
     field: &str,
-    id: Uuid,
+    id: &str,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
     let mut query = QueryBuilder::new("SELECT count(*) FROM ");
     query
@@ -299,7 +297,7 @@ pub(super) fn count_query(
         .push(" WHERE ")
         .push(model.quoted_column(field)?)
         .push(" = ");
-    model.encode(field, uuid_value(id))?.push_bind(&mut query);
+    model.encode(field, json!(id))?.push_bind(&mut query);
     Ok(query)
 }
 

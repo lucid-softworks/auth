@@ -101,7 +101,7 @@ const fn rate_limit(path: &'static str) -> PluginRateLimit {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TwoFactorRecord {
     pub id: Uuid,
-    pub user_id: Uuid,
+    pub user_id: String,
     pub encrypted_secret: String,
     pub encrypted_backup_codes: String,
     pub verified: bool,
@@ -111,39 +111,39 @@ pub struct TwoFactorRecord {
 
 #[async_trait]
 pub trait TwoFactorStore: Send + Sync {
-    async fn two_factor_enabled(&self, user_id: Uuid) -> Result<bool, AuthError>;
+    async fn two_factor_enabled(&self, user_id: &str) -> Result<bool, AuthError>;
 
-    async fn set_two_factor_enabled(&self, user_id: Uuid, enabled: bool) -> Result<(), AuthError>;
+    async fn set_two_factor_enabled(&self, user_id: &str, enabled: bool) -> Result<(), AuthError>;
 
-    async fn find_two_factor(&self, user_id: Uuid) -> Result<Option<TwoFactorRecord>, AuthError>;
+    async fn find_two_factor(&self, user_id: &str) -> Result<Option<TwoFactorRecord>, AuthError>;
 
     async fn upsert_two_factor(
         &self,
         record: TwoFactorRecord,
     ) -> Result<TwoFactorRecord, AuthError>;
 
-    async fn delete_two_factor(&self, user_id: Uuid) -> Result<(), AuthError>;
+    async fn delete_two_factor(&self, user_id: &str) -> Result<(), AuthError>;
 
     /// Replaces encrypted backup codes only when the caller's snapshot is current.
     async fn replace_backup_codes(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         expected: &str,
         replacement: String,
     ) -> Result<bool, AuthError>;
 
     /// Atomically marks the standalone record verified and enables the user projection.
-    async fn complete_two_factor_enrollment(&self, user_id: Uuid) -> Result<bool, AuthError>;
+    async fn complete_two_factor_enrollment(&self, user_id: &str) -> Result<bool, AuthError>;
 
     /// Atomically increments the account failure budget and returns whether it locked.
     async fn record_two_factor_failure(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         max_attempts: u32,
         locked_until: DateTime<Utc>,
     ) -> Result<bool, AuthError>;
 
-    async fn reset_two_factor_failures(&self, user_id: Uuid) -> Result<(), AuthError>;
+    async fn reset_two_factor_failures(&self, user_id: &str) -> Result<(), AuthError>;
 }
 
 #[derive(Debug, Clone)]
@@ -341,13 +341,13 @@ impl AuthPlugin for TwoFactorPlugin {
         ]
     }
 
-    async fn reset_user_security_state(&self, user_id: Uuid) -> Result<(), AuthError> {
+    async fn reset_user_security_state(&self, user_id: &str) -> Result<(), AuthError> {
         self.store.delete_two_factor(user_id).await
     }
 
     async fn after(&self, event: &crate::AfterAuthEvent) {
         if let crate::AfterAuthEvent::UserDeleted { user } = event {
-            let _ = self.store.delete_two_factor(user.id).await;
+            let _ = self.store.delete_two_factor(&user.id).await;
         }
     }
 

@@ -118,7 +118,7 @@ fn map_model(
     }
 }
 
-async fn provision_user(service: &AuthService) -> Result<Uuid, lucid_auth::AuthError> {
+async fn provision_user(service: &AuthService) -> Result<String, lucid_auth::AuthError> {
     service
         .sign_up_email(
             EmailSignUpInput {

@@ -101,7 +101,7 @@ pub(super) async fn authorize_reference(
     };
     let customer_id = plugin
         .store
-        .user_customer_id(session.user.id)
+        .user_customer_id(&session.user.id)
         .await
         .ok()
         .flatten();

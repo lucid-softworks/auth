@@ -36,7 +36,7 @@ pub(super) async fn assert_migration_and_persistence(
     service: &AuthService,
     store: &PostgresStore,
     pool: &PgPool,
-    owner_id: Uuid,
+    owner_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let chargebee = PostgresChargebeeStore::new(store.clone());
     assert_customer_linkage_and_uniqueness(service, &chargebee, owner_id).await?;
@@ -47,7 +47,7 @@ pub(super) async fn assert_migration_and_persistence(
 async fn assert_customer_linkage_and_uniqueness(
     service: &AuthService,
     store: &PostgresChargebeeStore,
-    owner_id: Uuid,
+    owner_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     store
         .set_user_customer_id(owner_id, Some("chargebee_customer_owner".into()))
@@ -60,7 +60,7 @@ async fn assert_customer_linkage_and_uniqueness(
         store
             .user_id_by_customer("chargebee_customer_owner")
             .await?,
-        Some(owner_id)
+        Some(owner_id.to_owned())
     );
     let second = service
         .provision_password_user(NewPasswordUser {
@@ -73,7 +73,7 @@ async fn assert_customer_linkage_and_uniqueness(
         .await?;
     assert_eq!(
         store
-            .set_user_customer_id(second.id, Some("chargebee_customer_owner".into()))
+            .set_user_customer_id(&second.id, Some("chargebee_customer_owner".into()))
             .await,
         Err(ChargebeeStoreError::DuplicateCustomerId)
     );

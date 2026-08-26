@@ -198,12 +198,11 @@ async fn generate_refresh(
 async fn encode_refresh_token(
     config: &OAuthProviderConfig,
     token: &str,
-    session_id: Option<Uuid>,
+    session_id: Option<&str>,
 ) -> Result<String, OAuthProviderError> {
-    let session_id = session_id.map(|value| value.to_string());
     let encoded = match &config.callbacks.format_refresh_token {
         Some(codec) => codec
-            .encrypt(token, session_id.as_deref())
+            .encrypt(token, session_id)
             .await
             .map_err(server)?,
         None => token.to_owned(),

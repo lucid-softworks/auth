@@ -9,7 +9,7 @@ pub(super) fn two_factor_writes<'a>(
 ) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
     model.encode_fields([
         ("id", json!(record.id.to_string())),
-        ("userId", json!(record.user_id.to_string())),
+        ("userId", json!(record.user_id)),
         ("secret", json!(record.encrypted_secret)),
         ("backupCodes", json!(record.encrypted_backup_codes)),
         ("verified", json!(record.verified)),
@@ -52,7 +52,7 @@ fn decode_two_factor_values(mut values: Map<String, Value>) -> Result<TwoFactorR
     let failed_verification_count = optional_u32(&mut values, "failedVerificationCount", 0)?;
     Ok(TwoFactorRecord {
         id: required_uuid(&mut values, "id")?,
-        user_id: required_uuid(&mut values, "userId")?,
+        user_id: required_string(&mut values, "userId")?,
         encrypted_secret: required_string(&mut values, "secret")?,
         encrypted_backup_codes: required_string(&mut values, "backupCodes")?,
         verified,
@@ -157,7 +157,7 @@ mod tests {
         );
         let record = TwoFactorRecord {
             id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
+            user_id: Uuid::new_v4().to_string(),
             encrypted_secret: "bound' --".into(),
             encrypted_backup_codes: "codes".into(),
             verified: false,

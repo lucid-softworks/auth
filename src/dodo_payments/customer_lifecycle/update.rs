@@ -25,7 +25,7 @@ pub(super) async fn after(
                 support::schedule_customer_id_write(
                     context,
                     plugin.auth_store.clone(),
-                    user.id,
+                    user.id.clone(),
                     customer.customer_id.clone(),
                     "backfill",
                 );
@@ -113,7 +113,7 @@ mod tests {
         assert_eq!(
             plugin
                 .auth_store
-                .find_user_by_id(user.id)
+                .find_user_by_id(&user.id)
                 .await
                 .unwrap()
                 .unwrap()

@@ -221,7 +221,7 @@ async fn finish_with_consent(
         .expect("validated client id");
     let consent = context
         .store
-        .find_oauth_consent_for_grant(client_id, request.session.user.id, reference_id.as_deref())
+        .find_oauth_consent_for_grant(client_id, &request.session.user.id, reference_id.as_deref())
         .await
         .map_err(storage_error)?;
     if consent_required(

@@ -228,7 +228,7 @@ async fn owns_client(
     session: &crate::SessionWithUser,
     context: &OAuthCallbackContext,
 ) -> bool {
-    if let Some(user_id) = client.user_id {
+    if let Some(user_id) = client.user_id.as_deref() {
         return user_id == session.user.id;
     }
     let Some(expected) = client.reference_id.as_deref() else {

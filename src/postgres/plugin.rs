@@ -4,6 +4,8 @@ use std::collections::{BTreeSet, HashSet};
 
 const USER_TABLE_PLACEHOLDER: &str = "\x7b\x7blucid-auth:user-table\x7d\x7d";
 const SESSION_TABLE_PLACEHOLDER: &str = "\x7b\x7blucid-auth:session-table\x7d\x7d";
+const USER_ID_TYPE_PLACEHOLDER: &str = "\x7b\x7blucid-auth:user-id-type\x7d\x7d";
+const SESSION_ID_TYPE_PLACEHOLDER: &str = "\x7b\x7blucid-auth:session-id-type\x7d\x7d";
 const PLACEHOLDER_PREFIX: &str = "\x7b\x7blucid-auth:";
 
 impl PostgresStore {
@@ -108,6 +110,29 @@ pub(super) fn resolve_catalog_placeholders(
             .model_name(logical)
             .map_err(|error| AuthError::InvalidConfiguration(error.to_string()))?;
         resolved = resolved.replace(placeholder, &quote_identifier(&table));
+    }
+    for (placeholder, logical) in [
+        (USER_ID_TYPE_PLACEHOLDER, "user"),
+        (SESSION_ID_TYPE_PLACEHOLDER, "session"),
+    ] {
+        if !resolved.contains(placeholder) {
+            continue;
+        }
+        let id_type = schema
+            .catalog()
+            .table(logical)
+            .ok_or_else(|| {
+                AuthError::InvalidConfiguration(format!(
+                    "plugin migration references missing logical model '{logical}'"
+                ))
+            })?
+            .id_type;
+        let sql_type = match id_type {
+            crate::DatabaseIdType::String => "TEXT",
+            crate::DatabaseIdType::Serial => "INTEGER",
+            crate::DatabaseIdType::Uuid => "UUID",
+        };
+        resolved = resolved.replace(placeholder, sql_type);
     }
     if resolved.contains(PLACEHOLDER_PREFIX) {
         return Err(AuthError::InvalidConfiguration(
@@ -236,5 +261,82 @@ mod tests {
             sql,
             "REFERENCES \"people \"\"raws\"(id); REFERENCES \"login rowss\"(id)"
         );
+    }
+
+    #[test]
+    fn lucid_extension_id_type_placeholders_follow_every_id_strategy() {
+        use crate::{
+            DatabaseIdGeneration, DatabaseIdGenerationRequest, DatabaseIdGenerationResult,
+        };
+
+        #[derive(Debug)]
+        struct FixedId;
+
+        impl crate::DatabaseIdGenerator for FixedId {
+            fn generate(
+                &self,
+                _request: DatabaseIdGenerationRequest<'_>,
+            ) -> DatabaseIdGenerationResult {
+                DatabaseIdGenerationResult::Id("fixed".into())
+            }
+        }
+
+        let strategies = [
+            (DatabaseIdGeneration::Default, "TEXT"),
+            (DatabaseIdGeneration::Database, "TEXT"),
+            (DatabaseIdGeneration::Serial, "INTEGER"),
+            (DatabaseIdGeneration::Uuid, "UUID"),
+            (DatabaseIdGeneration::Callback(Arc::new(FixedId)), "TEXT"),
+        ];
+        for (strategy, expected) in strategies {
+            let mut config = AuthConfig::new([23; 32]).unwrap();
+            config.database_id_generation = strategy;
+            let schema = ResolvedAdapterSchema::new(
+                Arc::new(AuthSchemaCatalog::build(&config, []).unwrap()),
+                AdapterSchemaOptions::default(),
+            )
+            .unwrap();
+            let source = format!("{USER_ID_TYPE_PLACEHOLDER} {SESSION_ID_TYPE_PLACEHOLDER}");
+            assert_eq!(
+                resolve_catalog_placeholders(&source, &schema).unwrap(),
+                format!("{expected} {expected}")
+            );
+        }
+    }
+
+    #[test]
+    fn lucid_extension_migrations_resolve_core_foreign_key_types() {
+        use crate::DatabaseIdGeneration;
+
+        let migrations = [
+            include_str!("../../migrations/audit_plugin.sql"),
+            include_str!("../../migrations/guest_capability_plugin.sql"),
+            include_str!("../../migrations/operator_security_plugin.sql"),
+            include_str!("../../migrations/step_up_policy_plugin.sql"),
+        ];
+        for (strategy, id_type) in [
+            (DatabaseIdGeneration::Default, "TEXT"),
+            (DatabaseIdGeneration::Serial, "INTEGER"),
+            (DatabaseIdGeneration::Uuid, "UUID"),
+        ] {
+            let mut config = AuthConfig::new([29; 32]).unwrap();
+            config.database_id_generation = strategy;
+            let schema = ResolvedAdapterSchema::new(
+                Arc::new(AuthSchemaCatalog::build(&config, []).unwrap()),
+                AdapterSchemaOptions::default(),
+            )
+            .unwrap();
+            for migration in migrations {
+                let expected = migration
+                    .replace(USER_TABLE_PLACEHOLDER, "\"user\"")
+                    .replace(SESSION_TABLE_PLACEHOLDER, "\"session\"")
+                    .replace(USER_ID_TYPE_PLACEHOLDER, id_type)
+                    .replace(SESSION_ID_TYPE_PLACEHOLDER, id_type);
+                assert_eq!(
+                    resolve_catalog_placeholders(migration, &schema).unwrap(),
+                    expected
+                );
+            }
+        }
     }
 }

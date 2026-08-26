@@ -5,7 +5,7 @@ use crate::{
     oauth_provider::{OAuthSessionLogoutPlan, OAuthTokenRevocationCount},
 };
 use chrono::{DateTime, Utc};
-use serde_json::Value;
+use serde_json::{Value, json};
 use sqlx::{QueryBuilder, types::Json};
 use uuid::Uuid;
 
@@ -14,7 +14,7 @@ type RefreshPlanRow = (Uuid, String, Option<DateTime<Utc>>, Json<Vec<String>>);
 
 pub(super) async fn prepare(
     store: &PostgresOAuthProviderStore,
-    session_id: Uuid,
+    session_id: &str,
 ) -> Result<OAuthSessionLogoutPlan, AuthError> {
     let access = store.model("oauthAccessToken")?;
     let access_rows = access_plan(store, &access, session_id).await?;
@@ -26,7 +26,7 @@ pub(super) async fn prepare(
 async fn access_plan(
     store: &PostgresOAuthProviderStore,
     model: &PostgresModel<'_>,
-    session_id: Uuid,
+    session_id: &str,
 ) -> Result<Vec<AccessPlanRow>, AuthError> {
     let mut query = QueryBuilder::new("SELECT \"id\", ");
     query
@@ -37,8 +37,10 @@ async fn access_plan(
         .push(model.quoted_table())
         .push(" WHERE ")
         .push(model.quoted_column("sessionId")?)
-        .push(" = ")
-        .push_bind(session_id);
+        .push(" = ");
+    model
+        .encode("sessionId", json!(session_id))?
+        .push_bind(&mut query);
     query
         .build_query_as::<AccessPlanRow>()
         .fetch_all(store.pool())
@@ -49,7 +51,7 @@ async fn access_plan(
 async fn refresh_plan(
     store: &PostgresOAuthProviderStore,
     model: &PostgresModel<'_>,
-    session_id: Uuid,
+    session_id: &str,
 ) -> Result<Vec<RefreshPlanRow>, AuthError> {
     let mut query = QueryBuilder::new("SELECT \"id\", ");
     query
@@ -62,8 +64,10 @@ async fn refresh_plan(
         .push(model.quoted_table())
         .push(" WHERE ")
         .push(model.quoted_column("sessionId")?)
-        .push(" = ")
-        .push_bind(session_id);
+        .push(" = ");
+    model
+        .encode("sessionId", json!(session_id))?
+        .push_bind(&mut query);
     query
         .build_query_as::<RefreshPlanRow>()
         .fetch_all(store.pool())

@@ -1,7 +1,7 @@
 use super::super::super::{PostgresModel, rows::update_query, storage_error};
 use crate::AuthError;
 use chrono::{DateTime, Utc};
-use serde_json::Value;
+use serde_json::{Value, json};
 use sqlx::{QueryBuilder, types::Json};
 use uuid::Uuid;
 
@@ -75,7 +75,7 @@ async fn execute_delete(
 pub(super) async fn revoke_for_session(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     model: &PostgresModel<'_>,
-    session_id: Uuid,
+    session_id: &str,
     revoked_at: DateTime<Utc>,
     preserve_offline_access: bool,
 ) -> Result<usize, AuthError> {
@@ -87,8 +87,11 @@ pub(super) async fn revoke_for_session(
     query
         .push(" WHERE ")
         .push(model.quoted_column("sessionId")?)
-        .push(" = ")
-        .push_bind(session_id)
+        .push(" = ");
+    model
+        .encode("sessionId", json!(session_id))?
+        .push_bind(&mut query);
+    query
         .push(" AND ")
         .push(model.quoted_column("revoked")?)
         .push(" IS NULL");
@@ -103,7 +106,7 @@ pub(super) async fn revoke_for_session(
 async fn revoke_online_refresh_tokens(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     model: &PostgresModel<'_>,
-    session_id: Uuid,
+    session_id: &str,
     revoked_at: DateTime<Utc>,
 ) -> Result<usize, AuthError> {
     let mut select = QueryBuilder::new("SELECT \"id\", ");
@@ -113,8 +116,11 @@ async fn revoke_online_refresh_tokens(
         .push(model.quoted_table())
         .push(" WHERE ")
         .push(model.quoted_column("sessionId")?)
-        .push(" = ")
-        .push_bind(session_id)
+        .push(" = ");
+    model
+        .encode("sessionId", json!(session_id))?
+        .push_bind(&mut select);
+    select
         .push(" AND ")
         .push(model.quoted_column("revoked")?)
         .push(" IS NULL FOR UPDATE");

@@ -23,8 +23,8 @@ pub struct Fixture {
 pub struct Credential {
     pub cookie: String,
     pub token: String,
-    pub session_id: uuid::Uuid,
-    pub user_id: uuid::Uuid,
+    pub session_id: String,
+    pub user_id: String,
 }
 
 pub fn fixture(one_time_token: OneTimeTokenConfig) -> Fixture {

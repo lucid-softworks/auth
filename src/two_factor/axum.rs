@@ -83,7 +83,7 @@ async fn enable(
         )),
     };
     match result {
-        Ok(result) => enable_response(&service, &headers, session.user.id, result).await,
+        Ok(result) => enable_response(&service, &headers, &session.user.id, result).await,
         Err(error) => auth_error(error),
     }
 }
@@ -91,7 +91,7 @@ async fn enable(
 async fn enable_response(
     service: &AuthService,
     headers: &HeaderMap,
-    user_id: uuid::Uuid,
+    user_id: &str,
     result: TwoFactorEnableResult,
 ) -> Response {
     let response = Json(EnableResponse {
@@ -138,7 +138,7 @@ async fn disable(
             let response = with_bound_session_cookie(
                 &service,
                 &headers,
-                session.user.id,
+                &session.user.id,
                 &replacement.token,
                 Some(true),
                 Json(StatusResponse { status: true }),
@@ -302,7 +302,7 @@ async fn verification_response(
     headers: &HeaderMap,
     result: TwoFactorVerification,
 ) -> Response {
-    let user_id = result.result.session.user.id;
+    let user_id = result.result.session.user.id.clone();
     let user = match service.better_auth_user(&result.result.session.user).await {
         Ok(user) => user,
         Err(error) => return auth_error(error),
@@ -314,7 +314,7 @@ async fn verification_response(
     let mut response = with_bound_session_cookie(
         service,
         headers,
-        user_id,
+        &user_id,
         &result.result.token,
         result.remember_me,
         response,

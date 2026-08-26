@@ -1,9 +1,6 @@
 use super::{AuthService, SignInResult, password::verify_password};
-use crate::{
-    AuthError, AuthUser, AuthenticationMethod, DatabaseModel, DatabaseRecord, SessionWithUser,
-};
+use crate::{AuthError, AuthUser, AuthenticationMethod, DatabaseModel, SessionWithUser};
 use chrono::{Duration, Utc};
-use uuid::Uuid;
 
 /// Core fields accepted by Better Auth's email signup flow.
 #[derive(Debug, Clone)]
@@ -35,7 +32,7 @@ impl AuthService {
         if session.user.is_anonymous || session.session.actor_user_id.is_some() {
             return Err(AuthError::InvalidPassword);
         }
-        let hash = self.store.find_password_hash(session.user.id).await?;
+        let hash = self.store.find_password_hash(&session.user.id).await?;
         if verify_password(password, hash).await? {
             Ok(())
         } else {
@@ -63,15 +60,8 @@ impl AuthService {
         let generic_duplicates = config.require_email_verification || !config.auto_sign_in;
         if self.store.find_user_by_email(&email).await?.is_some() {
             let _ = self.hash_password(input.password).await?;
-            let default_role = self.default_user_role();
             return if generic_duplicates {
-                Ok(synthetic_signup(
-                    input.name,
-                    email,
-                    input.image,
-                    additional_fields,
-                    &default_role,
-                ))
+                Ok(self.synthetic_signup(input.name, email, input.image, additional_fields))
             } else {
                 Err(AuthError::UserAlreadyExistsEmail)
             };
@@ -96,13 +86,11 @@ impl AuthService {
         let user = match self.persist_email_signup_user(user, password_hash).await {
             Ok(user) => user,
             Err(AuthError::UserAlreadyExists) if generic_duplicates => {
-                let default_role = self.default_user_role();
-                return Ok(synthetic_signup(
+                return Ok(self.synthetic_signup(
                     synthetic.0,
                     synthetic.1,
                     synthetic.2,
                     synthetic.3,
-                    &default_role,
                 ));
             }
             Err(AuthError::UserAlreadyExists) => return Err(AuthError::UserAlreadyExistsEmail),
@@ -127,24 +115,28 @@ impl AuthService {
         user: AuthUser,
         password_hash: String,
     ) -> Result<AuthUser, AuthError> {
-        let user = match self
-            .before_database_create(DatabaseRecord::User(user))
-            .await?
-        {
-            DatabaseRecord::User(user) => user,
-            _ => unreachable!("database hook model was validated"),
-        };
-        let credential = self
-            .prepare_credential_account(user.id, password_hash, user.created_at, false)
-            .await?;
-        let user = self
-            .store
-            .create_password_user(user, credential.clone())
-            .await?;
-        self.after_database_create(&DatabaseRecord::User(user.clone()))
-            .await?;
-        self.finish_account_create(&credential).await?;
-        Ok(user)
+        let user = self.prepare_user_create(user).await?;
+        let credential = self.credential_account_create(password_hash, user.record.created_at);
+        let owner = self.store.create_password_user(user, &credential).await?;
+        self.finish_user_create(&owner.user).await?;
+        self.finish_account_create(&owner.account).await?;
+        Ok(owner.user)
+    }
+
+    fn synthetic_signup(
+        &self,
+        name: String,
+        email: String,
+        image: Option<String>,
+        additional_fields: serde_json::Map<String, serde_json::Value>,
+    ) -> EmailSignUpResult {
+        synthetic_signup(
+            name,
+            email,
+            image,
+            additional_fields,
+            &self.default_user_role(),
+        )
     }
 
     pub async fn sign_in_email(
@@ -162,7 +154,7 @@ impl AuthService {
         let email = normalize_email(email)?;
         let user = self.store.find_user_by_email(&email).await?;
         let password_hash = match &user {
-            Some(user) => self.store.find_password_hash(user.id).await?,
+            Some(user) => self.store.find_password_hash(&user.id).await?,
             None => None,
         };
         let password_valid = verify_password(password, password_hash).await?;
@@ -264,7 +256,7 @@ fn synthetic_signup(
     EmailSignUpResult {
         token: None,
         user: AuthUser {
-            id: Uuid::new_v4(),
+            id: String::new(),
             username: None,
             display_username: None,
             name,
@@ -294,7 +286,7 @@ fn new_signup_user(
 ) -> AuthUser {
     let now = Utc::now();
     AuthUser {
-        id: Uuid::new_v4(),
+        id: String::new(),
         username,
         display_username,
         name,

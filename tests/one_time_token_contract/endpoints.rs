@@ -140,7 +140,7 @@ async fn expired_session_error_retains_the_cookie_and_burns_the_token() {
     let token = generated_token(generate(&fixture.app, Some(&source.cookie)).await).await;
     fixture
         .store
-        .expire_session(source.session_id, Utc::now() - Duration::seconds(1))
+        .expire_session(&source.session_id, Utc::now() - Duration::seconds(1))
         .await
         .unwrap();
 

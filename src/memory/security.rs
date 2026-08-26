@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 impl SecurityStore for MemoryStore {
     async fn consume_rate_limit(
         &self,
+        id: &dyn crate::store::DatabaseIdSupplier,
         key: &str,
         now: DateTime<Utc>,
         rule: RateLimitRule,
@@ -22,9 +23,11 @@ impl SecurityStore for MemoryStore {
             .rate_limits
             .retain(|_, limit| now - limit.last_request < prune_window);
         let Some(limit) = state.rate_limits.get_mut(key) else {
+            let id = self.create_id("rateLimit", id.prepare()?, state.rate_limits.len())?;
             state.rate_limits.insert(
                 key.to_owned(),
                 RateLimitWindow {
+                    _id: id,
                     count: 1,
                     last_request: now,
                 },
@@ -46,5 +49,35 @@ impl SecurityStore for MemoryStore {
         limit.count += 1;
         limit.last_request = now;
         Ok(RateLimitOutcome::allowed())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::{DatabaseIdValue, PreparedDatabaseId};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[tokio::test]
+    async fn rate_limit_id_supplier_runs_only_for_the_insert_branch() {
+        let store = MemoryStore::default();
+        let calls = AtomicUsize::new(0);
+        let supplier = || {
+            calls.fetch_add(1, Ordering::Relaxed);
+            Ok(PreparedDatabaseId::Value(DatabaseIdValue::String(
+                "rate-id".into(),
+            )))
+        };
+        let now = Utc::now();
+        let rule = RateLimitRule::new(60, 10);
+        store
+            .consume_rate_limit(&supplier, "same", now, rule, 60)
+            .await
+            .unwrap();
+        store
+            .consume_rate_limit(&supplier, "same", now, rule, 60)
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
     }
 }

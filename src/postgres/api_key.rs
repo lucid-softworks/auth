@@ -2,12 +2,12 @@ mod codec;
 mod usage;
 
 use super::{PostgresModel, PostgresStore, storage_error};
+use crate::store::DatabaseCreate;
 use crate::{ApiKey, ApiKeyStore, ApiKeyUseOutcome, AuthError};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::json;
 use sqlx::{Postgres, QueryBuilder};
-use uuid::Uuid;
 
 use codec::{api_key_update_writes, api_key_writes, decode_api_key};
 
@@ -19,9 +19,10 @@ impl PostgresStore {
 
 #[async_trait]
 impl ApiKeyStore for PostgresStore {
-    async fn create_api_key(&self, api_key: ApiKey) -> Result<ApiKey, AuthError> {
+    async fn create_api_key(&self, api_key: DatabaseCreate<ApiKey>) -> Result<ApiKey, AuthError> {
+        let (api_key, id) = api_key.into_parts(self)?;
         let model = self.api_key_model()?;
-        let writes = api_key_writes(&model, &api_key)?;
+        let writes = api_key_writes(&model, &api_key, &id)?;
         let mut query = super::rows::insert_query(&model, writes);
         query
             .build()
@@ -31,8 +32,8 @@ impl ApiKeyStore for PostgresStore {
             .and_then(|row| decode_api_key(&model, &row))
     }
 
-    async fn find_api_key(&self, api_key_id: Uuid) -> Result<Option<ApiKey>, AuthError> {
-        find_by(self, "id", json!(api_key_id.to_string())).await
+    async fn find_api_key(&self, api_key_id: &str) -> Result<Option<ApiKey>, AuthError> {
+        find_by(self, "id", json!(api_key_id)).await
     }
 
     async fn find_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>, AuthError> {
@@ -74,21 +75,17 @@ impl ApiKeyStore for PostgresStore {
         let model = self.api_key_model()?;
         let writes = api_key_update_writes(&model, &api_key)?;
         let mut query = super::rows::update_query(&model, writes);
-        query
-            .push(" WHERE \"id\" = ")
-            .push_bind(api_key.id)
-            .push(" RETURNING ")
-            .push(model.all_projection());
+        query.push(" WHERE \"id\" = ");
+        super::rows::push_model_value(&mut query, &model, "id", json!(api_key.id))?;
+        query.push(" RETURNING ").push(model.all_projection());
         decode_optional(&model, query, &self.pool).await
     }
 
-    async fn delete_api_key(&self, api_key_id: Uuid) -> Result<bool, AuthError> {
+    async fn delete_api_key(&self, api_key_id: &str) -> Result<bool, AuthError> {
         let model = self.api_key_model()?;
         let mut query = QueryBuilder::<Postgres>::new("DELETE FROM ");
-        query
-            .push(model.quoted_table())
-            .push(" WHERE \"id\" = ")
-            .push_bind(api_key_id);
+        query.push(model.quoted_table()).push(" WHERE \"id\" = ");
+        super::rows::push_model_value(&mut query, &model, "id", json!(api_key_id))?;
         query
             .build()
             .execute(&self.pool)
@@ -118,7 +115,7 @@ impl ApiKeyStore for PostgresStore {
 
     async fn record_api_key_use(
         &self,
-        api_key_id: Uuid,
+        api_key_id: &str,
         now: DateTime<Utc>,
     ) -> Result<ApiKeyUseOutcome, AuthError> {
         usage::claim_usage(self, api_key_id, now).await

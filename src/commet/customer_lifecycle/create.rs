@@ -2,15 +2,15 @@ use super::enabled;
 use crate::{
     AuthError, AuthUser, DatabaseHookContext, PluginApiError,
     commet::{
-        CommetCustomerCreate, CommetCustomerCreateParams, CommetCustomerParamsError, CommetPlugin,
-        CommetProviderError,
+        CommetCreateUser, CommetCustomerCreate, CommetCustomerCreateParams,
+        CommetCustomerParamsError, CommetPlugin, CommetProviderError,
     },
 };
 use serde_json::Value;
 
 pub(super) async fn before(
     plugin: &CommetPlugin,
-    user: &AuthUser,
+    user: &CommetCreateUser,
     context: &DatabaseHookContext,
 ) -> Result<(), AuthError> {
     if !enabled(plugin, context) {
@@ -37,7 +37,7 @@ pub(super) async fn before(
 
 async fn before_inner(
     plugin: &CommetPlugin,
-    user: &AuthUser,
+    user: &CommetCreateUser,
     context: &DatabaseHookContext,
 ) -> Result<(), CreateError> {
     let request = context
@@ -55,20 +55,18 @@ async fn before_inner(
             "An email is required to create a customer",
         )));
     }
-    let customers = plugin
-        .options
-        .client
-        .list_customers(&user.id.to_string())
-        .await?;
-    if first_customer(&customers).is_some() {
-        return Ok(());
+    if let Some(user_id) = user.id.as_deref() {
+        let customers = plugin.options.client.list_customers(user_id).await?;
+        if first_customer(&customers).is_some() {
+            return Ok(());
+        }
     }
     plugin
         .options
         .client
         .create_customer(CommetCustomerCreate {
             email: user.email.clone(),
-            id: Some(user.id.to_string()),
+            id: user.id.clone(),
             full_name: params.full_name.or_else(|| Some(user.name.clone())),
             metadata: params.metadata.map(Value::Object),
         })

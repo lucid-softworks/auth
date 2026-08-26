@@ -8,7 +8,7 @@ pub(super) fn from_create(
     input: OAuthProviderClientAdminCreateInput,
     client_id: String,
     client_secret: Option<String>,
-    user_id: Option<Uuid>,
+    user_id: Option<String>,
     reference_id: Option<String>,
     now: DateTime<Utc>,
 ) -> OAuthProviderClient {

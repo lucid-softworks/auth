@@ -14,7 +14,6 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
-use uuid::Uuid;
 
 mod switch;
 
@@ -22,7 +21,7 @@ pub(in crate::agent_auth::axum::host) use switch::switch_to_user;
 
 pub(in crate::agent_auth::axum::host) async fn list_for_user(
     state: &AgentAuthState,
-    user_id: Uuid,
+    user_id: &str,
     status: Option<AgentHostStatus>,
 ) -> Result<Value, HostError> {
     let mut hosts = state
@@ -37,7 +36,7 @@ pub(in crate::agent_auth::axum::host) async fn list_for_user(
 
 pub(in crate::agent_auth::axum::host) async fn get_for_user(
     state: &AgentAuthState,
-    user_id: Uuid,
+    user_id: &str,
     host_id: &str,
 ) -> Result<Value, HostError> {
     let host = state
@@ -45,7 +44,7 @@ pub(in crate::agent_auth::axum::host) async fn get_for_user(
         .find_host(host_id)
         .await
         .map_err(store_error)?
-        .filter(|host| host.user_id == Some(user_id))
+        .filter(|host| host.user_id.as_deref() == Some(user_id))
         .ok_or_else(HostError::host_not_found)?;
     Ok(host_summary(&host))
 }
@@ -62,14 +61,14 @@ pub(in crate::agent_auth::axum::host) async fn revoke_authorized(
             if requested.as_deref().is_some_and(|id| id != host.id) {
                 return Err(HostError::unauthorized());
             }
-            let actor_id = host.user_id.map(|user_id| user_id.to_string());
+            let actor_id = host.user_id;
             (host.id, None, actor_id)
         }
         HostAuthorization::User(user_id) => {
             let host_id = requested.ok_or_else(|| {
                 HostError::invalid_request("host_id is required when using user session.")
             })?;
-            (host_id, Some(user_id), Some(user_id.to_string()))
+            (host_id, Some(user_id.clone()), Some(user_id))
         }
     };
     let host = state
@@ -78,7 +77,7 @@ pub(in crate::agent_auth::axum::host) async fn revoke_authorized(
         .await
         .map_err(store_error)?
         .ok_or_else(HostError::host_not_found)?;
-    if let (Some(user_id), Some(owner)) = (user_id, host.user_id)
+    if let (Some(user_id), Some(owner)) = (user_id.as_deref(), host.user_id.as_deref())
         && owner != user_id
         && !shares_organization(state, user_id, owner).await
     {
@@ -120,7 +119,7 @@ pub(in crate::agent_auth::axum::host) async fn revoke_authorized(
 
 pub(in crate::agent_auth::axum::host) async fn update_for_user(
     state: &AgentAuthState,
-    user_id: Uuid,
+    user_id: &str,
     body: UpdateHostBody,
     now: DateTime<Utc>,
 ) -> Result<Value, HostError> {
@@ -141,7 +140,7 @@ pub(in crate::agent_auth::axum::host) async fn update_for_user(
         .await
         .map_err(store_error)?
         .ok_or_else(HostError::host_not_found)?;
-    if let Some(owner) = host.user_id
+    if let Some(owner) = host.user_id.as_deref()
         && owner != user_id
         && !shares_organization(state, user_id, owner).await
     {
@@ -191,7 +190,7 @@ pub(in crate::agent_auth::axum::host) async fn update_for_user(
     }))
 }
 
-async fn shares_organization(state: &AgentAuthState, user_id: Uuid, owner_id: Uuid) -> bool {
+async fn shares_organization(state: &AgentAuthState, user_id: &str, owner_id: &str) -> bool {
     let Some(store) = &state.organization_store else {
         return false;
     };

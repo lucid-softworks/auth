@@ -127,7 +127,7 @@ impl AuthService {
         }
         let user = self
             .store
-            .update_user_email(user.id, &claims.email, &claims.email, true)
+            .update_user_email(&user.id, &claims.email, &claims.email, true)
             .await?
             .ok_or(AuthError::VerificationUserNotFound)?;
         self.refresh_secondary_user_sessions(&user).await?;
@@ -192,7 +192,7 @@ impl AuthService {
                 let session_token = self.change_email_session_token(&user, current).await?;
                 let updated = self
                     .store
-                    .update_user_email(user.id, &claims.email, &new_email, true)
+                    .update_user_email(&user.id, &claims.email, &new_email, true)
                     .await?
                     .ok_or(AuthError::VerificationUserNotFound)?;
                 self.refresh_secondary_user_sessions(&updated).await?;
@@ -206,7 +206,7 @@ impl AuthService {
                 let session_token = self.change_email_session_token(&user, current).await?;
                 let updated = self
                     .store
-                    .update_user_email(user.id, &claims.email, &new_email, false)
+                    .update_user_email(&user.id, &claims.email, &new_email, false)
                     .await?
                     .ok_or(AuthError::VerificationUserNotFound)?;
                 let token = self.create_email_verification_token_for_duration(

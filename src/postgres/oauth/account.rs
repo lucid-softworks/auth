@@ -7,8 +7,9 @@ pub(in crate::postgres) async fn insert_account_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
     account: &OAuthAccount,
+    id: &crate::store::PreparedDatabaseId,
 ) -> Result<OAuthAccount, AuthError> {
-    let writes = account_writes(model, account)?;
+    let writes = account_writes(model, account, id)?;
     let mut query = super::super::rows::insert_query(model, writes);
     let row = query
         .build()
@@ -18,13 +19,60 @@ pub(in crate::postgres) async fn insert_account_transaction(
     decode_account(model, &row)
 }
 
-pub(in crate::postgres) async fn upsert_account_transaction(
+pub(in crate::postgres) async fn find_credential_account_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    model: &PostgresModel<'_>,
+    user_id: &str,
+) -> Result<Option<OAuthAccount>, AuthError> {
+    let mut query = super::super::rows::select_query(model);
+    query
+        .push(" WHERE ")
+        .push(model.quoted_column("userId")?)
+        .push(" = ");
+    super::super::rows::push_model_value(&mut query, model, "userId", json!(user_id))?;
+    query
+        .push(" AND ")
+        .push(model.quoted_column("providerId")?)
+        .push(" = ")
+        .push_bind("credential".to_owned())
+        .push(" FOR UPDATE");
+    query
+        .build()
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(super::super::storage_error)?
+        .as_ref()
+        .map(|row| decode_account(model, row))
+        .transpose()
+}
+
+pub(in crate::postgres) async fn update_account_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
     account: &OAuthAccount,
 ) -> Result<OAuthAccount, AuthError> {
+    let writes = account_update_writes(model, account)?;
+    let mut query = super::super::rows::update_query(model, writes);
+    query.push(" WHERE \"id\" = ");
+    super::super::rows::push_model_value(&mut query, model, "id", json!(account.id))?;
+    query.push(" RETURNING ").push(model.all_projection());
+    let row = query
+        .build()
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(super::super::storage_error)?
+        .ok_or(AuthError::CredentialAccountNotFound)?;
+    decode_account(model, &row)
+}
+
+pub(in crate::postgres) async fn upsert_account_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    model: &PostgresModel<'_>,
+    account: &OAuthAccount,
+    id: &crate::store::PreparedDatabaseId,
+) -> Result<OAuthAccount, AuthError> {
     let update_writes = account_update_writes(model, account)?;
-    let writes = account_writes(model, account)?;
+    let writes = account_writes(model, account, id)?;
     let mut query = super::super::rows::insert_query_prefix(model, writes);
     query
         .push(" ON CONFLICT (")
@@ -48,13 +96,13 @@ pub(in crate::postgres) async fn upsert_account_transaction(
     decode_account(model, &row)
 }
 
-pub(super) fn decode_account(
+pub(in crate::postgres) fn decode_account(
     model: &PostgresModel<'_>,
     row: &PgRow,
 ) -> Result<OAuthAccount, AuthError> {
     let mut values = model.decode_all(row)?;
-    let id = super::super::rows::required_uuid(&mut values, "id")?;
-    let user_id = super::super::rows::required_uuid(&mut values, "userId")?;
+    let id = super::super::rows::required_string(&mut values, "id")?;
+    let user_id = super::super::rows::required_string(&mut values, "userId")?;
     let issuer = super::super::rows::required_string(&mut values, "issuer")?;
     let account_id = super::super::rows::required_string(&mut values, "accountId")?;
     let provider_id = super::super::rows::required_string(&mut values, "providerId")?;
@@ -114,8 +162,11 @@ pub(super) fn token_writes<'a>(
 fn account_writes<'a>(
     model: &'a PostgresModel<'_>,
     account: &OAuthAccount,
+    id: &crate::store::PreparedDatabaseId,
 ) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
-    let values = account_values(account)?;
+    let mut values = account_values(account)?;
+    values.remove("id");
+    super::super::rows::insert_prepared_id(&mut values, id)?;
     model.encode_fields(
         values
             .iter()
@@ -223,8 +274,8 @@ mod tests {
     fn account() -> OAuthAccount {
         let now = Utc::now();
         OAuthAccount {
-            id: Uuid::nil(),
-            user_id: Uuid::nil(),
+            id: Uuid::nil().to_string(),
+            user_id: Uuid::nil().to_string(),
             issuer: "local:credential".into(),
             account_id: Uuid::nil().to_string(),
             provider_id: "credential".into(),
@@ -248,7 +299,13 @@ mod tests {
     fn account_insert_uses_canonical_password_and_catalog_identifiers() {
         let physical = physical_schema();
         let model = physical.model("account").unwrap();
-        let writes = account_writes(&model, &account()).unwrap();
+        let account = account();
+        let writes = account_writes(
+            &model,
+            &account,
+            &super::super::super::rows::explicit_id(account.id.clone()),
+        )
+        .unwrap();
         let query = super::super::super::rows::insert_query(&model, writes);
         assert!(query.sql().contains("INSERT INTO \"tenant\"\"accounts\""));
         assert!(query.sql().contains("\"owner id\""));
@@ -267,7 +324,12 @@ mod tests {
         account
             .additional_fields
             .insert("undeclared".into(), json!(true));
-        let writes = account_writes(&model, &account).unwrap();
+        let writes = account_writes(
+            &model,
+            &account,
+            &super::super::super::rows::explicit_id(account.id.clone()),
+        )
+        .unwrap();
         assert!(!writes.iter().any(|write| write.logical() == "undeclared"));
     }
 

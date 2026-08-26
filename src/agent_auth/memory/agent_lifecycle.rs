@@ -19,7 +19,7 @@ mod fixtures {
         AgentHost {
             id: id.into(),
             name: Some("Host".into()),
-            user_id: Some(user_id),
+            user_id: Some(user_id.to_string()),
             default_capabilities: vec!["files.read".into()],
             public_key: Some(format!("host-key-{id}")),
             kid: Some(format!("host-kid-{id}")),
@@ -44,7 +44,7 @@ mod fixtures {
         AgentIdentity {
             id: id.into(),
             name: "Agent".into(),
-            user_id: Some(user_id),
+            user_id: Some(user_id.to_string()),
             host_id: host_id.into(),
             status: AgentStatus::Active,
             mode: AgentMode::Delegated,
@@ -92,7 +92,7 @@ mod fixtures {
             method: AgentApprovalMethod::DeviceAuthorization,
             agent_id: Some(agent_id.into()),
             host_id: Some("host-new".into()),
-            user_id: Some(user_id),
+            user_id: Some(user_id.to_string()),
             capabilities: Some("files.read".into()),
             status: AgentApprovalStatus::Pending,
             user_code_hash: Some(format!("code-{id}")),

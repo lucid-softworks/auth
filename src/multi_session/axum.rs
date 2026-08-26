@@ -117,7 +117,7 @@ async fn set_active(
     with_bound_session_cookie(
         &service,
         &headers,
-        session.user.id,
+        &session.user.id,
         &token,
         remember_me,
         Json(response),
@@ -159,7 +159,7 @@ async fn revoke(
             with_bound_session_cookie(
                 &service,
                 &headers,
-                session.user.id,
+                &session.user.id,
                 &token,
                 remember_me,
                 response,
@@ -173,7 +173,7 @@ async fn revoke(
 pub(crate) async fn attach_new_session_cookie(
     service: &AuthService,
     headers: &HeaderMap,
-    user_id: uuid::Uuid,
+    user_id: &str,
     token: &str,
     mut response: Response,
 ) -> Response {

@@ -205,7 +205,7 @@ pub(super) fn emit_execution(
                 ..crate::AgentAuthEventFields::default()
             },
             agent_name: Some(session.agent.name.clone()),
-            user_id: session.host.as_ref().and_then(|host| host.user_id),
+            user_id: session.host.as_ref().and_then(|host| host.user_id.clone()),
             arguments: body.arguments.clone(),
             duration_ms: Some(duration_ms),
             error,

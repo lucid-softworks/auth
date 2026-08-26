@@ -1,7 +1,6 @@
 use crate::{AgentHost, AgentHostStatus};
 use serde::Deserialize;
 use serde_json::Value;
-use uuid::Uuid;
 
 use super::super::input::{AgentInput, Field, FieldKind};
 
@@ -121,5 +120,5 @@ impl AgentInput for RotateHostKeyBody {
 #[derive(Debug)]
 pub(super) enum HostAuthorization {
     Host(Box<AgentHost>),
-    User(Uuid),
+    User(String),
 }

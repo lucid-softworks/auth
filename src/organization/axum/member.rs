@@ -241,10 +241,7 @@ async fn get_active_role(
         Ok(id) => id,
         Err(error) => return auth_error(error),
     };
-    let user_id = match optional_id(query.user_id) {
-        Ok(id) => id,
-        Err(error) => return auth_error(error),
-    };
+    let user_id = query.user_id;
     match service
         .organization_member_role(&session, organization_id, user_id)
         .await

@@ -27,7 +27,7 @@ impl AuthService {
         )?;
         if plugin
             .store
-            .find_member(invitation.organization_id, invitation.inviter_id)
+            .find_member(invitation.organization_id, &invitation.inviter_id)
             .await?
             .is_none()
         {
@@ -43,7 +43,7 @@ impl AuthService {
                 .before_accept_invitation(&invitation, &session.user, &organization)
                 .await?;
         }
-        accept_atomically(plugin, invitation_id, session.user.id).await?;
+        accept_atomically(plugin, invitation_id, &session.user.id).await?;
         self.set_active_organization(session, Some(invitation.organization_id))
             .await?;
         if let Some(team_id) = single_team_id(&invitation) {
@@ -51,7 +51,7 @@ impl AuthService {
         }
         let member = plugin
             .store
-            .find_member(invitation.organization_id, session.user.id)
+            .find_member(invitation.organization_id, &session.user.id)
             .await?
             .ok_or_else(member_not_found)?;
         let invitation = plugin
@@ -120,7 +120,7 @@ impl AuthService {
             .ok_or_else(invitation_not_found)?;
         let member = plugin
             .store
-            .find_member(invitation.organization_id, session.user.id)
+            .find_member(invitation.organization_id, &session.user.id)
             .await?
             .ok_or_else(member_not_found)?;
         require_permission(self, &member, "cancel").await?;
@@ -166,7 +166,7 @@ impl AuthService {
             .ok_or_else(organization_not_found)?;
         if plugin
             .store
-            .find_member(invitation.organization_id, invitation.inviter_id)
+            .find_member(invitation.organization_id, &invitation.inviter_id)
             .await?
             .is_none()
         {
@@ -174,7 +174,7 @@ impl AuthService {
         }
         let inviter = self
             .store
-            .find_user_by_id(invitation.inviter_id)
+            .find_user_by_id(&invitation.inviter_id)
             .await?
             .ok_or_else(inviter_missing)?;
         Ok(OrganizationInvitationDetails {
@@ -189,7 +189,7 @@ impl AuthService {
 async fn accept_atomically(
     plugin: &crate::OrganizationPlugin,
     invitation_id: Uuid,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), AuthError> {
     match plugin
         .store

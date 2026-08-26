@@ -281,7 +281,7 @@ impl AuthPlugin for ApiKeyPlugin {
         let session = SessionWithUser {
             session: AuthSession {
                 id: verified.api_key.id,
-                user_id: user.id,
+                user_id: user.id.clone(),
                 token: String::new(),
                 actor_user_id: None,
                 authentication_method: Some(AuthenticationMethod::Password),

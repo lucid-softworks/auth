@@ -37,7 +37,7 @@ pub(super) async fn resolve(arguments: CustomerArguments<'_>) -> Result<String, 
         CustomerType::User => {
             if let Some(customer_id) = plugin
                 .store
-                .user_customer_id(session.user.id)
+                .user_customer_id(&session.user.id)
                 .await
                 .map_err(log_error)?
             {
@@ -46,7 +46,7 @@ pub(super) async fn resolve(arguments: CustomerArguments<'_>) -> Result<String, 
             let customer = user_customer(plugin, session, metadata).await?;
             plugin
                 .store
-                .set_user_customer_id(session.user.id, Some(customer.id.clone()))
+                .set_user_customer_id(&session.user.id, Some(customer.id.clone()))
                 .await
                 .map_err(log_error)?;
             Ok(customer.id)

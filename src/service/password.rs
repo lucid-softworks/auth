@@ -6,7 +6,6 @@ use crate::{
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use chrono::Utc;
 use rand_core::OsRng;
-use uuid::Uuid;
 
 /// A password change and an optional replacement for the current session.
 #[derive(Debug, Clone)]
@@ -46,7 +45,7 @@ impl AuthService {
             .email
             .unwrap_or_else(|| format!("{username}@users.localhost"));
         let mut user = AuthUser {
-            id: Uuid::new_v4(),
+            id: String::new(),
             username: Some(username.clone()),
             display_username: Some(input.username),
             name: input.name,
@@ -63,8 +62,7 @@ impl AuthService {
             updated_at: now,
         };
         let existing = self.store.find_user_by_username(&username).await?;
-        let creating = existing.is_none();
-        user = if let Some(existing) = existing {
+        let user = if let Some(existing) = existing {
             user.id = existing.id;
             user.created_at = existing.created_at;
             user.additional_fields = existing.additional_fields;
@@ -72,33 +70,34 @@ impl AuthService {
                 .before_database_update(crate::DatabaseRecord::User(user))
                 .await?
             {
-                crate::DatabaseRecord::User(user) => user,
+                crate::DatabaseRecord::User(user) => crate::DatabaseWrite::Update(user),
                 _ => unreachable!("database hook model was validated"),
             }
         } else {
-            self.prepare_user_create(user).await?
+            crate::DatabaseWrite::Create(self.prepare_user_create(user).await?)
         };
-        let credential = self
-            .prepare_credential_account(user.id, input.password_hash, user.created_at, !creating)
-            .await?;
-        let user = self
-            .store
-            .upsert_password_user(user, credential.clone())
-            .await?;
-        if creating {
-            self.finish_user_create(&user).await?;
-        } else {
-            self.after_database_update(&crate::DatabaseRecord::User(user.clone()))
-                .await?;
+        let created_at = match &user {
+            crate::DatabaseWrite::Create(user) => user.record.created_at,
+            crate::DatabaseWrite::Update(user) => user.created_at,
+        };
+        let credential = self.credential_account_create(input.password_hash, created_at);
+        let write = self.store.upsert_password_user(user, &credential).await?;
+        let user = write.owner.user;
+        let account = write.owner.account;
+        match write.user_operation {
+            crate::DatabaseWriteOperation::Create => self.finish_user_create(&user).await?,
+            crate::DatabaseWriteOperation::Update => {
+                self.after_database_update(&crate::DatabaseRecord::User(user.clone()))
+                    .await?
+            }
         }
-        if creating {
-            self.finish_account_create(&credential).await?;
-        } else {
-            self.finish_account_update(&credential).await?;
+        match write.account_operation {
+            crate::DatabaseWriteOperation::Create => self.finish_account_create(&account).await?,
+            crate::DatabaseWriteOperation::Update => self.finish_account_update(&account).await?,
         }
         self.plugins
             .password_credential_changed(&PasswordCredentialChanged {
-                user_id: user.id,
+                user_id: user.id.clone(),
                 source: PasswordCredentialSource::Provisioned,
             })
             .await?;
@@ -115,7 +114,7 @@ impl AuthService {
         let username = normalize_username(username).map_err(|_| AuthError::InvalidCredentials)?;
         let user = self.store.find_user_by_username(&username).await?;
         let password_hash = match &user {
-            Some(user) => self.store.find_password_hash(user.id).await?,
+            Some(user) => self.store.find_password_hash(&user.id).await?,
             None => None,
         };
         let password_valid = verify_password(password, password_hash).await?;
@@ -152,7 +151,7 @@ impl AuthService {
         self.validate_new_password(&new_password).await?;
         let current_hash = self
             .store
-            .find_password_hash(session.user.id)
+            .find_password_hash(&session.user.id)
             .await?
             .ok_or(AuthError::CredentialAccountNotFound)?;
         let password_hash = self.hash_password(new_password).await?;
@@ -160,11 +159,11 @@ impl AuthService {
             return Err(AuthError::InvalidPassword);
         }
         self.store
-            .update_password_hash(session.user.id, password_hash)
+            .update_password_hash(&session.user.id, password_hash)
             .await?;
         self.plugins
             .password_credential_changed(&PasswordCredentialChanged {
-                user_id: session.user.id,
+                user_id: session.user.id.clone(),
                 source: PasswordCredentialSource::SelfServiceChange,
             })
             .await?;
@@ -172,7 +171,7 @@ impl AuthService {
         updated_user.updated_at = Utc::now();
 
         let replacement_session = if revoke_other_sessions {
-            self.delete_user_sessions_with_hooks(session.user.id)
+            self.delete_user_sessions_with_hooks(&session.user.id)
                 .await?;
             Some(
                 self.create_session(
@@ -188,7 +187,7 @@ impl AuthService {
             None
         };
         self.activity(crate::AuthActivity::PasswordChanged {
-            user_id: session.user.id,
+            user_id: session.user.id.clone(),
             revoked_other_sessions: revoke_other_sessions,
         })
         .await;

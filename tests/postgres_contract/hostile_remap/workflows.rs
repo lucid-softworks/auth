@@ -1,3 +1,4 @@
+use super::super::{database_create, database_id_plan};
 use chrono::{Duration, Utc};
 use lucid_auth::{
     AccessStore, AdminListCondition, AdminListOperator, AdminListUsersQuery, AdminSortDirection,
@@ -7,7 +8,6 @@ use lucid_auth::{
 };
 use serde_json::{Map, json};
 use std::sync::Arc;
-use uuid::Uuid;
 
 pub(super) async fn assert_all(
     service: &AuthService,
@@ -21,12 +21,15 @@ pub(super) async fn assert_all(
         .expect("remapped user lookup");
     assert_eq!(loaded.id, first.id);
 
-    assert_admin_queries(store, first.id, second.id).await?;
-    assert_session_lifecycle(store, first.id).await?;
-    assert_oauth_lifecycle(store, first.id).await?;
+    assert_admin_queries(store, &first.id, &second.id).await?;
+    assert_session_lifecycle(store, &first.id).await?;
+    assert_oauth_lifecycle(store, &first.id).await?;
     assert_verification_lifecycle(store).await?;
+    let id = database_id_plan("rateLimit");
+    let prepare_id = || id.prepare(store.as_ref());
     let outcome = store
         .consume_rate_limit(
+            &prepare_id,
             "hostile-remap-rate-key",
             Utc::now(),
             RateLimitRule::new(60, 2),
@@ -55,8 +58,8 @@ async fn signup(
 
 async fn assert_admin_queries(
     store: &PostgresStore,
-    first: Uuid,
-    second: Uuid,
+    first: &str,
+    second: &str,
 ) -> Result<(), lucid_auth::AuthError> {
     let conditions = vec![AdminListCondition {
         field: "email".into(),
@@ -72,7 +75,10 @@ async fn assert_admin_queries(
     };
     let users = store.list_users(&query).await?;
     assert_eq!(
-        users.iter().map(|user| user.id).collect::<Vec<_>>(),
+        users
+            .iter()
+            .map(|user| user.id.as_str())
+            .collect::<Vec<_>>(),
         [second, first]
     );
     assert_eq!(store.count_users(&conditions).await?, 2);
@@ -81,12 +87,12 @@ async fn assert_admin_queries(
 
 async fn assert_session_lifecycle(
     store: &PostgresStore,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), lucid_auth::AuthError> {
     let now = Utc::now();
     let session = AuthSession {
-        id: Uuid::new_v4(),
-        user_id,
+        id: String::new(),
+        user_id: user_id.to_owned(),
         token: "hostile-remap-session".into(),
         actor_user_id: None,
         authentication_method: Some(AuthenticationMethod::Password),
@@ -97,7 +103,9 @@ async fn assert_session_lifecycle(
         user_agent: Some("hostile-remap/1.0".into()),
         additional_fields: Map::new(),
     };
-    store.create_session(session.clone()).await?;
+    let session = store
+        .create_session(database_create(session, "session"))
+        .await?;
     let loaded = store
         .find_session(&session.token)
         .await?
@@ -107,7 +115,7 @@ async fn assert_session_lifecycle(
 
     let updated = store
         .update_session_fields(
-            session.id,
+            &session.id,
             Map::from_iter([
                 ("ipAddress".into(), json!("198.51.100.95")),
                 ("userAgent".into(), json!("updated-remap/1.0")),
@@ -124,12 +132,12 @@ async fn assert_session_lifecycle(
 
 async fn assert_oauth_lifecycle(
     store: &PostgresStore,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), lucid_auth::AuthError> {
     let now = Utc::now();
     let account = OAuthAccount {
-        id: Uuid::new_v4(),
-        user_id,
+        id: String::new(),
+        user_id: user_id.to_owned(),
         issuer: "https://hostile-remap.example".into(),
         account_id: "remote-subject".into(),
         provider_id: "hostile-provider".into(),
@@ -144,7 +152,9 @@ async fn assert_oauth_lifecycle(
         created_at: now,
         updated_at: now,
     };
-    let mut linked = store.link_oauth_account(account).await?;
+    let mut linked = store
+        .link_oauth_account(database_create(account, "account"))
+        .await?;
     let owner = store
         .find_oauth_account_owner(&linked.issuer, &linked.account_id)
         .await?
@@ -163,8 +173,12 @@ async fn assert_oauth_lifecycle(
 
 async fn assert_verification_lifecycle(store: &PostgresStore) -> Result<(), lucid_auth::AuthError> {
     let expires = Utc::now() + Duration::minutes(5);
-    let mut consumed = VerificationValue::new("remap-consume", "first", expires);
-    store.create_verification(consumed.clone()).await?;
+    let consumed = store
+        .create_verification(database_create(
+            VerificationValue::new("remap-consume", "first", expires),
+            "verification",
+        ))
+        .await?;
     assert_eq!(
         store
             .find_verification("remap-consume")
@@ -173,6 +187,7 @@ async fn assert_verification_lifecycle(store: &PostgresStore) -> Result<(), luci
             .id,
         consumed.id
     );
+    let mut consumed = consumed;
     consumed.value = "updated".into();
     consumed.updated_at += Duration::milliseconds(1);
     let updated = store
@@ -191,7 +206,10 @@ async fn assert_verification_lifecycle(store: &PostgresStore) -> Result<(), luci
     assert!(store.consume_verification("remap-consume").await?.is_none());
 
     store
-        .create_verification(VerificationValue::new("remap-delete", "delete", expires))
+        .create_verification(database_create(
+            VerificationValue::new("remap-delete", "delete", expires),
+            "verification",
+        ))
         .await?;
     assert!(store.delete_verification("remap-delete").await?.is_some());
     assert!(store.delete_verification("remap-delete").await?.is_none());

@@ -93,7 +93,7 @@ async fn authorize_user(
     let Some(reference_id) = explicit_reference_id else {
         return Ok(());
     };
-    if reference_id == current.user.id.to_string() {
+    if reference_id == current.user.id {
         return Ok(());
     }
     let Some(authorizer) = state

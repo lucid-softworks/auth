@@ -18,7 +18,7 @@ impl AuthService {
         let plugin = self.organization_plugin()?;
         if plugin
             .store
-            .find_member(organization_id, session.user.id)
+            .find_member(organization_id, &session.user.id)
             .await?
             .is_none()
         {

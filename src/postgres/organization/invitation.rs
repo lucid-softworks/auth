@@ -136,7 +136,7 @@ impl OrganizationInvitationStore for PostgresStore {
     async fn accept_invitation(
         &self,
         invitation_id: Uuid,
-        user_id: Uuid,
+        user_id: &str,
         now: DateTime<Utc>,
         membership_limit: usize,
     ) -> Result<OrganizationInvitationWriteOutcome, AuthError> {

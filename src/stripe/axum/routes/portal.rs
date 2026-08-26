@@ -47,7 +47,7 @@ async fn handle(
         CustomerType::Organization => uuid::Uuid::parse_str(&reference_id)
             .ok()
             .map(|id| plugin.store.organization_customer_id(id)),
-        CustomerType::User => Some(plugin.store.user_customer_id(session.user.id)),
+        CustomerType::User => Some(plugin.store.user_customer_id(&session.user.id)),
     };
     let mut customer_id = match direct {
         Some(future) => match future.await {

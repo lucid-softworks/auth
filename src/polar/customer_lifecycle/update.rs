@@ -6,7 +6,7 @@ pub(super) async fn after(
     user: &AuthUser,
     context: &DatabaseHookContext,
 ) {
-    if !enabled(options, user, context) {
+    if !enabled(options, user.is_anonymous, context) {
         return;
     }
     if let Err(error) = options

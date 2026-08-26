@@ -5,11 +5,14 @@ use crate::{
     AccountDeleteOutcome, AuthError, AuthUser, OAuthAccount, OAuthAccountOwner,
     OAuthTokenUpdateOutcome,
 };
-use account::{decode_account, token_writes};
+pub(in crate::postgres) use account::decode_account;
+use account::token_writes;
+pub(in crate::postgres) use account::{
+    find_credential_account_transaction, update_account_transaction,
+};
 pub(super) use account::{insert_account_transaction, upsert_account_transaction};
 use chrono::{DateTime, Utc};
 use sqlx::QueryBuilder;
-use uuid::Uuid;
 
 impl PostgresStore {
     pub(super) fn account_model(&self) -> Result<PostgresModel<'_>, AuthError> {
@@ -29,13 +32,16 @@ impl crate::OAuthAccountStore for PostgresStore {
 
     async fn create_oauth_user(
         &self,
-        user: AuthUser,
-        account: OAuthAccount,
+        user: crate::store::DatabaseCreate<AuthUser>,
+        account: &dyn crate::store::DependentAccountPreparer,
     ) -> Result<OAuthAccountOwner, AuthError> {
         create_user(self, user, account).await
     }
 
-    async fn link_oauth_account(&self, account: OAuthAccount) -> Result<OAuthAccount, AuthError> {
+    async fn link_oauth_account(
+        &self,
+        account: crate::store::DatabaseCreate<OAuthAccount>,
+    ) -> Result<OAuthAccount, AuthError> {
         link(self, account).await
     }
 
@@ -46,14 +52,14 @@ impl crate::OAuthAccountStore for PostgresStore {
         update_tokens(self, account).await
     }
 
-    async fn list_user_accounts(&self, user_id: Uuid) -> Result<Vec<OAuthAccount>, AuthError> {
+    async fn list_user_accounts(&self, user_id: &str) -> Result<Vec<OAuthAccount>, AuthError> {
         list(self, user_id).await
     }
 
     async fn delete_user_account(
         &self,
-        user_id: Uuid,
-        account_id: Uuid,
+        user_id: &str,
+        account_id: &str,
         allow_last: bool,
     ) -> Result<AccountDeleteOutcome, AuthError> {
         delete(self, user_id, account_id, allow_last).await
@@ -94,7 +100,7 @@ async fn find_owner(
         return Ok(None);
     };
     let account = decode_account(&model, &row)?;
-    let user = super::user::load_by_id(store, account.user_id)
+    let user = super::user::load_by_id(store, &account.user_id)
         .await?
         .ok_or_else(|| AuthError::Storage("OAuth account owner is missing".into()))?;
     Ok(Some(OAuthAccountOwner { account, user }))
@@ -102,30 +108,49 @@ async fn find_owner(
 
 async fn create_user(
     store: &PostgresStore,
-    mut user: AuthUser,
-    mut account: OAuthAccount,
+    user: crate::store::DatabaseCreate<AuthUser>,
+    account: &dyn crate::store::DependentAccountPreparer,
 ) -> Result<OAuthAccountOwner, AuthError> {
-    user.email = user.email.to_lowercase();
-    account.user_id = user.id;
+    let (user, user_id) = user.into_parts(store)?;
     let user_model = store.user_model()?;
     let account_model = store.account_model()?;
     let mut transaction = store.pool.begin().await.map_err(storage_error)?;
-    let user = super::user::insert_transaction(&mut transaction, &user_model, user).await?;
-    let account = insert_account_transaction(&mut transaction, &account_model, &account).await?;
+    let user =
+        super::user::insert_transaction(&mut transaction, &user_model, user, &user_id).await?;
+    let account = account
+        .prepare_account(crate::DependentAccountContext {
+            user: &user,
+            user_operation: crate::DatabaseWriteOperation::Create,
+            existing_account: None,
+        })
+        .await?;
+    let crate::DatabaseWrite::Create(account) = account else {
+        return Err(AuthError::Storage(
+            "fresh OAuth user preparer returned an account update".into(),
+        ));
+    };
+    let (mut account, account_id) = account.into_parts(store)?;
+    account.user_id = user.id.clone();
+    let account =
+        insert_account_transaction(&mut transaction, &account_model, &account, &account_id).await?;
     transaction.commit().await.map_err(storage_error)?;
     Ok(OAuthAccountOwner { account, user })
 }
 
-async fn link(store: &PostgresStore, account: OAuthAccount) -> Result<OAuthAccount, AuthError> {
+async fn link(
+    store: &PostgresStore,
+    account: crate::store::DatabaseCreate<OAuthAccount>,
+) -> Result<OAuthAccount, AuthError> {
+    let user_id = account.record.user_id.clone();
     let user_model = store.user_model()?;
     let account_model = store.account_model()?;
     let mut transaction = store.pool.begin().await.map_err(storage_error)?;
     let mut exists = QueryBuilder::new("SELECT EXISTS(SELECT 1 FROM ");
     exists
         .push(user_model.quoted_table())
-        .push(" WHERE \"id\" = ")
-        .push_bind(account.user_id)
-        .push(")");
+        .push(" WHERE \"id\" = ");
+    super::rows::push_model_value(&mut exists, &user_model, "id", serde_json::json!(user_id))?;
+    exists.push(")");
     if !exists
         .build_query_scalar::<bool>()
         .fetch_one(&mut *transaction)
@@ -134,7 +159,9 @@ async fn link(store: &PostgresStore, account: OAuthAccount) -> Result<OAuthAccou
     {
         return Err(AuthError::NotFound);
     }
-    let account = insert_account_transaction(&mut transaction, &account_model, &account).await?;
+    let (account, account_id) = account.into_parts(store)?;
+    let account =
+        insert_account_transaction(&mut transaction, &account_model, &account, &account_id).await?;
     transaction.commit().await.map_err(storage_error)?;
     Ok(account)
 }
@@ -146,9 +173,9 @@ async fn update_tokens(
     let model = store.account_model()?;
     let writes = token_writes(&model, &account)?;
     let mut query = super::rows::update_query(&model, writes);
+    query.push(" WHERE \"id\" = ");
+    super::rows::push_model_value(&mut query, &model, "id", serde_json::json!(account.id))?;
     query
-        .push(" WHERE \"id\" = ")
-        .push_bind(account.id)
         .push(" AND ")
         .push(model.quoted_column("issuer")?)
         .push(" = ")
@@ -168,14 +195,15 @@ async fn update_tokens(
     decode_account(&model, &row)
 }
 
-async fn list(store: &PostgresStore, user_id: Uuid) -> Result<Vec<OAuthAccount>, AuthError> {
+async fn list(store: &PostgresStore, user_id: &str) -> Result<Vec<OAuthAccount>, AuthError> {
     let model = store.account_model()?;
     let mut query = super::rows::select_query(&model);
     query
         .push(" WHERE ")
         .push(model.quoted_column("userId")?)
-        .push(" = ")
-        .push_bind(user_id)
+        .push(" = ");
+    super::rows::push_model_value(&mut query, &model, "userId", serde_json::json!(user_id))?;
+    query
         .push(" ORDER BY ")
         .push(model.quoted_column("createdAt")?)
         .push(", \"id\"");
@@ -191,40 +219,42 @@ async fn list(store: &PostgresStore, user_id: Uuid) -> Result<Vec<OAuthAccount>,
 
 async fn delete(
     store: &PostgresStore,
-    user_id: Uuid,
-    account_id: Uuid,
+    user_id: &str,
+    account_id: &str,
     allow_last: bool,
 ) -> Result<AccountDeleteOutcome, AuthError> {
     let model = store.account_model()?;
     let mut transaction = store.pool.begin().await.map_err(storage_error)?;
-    let mut select = QueryBuilder::new("SELECT \"id\" FROM ");
+    let mut select = super::rows::select_query(&model);
     select
-        .push(model.quoted_table())
         .push(" WHERE ")
         .push(model.quoted_column("userId")?)
-        .push(" = ")
-        .push_bind(user_id)
-        .push(" FOR UPDATE");
-    let ids: Vec<Uuid> = select
-        .build_query_scalar()
+        .push(" = ");
+    super::rows::push_model_value(&mut select, &model, "userId", serde_json::json!(user_id))?;
+    select.push(" FOR UPDATE");
+    let rows = select
+        .build()
         .fetch_all(&mut *transaction)
         .await
         .map_err(storage_error)?;
-    if !ids.contains(&account_id) {
+    let accounts = rows
+        .iter()
+        .map(|row| decode_account(&model, row))
+        .collect::<Result<Vec<_>, _>>()?;
+    if !accounts.iter().any(|account| account.id == account_id) {
         return Ok(AccountDeleteOutcome::NotFound);
     }
-    if ids.len() == 1 && !allow_last {
+    if accounts.len() == 1 && !allow_last {
         return Ok(AccountDeleteOutcome::LastAccount);
     }
     let mut delete = QueryBuilder::new("DELETE FROM ");
+    delete.push(model.quoted_table()).push(" WHERE \"id\" = ");
+    super::rows::push_model_value(&mut delete, &model, "id", serde_json::json!(account_id))?;
     delete
-        .push(model.quoted_table())
-        .push(" WHERE \"id\" = ")
-        .push_bind(account_id)
         .push(" AND ")
         .push(model.quoted_column("userId")?)
-        .push(" = ")
-        .push_bind(user_id);
+        .push(" = ");
+    super::rows::push_model_value(&mut delete, &model, "userId", serde_json::json!(user_id))?;
     delete
         .build()
         .execute(&mut *transaction)
@@ -243,13 +273,19 @@ async fn compare_and_swap_tokens(
     let model = store.account_model()?;
     let writes = token_writes(&model, &account)?;
     let mut query = super::rows::update_query(&model, writes);
+    query.push(" WHERE \"id\" = ");
+    super::rows::push_model_value(&mut query, &model, "id", serde_json::json!(account.id))?;
     query
-        .push(" WHERE \"id\" = ")
-        .push_bind(account.id)
         .push(" AND ")
         .push(model.quoted_column("userId")?)
-        .push(" = ")
-        .push_bind(account.user_id)
+        .push(" = ");
+    super::rows::push_model_value(
+        &mut query,
+        &model,
+        "userId",
+        serde_json::json!(account.user_id),
+    )?;
+    query
         .push(" AND ")
         .push(model.quoted_column("updatedAt")?)
         .push(" = ")
@@ -271,13 +307,18 @@ async fn compare_and_swap_tokens(
         )?));
     }
     let mut current = super::rows::select_query(&model);
+    current.push(" WHERE \"id\" = ");
+    super::rows::push_model_value(&mut current, &model, "id", serde_json::json!(account.id))?;
     current
-        .push(" WHERE \"id\" = ")
-        .push_bind(account.id)
         .push(" AND ")
         .push(model.quoted_column("userId")?)
-        .push(" = ")
-        .push_bind(account.user_id);
+        .push(" = ");
+    super::rows::push_model_value(
+        &mut current,
+        &model,
+        "userId",
+        serde_json::json!(account.user_id),
+    )?;
     let current = current
         .build()
         .fetch_optional(&store.pool)

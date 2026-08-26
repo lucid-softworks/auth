@@ -1,22 +1,21 @@
 use super::MemoryStore;
+use crate::store::DatabaseCreate;
 use crate::{ApiKey, ApiKeyStore, ApiKeyUseOutcome, AuthError};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use uuid::Uuid;
 
 #[async_trait]
 impl ApiKeyStore for MemoryStore {
-    async fn create_api_key(&self, api_key: ApiKey) -> Result<ApiKey, AuthError> {
-        self.state
-            .write()
-            .await
-            .api_keys
-            .insert(api_key.id, api_key.clone());
+    async fn create_api_key(&self, api_key: DatabaseCreate<ApiKey>) -> Result<ApiKey, AuthError> {
+        let (mut api_key, id) = api_key.into_parts(self)?;
+        let mut state = self.state.write().await;
+        api_key.id = self.create_id("apikey", id, state.api_keys.len())?;
+        state.api_keys.insert(api_key.id.clone(), api_key.clone());
         Ok(api_key)
     }
 
-    async fn find_api_key(&self, api_key_id: Uuid) -> Result<Option<ApiKey>, AuthError> {
-        Ok(self.state.read().await.api_keys.get(&api_key_id).cloned())
+    async fn find_api_key(&self, api_key_id: &str) -> Result<Option<ApiKey>, AuthError> {
+        Ok(self.state.read().await.api_keys.get(api_key_id).cloned())
     }
 
     async fn find_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>, AuthError> {
@@ -54,17 +53,17 @@ impl ApiKeyStore for MemoryStore {
         if !state.api_keys.contains_key(&api_key.id) {
             return Ok(None);
         }
-        state.api_keys.insert(api_key.id, api_key.clone());
+        state.api_keys.insert(api_key.id.clone(), api_key.clone());
         Ok(Some(api_key))
     }
 
-    async fn delete_api_key(&self, api_key_id: Uuid) -> Result<bool, AuthError> {
+    async fn delete_api_key(&self, api_key_id: &str) -> Result<bool, AuthError> {
         Ok(self
             .state
             .write()
             .await
             .api_keys
-            .remove(&api_key_id)
+            .remove(api_key_id)
             .is_some())
     }
 
@@ -81,11 +80,11 @@ impl ApiKeyStore for MemoryStore {
 
     async fn record_api_key_use(
         &self,
-        api_key_id: Uuid,
+        api_key_id: &str,
         now: DateTime<Utc>,
     ) -> Result<ApiKeyUseOutcome, AuthError> {
         let mut state = self.state.write().await;
-        let Some(api_key) = state.api_keys.get_mut(&api_key_id) else {
+        let Some(api_key) = state.api_keys.get_mut(api_key_id) else {
             return Ok(ApiKeyUseOutcome::Invalid);
         };
         if !api_key.enabled

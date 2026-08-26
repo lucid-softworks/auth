@@ -6,9 +6,13 @@ use sqlx::postgres::PgRow;
 pub(super) fn api_key_writes<'a>(
     model: &'a PostgresModel<'a>,
     api_key: &ApiKey,
+    id: &crate::store::PreparedDatabaseId,
 ) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
+    let mut values = api_key_values(api_key)?;
+    values.remove("id");
+    super::super::rows::insert_prepared_id(&mut values, id)?;
     model.encode_fields(
-        api_key_values(api_key)?
+        values
             .iter()
             .map(|(field, value)| (field.as_str(), value.clone())),
     )
@@ -117,7 +121,7 @@ pub(super) fn decode_api_key(model: &PostgresModel<'_>, row: &PgRow) -> Result<A
 
 fn decode_api_key_values(mut values: Map<String, Value>) -> Result<ApiKey, AuthError> {
     use super::super::rows::{
-        optional_date_value, optional_string_value, required_date, required_string, required_uuid,
+        optional_date_value, optional_string_value, required_date, required_string,
     };
     let permissions = optional_string_value(&mut values, "permissions")?
         .map(|value| serde_json::from_str(&value))
@@ -126,7 +130,7 @@ fn decode_api_key_values(mut values: Map<String, Value>) -> Result<ApiKey, AuthE
     let metadata = optional_string_value(&mut values, "metadata")?
         .map(|value| serde_json::from_str(&value).unwrap_or(Value::String(value)));
     Ok(ApiKey {
-        id: required_uuid(&mut values, "id")?,
+        id: required_string(&mut values, "id")?,
         config_id: required_string(&mut values, "configId")?,
         name: optional_string_value(&mut values, "name")?,
         start: optional_string_value(&mut values, "start")?,
@@ -246,7 +250,7 @@ mod tests {
         );
         let now = Utc::now();
         let key = ApiKey {
-            id: Uuid::new_v4(),
+            id: Uuid::new_v4().to_string(),
             config_id: "default".into(),
             name: None,
             start: None,
@@ -269,8 +273,15 @@ mod tests {
             created_at: now,
             updated_at: now,
         };
-        let query =
-            super::super::super::rows::insert_query(&model, api_key_writes(&model, &key).unwrap());
+        let query = super::super::super::rows::insert_query(
+            &model,
+            api_key_writes(
+                &model,
+                &key,
+                &super::super::super::rows::explicit_id(key.id.clone()),
+            )
+            .unwrap(),
+        );
         let sql = query.sql();
         assert!(sql.contains("\"api\"\" keys\"") && sql.contains("\"hashed secret\""));
         assert!(!sql.contains("hostile") && !sql.contains("lucid_auth_api_keys"));

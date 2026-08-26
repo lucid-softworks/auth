@@ -1,9 +1,11 @@
 use super::MemoryStore;
 use crate::{
-    AuthError, SiweIdentityWrite, SiweIdentityWriteOutcome, SiweSchema, SiweStore, WalletAddress,
-    WalletAddressOwner,
+    AuthError, AuthUser, DatabaseAccountCreate, DatabaseCreate, SiweIdentityWrite,
+    SiweIdentityWriteOutcome, SiweSchema, SiweStore, WalletAddress, WalletAddressOwner,
 };
 use async_trait::async_trait;
+
+mod create;
 
 #[async_trait]
 impl SiweStore for MemoryStore {
@@ -17,55 +19,33 @@ impl SiweStore for MemoryStore {
         find_owner(&state, address, chain_id)
     }
 
+    async fn create_wallet_identity(
+        &self,
+        _schema: &SiweSchema,
+        user: DatabaseCreate<AuthUser>,
+        wallet: WalletAddress,
+        account: &dyn DatabaseAccountCreate,
+    ) -> Result<SiweIdentityWriteOutcome, AuthError> {
+        create::write(self, user, wallet, account).await
+    }
+
     async fn write_wallet_identity(
         &self,
         _schema: &SiweSchema,
         write: SiweIdentityWrite,
     ) -> Result<SiweIdentityWriteOutcome, AuthError> {
+        let _identity_guard = self.siwe_identity_write.lock().await;
         let mut state = self.state.write().await;
-        let (mut wallet, mut account) = match &write {
-            SiweIdentityWrite::Create {
+        let (mut wallet, account) = match &write {
+            SiweIdentityWrite::AddChain {
                 wallet, account, ..
-            }
-            | SiweIdentityWrite::AddChain {
-                wallet, account, ..
-            } => (wallet.clone(), account.as_ref().clone()),
+            } => (wallet.clone(), account.clone()),
         };
         if let Some(owner) = find_owner(&state, &wallet.address, Some(wallet.chain_id))? {
             return Ok(SiweIdentityWriteOutcome::Existing(owner));
         }
         let address_owner = find_owner(&state, &wallet.address, None)?;
         match write {
-            SiweIdentityWrite::Create { mut user, .. } => {
-                if let Some(owner) = address_owner {
-                    wallet.user_id = owner.user.id;
-                    wallet.is_primary = false;
-                    account.user_id = owner.user.id;
-                    ensure_wallet_account_available(&state, &wallet, &account)?;
-                    insert_wallet_account(&mut state, &wallet, &account);
-                    return Ok(SiweIdentityWriteOutcome::AddedChain {
-                        user: owner.user,
-                        wallet,
-                        account,
-                    });
-                }
-                user.email = user.email.to_lowercase();
-                if state.emails.contains_key(&user.email) {
-                    return Ok(SiweIdentityWriteOutcome::EmailTaken);
-                }
-                wallet.user_id = user.id;
-                wallet.is_primary = true;
-                account.user_id = user.id;
-                ensure_wallet_account_available(&state, &wallet, &account)?;
-                state.emails.insert(user.email.clone(), user.id);
-                state.users.insert(user.id, user.as_ref().clone());
-                insert_wallet_account(&mut state, &wallet, &account);
-                Ok(SiweIdentityWriteOutcome::Created {
-                    user: *user,
-                    wallet,
-                    account,
-                })
-            }
             SiweIdentityWrite::AddChain {
                 expected_user_id, ..
             } => {
@@ -77,9 +57,11 @@ impl SiweStore for MemoryStore {
                 if owner.user.id != expected_user_id {
                     return Ok(SiweIdentityWriteOutcome::Existing(owner));
                 }
-                wallet.user_id = owner.user.id;
+                wallet.user_id = owner.user.id.clone();
                 wallet.is_primary = false;
-                account.user_id = owner.user.id;
+                let (mut account, account_id) = account.into_parts(self)?;
+                account.id = self.create_id("account", account_id, state.oauth_accounts.len())?;
+                account.user_id = owner.user.id.clone();
                 ensure_wallet_account_available(&state, &wallet, &account)?;
                 insert_wallet_account(&mut state, &wallet, &account);
                 Ok(SiweIdentityWriteOutcome::AddedChain {

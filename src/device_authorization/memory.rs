@@ -72,7 +72,7 @@ impl DeviceAuthorizationStore for MemoryDeviceAuthorizationStore {
     async fn bind_pending_user(
         &self,
         id: Uuid,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Option<DeviceCode>, AuthError> {
         let mut state = self.state.write().await;
         let Some(record) = state.records.get_mut(&id) else {
@@ -81,7 +81,7 @@ impl DeviceAuthorizationStore for MemoryDeviceAuthorizationStore {
         if record.status != DeviceCodeStatus::Pending || record.user_id.is_some() {
             return Ok(None);
         }
-        record.user_id = Some(user_id);
+        record.user_id = Some(user_id.to_owned());
         Ok(Some(record.clone()))
     }
 
@@ -148,18 +148,20 @@ mod tests {
         let store = Arc::new(MemoryDeviceAuthorizationStore::new());
         let record = record();
         store.create_device_code(record.clone()).await.unwrap();
-        let first_user = Uuid::new_v4();
-        let second_user = Uuid::new_v4();
+        let first_user = Uuid::new_v4().to_string();
+        let second_user = Uuid::new_v4().to_string();
         let (first, second) = tokio::join!(
-            store.bind_pending_user(record.id, first_user),
-            store.bind_pending_user(record.id, second_user)
+            store.bind_pending_user(record.id, &first_user),
+            store.bind_pending_user(record.id, &second_user)
         );
         let winners = [first.unwrap(), second.unwrap()]
             .into_iter()
             .flatten()
             .collect::<Vec<_>>();
         assert_eq!(winners.len(), 1);
-        assert!(matches!(winners[0].user_id, Some(id) if id == first_user || id == second_user));
+        assert!(
+            matches!(winners[0].user_id.as_deref(), Some(id) if id == first_user || id == second_user)
+        );
     }
 
     #[tokio::test]

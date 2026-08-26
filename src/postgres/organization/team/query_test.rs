@@ -31,7 +31,8 @@ fn team_queries_remap_update_delete_member_sort_and_user_join() {
     );
     assert!(!update.sql().contains("secret team"));
 
-    let delete = delete_team_member_query(&member, team_id, user_id).unwrap();
+    let user_id = user_id.to_string();
+    let delete = delete_team_member_query(&member, team_id, &user_id).unwrap();
     assert!(
         delete
             .sql()
@@ -45,7 +46,7 @@ fn team_queries_remap_update_delete_member_sort_and_user_join() {
 
     let members = list_team_members_query(&member, team_id).unwrap();
     assert!(members.sql().contains("ORDER BY \"joined time\" ASC"));
-    let user_teams = list_user_teams_query(&team, &member, user_id).unwrap();
+    let user_teams = list_user_teams_query(&team, &member, &user_id).unwrap();
     assert!(user_teams.sql().contains("FROM \"org\"\"team members\""));
     assert!(
         user_teams

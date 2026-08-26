@@ -1,10 +1,11 @@
 use axum::{body::Body, http::Request};
 use chrono::Utc;
 use lucid_auth::{
-    AdminPlugin, AuthConfig, AuthError, AuthService, AuthStore, MemoryStepUpStore, MemoryStore,
-    MemoryTwoFactorStore, NewPasswordUser, OperatorSecurityConfig, OperatorSecurityError,
-    OperatorSecurityPlugin, OwnerPolicyPlugin, StepUpPolicyPlugin, StepUpStore, StoredPasskey,
-    TwoFactorConfig, TwoFactorPlugin, TwoFactorRecord, TwoFactorStore,
+    AdminPlugin, AuthConfig, AuthError, AuthService, AuthStore, DatabaseCreate,
+    DatabaseIdGeneration::Default as DefaultId, DatabaseIdInput::Absent, DatabaseIdPlan,
+    MemoryStepUpStore, MemoryStore, MemoryTwoFactorStore, NewPasswordUser, OperatorSecurityConfig,
+    OperatorSecurityError, OperatorSecurityPlugin, OwnerPolicyPlugin, StepUpPolicyPlugin,
+    StepUpStore, StoredPasskey, TwoFactorConfig, TwoFactorPlugin, TwoFactorRecord, TwoFactorStore,
 };
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -96,7 +97,7 @@ async fn assert_temporary_access_is_restricted(
         service
             .operator_security()
             .unwrap()
-            .status(member.id)
+            .status(&member.id)
             .await
             .unwrap()
             .temporary_password
@@ -134,7 +135,7 @@ async fn replace_password_and_assert_access(
         !service
             .operator_security()
             .unwrap()
-            .status(member.id)
+            .status(&member.id)
             .await
             .unwrap()
             .temporary_password
@@ -149,7 +150,7 @@ async fn administrator_passwords_require_replacement_only_with_the_plugin() {
     replace_password_and_assert_access(&fixture.service, &member, &signed_in).await;
     fixture
         .service
-        .set_user_password(&owner.session, member.id, "reset-password".into())
+        .set_user_password(&owner.session, &member.id, "reset-password".into())
         .await
         .unwrap();
     assert!(
@@ -157,7 +158,7 @@ async fn administrator_passwords_require_replacement_only_with_the_plugin() {
             .service
             .operator_security()
             .unwrap()
-            .status(member.id)
+            .status(&member.id)
             .await
             .unwrap()
             .temporary_password
@@ -199,7 +200,7 @@ async fn recovery_fixture() -> RecoveryFixture {
     seed_recovery_state(&fixture, &factors, &owner).await;
     assert!(
         step_up
-            .find_step_up_session(signed_in.session.session.id)
+            .find_step_up_session(&signed_in.session.session.id)
             .await
             .unwrap()
             .is_some()
@@ -221,25 +222,28 @@ async fn seed_recovery_state(
     let now = Utc::now();
     fixture
         .auth_store
-        .save_passkey(StoredPasskey {
-            id: Uuid::new_v4(),
-            user_id: owner.id,
-            name: Some("Lost key".into()),
-            credential_id: "lost-credential".into(),
-            public_key: "public-key".into(),
-            counter: 0,
-            device_type: "singleDevice".into(),
-            backed_up: false,
-            transports: None,
-            aaguid: None,
-            created_at: now,
-        })
+        .save_passkey(DatabaseCreate::new(
+            StoredPasskey {
+                id: String::new(),
+                user_id: owner.id.clone(),
+                name: Some("Lost key".into()),
+                credential_id: "lost-credential".into(),
+                public_key: "public-key".into(),
+                counter: 0,
+                device_type: "singleDevice".into(),
+                backed_up: false,
+                transports: None,
+                aaguid: None,
+                created_at: now,
+            },
+            DatabaseIdPlan::new(DefaultId, "passkey", Absent, false),
+        ))
         .await
         .unwrap();
     factors
         .upsert_two_factor(TwoFactorRecord {
             id: Uuid::new_v4(),
-            user_id: owner.id,
+            user_id: owner.id.clone(),
             encrypted_secret: "secret".into(),
             encrypted_backup_codes: "codes".into(),
             verified: true,
@@ -249,7 +253,7 @@ async fn seed_recovery_state(
         .await
         .unwrap();
     factors
-        .set_two_factor_enabled(owner.id, true)
+        .set_two_factor_enabled(&owner.id, true)
         .await
         .unwrap();
 }
@@ -265,7 +269,7 @@ async fn assert_recovery_cleanup(recovery: &RecoveryFixture) {
     );
     assert!(
         service
-            .list_passkeys(recovery.owner.id)
+            .list_passkeys(&recovery.owner.id)
             .await
             .unwrap()
             .is_empty()
@@ -273,7 +277,7 @@ async fn assert_recovery_cleanup(recovery: &RecoveryFixture) {
     assert!(
         recovery
             .factors
-            .find_two_factor(recovery.owner.id)
+            .find_two_factor(&recovery.owner.id)
             .await
             .unwrap()
             .is_none()
@@ -281,7 +285,7 @@ async fn assert_recovery_cleanup(recovery: &RecoveryFixture) {
     assert!(
         recovery
             .step_up
-            .find_step_up_session(recovery.signed_in.session.session.id)
+            .find_step_up_session(&recovery.signed_in.session.session.id)
             .await
             .unwrap()
             .is_none()
@@ -360,7 +364,7 @@ async fn provisioned_password_policy_is_plugin_configuration() {
         service
             .operator_security()
             .unwrap()
-            .status(user.id)
+            .status(&user.id)
             .await
             .unwrap()
             .temporary_password

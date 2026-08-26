@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use sqlx::{Postgres, QueryBuilder};
-use uuid::Uuid;
 
 mod query;
 use query::push_conditions;
@@ -67,14 +66,14 @@ impl AccessStore for PostgresStore {
             .map_err(storage_error)
     }
 
-    async fn update_user_role(&self, user_id: Uuid, role: &str) -> Result<AuthUser, AuthError> {
+    async fn update_user_role(&self, user_id: &str, role: &str) -> Result<AuthUser, AuthError> {
         self.update_user_fields(user_id, [("role", json!(role)), ("updatedAt", now_value())])
             .await
     }
 
     async fn update_user_ban(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         banned: bool,
         reason: Option<String>,
         expires_at: Option<DateTime<Utc>>,
@@ -96,7 +95,7 @@ impl AccessStore for PostgresStore {
 
     async fn admin_update_user(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         update: AdminUserUpdate,
     ) -> Result<AuthUser, AuthError> {
         let mut user = super::user::load_by_id(self, user_id)
@@ -130,18 +129,17 @@ impl AccessStore for PostgresStore {
         user.updated_at = Utc::now();
 
         let model = self.user_model()?;
-        let mut writes = super::user::user_writes(&model, &user)?;
+        let id = crate::PreparedDatabaseId::Value(crate::DatabaseIdValue::String(user.id.clone()));
+        let mut writes = super::user::user_writes(&model, &user, &id)?;
         writes.retain(|write| write.logical() != "id");
         let mut query = super::rows::update_query(&model, writes);
-        query
-            .push(" WHERE \"id\" = ")
-            .push_bind(user_id)
-            .push(" RETURNING ")
-            .push(model.all_projection());
+        query.push(" WHERE \"id\" = ");
+        super::rows::push_model_value(&mut query, &model, "id", json!(user_id))?;
+        query.push(" RETURNING ").push(model.all_projection());
         decode_user_optional(&model, query, &self.pool).await
     }
 
-    async fn delete_user(&self, user_id: Uuid) -> Result<(), AuthError> {
+    async fn delete_user(&self, user_id: &str) -> Result<(), AuthError> {
         let user_model = self.user_model()?;
         let api_key_model = self.physical_model_if_present("apikey")?;
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
@@ -153,7 +151,7 @@ impl AccessStore for PostgresStore {
                 .push(model.quoted_column("referenceId")?)
                 .push(" = ");
             model
-                .encode("referenceId", json!(user_id.to_string()))?
+                .encode("referenceId", json!(user_id))?
                 .push_bind(&mut query);
             query
                 .build()
@@ -164,8 +162,8 @@ impl AccessStore for PostgresStore {
         let mut query = QueryBuilder::<Postgres>::new("DELETE FROM ");
         query
             .push(user_model.quoted_table())
-            .push(" WHERE \"id\" = ")
-            .push_bind(user_id);
+            .push(" WHERE \"id\" = ");
+        super::rows::push_model_value(&mut query, &user_model, "id", json!(user_id))?;
         let result = query
             .build()
             .execute(&mut *transaction)
@@ -177,7 +175,7 @@ impl AccessStore for PostgresStore {
         transaction.commit().await.map_err(storage_error)
     }
 
-    async fn list_sessions(&self, user_id: Uuid) -> Result<Vec<AuthSession>, AuthError> {
+    async fn list_sessions(&self, user_id: &str) -> Result<Vec<AuthSession>, AuthError> {
         let model = self.session_model()?;
         let mut query = super::session::select_query(&model);
         query
@@ -185,7 +183,7 @@ impl AccessStore for PostgresStore {
             .push(model.quoted_column("userId")?)
             .push(" = ");
         model
-            .encode("userId", json!(user_id.to_string()))?
+            .encode("userId", json!(user_id))?
             .push_bind(&mut query);
         query
             .push(" AND ")
@@ -203,11 +201,11 @@ impl AccessStore for PostgresStore {
             .collect()
     }
 
-    async fn delete_session_by_id(&self, session_id: Uuid) -> Result<(), AuthError> {
+    async fn delete_session_by_id(&self, session_id: &str) -> Result<(), AuthError> {
         super::session::delete_by_id(self, session_id).await
     }
 
-    async fn delete_user_sessions(&self, user_id: Uuid) -> Result<(), AuthError> {
+    async fn delete_user_sessions(&self, user_id: &str) -> Result<(), AuthError> {
         super::session::delete_for_user(self, user_id).await
     }
 }
@@ -215,17 +213,15 @@ impl AccessStore for PostgresStore {
 impl PostgresStore {
     async fn update_user_fields<'a>(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         fields: impl IntoIterator<Item = (&'a str, Value)>,
     ) -> Result<AuthUser, AuthError> {
         let model = self.user_model()?;
         let writes = model.encode_fields(fields)?;
         let mut query = super::rows::update_query(&model, writes);
-        query
-            .push(" WHERE \"id\" = ")
-            .push_bind(user_id)
-            .push(" RETURNING ")
-            .push(model.all_projection());
+        query.push(" WHERE \"id\" = ");
+        super::rows::push_model_value(&mut query, &model, "id", json!(user_id))?;
+        query.push(" RETURNING ").push(model.all_projection());
         decode_user_optional(&model, query, &self.pool).await
     }
 }

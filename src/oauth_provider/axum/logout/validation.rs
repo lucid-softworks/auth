@@ -9,7 +9,6 @@ use crate::{
 use axum::http::HeaderMap;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use serde_json::{Map, Value};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct LogoutRedirect {
@@ -33,7 +32,7 @@ pub(super) async fn current_session(
 
 pub(super) async fn hinted_session(
     service: &AuthService,
-    session_id: Uuid,
+    session_id: &str,
 ) -> Result<Option<crate::AuthSession>, OAuthProviderError> {
     service
         .oauth_provider_session_by_id(session_id)

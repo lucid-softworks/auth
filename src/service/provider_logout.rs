@@ -14,7 +14,7 @@ impl AuthService {
         let Some(current) = current else {
             return Ok(None);
         };
-        let mut accounts = self.store.list_user_accounts(current.user.id).await?;
+        let mut accounts = self.store.list_user_accounts(&current.user.id).await?;
         accounts.sort_by_key(|account| std::cmp::Reverse(account.updated_at));
         let mut seen = BTreeSet::new();
         for account in accounts {

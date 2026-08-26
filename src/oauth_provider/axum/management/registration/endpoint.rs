@@ -21,7 +21,6 @@ use axum::{
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
-use uuid::Uuid;
 
 use super::super::super::body::JsonOnly;
 use super::super::super::response::no_store;
@@ -138,7 +137,7 @@ async fn registration_owner(
     session: Option<&crate::SessionWithUser>,
     token_authorization: Option<OAuthInitialAccessTokenAuthorization>,
     context: &OAuthCallbackContext,
-) -> Result<(Option<Uuid>, Option<String>), Box<Response>> {
+) -> Result<(Option<String>, Option<String>), Box<Response>> {
     if session.is_some() {
         authorize_client_action(&state.config, OAuthClientAction::Create, context).await?;
     }
@@ -151,7 +150,7 @@ async fn registration_owner(
     };
     let user_id = reference_id
         .is_none()
-        .then(|| session.map(|session| session.user.id))
+        .then(|| session.map(|session| session.user.id.clone()))
         .flatten();
     Ok((user_id, reference_id))
 }

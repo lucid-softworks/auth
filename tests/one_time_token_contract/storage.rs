@@ -18,7 +18,7 @@ use tower::ServiceExt;
 
 struct FixedGenerator {
     token: String,
-    calls: Mutex<Vec<(uuid::Uuid, OneTimeTokenRequestContext)>>,
+    calls: Mutex<Vec<(String, OneTimeTokenRequestContext)>>,
 }
 
 impl FixedGenerator {
@@ -40,7 +40,7 @@ impl OneTimeTokenGenerator for FixedGenerator {
         self.calls
             .lock()
             .await
-            .push((session.session.id, context.clone()));
+            .push((session.session.id.clone(), context.clone()));
         Ok(self.token.clone())
     }
 }

@@ -107,7 +107,7 @@ async fn reactivation_grants(
             capability: capability.clone(),
             constraints: None,
             denied_by: None,
-            granted_by: agent.user_id,
+            granted_by: agent.user_id.clone(),
             expires_at,
             status: AgentGrantStatus::Active,
             reason: None,
@@ -131,7 +131,7 @@ async fn resolve_grant_expiry(
                     capability: capability.to_owned(),
                     agent_id: agent.id.clone(),
                     host_id: Some(agent.host_id.clone()),
-                    user_id: agent.user_id,
+                    user_id: agent.user_id.clone(),
                 })
                 .await
         }

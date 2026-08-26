@@ -4,33 +4,40 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use sqlx::QueryBuilder;
-use uuid::Uuid;
 
 #[async_trait]
 impl OperatorSecurityStore for PostgresStore {
-    async fn is_temporary_password(&self, user_id: Uuid) -> Result<bool, AuthError> {
-        sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM lucid_auth_operator_temporary_passwords WHERE user_id = $1)",
-        )
-        .bind(user_id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(storage_error)
+    async fn is_temporary_password(&self, user_id: &str) -> Result<bool, AuthError> {
+        let user = self.physical_model("user")?;
+        let mut query = QueryBuilder::new(
+            "SELECT EXISTS(SELECT 1 FROM lucid_auth_operator_temporary_passwords WHERE user_id = ",
+        );
+        user.encode("id", json!(user_id))?.push_bind(&mut query);
+        query.push(")");
+        query
+            .build_query_scalar()
+            .fetch_one(&self.pool)
+            .await
+            .map_err(storage_error)
     }
 
     async fn set_temporary_password(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         temporary: bool,
     ) -> Result<(), AuthError> {
-        let query = if temporary {
-            "INSERT INTO lucid_auth_operator_temporary_passwords (user_id) VALUES ($1) \
-             ON CONFLICT (user_id) DO NOTHING"
+        let user = self.physical_model("user")?;
+        let mut query = QueryBuilder::new(if temporary {
+            "INSERT INTO lucid_auth_operator_temporary_passwords (user_id) VALUES ("
         } else {
-            "DELETE FROM lucid_auth_operator_temporary_passwords WHERE user_id = $1"
-        };
-        sqlx::query(query)
-            .bind(user_id)
+            "DELETE FROM lucid_auth_operator_temporary_passwords WHERE user_id = "
+        });
+        user.encode("id", json!(user_id))?.push_bind(&mut query);
+        if temporary {
+            query.push(") ON CONFLICT (user_id) DO NOTHING");
+        }
+        query
+            .build()
             .execute(&self.pool)
             .await
             .map(|_| ())
@@ -39,7 +46,7 @@ impl OperatorSecurityStore for PostgresStore {
 
     async fn recover_sole_owner(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         owner_role: &str,
         password_hash: String,
     ) -> Result<bool, AuthError> {
@@ -59,7 +66,7 @@ impl OperatorSecurityStore for PostgresStore {
         .await?;
         clear_user_restrictions(&mut transaction, &models.user, user_id, now).await?;
         clear_bound_security_state(&mut transaction, &models, user_id).await?;
-        mark_temporary(&mut transaction, user_id).await?;
+        mark_temporary(&mut transaction, &models.user, user_id).await?;
         transaction.commit().await.map_err(storage_error)?;
         Ok(true)
     }
@@ -89,7 +96,7 @@ async fn owner_ids(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     user: &super::PostgresModel<'_>,
     owner_role: &str,
-) -> Result<Vec<Uuid>, AuthError> {
+) -> Result<Vec<String>, AuthError> {
     let mut query = QueryBuilder::new("SELECT \"id\" FROM ");
     query
         .push(user.quoted_table())
@@ -105,16 +112,22 @@ async fn owner_ids(
     }
     query.push(" FOR UPDATE");
     query
-        .build_query_scalar::<Uuid>()
+        .build()
         .fetch_all(&mut **transaction)
         .await
-        .map_err(storage_error)
+        .map_err(storage_error)?
+        .iter()
+        .map(|row| {
+            user.decode_id(row, "id")?
+                .ok_or_else(|| AuthError::Storage("owner user id is null".into()))
+        })
+        .collect()
 }
 
 async fn replace_credential(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     account: &super::PostgresModel<'_>,
-    user_id: Uuid,
+    user_id: &str,
     password_hash: String,
     now: DateTime<Utc>,
 ) -> Result<(), AuthError> {
@@ -126,8 +139,11 @@ async fn replace_credential(
     query
         .push(" WHERE ")
         .push(account.quoted_column("userId")?)
-        .push(" = ")
-        .push_bind(user_id)
+        .push(" = ");
+    account
+        .encode("userId", json!(user_id))?
+        .push_bind(&mut query);
+    query
         .push(" AND ")
         .push(account.quoted_column("providerId")?)
         .push(" = ")
@@ -147,7 +163,7 @@ async fn replace_credential(
 async fn clear_user_restrictions(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     user: &super::PostgresModel<'_>,
-    user_id: Uuid,
+    user_id: &str,
     now: DateTime<Utc>,
 ) -> Result<(), AuthError> {
     let writes = user.encode_fields([
@@ -157,7 +173,8 @@ async fn clear_user_restrictions(
         ("updatedAt", json!(now.to_rfc3339())),
     ])?;
     let mut query = super::rows::update_query(user, writes);
-    query.push(" WHERE \"id\" = ").push_bind(user_id);
+    query.push(" WHERE \"id\" = ");
+    user.encode("id", json!(user_id))?.push_bind(&mut query);
     query
         .build()
         .execute(&mut **transaction)
@@ -169,48 +186,52 @@ async fn clear_user_restrictions(
 async fn clear_bound_security_state(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     models: &RecoveryModels<'_>,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), AuthError> {
     if let Some(session) = &models.session {
-        delete_by_uuid(transaction, session, "userId", user_id).await?;
+        delete_by_id(transaction, session, "userId", user_id).await?;
     }
     if let Some(passkey) = &models.passkey {
-        delete_by_uuid(transaction, passkey, "userId", user_id).await?;
+        delete_by_id(transaction, passkey, "userId", user_id).await?;
     }
     if let Some(api_key) = &models.api_key {
-        delete_by_text(transaction, api_key, "referenceId", user_id.to_string()).await?;
+        delete_by_text(transaction, api_key, "referenceId", user_id.to_owned()).await?;
     }
     Ok(())
 }
 
 async fn mark_temporary(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    user_id: Uuid,
+    user: &super::PostgresModel<'_>,
+    user_id: &str,
 ) -> Result<(), AuthError> {
-    sqlx::query(
-        "INSERT INTO lucid_auth_operator_temporary_passwords (user_id) VALUES ($1) \
-         ON CONFLICT (user_id) DO NOTHING",
-    )
-    .bind(user_id)
-    .execute(&mut **transaction)
-    .await
-    .map(|_| ())
-    .map_err(storage_error)
+    let mut query =
+        QueryBuilder::new("INSERT INTO lucid_auth_operator_temporary_passwords (user_id) VALUES (");
+    user.encode("id", json!(user_id))?.push_bind(&mut query);
+    query.push(") ON CONFLICT (user_id) DO NOTHING");
+    query
+        .build()
+        .execute(&mut **transaction)
+        .await
+        .map(|_| ())
+        .map_err(storage_error)
 }
 
-async fn delete_by_uuid(
+async fn delete_by_id(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     model: &super::PostgresModel<'_>,
     logical_field: &str,
-    value: Uuid,
+    value: &str,
 ) -> Result<(), AuthError> {
     let mut query = QueryBuilder::new("DELETE FROM ");
     query
         .push(model.quoted_table())
         .push(" WHERE ")
         .push(model.quoted_column(logical_field)?)
-        .push(" = ")
-        .push_bind(value);
+        .push(" = ");
+    model
+        .encode(logical_field, json!(value))?
+        .push_bind(&mut query);
     query
         .build()
         .execute(&mut **transaction)

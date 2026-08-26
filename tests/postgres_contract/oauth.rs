@@ -1,14 +1,66 @@
 use super::*;
 use chrono::Utc;
+use lucid_auth::OAuthAccountOwner;
 
 pub(super) async fn assert_issuer_qualified_accounts(
     store: &PostgresStore,
     pool: &sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let owner = create_first_issuer_owner(store).await?;
+    let user_id = owner.user.id.clone();
+    let first_account = owner.account.clone();
+    let loaded = store
+        .find_oauth_account_owner("https://issuer-one.example", "shared-subject")
+        .await?
+        .expect("issuer-qualified account");
+    assert_eq!(loaded.account.id, first_account.id);
+    assert_eq!(loaded.account.additional_fields["tenant"], "alpha");
+    assert_eq!(
+        loaded.account.access_token.as_deref(),
+        Some("encrypted-one")
+    );
+
+    let second = fixture_account(
+        &user_id,
+        "https://issuer-two.example",
+        "shared-subject",
+        "provider-two",
+    );
+    let second = store
+        .link_oauth_account(database_create(second, "account"))
+        .await?;
+    assert_eq!(
+        store
+            .find_oauth_account_owner("https://issuer-two.example", "shared-subject")
+            .await?
+            .expect("same subject under a different issuer")
+            .account
+            .provider_id,
+        "provider-two"
+    );
+
+    let collision = fixture_account(
+        &user_id,
+        "https://issuer-one.example",
+        "shared-subject",
+        "renamed-provider",
+    );
+    assert!(matches!(
+        store
+            .link_oauth_account(database_create(collision, "account"))
+            .await,
+        Err(AuthError::UserAlreadyExists)
+    ));
+
+    assert_token_rotation_is_atomic(store, &user_id, &second).await?;
+    assert_oauth_columns(pool).await?;
+    Ok(())
+}
+
+async fn create_first_issuer_owner(store: &PostgresStore) -> Result<OAuthAccountOwner, AuthError> {
     let now = Utc::now();
-    let user_id = Uuid::new_v4();
     let user = AuthUser {
-        id: user_id,
+        id: String::new(),
         username: None,
         display_username: None,
         name: "PostgreSQL OAuth User".into(),
@@ -25,60 +77,22 @@ pub(super) async fn assert_issuer_qualified_accounts(
         updated_at: now,
     };
     let account = fixture_account(
-        user_id,
+        "",
         "https://issuer-one.example",
         "shared-subject",
         "provider-one",
     );
     let owner = store
-        .create_oauth_user(user.clone(), account.clone())
+        .create_oauth_user(
+            database_create(user.clone(), "user"),
+            &OAuthAccountFixture::new(account),
+        )
         .await?;
-    assert_eq!(owner.user.id, user.id);
+    assert!(!owner.user.id.is_empty());
     assert_eq!(owner.user.email, user.email);
     assert_eq!(owner.user.name, user.name);
     assert_eq!(owner.user.email_verified, user.email_verified);
-    let loaded = store
-        .find_oauth_account_owner("https://issuer-one.example", "shared-subject")
-        .await?
-        .expect("issuer-qualified account");
-    assert_eq!(loaded.account.id, account.id);
-    assert_eq!(loaded.account.additional_fields["tenant"], "alpha");
-    assert_eq!(
-        loaded.account.access_token.as_deref(),
-        Some("encrypted-one")
-    );
-
-    let second = fixture_account(
-        user_id,
-        "https://issuer-two.example",
-        "shared-subject",
-        "provider-two",
-    );
-    store.link_oauth_account(second.clone()).await?;
-    assert_eq!(
-        store
-            .find_oauth_account_owner("https://issuer-two.example", "shared-subject")
-            .await?
-            .expect("same subject under a different issuer")
-            .account
-            .provider_id,
-        "provider-two"
-    );
-
-    let collision = fixture_account(
-        user_id,
-        "https://issuer-one.example",
-        "shared-subject",
-        "renamed-provider",
-    );
-    assert!(matches!(
-        store.link_oauth_account(collision).await,
-        Err(AuthError::UserAlreadyExists)
-    ));
-
-    assert_token_rotation_is_atomic(store, user_id, &second).await?;
-    assert_oauth_columns(pool).await?;
-    Ok(())
+    Ok(owner)
 }
 
 pub(super) async fn assert_one_tap_account_and_session_persistence(
@@ -86,7 +100,7 @@ pub(super) async fn assert_one_tap_account_and_session_persistence(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let now = Utc::now();
     let user = AuthUser {
-        id: Uuid::new_v4(),
+        id: String::new(),
         username: None,
         display_username: None,
         name: "PostgreSQL One Tap User".into(),
@@ -103,7 +117,7 @@ pub(super) async fn assert_one_tap_account_and_session_persistence(
         updated_at: now,
     };
     let mut account = fixture_account(
-        user.id,
+        "",
         "https://accounts.google.com",
         "postgres-one-tap-subject",
         "google",
@@ -112,11 +126,17 @@ pub(super) async fn assert_one_tap_account_and_session_persistence(
     account.refresh_token = None;
     account.id_token = Some("encrypted-google-id-token".into());
     account.scope = Some("openid,profile,email".into());
-    store.create_oauth_user(user.clone(), account).await?;
+    let owner = store
+        .create_oauth_user(
+            database_create(user, "user"),
+            &OAuthAccountFixture::new(account),
+        )
+        .await?;
+    let user = owner.user;
 
     let session = AuthSession {
-        id: Uuid::new_v4(),
-        user_id: user.id,
+        id: String::new(),
+        user_id: user.id.clone(),
         token: "postgres-one-tap-session".into(),
         actor_user_id: None,
         authentication_method: Some(AuthenticationMethod::OAuth),
@@ -127,7 +147,9 @@ pub(super) async fn assert_one_tap_account_and_session_persistence(
         user_agent: Some("one-tap-postgres-contract".into()),
         additional_fields: serde_json::Map::new(),
     };
-    store.create_session(session).await?;
+    store
+        .create_session(database_create(session, "session"))
+        .await?;
     let persisted = store
         .find_session("postgres-one-tap-session")
         .await?
@@ -149,7 +171,7 @@ pub(super) async fn assert_one_tap_account_and_session_persistence(
 
 async fn assert_token_rotation_is_atomic(
     store: &PostgresStore,
-    user_id: Uuid,
+    user_id: &str,
     second: &OAuthAccount,
 ) -> Result<(), AuthError> {
     let stored = store
@@ -183,7 +205,9 @@ async fn assert_token_rotation_is_atomic(
     assert_eq!(winner.access_token.as_deref(), Some("rotated-access"));
 
     assert_eq!(
-        store.delete_user_account(user_id, second.id, false).await?,
+        store
+            .delete_user_account(user_id, &second.id, false)
+            .await?,
         AccountDeleteOutcome::Deleted
     );
     let final_account = store
@@ -194,7 +218,7 @@ async fn assert_token_rotation_is_atomic(
         .expect("remaining account");
     assert_eq!(
         store
-            .delete_user_account(user_id, final_account.id, false)
+            .delete_user_account(user_id, &final_account.id, false)
             .await?,
         AccountDeleteOutcome::LastAccount
     );
@@ -216,15 +240,15 @@ async fn assert_oauth_columns(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
 }
 
 fn fixture_account(
-    user_id: Uuid,
+    user_id: &str,
     issuer: &str,
     account_id: &str,
     provider_id: &str,
 ) -> OAuthAccount {
     let now = Utc::now();
     OAuthAccount {
-        id: Uuid::new_v4(),
-        user_id,
+        id: String::new(),
+        user_id: user_id.to_owned(),
         issuer: issuer.into(),
         account_id: account_id.into(),
         provider_id: provider_id.into(),

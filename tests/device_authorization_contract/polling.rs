@@ -23,7 +23,7 @@ async fn polling_reports_pending_denied_and_expired_in_the_pinned_order() {
         record(
             "denied-device",
             "DENIED01",
-            Some(fixture.user_id),
+            Some(fixture.user_id.clone()),
             DeviceCodeStatus::Denied,
         ),
     )
@@ -43,7 +43,7 @@ async fn polling_reports_pending_denied_and_expired_in_the_pinned_order() {
     let mut expired = record(
         "expired-device",
         "EXPIRED1",
-        Some(fixture.user_id),
+        Some(fixture.user_id.clone()),
         DeviceCodeStatus::Approved,
     );
     expired.expires_at = Utc::now() - Duration::seconds(1);
@@ -67,7 +67,7 @@ async fn standalone_token_rejects_oauth_owned_codes_before_status_processing() {
     let mut oauth = record(
         "oauth-device",
         "OAUTH001",
-        Some(fixture.user_id),
+        Some(fixture.user_id.clone()),
         DeviceCodeStatus::Approved,
     );
     oauth.oauth_client_id = Some("oauth-client".into());
@@ -87,7 +87,7 @@ async fn slow_down_precedes_expiration_and_does_not_delete_the_record() {
     let mut record = record(
         "slow-device",
         "SLOW0001",
-        Some(fixture.user_id),
+        Some(fixture.user_id.clone()),
         DeviceCodeStatus::Approved,
     );
     record.expires_at = Utc::now() - Duration::seconds(1);

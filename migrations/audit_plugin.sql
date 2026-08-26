@@ -1,7 +1,7 @@
 CREATE TABLE lucid_auth_audit_events (
     id UUID PRIMARY KEY,
-    actor_user_id UUID REFERENCES {{lucid-auth:user-table}}(id) ON DELETE SET NULL,
-    subject_user_id UUID REFERENCES {{lucid-auth:user-table}}(id) ON DELETE SET NULL,
+    actor_user_id {{lucid-auth:user-id-type}} REFERENCES {{lucid-auth:user-table}}(id) ON DELETE SET NULL,
+    subject_user_id {{lucid-auth:user-id-type}} REFERENCES {{lucid-auth:user-table}}(id) ON DELETE SET NULL,
     action TEXT NOT NULL,
     target TEXT,
     outcome TEXT NOT NULL DEFAULT 'success',

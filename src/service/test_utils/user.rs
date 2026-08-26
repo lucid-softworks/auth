@@ -30,7 +30,12 @@ impl TestHelpers<'_> {
 
     /// Deletes a user through the core adapter; an absent user is a no-op.
     pub async fn delete_user(&self, user_id: Uuid) -> Result<(), TestUtilsError> {
-        if let Some(user) = self.service.store.find_user_by_id(user_id).await? {
+        if let Some(user) = self
+            .service
+            .store
+            .find_user_by_id(&user_id.to_string())
+            .await?
+        {
             self.service.delete_user_record_with_hooks(&user).await?;
         }
         Ok(())

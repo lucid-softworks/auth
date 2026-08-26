@@ -17,7 +17,7 @@ pub(super) async fn assert_table_absent(
 pub(super) async fn assert_retention_is_atomic(
     store: &PostgresStore,
     pool: &sqlx::PgPool,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     sqlx::query("TRUNCATE lucid_auth_audit_events")
         .execute(pool)
@@ -71,7 +71,7 @@ pub(super) async fn assert_retention_is_atomic(
 }
 
 fn event(
-    user_id: Uuid,
+    user_id: &str,
     action: &str,
     outcome: AuditOutcome,
     age_minutes: i64,
@@ -79,9 +79,9 @@ fn event(
     Ok(AuditEvent {
         id: Uuid::new_v4(),
         actor_user_id: None,
-        subject_user_id: Some(user_id),
+        subject_user_id: Some(user_id.to_owned()),
         action: action.into(),
-        target: Some(user_id.to_string()),
+        target: Some(user_id.to_owned()),
         outcome,
         metadata: AuditMetadata::new(json!({ "sequence": age_minutes }))?,
         created_at: Utc::now() - Duration::minutes(age_minutes),

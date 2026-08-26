@@ -66,7 +66,7 @@ pub struct GuestGrant {
     pub expires_at: DateTime<Utc>,
     pub max_uses: Option<i32>,
     pub uses: i32,
-    pub created_by: Uuid,
+    pub created_by: String,
     pub revoked_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
@@ -125,13 +125,13 @@ pub trait GuestCapabilityStore: Send + Sync {
     async fn attach_guest_session(
         &self,
         grant_id: Uuid,
-        session_id: Uuid,
+        session_id: &str,
         now: DateTime<Utc>,
     ) -> Result<bool, AuthError>;
 
     async fn find_guest_grant_for_session(
         &self,
-        session_id: Uuid,
+        session_id: &str,
     ) -> Result<Option<GuestGrant>, AuthError>;
 
     async fn list_guest_grants(&self) -> Result<Vec<GuestGrant>, AuthError>;
@@ -184,7 +184,7 @@ impl AuthPlugin for GuestCapabilityPlugin {
     async fn validate_session(&self, session: &SessionWithUser) -> Result<bool, AuthError> {
         let Some(grant) = self
             .store
-            .find_guest_grant_for_session(session.session.id)
+            .find_guest_grant_for_session(&session.session.id)
             .await?
         else {
             return Ok(true);

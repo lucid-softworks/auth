@@ -17,7 +17,7 @@ struct IssueRequest {
     endpoint: String,
     client: OAuthProviderClient,
     user: Option<crate::AuthUser>,
-    session_id: Option<Uuid>,
+    session_id: Option<String>,
     scopes: Vec<String>,
     resources: Option<Vec<String>>,
     original_resources: Option<Vec<String>>,

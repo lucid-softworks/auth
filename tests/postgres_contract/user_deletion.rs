@@ -37,7 +37,7 @@ pub(super) async fn assert_transactional(
         let count = sqlx::query_scalar::<_, i64>(&format!(
             "SELECT COUNT(*) FROM \"{table}\" WHERE \"{user_column}\" = $1"
         ))
-        .bind(signup.user.id)
+        .bind(&signup.user.id)
         .fetch_one(pool)
         .await?;
         assert_eq!(count, 0, "{table} retained deleted user data");

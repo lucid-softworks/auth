@@ -136,7 +136,7 @@ impl OrganizationTeamStore for MemoryOrganizationStore {
     async fn remove_team_member(
         &self,
         team_id: Uuid,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<OrganizationTeamWriteOutcome, AuthError> {
         let mut state = self.state.write().await;
         let Some(id) = state
@@ -168,7 +168,7 @@ impl OrganizationTeamStore for MemoryOrganizationStore {
         Ok(members)
     }
 
-    async fn list_user_teams(&self, user_id: Uuid) -> Result<Vec<OrganizationTeam>, AuthError> {
+    async fn list_user_teams(&self, user_id: &str) -> Result<Vec<OrganizationTeam>, AuthError> {
         let state = self.state.read().await;
         let mut teams: Vec<_> = state
             .team_members

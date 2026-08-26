@@ -1,6 +1,5 @@
 use crate::{AuthError, SessionWithUser};
 use std::collections::{BTreeMap, BTreeSet};
-use uuid::Uuid;
 
 mod plugin;
 
@@ -136,7 +135,7 @@ pub struct AdminConfig {
     pub default_role: String,
     pub admin_roles: Vec<String>,
     pub roles: BTreeMap<String, AdminRole>,
-    pub admin_user_ids: BTreeSet<Uuid>,
+    pub admin_user_ids: BTreeSet<String>,
     pub default_ban_reason: Option<String>,
     pub default_ban_expires_in_seconds: Option<i64>,
     pub impersonation_session_duration_seconds: i64,
@@ -183,8 +182,8 @@ impl AdminConfig {
         self.custom_roles
     }
 
-    pub fn authorizes(&self, user_id: Uuid, roles: &str, requested: &AdminPermissionSet) -> bool {
-        self.admin_user_ids.contains(&user_id)
+    pub fn authorizes(&self, user_id: &str, roles: &str, requested: &AdminPermissionSet) -> bool {
+        self.admin_user_ids.contains(user_id)
             || roles
                 .split(',')
                 .map(str::trim)
@@ -221,8 +220,8 @@ impl AdminConfig {
         Ok(())
     }
 
-    pub(crate) fn is_admin_target(&self, user_id: Uuid, roles: &str) -> bool {
-        self.admin_user_ids.contains(&user_id)
+    pub(crate) fn is_admin_target(&self, user_id: &str, roles: &str) -> bool {
+        self.admin_user_ids.contains(user_id)
             || roles
                 .split(',')
                 .map(str::trim)
@@ -311,7 +310,7 @@ pub(crate) fn require_permission(
     actions: &[&str],
 ) -> Result<(), AuthError> {
     if config.authorizes(
-        session.user.id,
+        &session.user.id,
         &session.user.role,
         &permission(resource, actions),
     ) {

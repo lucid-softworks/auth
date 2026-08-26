@@ -91,12 +91,7 @@ async fn issue_code_result(
     provider
         .validate_resource_policy(&authenticated.client, &scopes, resources.as_deref())
         .await?;
-    let user_id = input
-        .user_id
-        .as_deref()
-        .map(uuid::Uuid::parse_str)
-        .transpose()
-        .map_err(|_| OAuthProviderError::InvalidRequest("user_id is invalid".into()))?;
+    let user_id = input.user_id.clone();
     let generated = generate_device_authorization(
         store.as_ref(),
         &config,
@@ -200,11 +195,11 @@ async fn exchange_device_code(
 
     let mut issue =
         OAuthProviderApiTokenIssueInput::new(authorized.authenticated.client, authorized.scopes);
+    issue.verification_value = serde_json::to_value(&consumed).ok();
     issue.user_id = consumed.user_id;
     issue.resources = effective_resources;
     issue.original_resources = authorized.record.resources;
     issue.confirmation = authorized.authenticated.confirmation;
-    issue.verification_value = serde_json::to_value(&consumed).ok();
     input.provider.issue_tokens(issue).await
 }
 
@@ -279,6 +274,7 @@ async fn prepare_redemption(
     let user_id = authorized
         .record
         .user_id
+        .as_deref()
         .ok_or_else(|| OAuthProviderError::ServerError("Invalid device code status".into()))?;
     if input.provider.load_user(user_id).await?.is_none() {
         return Err(OAuthProviderError::ServerError("User not found".into()));

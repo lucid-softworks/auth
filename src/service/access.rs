@@ -3,7 +3,6 @@ use crate::{
     AdminListUsersQuery, AdminPermissionSet, AuthError, AuthSession, AuthUser, SessionWithUser,
 };
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 
 impl AuthService {
     pub async fn list_users(
@@ -21,7 +20,7 @@ impl AuthService {
     pub async fn admin_get_user(
         &self,
         actor: &SessionWithUser,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<AuthUser, AuthError> {
         self.require_admin_permission(actor, "user", &["get"])
             .await?;
@@ -34,19 +33,19 @@ impl AuthService {
     pub async fn admin_has_permission(
         &self,
         actor: &SessionWithUser,
-        _user_id: Option<Uuid>,
+        _user_id: Option<&str>,
         _role: Option<&str>,
         permissions: &AdminPermissionSet,
     ) -> Result<bool, AuthError> {
         Ok(self
             .admin_config()?
-            .authorizes(actor.user.id, &actor.user.role, permissions))
+            .authorizes(&actor.user.id, &actor.user.role, permissions))
     }
 
     pub async fn set_user_role(
         &self,
         actor: &SessionWithUser,
-        user_id: Uuid,
+        user_id: &str,
         role: &str,
     ) -> Result<AuthUser, AuthError> {
         self.require_admin_permission(actor, "user", &["set-role"])
@@ -87,8 +86,8 @@ impl AuthService {
             self.delete_user_sessions_with_hooks(user_id).await?;
         }
         self.activity(crate::AuthActivity::UserRoleChanged {
-            actor_user_id: actor.user.id,
-            user_id,
+            actor_user_id: actor.user.id.clone(),
+            user_id: user_id.to_owned(),
             previous_role: target.role,
             new_role: role.to_owned(),
         })
@@ -99,7 +98,7 @@ impl AuthService {
     pub async fn ban_user(
         &self,
         actor: &SessionWithUser,
-        user_id: Uuid,
+        user_id: &str,
         reason: Option<String>,
         expires_at: Option<DateTime<Utc>>,
     ) -> Result<AuthUser, AuthError> {
@@ -153,8 +152,8 @@ impl AuthService {
             .await?;
         self.delete_user_sessions_with_hooks(user_id).await?;
         self.activity(crate::AuthActivity::UserBanned {
-            actor_user_id: actor.user.id,
-            user_id,
+            actor_user_id: actor.user.id.clone(),
+            user_id: user_id.to_owned(),
             reason,
             expires_at,
         })
@@ -165,7 +164,7 @@ impl AuthService {
     pub async fn unban_user(
         &self,
         actor: &SessionWithUser,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<AuthUser, AuthError> {
         self.require_admin_permission(actor, "user", &["ban"])
             .await?;
@@ -192,8 +191,8 @@ impl AuthService {
         self.after_database_update(&crate::DatabaseRecord::User(updated.clone()))
             .await?;
         self.activity(crate::AuthActivity::UserUnbanned {
-            actor_user_id: actor.user.id,
-            user_id,
+            actor_user_id: actor.user.id.clone(),
+            user_id: user_id.to_owned(),
         })
         .await;
         Ok(updated)
@@ -202,7 +201,7 @@ impl AuthService {
     pub async fn list_user_sessions(
         &self,
         actor: &SessionWithUser,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Vec<AuthSession>, AuthError> {
         self.require_admin_permission(actor, "session", &["list"])
             .await?;
@@ -227,7 +226,7 @@ impl AuthService {
             .map(|session| session.session.id);
         self.delete_session_token_with_hooks(session_token).await?;
         self.activity(crate::AuthActivity::SessionRevoked {
-            actor_user_id: actor.user.id,
+            actor_user_id: actor.user.id.clone(),
             subject_user_id: None,
             session_id,
             self_service: false,
@@ -239,14 +238,14 @@ impl AuthService {
     pub async fn revoke_user_sessions(
         &self,
         actor: &SessionWithUser,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<(), AuthError> {
         self.require_admin_permission(actor, "session", &["revoke"])
             .await?;
         self.delete_user_sessions_with_hooks(user_id).await?;
         self.activity(crate::AuthActivity::UserSessionsRevoked {
-            actor_user_id: actor.user.id,
-            user_id,
+            actor_user_id: actor.user.id.clone(),
+            user_id: user_id.to_owned(),
         })
         .await;
         Ok(())
@@ -255,7 +254,7 @@ impl AuthService {
     pub async fn impersonate_user(
         &self,
         actor: &SessionWithUser,
-        user_id: Uuid,
+        user_id: &str,
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
@@ -268,9 +267,9 @@ impl AuthService {
             .ok_or(crate::AdminError::UserNotFound)?;
         let admin = self.admin_config()?;
         if !admin.allow_impersonating_admins
-            && admin.is_admin_target(target.id, &target.role)
+            && admin.is_admin_target(&target.id, &target.role)
             && !admin.authorizes(
-                actor.user.id,
+                &actor.user.id,
                 &actor.user.role,
                 &crate::admin::permission("user", &["impersonate-admins"]),
             )
@@ -283,16 +282,16 @@ impl AuthService {
             .create_session_until(
                 target,
                 actor.session.authentication_method,
-                Some(actor.user.id),
+                Some(actor.user.id.clone()),
                 Some(expires_at),
                 ip_address,
                 user_agent,
             )
             .await?;
         self.activity(crate::AuthActivity::ImpersonationStarted {
-            actor_user_id: actor.user.id,
-            user_id,
-            session_id: result.session.session.id,
+            actor_user_id: actor.user.id.clone(),
+            user_id: user_id.to_owned(),
+            session_id: result.session.session.id.clone(),
             expires_at: result.session.session.expires_at,
         })
         .await;
@@ -304,7 +303,11 @@ impl AuthService {
         session: &SessionWithUser,
         actor_session_token: &str,
     ) -> Result<SignInResult, AuthError> {
-        let actor_id = session.session.actor_user_id.ok_or(AuthError::Forbidden)?;
+        let actor_id = session
+            .session
+            .actor_user_id
+            .clone()
+            .ok_or(AuthError::Forbidden)?;
         let actor_session = self
             .session(actor_session_token)
             .await?
@@ -313,7 +316,7 @@ impl AuthService {
         if account_is_banned(&actor_session.user) {
             return Err(AuthError::Forbidden);
         }
-        self.delete_session_id_with_hooks(session.session.id)
+        self.delete_session_id_with_hooks(&session.session.id)
             .await?;
         let result = SignInResult {
             token: actor_session_token.to_owned(),
@@ -321,8 +324,8 @@ impl AuthService {
         };
         self.activity(crate::AuthActivity::ImpersonationStopped {
             actor_user_id: actor_id,
-            user_id: session.user.id,
-            session_id: session.session.id,
+            user_id: session.user.id.clone(),
+            session_id: session.session.id.clone(),
         })
         .await;
         Ok(result)
@@ -343,7 +346,10 @@ impl AuthService {
             .ban_expires
             .is_some_and(|expires| expires <= Utc::now())
         {
-            return self.store.update_user_ban(user.id, false, None, None).await;
+            return self
+                .store
+                .update_user_ban(&user.id, false, None, None)
+                .await;
         }
         Err(AuthError::AccountDisabled(
             admin.banned_user_message.clone(),

@@ -73,7 +73,7 @@ async fn sign_in_response(
     with_bound_session_cookie(
         service,
         headers,
-        result.session.user.id,
+        &result.session.user.id,
         &result.token,
         Some(true),
         response,

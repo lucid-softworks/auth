@@ -7,7 +7,6 @@ use crate::{
 };
 use chrono::Utc;
 use serde_json::{Map, Value};
-use uuid::Uuid;
 
 impl AuthService {
     pub async fn verify_email_otp(
@@ -69,7 +68,7 @@ impl AuthService {
             Some(user) if user.email_verified => user,
             Some(user) => self
                 .store
-                .promote_email_owner(user.id, Utc::now())
+                .promote_email_owner(&user.id, Utc::now())
                 .await?
                 .ok_or(EmailOtpError::InvalidOtp)?,
             None if config.disable_sign_up => return Err(EmailOtpError::InvalidOtp.into()),
@@ -142,13 +141,14 @@ impl AuthService {
             .await?
             .ok_or(EmailOtpError::UserNotFound)?;
         let password_hash = self.hash_password(password).await?;
-        self.store.set_password_hash(user.id, password_hash).await?;
+        self.set_password_hash_with_database_id(&user.id, password_hash)
+            .await?;
         if !user.email_verified {
             user = self.mark_email_verified(user).await?;
         } else {
             user = self
                 .store
-                .update_user_profile(user.id, UserProfileUpdate::default())
+                .update_user_profile(&user.id, UserProfileUpdate::default())
                 .await?
                 .ok_or(EmailOtpError::UserNotFound)?;
             self.refresh_secondary_user_sessions(&user).await?;
@@ -158,11 +158,11 @@ impl AuthService {
             .email_and_password
             .revoke_sessions_on_password_reset
         {
-            self.delete_user_sessions_with_hooks(user.id).await?;
+            self.delete_user_sessions_with_hooks(&user.id).await?;
         }
         self.plugins
             .password_credential_changed(&PasswordCredentialChanged {
-                user_id: user.id,
+                user_id: user.id.clone(),
                 source: PasswordCredentialSource::PasswordReset,
             })
             .await?;
@@ -256,7 +256,7 @@ impl AuthService {
         let candidate = self.prepare_user_update(&session.user, candidate).await?;
         let updated = self
             .store
-            .update_user_email(session.user.id, &email, &candidate.email, true)
+            .update_user_email(&session.user.id, &email, &candidate.email, true)
             .await?
             .ok_or(EmailOtpError::UserNotFound)?;
         self.after_database_update(&DatabaseRecord::User(updated.clone()))
@@ -274,7 +274,7 @@ impl AuthService {
         let now = Utc::now();
         let user = self
             .prepare_user_create(AuthUser {
-                id: Uuid::new_v4(),
+                id: String::new(),
                 username: None,
                 display_username: None,
                 name: name.unwrap_or_default(),
@@ -302,7 +302,7 @@ impl AuthService {
         let candidate = self.prepare_user_update(&user, candidate).await?;
         let updated = self
             .store
-            .update_user_email(user.id, &user.email, &candidate.email, true)
+            .update_user_email(&user.id, &user.email, &candidate.email, true)
             .await?
             .ok_or(EmailOtpError::UserNotFound)?;
         self.after_database_update(&DatabaseRecord::User(updated.clone()))

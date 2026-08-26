@@ -5,7 +5,6 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use rand::RngExt;
-use uuid::Uuid;
 
 const SESSION_TOKEN_ALPHABET: &[u8] =
     b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -15,7 +14,7 @@ impl AuthService {
         &self,
         user: AuthUser,
         authentication_method: impl Into<Option<AuthenticationMethod>>,
-        actor_user_id: Option<Uuid>,
+        actor_user_id: Option<String>,
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
@@ -35,7 +34,7 @@ impl AuthService {
         &self,
         user: AuthUser,
         authentication_method: impl Into<Option<AuthenticationMethod>>,
-        actor_user_id: Option<Uuid>,
+        actor_user_id: Option<String>,
         expires_at: DateTime<Utc>,
         ip_address: Option<String>,
         user_agent: Option<String>,
@@ -57,7 +56,7 @@ impl AuthService {
         &self,
         user: AuthUser,
         authentication_method: impl Into<Option<AuthenticationMethod>>,
-        actor_user_id: Option<Uuid>,
+        actor_user_id: Option<String>,
         expires_at: Option<DateTime<Utc>>,
         ip_address: Option<String>,
         user_agent: Option<String>,
@@ -79,7 +78,7 @@ impl AuthService {
         &self,
         user: AuthUser,
         authentication_method: impl Into<Option<AuthenticationMethod>>,
-        actor_user_id: Option<Uuid>,
+        actor_user_id: Option<String>,
         expires_at: Option<DateTime<Utc>>,
         cap_to_session_ttl: bool,
         ip_address: Option<String>,
@@ -91,14 +90,14 @@ impl AuthService {
             .before(&BeforeAuthEvent::SessionCreate {
                 user: user.clone(),
                 authentication_method,
-                actor_user_id,
+                actor_user_id: actor_user_id.clone(),
             })
             .await?;
         let token = session_token();
         let now = Utc::now();
         let session = AuthSession {
-            id: self.generate_id("session"),
-            user_id: user.id,
+            id: String::new(),
+            user_id: user.id.clone(),
             token: token.clone(),
             actor_user_id,
             authentication_method,
@@ -116,17 +115,11 @@ impl AuthService {
             additional_fields: self
                 .create_additional_fields(DatabaseModel::Session, serde_json::Map::new())?,
         };
-        let session = match self
-            .before_database_create(DatabaseRecord::Session(session))
-            .await?
-        {
-            DatabaseRecord::Session(session) => session,
-            _ => unreachable!("database hook model was validated"),
-        };
+        let session = self.prepare_session_create(session).await?;
         if self.config.session.storage_mode == crate::SessionStorageMode::Database {
             self.store.delete_expired_sessions(now).await?;
         }
-        self.persist_session(&token, &session, &user).await?;
+        let session = self.persist_session(&token, session, &user).await?;
         self.after_database_create(&DatabaseRecord::Session(session.clone()))
             .await?;
         let result = SignInResult {
@@ -135,7 +128,7 @@ impl AuthService {
         };
         if let Err(error) = self.plugins.initialize_session(&result.session).await {
             let _ = self
-                .delete_session_id_with_hooks(result.session.session.id)
+                .delete_session_id_with_hooks(&result.session.session.id)
                 .await;
             return Err(error);
         }

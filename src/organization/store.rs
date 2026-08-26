@@ -86,7 +86,7 @@ pub trait OrganizationDataStore: Send + Sync {
         &self,
         slug: &str,
     ) -> Result<Option<Organization>, AuthError>;
-    async fn list_organizations(&self, user_id: Uuid) -> Result<Vec<Organization>, AuthError>;
+    async fn list_organizations(&self, user_id: &str) -> Result<Vec<Organization>, AuthError>;
     async fn update_organization(
         &self,
         organization: Organization,
@@ -106,7 +106,7 @@ pub trait OrganizationMemberStore: Send + Sync {
     async fn find_member(
         &self,
         organization_id: Uuid,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Option<OrganizationMember>, AuthError>;
     async fn list_members(
         &self,
@@ -162,7 +162,7 @@ pub trait OrganizationInvitationStore: Send + Sync {
     async fn accept_invitation(
         &self,
         invitation_id: Uuid,
-        user_id: Uuid,
+        user_id: &str,
         now: DateTime<Utc>,
         membership_limit: usize,
     ) -> Result<OrganizationInvitationWriteOutcome, AuthError>;
@@ -194,13 +194,13 @@ pub trait OrganizationTeamStore: Send + Sync {
     async fn remove_team_member(
         &self,
         team_id: Uuid,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<OrganizationTeamWriteOutcome, AuthError>;
     async fn list_team_members(
         &self,
         team_id: Uuid,
     ) -> Result<Vec<OrganizationTeamMember>, AuthError>;
-    async fn list_user_teams(&self, user_id: Uuid) -> Result<Vec<OrganizationTeam>, AuthError>;
+    async fn list_user_teams(&self, user_id: &str) -> Result<Vec<OrganizationTeam>, AuthError>;
 }
 
 #[async_trait]

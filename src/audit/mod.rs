@@ -93,8 +93,8 @@ impl<'de> Deserialize<'de> for AuditMetadata {
 #[serde(rename_all = "camelCase")]
 pub struct AuditEvent {
     pub id: Uuid,
-    pub actor_user_id: Option<Uuid>,
-    pub subject_user_id: Option<Uuid>,
+    pub actor_user_id: Option<String>,
+    pub subject_user_id: Option<String>,
     pub action: String,
     pub target: Option<String>,
     pub outcome: AuditOutcome,
@@ -109,7 +109,7 @@ pub trait AuditStore: Send + Sync {
 
     async fn list_audit_events(&self, limit: usize) -> Result<Vec<AuditEvent>, AuthError>;
 
-    async fn anonymize_user(&self, user_id: Uuid) -> Result<(), AuthError>;
+    async fn anonymize_user(&self, user_id: &str) -> Result<(), AuthError>;
 }
 
 #[derive(Clone)]
@@ -171,7 +171,7 @@ impl AuthPlugin for AuditPlugin {
     async fn after(&self, event: &crate::AfterAuthEvent) {
         match event {
             crate::AfterAuthEvent::UserDeleted { user } => {
-                let _ = self.store.anonymize_user(user.id).await;
+                let _ = self.store.anonymize_user(&user.id).await;
             }
             crate::AfterAuthEvent::Activity { activity } => {
                 lifecycle::record(self, activity).await;

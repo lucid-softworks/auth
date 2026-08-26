@@ -81,8 +81,8 @@ mod tests {
             ),
         ]));
         let stored = StoredPasskey {
-            id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
+            id: Uuid::new_v4().to_string(),
+            user_id: Uuid::new_v4().to_string(),
             name: None,
             credential_id: "AQID".into(),
             public_key: base64::engine::general_purpose::STANDARD

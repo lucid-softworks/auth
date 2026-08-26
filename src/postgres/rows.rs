@@ -2,7 +2,7 @@ use super::{PostgresModel, PostgresWrite};
 use crate::{AuthError, AuthUser};
 use chrono::{DateTime, Utc};
 use serde_json::{Map, Value, json};
-use sqlx::postgres::PgRow;
+use sqlx::{Postgres, QueryBuilder, postgres::PgRow};
 use uuid::Uuid;
 
 pub(super) use super::user::query::{
@@ -12,9 +12,10 @@ pub(super) use super::user::query::{
 pub(super) fn user_writes<'a>(
     model: &'a PostgresModel<'_>,
     user: &AuthUser,
+    id: &crate::store::PreparedDatabaseId,
 ) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
     let mut values = Map::new();
-    values.insert("id".into(), json!(user.id.to_string()));
+    insert_prepared_id(&mut values, id)?;
     values.insert("name".into(), json!(user.name));
     values.insert("email".into(), json!(user.email));
     values.insert("emailVerified".into(), json!(user.email_verified));
@@ -65,6 +66,20 @@ pub(super) fn user_writes<'a>(
     )
 }
 
+pub(super) fn insert_prepared_id(
+    values: &mut Map<String, Value>,
+    id: &crate::store::PreparedDatabaseId,
+) -> Result<(), AuthError> {
+    if let crate::store::PreparedDatabaseId::Value(value) = id {
+        values.insert("id".into(), value.to_json()?);
+    }
+    Ok(())
+}
+
+pub(super) fn explicit_id(value: impl Into<String>) -> crate::store::PreparedDatabaseId {
+    crate::store::PreparedDatabaseId::Value(crate::store::DatabaseIdValue::String(value.into()))
+}
+
 pub(super) fn decode_user(model: &PostgresModel<'_>, row: &PgRow) -> Result<AuthUser, AuthError> {
     decode_user_values(model, model.decode_all(row)?)
 }
@@ -73,7 +88,7 @@ pub(super) fn decode_user_values(
     model: &PostgresModel<'_>,
     mut values: Map<String, Value>,
 ) -> Result<AuthUser, AuthError> {
-    let id = required_uuid(&mut values, "id")?;
+    let id = required_string(&mut values, "id")?;
     let name = required_string(&mut values, "name")?;
     let email = required_string(&mut values, "email")?;
     let email_verified = required_bool(&mut values, "emailVerified")?;
@@ -124,6 +139,16 @@ pub(super) fn optional_string(value: Option<String>) -> Value {
 
 pub(super) fn optional_date(value: Option<DateTime<Utc>>) -> Value {
     value.map_or(Value::Null, |value| Value::String(value.to_rfc3339()))
+}
+
+pub(super) fn push_model_value<'args>(
+    query: &mut QueryBuilder<'args, Postgres>,
+    model: &PostgresModel<'_>,
+    field: &str,
+    value: Value,
+) -> Result<(), AuthError> {
+    model.encode(field, value)?.push_bind(query);
+    Ok(())
 }
 
 pub(super) fn required_uuid(

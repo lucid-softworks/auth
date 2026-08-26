@@ -70,7 +70,7 @@ pub struct Organization {
 pub struct OrganizationMember {
     pub id: Uuid,
     pub organization_id: Uuid,
-    pub user_id: Uuid,
+    pub user_id: String,
     pub role: String,
     pub created_at: DateTime<Utc>,
 }
@@ -93,7 +93,7 @@ pub struct OrganizationInvitation {
     pub role: String,
     pub status: OrganizationInvitationStatus,
     pub team_id: Option<String>,
-    pub inviter_id: Uuid,
+    pub inviter_id: String,
     pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
 }
@@ -114,7 +114,7 @@ pub struct OrganizationTeam {
 pub struct OrganizationTeamMember {
     pub id: Uuid,
     pub team_id: Uuid,
-    pub user_id: Uuid,
+    pub user_id: String,
     pub created_at: DateTime<Utc>,
 }
 

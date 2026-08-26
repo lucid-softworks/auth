@@ -63,7 +63,7 @@ async fn callback(
             let response = with_bound_session_cookie(
                 &service,
                 &headers,
-                result.session.user.id,
+                &result.session.user.id,
                 &result.token,
                 Some(true),
                 Json(json!({ "token": result.token, "user": user })),
@@ -72,7 +72,7 @@ async fn callback(
             with_provider_account_cookie(
                 &service,
                 &headers,
-                result.session.user.id,
+                &result.session.user.id,
                 "google",
                 response,
             )

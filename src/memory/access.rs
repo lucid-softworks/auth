@@ -5,7 +5,6 @@ use crate::{
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 
 #[async_trait]
 impl AccessStore for MemoryStore {
@@ -49,9 +48,9 @@ impl AccessStore for MemoryStore {
             .count() as i64)
     }
 
-    async fn update_user_role(&self, user_id: Uuid, role: &str) -> Result<AuthUser, AuthError> {
+    async fn update_user_role(&self, user_id: &str, role: &str) -> Result<AuthUser, AuthError> {
         let mut state = self.state.write().await;
-        let user = state.users.get_mut(&user_id).ok_or(AuthError::NotFound)?;
+        let user = state.users.get_mut(user_id).ok_or(AuthError::NotFound)?;
         user.role = role.to_owned();
         user.updated_at = Utc::now();
         Ok(user.clone())
@@ -59,13 +58,13 @@ impl AccessStore for MemoryStore {
 
     async fn update_user_ban(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         banned: bool,
         reason: Option<String>,
         expires_at: Option<DateTime<Utc>>,
     ) -> Result<AuthUser, AuthError> {
         let mut state = self.state.write().await;
-        let user = state.users.get_mut(&user_id).ok_or(AuthError::NotFound)?;
+        let user = state.users.get_mut(user_id).ok_or(AuthError::NotFound)?;
         user.banned = banned;
         user.ban_reason = reason;
         user.ban_expires = expires_at;
@@ -75,18 +74,18 @@ impl AccessStore for MemoryStore {
 
     async fn admin_update_user(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         update: AdminUserUpdate,
     ) -> Result<AuthUser, AuthError> {
         let mut state = self.state.write().await;
         let previous_email = state
             .users
-            .get(&user_id)
+            .get(user_id)
             .ok_or(AuthError::NotFound)?
             .email
             .clone();
         let previous_phone_number =
-            phone_number::user_phone_number(state.users.get(&user_id).ok_or(AuthError::NotFound)?)?
+            phone_number::user_phone_number(state.users.get(user_id).ok_or(AuthError::NotFound)?)?
                 .map(str::to_owned);
         let next_phone_number = match update.additional_fields.get("phoneNumber") {
             Some(_) => phone_number::phone_number_from_fields(&update.additional_fields)?
@@ -102,11 +101,11 @@ impl AccessStore for MemoryStore {
             && state
                 .emails
                 .get(email)
-                .is_some_and(|existing| *existing != user_id)
+                .is_some_and(|existing| existing != user_id)
         {
             return Err(AuthError::UserAlreadyExistsEmail);
         }
-        let user = state.users.get_mut(&user_id).ok_or(AuthError::NotFound)?;
+        let user = state.users.get_mut(user_id).ok_or(AuthError::NotFound)?;
         if let Some(name) = update.name {
             user.name = name;
         }
@@ -136,7 +135,9 @@ impl AccessStore for MemoryStore {
         let result = user.clone();
         if result.email != previous_email {
             state.emails.remove(&previous_email);
-            state.emails.insert(result.email.clone(), user_id);
+            state
+                .emails
+                .insert(result.email.clone(), user_id.to_owned());
         }
         phone_number::replace_phone_number_index(
             &mut state,
@@ -147,16 +148,16 @@ impl AccessStore for MemoryStore {
         Ok(result)
     }
 
-    async fn delete_user(&self, user_id: Uuid) -> Result<(), AuthError> {
+    async fn delete_user(&self, user_id: &str) -> Result<(), AuthError> {
         let mut state = self.state.write().await;
-        let user = state.users.remove(&user_id).ok_or(AuthError::NotFound)?;
+        let user = state.users.remove(user_id).ok_or(AuthError::NotFound)?;
         let previous_phone_number = phone_number::user_phone_number(&user)?.map(str::to_owned);
         phone_number::replace_phone_number_index(&mut state, user_id, previous_phone_number, None);
         if let Some(username) = user.username {
             state.usernames.remove(&username);
         }
         state.emails.remove(&user.email);
-        state.passwords.remove(&user_id);
+        state.passwords.remove(user_id);
         state
             .oauth_accounts
             .retain(|_, account| account.user_id != user_id);
@@ -177,15 +178,17 @@ impl AccessStore for MemoryStore {
             .retain(|_, grant| grant.created_by != user_id);
         state
             .api_keys
-            .retain(|_, api_key| api_key.reference_id != user_id.to_string());
+            .retain(|_, api_key| api_key.reference_id != user_id);
         let removed_sessions: Vec<_> = state
             .sessions
             .values()
-            .filter(|session| session.user_id == user_id || session.actor_user_id == Some(user_id))
-            .map(|session| session.id)
+            .filter(|session| {
+                session.user_id == user_id || session.actor_user_id.as_deref() == Some(user_id)
+            })
+            .map(|session| session.id.clone())
             .collect();
         state.sessions.retain(|_, session| {
-            session.user_id != user_id && session.actor_user_id != Some(user_id)
+            session.user_id != user_id && session.actor_user_id.as_deref() != Some(user_id)
         });
         state.guest_sessions.retain(|session_id, grant_id| {
             !removed_sessions.contains(session_id) && !removed_grants.contains(grant_id)
@@ -193,7 +196,7 @@ impl AccessStore for MemoryStore {
         Ok(())
     }
 
-    async fn list_sessions(&self, user_id: Uuid) -> Result<Vec<AuthSession>, AuthError> {
+    async fn list_sessions(&self, user_id: &str) -> Result<Vec<AuthSession>, AuthError> {
         Ok(self
             .state
             .read()
@@ -205,20 +208,23 @@ impl AccessStore for MemoryStore {
             .collect())
     }
 
-    async fn delete_session_by_id(&self, session_id: Uuid) -> Result<(), AuthError> {
+    async fn delete_session_by_id(&self, session_id: &str) -> Result<(), AuthError> {
         let mut state = self.state.write().await;
         state.sessions.retain(|_, session| session.id != session_id);
-        state.guest_sessions.remove(&session_id);
+        state.guest_sessions.remove(session_id);
         Ok(())
     }
 
-    async fn delete_user_sessions(&self, user_id: Uuid) -> Result<(), AuthError> {
+    async fn delete_user_sessions(&self, user_id: &str) -> Result<(), AuthError> {
         let mut state = self.state.write().await;
         state
             .sessions
             .retain(|_, session| session.user_id != user_id);
-        let active_sessions: std::collections::HashSet<_> =
-            state.sessions.values().map(|session| session.id).collect();
+        let active_sessions: std::collections::HashSet<_> = state
+            .sessions
+            .values()
+            .map(|session| session.id.clone())
+            .collect();
         state
             .guest_sessions
             .retain(|session_id, _| active_sessions.contains(session_id));

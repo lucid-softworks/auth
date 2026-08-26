@@ -1,12 +1,11 @@
 use super::{PostgresModel, PostgresStore, PostgresWrite, storage_error};
 use crate::{
-    AuthError, AuthUser,
+    AuthError, AuthUser, DatabaseCreate,
     phone_number::{PhoneNumberStore, PhoneNumberWriteOutcome},
 };
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use sqlx::{Postgres, QueryBuilder};
-use uuid::Uuid;
 
 #[async_trait]
 impl PhoneNumberStore for PostgresStore {
@@ -28,13 +27,14 @@ impl PhoneNumberStore for PostgresStore {
 
     async fn create_phone_number_user(
         &self,
-        mut user: AuthUser,
+        user: DatabaseCreate<AuthUser>,
     ) -> Result<PhoneNumberWriteOutcome<AuthUser>, AuthError> {
+        let (mut user, id) = user.into_parts(self)?;
         let phone_number = require_phone_number(&user)?.to_owned();
         user.email = user.email.to_lowercase();
         let model = self.physical_model("user")?;
         require_phone_fields(&model)?;
-        let writes = super::rows::user_writes(&model, &user)?;
+        let writes = super::rows::user_writes(&model, &user, &id)?;
         let mut query = insert_user_query(&model, writes);
         match query.build().fetch_one(&self.pool).await {
             Ok(row) => super::rows::decode_user(&model, &row).map(PhoneNumberWriteOutcome::Written),
@@ -51,7 +51,7 @@ impl PhoneNumberStore for PostgresStore {
 
     async fn update_user_phone_number(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         phone_number: Option<String>,
         verified: bool,
     ) -> Result<PhoneNumberWriteOutcome<AuthUser>, AuthError> {
@@ -113,7 +113,7 @@ fn insert_user_query(
 
 fn update_phone_query(
     model: &PostgresModel<'_>,
-    user_id: Uuid,
+    user_id: &str,
     phone_number: Option<String>,
     verified: bool,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
@@ -123,7 +123,7 @@ fn update_phone_query(
     )?;
     let verified = model.encode("phoneNumberVerified", json!(verified))?;
     let updated_at = model.encode("updatedAt", json!(chrono::Utc::now().to_rfc3339()))?;
-    let user_id = model.encode("id", json!(user_id.to_string()))?;
+    let user_id = model.encode("id", json!(user_id))?;
     let mut query = QueryBuilder::new("UPDATE ");
     query
         .push(model.quoted_table())
@@ -237,7 +237,7 @@ mod tests {
 
         let update = update_phone_query(
             &model,
-            uuid::Uuid::nil(),
+            &uuid::Uuid::nil().to_string(),
             Some("+440000000000".into()),
             true,
         )

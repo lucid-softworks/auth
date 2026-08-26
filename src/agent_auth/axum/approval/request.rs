@@ -71,7 +71,7 @@ async fn run(
 pub(super) struct GrantInput<'a> {
     pub(super) capability: &'a str,
     pub(super) constraints: Option<crate::AgentCapabilityConstraints>,
-    pub(super) granted_by: Option<Uuid>,
+    pub(super) granted_by: Option<String>,
     pub(super) status: AgentGrantStatus,
     pub(super) reason: Option<String>,
     pub(super) expires_at: Option<chrono::DateTime<Utc>>,

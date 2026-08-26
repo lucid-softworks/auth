@@ -62,7 +62,7 @@ async fn verify(
             with_bound_session_cookie_cache(
                 &service,
                 &headers,
-                result.user_id,
+                &result.user_id,
                 &token,
                 cache.as_deref(),
                 Json(json!({

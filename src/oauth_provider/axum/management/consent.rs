@@ -69,7 +69,7 @@ pub(super) async fn list(
     let Some(session) = current_session(&service, &headers).await else {
         return auth_error(AuthError::Unauthorized);
     };
-    match state.store.list_oauth_consents(session.user.id).await {
+    match state.store.list_oauth_consents(&session.user.id).await {
         Ok(consents) => Json(consents).into_response(),
         Err(error) => auth_error(error),
     }

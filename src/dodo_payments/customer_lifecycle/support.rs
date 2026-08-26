@@ -6,7 +6,6 @@ use crate::{AuthStore, AuthUser, DatabaseHookContext, UserProfileUpdate};
 use async_trait::async_trait;
 use serde_json::{Map, Value};
 use std::sync::Arc;
-use uuid::Uuid;
 
 #[async_trait]
 pub(super) trait CustomerLifecycleClient: Send + Sync {
@@ -85,7 +84,7 @@ pub(super) fn update_request(
 pub(super) fn schedule_customer_id_write(
     context: &DatabaseHookContext,
     store: Arc<dyn AuthStore>,
-    user_id: Uuid,
+    user_id: String,
     customer_id: String,
     operation: &'static str,
 ) {
@@ -97,7 +96,7 @@ pub(super) fn schedule_customer_id_write(
             )]),
             ..UserProfileUpdate::default()
         };
-        if let Err(error) = store.update_user_profile(user_id, update).await {
+        if let Err(error) = store.update_user_profile(&user_id, update).await {
             tracing::warn!(
                 "DodoPayments: failed to {operation} dodoCustomerId for user {user_id}. Error: {error}"
             );

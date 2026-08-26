@@ -3,12 +3,10 @@ use lucid_auth::{
     AgentHostSwitchOutcome, AgentIdentity, AgentMode, AgentStatus, PostgresAgentAuthStore,
     postgres::PostgresStore,
 };
-use uuid::Uuid;
-
 pub(super) async fn assert_switch_contract(
     postgres: &PostgresStore,
     pool: &sqlx::PgPool,
-    user_id: Uuid,
+    user_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     assert_legacy_tables_absent(pool).await?;
     let store = PostgresAgentAuthStore::new(postgres.clone());

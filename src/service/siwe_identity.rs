@@ -70,14 +70,13 @@ impl AuthService {
         else {
             return Ok(None);
         };
-        self.write_siwe_identity(
-            SiweIdentityWrite::AddChain {
-                expected_user_id: owner.user.id,
-                wallet: wallet(owner.user.id, address, chain_id, false),
-                account: Box::new(siwe_account(owner.user.id, address, chain_id)),
-            },
-            false,
-        )
+        self.write_siwe_identity(SiweIdentityWrite::AddChain {
+            expected_user_id: owner.user.id.clone(),
+            wallet: wallet(owner.user.id.clone(), address, chain_id, false),
+            account: self
+                .prepare_account_create(siwe_account(owner.user.id, address, chain_id))
+                .await?,
+        })
         .await
         .map(Some)
     }
@@ -137,7 +136,7 @@ impl AuthService {
         let now = Utc::now();
         let user = self
             .prepare_user_create(AuthUser {
-                id: Uuid::new_v4(),
+                id: String::new(),
                 username: None,
                 display_username: None,
                 name: profile.name.unwrap_or_else(|| address.into()),
@@ -154,18 +153,18 @@ impl AuthService {
                 updated_at: now,
             })
             .await?;
-        let account = self
-            .prepare_account_create(siwe_account(user.id, address, chain_id))
+        let account = self.oauth_account_create(siwe_account(String::new(), address, chain_id));
+        let outcome = self
+            .siwe_plugin()?
+            .store
+            .create_wallet_identity(
+                &self.siwe_plugin()?.config.schema,
+                user,
+                wallet(String::new(), address, chain_id, true),
+                &account,
+            )
             .await?;
-        self.write_siwe_identity(
-            SiweIdentityWrite::Create {
-                wallet: wallet(user.id, address, chain_id, true),
-                account: Box::new(account),
-                user: Box::new(user),
-            },
-            true,
-        )
-        .await
+        self.finish_siwe_identity_write(outcome, true).await
     }
 
     async fn siwe_ens_profile(&self, address: &str) -> Result<crate::SiweEnsProfile, AuthError> {
@@ -175,17 +174,21 @@ impl AuthService {
         }
     }
 
-    async fn write_siwe_identity(
-        &self,
-        write: SiweIdentityWrite,
-        creating_user: bool,
-    ) -> Result<AuthUser, AuthError> {
-        match self
+    async fn write_siwe_identity(&self, write: SiweIdentityWrite) -> Result<AuthUser, AuthError> {
+        let outcome = self
             .siwe_plugin()?
             .store
             .write_wallet_identity(&self.siwe_plugin()?.config.schema, write)
-            .await?
-        {
+            .await?;
+        self.finish_siwe_identity_write(outcome, false).await
+    }
+
+    async fn finish_siwe_identity_write(
+        &self,
+        outcome: SiweIdentityWriteOutcome,
+        creating_user: bool,
+    ) -> Result<AuthUser, AuthError> {
+        match outcome {
             SiweIdentityWriteOutcome::Created { user, account, .. } => {
                 self.finish_user_create(&user).await?;
                 self.finish_account_create(&account).await?;
@@ -237,7 +240,7 @@ impl AuthService {
     }
 }
 
-fn wallet(user_id: Uuid, address: &str, chain_id: f64, is_primary: bool) -> WalletAddress {
+fn wallet(user_id: String, address: &str, chain_id: f64, is_primary: bool) -> WalletAddress {
     WalletAddress {
         id: Uuid::new_v4(),
         user_id,
@@ -248,10 +251,10 @@ fn wallet(user_id: Uuid, address: &str, chain_id: f64, is_primary: bool) -> Wall
     }
 }
 
-fn siwe_account(user_id: Uuid, address: &str, chain_id: f64) -> OAuthAccount {
+fn siwe_account(user_id: String, address: &str, chain_id: f64) -> OAuthAccount {
     let now = Utc::now();
     OAuthAccount {
-        id: Uuid::new_v4(),
+        id: Uuid::new_v4().to_string(),
         user_id,
         issuer: "local:siwe".into(),
         account_id: format!("{address}:{}", javascript_number(chain_id)),

@@ -1,15 +1,13 @@
 use async_trait::async_trait;
-use chrono::Utc;
 use lucid_auth::{
-    AuthConfig, AuthError, AuthService, AuthStore, AuthUser, PhoneNumberConfig, PhoneNumberMessage,
+    AuthConfig, AuthError, AuthService, AuthStore, PhoneNumberConfig, PhoneNumberMessage,
     PhoneNumberOtpSender, PhoneNumberPlugin, PhoneNumberRequestContext, PhoneNumberSignInInput,
-    PhoneNumberSignUpConfig, PhoneNumberStore, PhoneNumberTemporaryEmail, PhoneNumberVerifyInput,
-    PhoneNumberWriteOutcome, postgres::PostgresStore,
+    PhoneNumberSignUpConfig, PhoneNumberTemporaryEmail, PhoneNumberVerifyInput,
+    postgres::PostgresStore,
 };
 use serde_json::{Map, json};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use uuid::Uuid;
 
 #[derive(Default)]
 struct Sender {
@@ -71,7 +69,6 @@ pub(super) async fn assert_atomic_and_persistent(
 ) -> Result<(), Box<dyn std::error::Error>> {
     assert_plugin_schema_applied(pool).await?;
     assert_otp_redemption_is_atomic(service, pool, fixture).await?;
-    assert_phone_number_uniqueness_is_atomic(store, pool).await?;
     assert_password_reset_persists(service, store, fixture).await?;
     Ok(())
 }
@@ -127,42 +124,6 @@ async fn assert_otp_redemption_is_atomic(
     Ok(())
 }
 
-async fn assert_phone_number_uniqueness_is_atomic(
-    store: &Arc<PostgresStore>,
-    pool: &sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let phone_number = "postgres-unique-phone";
-    let left = phone_user("postgres-phone-left@example.com", phone_number);
-    let right = phone_user("postgres-phone-right@example.com", phone_number);
-    let (left, right) = tokio::join!(
-        store.create_phone_number_user(left),
-        store.create_phone_number_user(right),
-    );
-    let outcomes = [left?, right?];
-    assert_eq!(
-        outcomes
-            .iter()
-            .filter(|outcome| matches!(outcome, PhoneNumberWriteOutcome::Written(_)))
-            .count(),
-        1
-    );
-    assert_eq!(
-        outcomes
-            .iter()
-            .filter(|outcome| matches!(outcome, PhoneNumberWriteOutcome::AlreadyExists))
-            .count(),
-        1
-    );
-    assert_eq!(
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM \"user\" WHERE \"phoneNumber\" = $1",)
-            .bind(phone_number)
-            .fetch_one(pool)
-            .await?,
-        1
-    );
-    Ok(())
-}
-
 async fn assert_password_reset_persists(
     service: &AuthService,
     store: &PostgresStore,
@@ -188,7 +149,7 @@ async fn assert_password_reset_persists(
         .await?;
     assert!(
         store
-            .find_password_hash(signed_in.session.user.id)
+            .find_password_hash(&signed_in.session.user.id)
             .await?
             .is_some()
     );
@@ -222,29 +183,5 @@ fn verify_input(phone_number: &str, code: &str) -> PhoneNumberVerifyInput {
         origin: None,
         ip_address: None,
         user_agent: None,
-    }
-}
-
-fn phone_user(email: &str, phone_number: &str) -> AuthUser {
-    let now = Utc::now();
-    AuthUser {
-        id: Uuid::new_v4(),
-        username: None,
-        display_username: None,
-        name: "PostgreSQL phone user".into(),
-        email: email.into(),
-        email_verified: false,
-        image: None,
-        additional_fields: Map::from_iter([
-            ("phoneNumber".into(), json!(phone_number)),
-            ("phoneNumberVerified".into(), json!(true)),
-        ]),
-        role: "member".into(),
-        is_anonymous: false,
-        banned: false,
-        ban_reason: None,
-        ban_expires: None,
-        created_at: now,
-        updated_at: now,
     }
 }

@@ -110,7 +110,7 @@ async fn verified_response(
     result: crate::EmailOtpVerification,
 ) -> Response {
     let token = result.session.as_ref().map(|session| session.token.clone());
-    let user_id = result.user.id;
+    let user_id = result.user.id.clone();
     let user = match service.better_auth_user(&result.user).await {
         Ok(user) => user,
         Err(error) => return auth_error(error),
@@ -122,7 +122,8 @@ async fn verified_response(
     });
     match token {
         Some(token) => {
-            with_bound_session_cookie(service, headers, user_id, &token, Some(true), response).await
+            with_bound_session_cookie(service, headers, &user_id, &token, Some(true), response)
+                .await
         }
         None => match current.filter(|session| session.user.id == user_id) {
             Some(mut current) => {

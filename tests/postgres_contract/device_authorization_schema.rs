@@ -115,7 +115,7 @@ fn mapped_schema() -> DeviceAuthorizationSchema {
     }
 }
 
-fn code(suffix: &str, user_id: Option<Uuid>) -> DeviceCode {
+fn code(suffix: &str, user_id: Option<String>) -> DeviceCode {
     DeviceCode {
         id: Uuid::new_v4(),
         device_code: format!("device-{suffix}"),

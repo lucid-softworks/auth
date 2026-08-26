@@ -6,7 +6,6 @@ use super::{
 use crate::AuthError;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentStoreCreateOutcome<T> {
@@ -42,7 +41,7 @@ pub struct AgentClaimedAutonomousAgent {
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgentHostSwitchOutcome {
     pub host: AgentHost,
-    pub previous_user_id: Option<Uuid>,
+    pub previous_user_id: Option<String>,
     pub revoked_agent_ids: Vec<String>,
     pub claimed_agents: Vec<AgentClaimedAutonomousAgent>,
 }
@@ -103,7 +102,7 @@ pub trait AgentAuthStore: Send + Sync {
         &self,
         hash: &str,
     ) -> Result<Option<AgentHost>, AuthError>;
-    async fn list_hosts_for_user(&self, user_id: Uuid) -> Result<Vec<AgentHost>, AuthError>;
+    async fn list_hosts_for_user(&self, user_id: &str) -> Result<Vec<AgentHost>, AuthError>;
     async fn update_host(&self, host: AgentHost) -> Result<Option<AgentHost>, AuthError>;
     async fn enroll_host(
         &self,
@@ -118,7 +117,7 @@ pub trait AgentAuthStore: Send + Sync {
     async fn switch_host_account_cascade(
         &self,
         host_id: &str,
-        user_id: Uuid,
+        user_id: &str,
         now: DateTime<Utc>,
     ) -> Result<Option<AgentHostSwitchOutcome>, AuthError>;
     async fn rotate_host_key(
@@ -136,7 +135,7 @@ pub trait AgentAuthStore: Send + Sync {
     ) -> Result<AgentStoreCreateOutcome<AgentIdentity>, AuthError>;
     async fn find_agent(&self, id: &str) -> Result<Option<AgentIdentity>, AuthError>;
     async fn find_agent_by_kid(&self, kid: &str) -> Result<Option<AgentIdentity>, AuthError>;
-    async fn list_agents_for_user(&self, user_id: Uuid) -> Result<Vec<AgentIdentity>, AuthError>;
+    async fn list_agents_for_user(&self, user_id: &str) -> Result<Vec<AgentIdentity>, AuthError>;
     async fn list_agents_for_host(&self, host_id: &str) -> Result<Vec<AgentIdentity>, AuthError>;
     async fn update_agent(&self, agent: AgentIdentity) -> Result<Option<AgentIdentity>, AuthError>;
     async fn register_agent_bundle(
@@ -155,7 +154,7 @@ pub trait AgentAuthStore: Send + Sync {
     ) -> Result<Option<AgentIdentity>, AuthError>;
     async fn cleanup_expired_for_user(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         now: DateTime<Utc>,
     ) -> Result<AgentCleanupOutcome, AuthError>;
     async fn rotate_agent_key(
@@ -195,7 +194,7 @@ pub trait AgentAuthStore: Send + Sync {
     ) -> Result<Option<AgentApprovalRequest>, AuthError>;
     async fn list_pending_approvals(
         &self,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<Vec<AgentApprovalRequest>, AuthError>;
     async fn list_pending_approvals_for_agent(
         &self,

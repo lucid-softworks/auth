@@ -15,7 +15,7 @@ pub(super) fn host_writes<'a>(
     model.encode_fields([
         ("id", json!(value.id)),
         ("name", optional_string(value.name.clone())),
-        ("userId", optional_uuid(value.user_id)),
+        ("userId", optional_string(value.user_id.clone())),
         (
             "defaultCapabilities",
             json!(encode_json(&value.default_capabilities)?),
@@ -47,7 +47,7 @@ pub(super) fn agent_writes<'a>(
     model.encode_fields([
         ("id", json!(value.id)),
         ("name", json!(value.name)),
-        ("userId", optional_uuid(value.user_id)),
+        ("userId", optional_string(value.user_id.clone())),
         ("hostId", json!(value.host_id)),
         ("status", json!(value.status.as_str())),
         ("mode", json!(value.mode.as_str())),
@@ -88,8 +88,8 @@ pub(super) fn grant_writes<'a>(
                 .transpose()?
                 .map_or(Value::Null, Value::String),
         ),
-        ("deniedBy", optional_uuid(value.denied_by)),
-        ("grantedBy", optional_uuid(value.granted_by)),
+        ("deniedBy", optional_string(value.denied_by.clone())),
+        ("grantedBy", optional_string(value.granted_by.clone())),
         ("expiresAt", optional_date(value.expires_at)),
         ("status", json!(value.status.as_str())),
         ("reason", optional_string(value.reason.clone())),
@@ -107,7 +107,7 @@ pub(super) fn approval_writes<'a>(
         ("method", json!(value.method.as_str())),
         ("agentId", optional_string(value.agent_id.clone())),
         ("hostId", optional_string(value.host_id.clone())),
-        ("userId", optional_uuid(value.user_id)),
+        ("userId", optional_string(value.user_id.clone())),
         ("capabilities", optional_string(value.capabilities.clone())),
         ("status", json!(value.status.as_str())),
         (
@@ -141,7 +141,7 @@ pub(super) fn decode_host(model: &PostgresModel<'_>, row: &PgRow) -> Result<Agen
     Ok(AgentHost {
         id: required_string(&mut values, "id")?,
         name: optional_string_value(&mut values, "name")?,
-        user_id: optional_uuid_value(&mut values, "userId")?,
+        user_id: optional_string_value(&mut values, "userId")?,
         default_capabilities: parse_json_or_default(optional_string_value(
             &mut values,
             "defaultCapabilities",
@@ -168,7 +168,7 @@ pub(super) fn decode_agent(
     Ok(AgentIdentity {
         id: required_string(&mut values, "id")?,
         name: required_string(&mut values, "name")?,
-        user_id: optional_uuid_value(&mut values, "userId")?,
+        user_id: optional_string_value(&mut values, "userId")?,
         host_id: required_string(&mut values, "hostId")?,
         status: parse_enum(&required_string(&mut values, "status")?)?,
         mode: parse_enum(&required_string(&mut values, "mode")?)?,
@@ -194,8 +194,8 @@ pub(super) fn decode_grant(
         agent_id: required_string(&mut values, "agentId")?,
         capability: required_string(&mut values, "capability")?,
         constraints: parse_optional_json(optional_string_value(&mut values, "constraints")?)?,
-        denied_by: optional_uuid_value(&mut values, "deniedBy")?,
-        granted_by: optional_uuid_value(&mut values, "grantedBy")?,
+        denied_by: optional_string_value(&mut values, "deniedBy")?,
+        granted_by: optional_string_value(&mut values, "grantedBy")?,
         expires_at: optional_date_value(&mut values, "expiresAt")?,
         status: parse_enum(&required_string(&mut values, "status")?)?,
         reason: optional_string_value(&mut values, "reason")?,
@@ -214,7 +214,7 @@ pub(super) fn decode_approval(
         method: parse_enum(&required_string(&mut values, "method")?)?,
         agent_id: optional_string_value(&mut values, "agentId")?,
         host_id: optional_string_value(&mut values, "hostId")?,
-        user_id: optional_uuid_value(&mut values, "userId")?,
+        user_id: optional_string_value(&mut values, "userId")?,
         capabilities: optional_string_value(&mut values, "capabilities")?,
         status: parse_enum(&required_string(&mut values, "status")?)?,
         user_code_hash: optional_string_value(&mut values, "userCodeHash")?,
@@ -250,15 +250,6 @@ fn optional_string_value(
         Some(Value::Null) => Ok(None),
         _ => Err(invalid(field)),
     }
-}
-
-fn optional_uuid_value(
-    values: &mut Map<String, Value>,
-    field: &str,
-) -> Result<Option<uuid::Uuid>, AuthError> {
-    optional_string_value(values, field)?
-        .map(|value| uuid::Uuid::parse_str(&value).map_err(storage_error))
-        .transpose()
 }
 
 fn required_date(
@@ -322,10 +313,6 @@ fn encode_json<T: serde::Serialize>(value: &T) -> Result<String, AuthError> {
 
 fn optional_string(value: Option<String>) -> Value {
     value.map_or(Value::Null, Value::String)
-}
-
-fn optional_uuid(value: Option<uuid::Uuid>) -> Value {
-    value.map_or(Value::Null, |value| json!(value.to_string()))
 }
 
 fn date(value: chrono::DateTime<chrono::Utc>) -> Value {

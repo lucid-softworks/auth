@@ -7,6 +7,7 @@ use crate::{
 use chrono::{DateTime, Utc};
 use serde_json::{Map, json};
 use std::collections::HashSet;
+#[cfg(test)]
 use uuid::Uuid;
 
 pub(super) struct PendingActivation {
@@ -15,7 +16,7 @@ pub(super) struct PendingActivation {
     pub agent_updates: Vec<AgentIdentity>,
     pub grant_updates: Vec<crate::AgentCapabilityGrant>,
     pub host_update: AgentHost,
-    pub previous_user_id: Option<Uuid>,
+    pub previous_user_id: Option<String>,
     claimed: Vec<(AgentIdentity, Vec<String>)>,
     revoked_ids: Vec<String>,
 }
@@ -24,10 +25,10 @@ pub(super) async fn prepare(
     state: &AgentAuthState,
     host: Option<&AgentHost>,
     current_agent_id: &str,
-    user_id: Uuid,
+    user_id: &str,
     now: DateTime<Utc>,
 ) -> Result<Option<PendingActivation>> {
-    let Some(host) = host.filter(|host| host.user_id != Some(user_id)) else {
+    let Some(host) = host.filter(|host| host.user_id.as_deref() != Some(user_id)) else {
         return Ok(None);
     };
     let (expected_agents, expected_grants) = load_related(state, host, current_agent_id).await?;
@@ -61,14 +62,14 @@ async fn load_related(
     Ok((agents, grants))
 }
 
-async fn resolve_defaults(state: &AgentAuthState, host: &AgentHost, user_id: Uuid) -> Vec<String> {
+async fn resolve_defaults(state: &AgentAuthState, host: &AgentHost, user_id: &str) -> Vec<String> {
     match &state.config.resolve_default_host_capabilities {
         Some(resolver) => {
             resolver
                 .resolve(AgentDefaultHostCapabilitiesContext {
                     endpoint: endpoint(),
                     mode: AgentMode::Delegated,
-                    user_id: Some(user_id),
+                    user_id: Some(user_id.to_owned()),
                     host_id: Some(host.id.clone()),
                     host_name: host.name.clone(),
                 })
@@ -80,18 +81,18 @@ async fn resolve_defaults(state: &AgentAuthState, host: &AgentHost, user_id: Uui
 
 fn build(
     host: &AgentHost,
-    user_id: Uuid,
+    user_id: &str,
     now: DateTime<Utc>,
     expected_agents: Vec<AgentIdentity>,
     expected_grants: Vec<crate::AgentCapabilityGrant>,
     default_capabilities: Vec<String>,
 ) -> PendingActivation {
-    let previous_user_id = host.user_id;
+    let previous_user_id = host.user_id.clone();
     let mut agent_updates = expected_agents.clone();
     let mut revoked_ids = Vec::new();
-    if let Some(previous_user_id) = previous_user_id {
+    if let Some(previous_user_id) = previous_user_id.as_deref() {
         for agent in &mut agent_updates {
-            if agent.user_id == Some(previous_user_id)
+            if agent.user_id.as_deref() == Some(previous_user_id)
                 && !matches!(agent.status, AgentStatus::Revoked | AgentStatus::Rejected)
             {
                 agent.status = AgentStatus::Revoked;
@@ -111,7 +112,7 @@ fn build(
                 .map(|grant| grant.capability.clone())
                 .collect();
             agent.status = AgentStatus::Claimed;
-            agent.user_id = Some(user_id);
+            agent.user_id = Some(user_id.to_owned());
             agent.updated_at = now;
             claimed.push((agent.clone(), capabilities));
         }
@@ -136,7 +137,7 @@ fn build(
         .collect();
     agent_updates.retain(|agent| affected.contains(&agent.id));
     let mut host_update = host.clone();
-    host_update.user_id = Some(user_id);
+    host_update.user_id = Some(user_id.to_owned());
     host_update.status = AgentHostStatus::Active;
     host_update.activated_at = Some(now);
     host_update.updated_at = now;
@@ -156,7 +157,7 @@ fn build(
 pub(super) async fn after_commit(
     state: &AgentAuthState,
     activation: &PendingActivation,
-    user_id: Uuid,
+    user_id: &str,
 ) {
     for agent_id in &activation.revoked_ids {
         emit(
@@ -182,7 +183,7 @@ pub(super) async fn after_commit(
                     endpoint: endpoint(),
                     agent: agent.clone(),
                     host: activation.host_update.clone(),
-                    user_id,
+                    user_id: user_id.to_owned(),
                     capabilities: capabilities.clone(),
                 })
                 .await;
@@ -208,8 +209,8 @@ pub(super) async fn after_commit(
             .call(crate::AgentHostClaimedContext {
                 endpoint: endpoint(),
                 host_id: activation.host_update.id.clone(),
-                user_id,
-                previous_user_id: activation.previous_user_id,
+                user_id: user_id.to_owned(),
+                previous_user_id: activation.previous_user_id.clone(),
             })
             .await;
     }
@@ -246,7 +247,7 @@ mod tests {
         AgentHost {
             id: "host".into(),
             name: Some("Host".into()),
-            user_id: Some(user_id),
+            user_id: Some(user_id.to_string()),
             default_capabilities: vec!["old".into()],
             public_key: None,
             kid: None,
@@ -271,7 +272,7 @@ mod tests {
         AgentIdentity {
             id: id.into(),
             name: id.into(),
-            user_id,
+            user_id: user_id.map(|value| value.to_string()),
             host_id: "host".into(),
             status: AgentStatus::Active,
             mode,
@@ -316,14 +317,14 @@ mod tests {
         let grants = agents.iter().map(|agent| grant(&agent.id, now)).collect();
         let activation = build(
             &host(old_user, now),
-            new_user,
+            &new_user.to_string(),
             now,
             agents,
             grants,
             vec!["GET".into()],
         );
-        assert_eq!(activation.previous_user_id, Some(old_user));
-        assert_eq!(activation.host_update.user_id, Some(new_user));
+        assert_eq!(activation.previous_user_id, Some(old_user.to_string()));
+        assert_eq!(activation.host_update.user_id, Some(new_user.to_string()));
         assert_eq!(activation.host_update.default_capabilities, ["GET"]);
         assert_eq!(activation.agent_updates.len(), 2);
         assert!(
@@ -334,7 +335,7 @@ mod tests {
         assert!(activation.agent_updates.iter().any(|agent| {
             agent.id == "autonomous"
                 && agent.status == AgentStatus::Claimed
-                && agent.user_id == Some(new_user)
+                && agent.user_id == Some(new_user.to_string())
         }));
         assert_eq!(activation.grant_updates.len(), 2);
         assert!(

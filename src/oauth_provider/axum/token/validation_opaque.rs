@@ -64,7 +64,7 @@ async fn opaque_access_is_active(
     if client.disabled {
         return Ok(false);
     }
-    if let Some(session_id) = access.session_id
+    if let Some(session_id) = access.session_id.as_deref()
         && service
             .oauth_provider_session_by_id(session_id)
             .await
@@ -103,7 +103,7 @@ async fn opaque_access_payload(
         audience.push(userinfo.to_owned());
     }
     let mut payload = opaque_base_payload(service, config, headers, access, &audience);
-    let user = match access.user_id {
+    let user = match access.user_id.as_deref() {
         Some(id) => service.auth_user_by_id(id).await.map_err(server)?,
         None => None,
     };
@@ -152,11 +152,11 @@ fn opaque_base_payload(
     if !audience.is_empty() {
         payload.insert("aud".into(), audience_value(audience));
     }
-    if let Some(user_id) = access.user_id {
-        payload.insert("sub".into(), Value::String(user_id.to_string()));
+    if let Some(user_id) = access.user_id.as_ref() {
+        payload.insert("sub".into(), Value::String(user_id.clone()));
     }
-    if let Some(session_id) = access.session_id {
-        payload.insert("sid".into(), Value::String(session_id.to_string()));
+    if let Some(session_id) = access.session_id.as_ref() {
+        payload.insert("sid".into(), Value::String(session_id.clone()));
     }
     if let Some(confirmation) = &access.confirmation {
         payload.insert("cnf".into(), confirmation.clone());

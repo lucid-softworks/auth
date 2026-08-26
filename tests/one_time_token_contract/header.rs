@@ -9,8 +9,8 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use lucid_auth::{
-    AuthError, AuthPlugin, AuthService, AuthStore, BeforeDatabaseHook, DatabaseHookContext,
-    DatabaseHooks, DatabaseRecord, OneTimeTokenConfig, OneTimeTokenGenerator,
+    AuthError, AuthPlugin, AuthService, AuthStore, BeforeDatabaseCreateHook, DatabaseCreateRecord,
+    DatabaseHookContext, DatabaseHooks, DatabaseModel, OneTimeTokenConfig, OneTimeTokenGenerator,
     OneTimeTokenRequestContext, PluginDescriptor, PluginRequestContext, SessionWithUser,
 };
 use serde_json::json;
@@ -37,15 +37,15 @@ struct RejectVerificationPersistence;
 impl DatabaseHooks for RejectVerificationPersistence {
     async fn before_create(
         &self,
-        record: &DatabaseRecord,
+        record: &DatabaseCreateRecord,
         _context: &DatabaseHookContext,
-    ) -> Result<BeforeDatabaseHook, AuthError> {
-        if matches!(record, DatabaseRecord::Verification(_)) {
+    ) -> Result<BeforeDatabaseCreateHook, AuthError> {
+        if record.model() == DatabaseModel::Verification {
             return Err(AuthError::Storage(
                 "one-time-token persistence failed".into(),
             ));
         }
-        Ok(BeforeDatabaseHook::Continue)
+        Ok(BeforeDatabaseCreateHook::Continue)
     }
 }
 
@@ -167,7 +167,7 @@ async fn expired_session_error_mints_the_pinned_successor_token() {
     let token = generated_token(generate(&fixture.app, Some(&source.cookie)).await).await;
     fixture
         .store
-        .expire_session(source.session_id, Utc::now() - Duration::seconds(1))
+        .expire_session(&source.session_id, Utc::now() - Duration::seconds(1))
         .await
         .unwrap();
 
