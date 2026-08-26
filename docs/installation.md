@@ -31,7 +31,7 @@ surface is intentionally small:
 | Cargo feature | Default | Adds |
 | --- | --- | --- |
 | `axum` | yes | Better Auth HTTP router, cookies, browser security, CORS |
-| `postgres` | no | `PostgresStore`, core migrations, plugin migrations |
+| `postgres` | no | `PostgresStore`, bound-schema migration, Lucid extension operations |
 
 `--no-default-features` is useful only for native in-process service calls; it
 does not expose an HTTP server for the official JavaScript client.
@@ -109,17 +109,18 @@ cargo run --example http_postgres --features axum,postgres
 ```
 
 The [PostgreSQL HTTP example](../examples/http_postgres.rs) creates the pool,
-constructs the validated service, applies core migrations, applies enabled
-plugin migrations, and then binds the router. Apply and validate the complete
-plan during every deployment before new application instances serve traffic:
+constructs the validated service, binds its exact resolved schema to the store,
+applies that schema plus enabled Lucid extension operations, and then binds the
+router. Apply and validate the complete plan during every deployment before new
+application instances serve traffic:
 
 ```rust
 let report = store.migrate_all(&service.plugin_migrations()).await?;
 assert!(report.compatible);
 ```
 
-Both operations use the same PostgreSQL advisory lock and are transactional and
-idempotent. `migration_plan` provides read-only discovery and `diagnose_schema`
+Schema evolution and extension operations use the same PostgreSQL advisory lock
+and are transactional and idempotent. `migration_plan` provides read-only discovery and `diagnose_schema`
 checks the deployed catalog without executing a subprocess or including the
 database URL in its serializable report. Do not run Better Auth's TypeScript CLI
 against this schema.

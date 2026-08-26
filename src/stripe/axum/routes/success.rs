@@ -141,7 +141,6 @@ async fn apply_subscription(
                 .as_ref()
                 .map(|value| value.interval),
         ),
-        updated_at: Some(Utc::now()),
         ..SubscriptionPatch::default()
     };
     if let Err(error) = plugin.store.update_subscription(local_id, patch).await {

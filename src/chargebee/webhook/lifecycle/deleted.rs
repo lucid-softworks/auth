@@ -41,7 +41,6 @@ async fn handle_inner(
             local.id,
             ChargebeeSubscriptionPatch {
                 status: Some(ChargebeeSubscriptionStatus::Cancelled),
-                updated_at: Some(Utc::now()),
                 canceled_at: Some(Some(stored_canceled_at)),
                 ..ChargebeeSubscriptionPatch::default()
             },

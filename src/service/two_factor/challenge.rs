@@ -4,11 +4,8 @@ use super::{
 };
 use crate::{AuthError, VerificationValue};
 use chrono::Utc;
-use serde_json::json;
 
-const CHALLENGE_PURPOSE: &str = "two-factor-challenge";
-const ATTEMPTS_PURPOSE: &str = "two-factor-attempts";
-const TRUST_PURPOSE: &str = "two-factor-trust-device";
+const ATTEMPTS_PREFIX: &str = "2fa-attempts-";
 
 impl AuthService {
     pub(crate) async fn begin_two_factor_sign_in(
@@ -20,14 +17,14 @@ impl AuthService {
         let Some(plugin) = self.plugins.find::<crate::TwoFactorPlugin>() else {
             return Ok(continue_sign_in(result, None));
         };
-        let Some(record) = plugin
+        if !plugin
             .store
-            .find_two_factor(result.session.user.id)
+            .two_factor_enabled(result.session.user.id)
             .await?
-            .filter(|record| record.enabled)
-        else {
+        {
             return Ok(continue_sign_in(result, None));
-        };
+        }
+        let record = plugin.store.find_two_factor(result.session.user.id).await?;
         if self
             .validate_trust_device(result.session.user.id, trust_cookie)
             .await?
@@ -40,7 +37,7 @@ impl AuthService {
             .await?;
         Ok(TwoFactorSignInOutcome::Challenge {
             identifier,
-            methods: available_methods(plugin, &record),
+            methods: available_methods(plugin, record.as_ref()),
             max_age_seconds: plugin.config.challenge_ttl.num_seconds(),
         })
     }
@@ -51,7 +48,7 @@ impl AuthService {
         remember_me: Option<bool>,
         ttl: chrono::Duration,
     ) -> Result<String, AuthError> {
-        let identifier = super::super::random_token();
+        let identifier = format!("2fa-{}", super::super::random_token());
         let now = Utc::now();
         let expires_at = now + ttl;
         let payload = ChallengePayload {
@@ -61,31 +58,25 @@ impl AuthService {
             ip_address: result.session.session.ip_address.clone(),
             user_agent: result.session.session.user_agent.clone(),
         };
-        self.create_verification_record(VerificationValue {
-            purpose: CHALLENGE_PURPOSE.into(),
-            identifier: identifier.clone(),
-            payload: serde_json::to_value(payload)
+        self.create_verification_record(VerificationValue::new(
+            identifier.clone(),
+            serde_json::to_string(&payload)
                 .map_err(|error| AuthError::Storage(error.to_string()))?,
-            additional_fields: serde_json::Map::new(),
             expires_at,
-            created_at: now,
-        })
+        ))
         .await?;
-        self.create_verification_record(VerificationValue {
-            purpose: ATTEMPTS_PURPOSE.into(),
-            identifier: identifier.clone(),
-            payload: json!({ "attempts": 0 }),
-            additional_fields: serde_json::Map::new(),
+        self.create_verification_record(VerificationValue::new(
+            attempts_identifier(&identifier),
+            "0",
             expires_at,
-            created_at: now,
-        })
+        ))
         .await?;
         if let Err(error) = self.sign_out(&result.token).await {
             let _ = self
-                .consume_verification_record(CHALLENGE_PURPOSE, &identifier, Utc::now())
+                .consume_verification_record(&identifier, Utc::now())
                 .await;
             let _ = self
-                .consume_verification_record(ATTEMPTS_PURPOSE, &identifier, Utc::now())
+                .consume_verification_record(&attempts_identifier(&identifier), Utc::now())
                 .await;
             return Err(error);
         }
@@ -106,12 +97,12 @@ impl AuthService {
         }
         let identifier = challenge_identifier.ok_or(TwoFactorError::InvalidCookie)?;
         let value = self
-            .find_verification_value(CHALLENGE_PURPOSE, &identifier)
+            .find_verification_value(&identifier)
             .await?
-            .filter(|value| value.expires_at > Utc::now())
+            .filter(|value| value.expires_at >= Utc::now())
             .ok_or(TwoFactorError::InvalidCookie)?;
         let payload: ChallengePayload =
-            serde_json::from_value(value.payload).map_err(|_| TwoFactorError::InvalidCookie)?;
+            serde_json::from_str(&value.value).map_err(|_| TwoFactorError::InvalidCookie)?;
         let user = self
             .store
             .find_user_by_id(payload.user_id)
@@ -133,17 +124,16 @@ impl AuthService {
         let (result, remember_me) = match context.challenge {
             Some((identifier, payload)) => {
                 let consumed = self
-                    .consume_verification_record(CHALLENGE_PURPOSE, &identifier, Utc::now())
+                    .consume_verification_record(&identifier, Utc::now())
                     .await?
                     .ok_or(TwoFactorError::InvalidCookie)?;
-                let consumed_payload: ChallengePayload =
-                    serde_json::from_value(consumed.payload)
-                        .map_err(|_| TwoFactorError::InvalidCookie)?;
+                let consumed_payload: ChallengePayload = serde_json::from_str(&consumed.value)
+                    .map_err(|_| TwoFactorError::InvalidCookie)?;
                 if consumed_payload.user_id != context.user.id {
                     return Err(TwoFactorError::InvalidCookie.into());
                 }
                 let _ = self
-                    .consume_verification_record(ATTEMPTS_PURPOSE, &identifier, Utc::now())
+                    .consume_verification_record(&attempts_identifier(&identifier), Utc::now())
                     .await;
                 let result = if payload.remember_me == Some(false) {
                     self.create_session_expiring_at(
@@ -213,17 +203,16 @@ impl AuthService {
             return Ok(());
         };
         let attempts = self
-            .find_verification_value(ATTEMPTS_PURPOSE, identifier)
+            .find_verification_value(&attempts_identifier(identifier))
             .await?
-            .and_then(|value| value.payload["attempts"].as_u64())
-            .and_then(|value| u32::try_from(value).ok())
+            .and_then(|value| value.value.parse::<u32>().ok())
             .ok_or(TwoFactorError::InvalidCookie)?;
         if attempts >= allowed {
             let _ = self
-                .consume_verification_record(CHALLENGE_PURPOSE, identifier, Utc::now())
+                .consume_verification_record(identifier, Utc::now())
                 .await;
             let _ = self
-                .consume_verification_record(ATTEMPTS_PURPOSE, identifier, Utc::now())
+                .consume_verification_record(&attempts_identifier(identifier), Utc::now())
                 .await;
             return Err(TwoFactorError::TooManyAttempts.into());
         }
@@ -238,18 +227,15 @@ impl AuthService {
             return Ok(());
         };
         let value = self
-            .consume_verification_record(ATTEMPTS_PURPOSE, identifier, Utc::now())
+            .consume_verification_record(&attempts_identifier(identifier), Utc::now())
             .await?
             .ok_or(TwoFactorError::InvalidCookie)?;
-        let attempts = value.payload["attempts"].as_u64().unwrap_or(5) + 1;
-        self.create_verification_record(VerificationValue {
-            purpose: ATTEMPTS_PURPOSE.into(),
-            identifier: identifier.clone(),
-            payload: json!({ "attempts": attempts }),
-            additional_fields: serde_json::Map::new(),
-            expires_at: value.expires_at,
-            created_at: value.created_at,
-        })
+        let attempts = value.value.parse::<u64>().unwrap_or(5) + 1;
+        self.create_verification_record(VerificationValue::new(
+            attempts_identifier(identifier),
+            attempts.to_string(),
+            value.expires_at,
+        ))
         .await?;
         self.record_two_factor_failure(payload.user_id).await
     }
@@ -266,12 +252,12 @@ impl AuthService {
             return Ok(false);
         }
         let Some(value) = self
-            .consume_verification_record(TRUST_PURPOSE, identifier, Utc::now())
+            .consume_verification_record(identifier, Utc::now())
             .await?
         else {
             return Ok(false);
         };
-        Ok(value.payload["userId"].as_str() == Some(&user_id.to_string()))
+        Ok(value.value == user_id.to_string())
     }
 
     pub(super) async fn revoke_trust_device(&self, cookie: Option<&str>) -> Result<(), AuthError> {
@@ -279,7 +265,7 @@ impl AuthService {
             return Ok(());
         };
         let _ = self
-            .consume_verification_record(TRUST_PURPOSE, identifier, Utc::now())
+            .consume_verification_record(identifier, Utc::now())
             .await?;
         Ok(())
     }
@@ -291,18 +277,19 @@ impl AuthService {
         let plugin = self.two_factor_plugin()?;
         let identifier = format!("trust-device-{}", super::super::random_token());
         let now = Utc::now();
-        self.create_verification_record(VerificationValue {
-            purpose: TRUST_PURPOSE.into(),
-            identifier: identifier.clone(),
-            payload: json!({ "userId": user_id }),
-            additional_fields: serde_json::Map::new(),
-            expires_at: now + plugin.config.trust_device_ttl,
-            created_at: now,
-        })
+        self.create_verification_record(VerificationValue::new(
+            identifier.clone(),
+            user_id.to_string(),
+            now + plugin.config.trust_device_ttl,
+        ))
         .await?;
         let token = self.sign(format!("{user_id}!{identifier}").as_bytes());
         Ok(format!("{token}!{identifier}"))
     }
+}
+
+fn attempts_identifier(challenge_identifier: &str) -> String {
+    format!("{ATTEMPTS_PREFIX}{challenge_identifier}")
 }
 
 fn continue_sign_in(
@@ -317,10 +304,10 @@ fn continue_sign_in(
 
 fn available_methods(
     plugin: &crate::TwoFactorPlugin,
-    record: &crate::TwoFactorRecord,
+    record: Option<&crate::TwoFactorRecord>,
 ) -> Vec<String> {
     let mut methods = Vec::new();
-    if !plugin.config.totp.disabled && record.encrypted_secret.is_some() && record.verified {
+    if !plugin.config.totp.disabled && record.is_some_and(|record| record.verified) {
         methods.push("totp".into());
     }
     if plugin.config.otp.is_some() {

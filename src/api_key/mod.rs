@@ -2,7 +2,7 @@
 use crate::AuthService;
 use crate::{
     AuthConfig, AuthError, AuthPlugin, PluginClientMetadata, PluginDescriptor, PluginEndpoint,
-    PluginHttpMethod, PluginMigration,
+    PluginHttpMethod,
 };
 use async_trait::async_trait;
 use std::{collections::BTreeMap, sync::Arc};
@@ -16,6 +16,7 @@ mod http_error;
 mod http_input;
 #[cfg(feature = "axum")]
 mod http_response;
+mod schema_catalog;
 
 pub use error::ApiKeyError;
 #[cfg(feature = "axum")]
@@ -46,12 +47,6 @@ const fn endpoint(
         client_method,
     }
 }
-
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
-    "better-auth-api-key-schema",
-    "Better Auth 1.7.1 API-key schema",
-    include_str!("../../migrations/api_key_plugin.sql"),
-)];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApiKeyReference {
@@ -163,16 +158,34 @@ pub trait ApiKeyGenerator: Send + Sync {
 #[derive(Clone)]
 pub struct ApiKeyPlugin {
     configurations: Arc<Vec<ApiKeyConfiguration>>,
+    options: ApiKeyOptions,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ApiKeyOptions {
+    pub schema: crate::DatabaseModelSchema,
 }
 
 impl ApiKeyPlugin {
     pub fn new(configuration: ApiKeyConfiguration) -> Self {
-        Self::with_configurations(vec![configuration])
+        Self::with_options(configuration, ApiKeyOptions::default())
+    }
+
+    pub fn with_options(configuration: ApiKeyConfiguration, options: ApiKeyOptions) -> Self {
+        Self::with_configurations_and_options(vec![configuration], options)
     }
 
     pub fn with_configurations(configurations: Vec<ApiKeyConfiguration>) -> Self {
+        Self::with_configurations_and_options(configurations, ApiKeyOptions::default())
+    }
+
+    pub fn with_configurations_and_options(
+        configurations: Vec<ApiKeyConfiguration>,
+        options: ApiKeyOptions,
+    ) -> Self {
         Self {
             configurations: Arc::new(configurations),
+            options,
         }
     }
 }
@@ -216,8 +229,13 @@ impl AuthPlugin for ApiKeyPlugin {
         validate_configurations(&self.configurations)
     }
 
-    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
-        std::borrow::Cow::Borrowed(MIGRATIONS)
+    fn schema(&self) -> Vec<crate::PluginSchemaTable> {
+        let sole = (self.configurations.len() == 1).then(|| &self.configurations[0]);
+        vec![crate::database_schema::remap_plugin_table(
+            schema_catalog::table(sole),
+            &self.options.schema,
+            false,
+        )]
     }
 
     #[cfg(feature = "axum")]
@@ -266,7 +284,7 @@ impl AuthPlugin for ApiKeyPlugin {
                 user_id: user.id,
                 token: String::new(),
                 actor_user_id: None,
-                authentication_method: AuthenticationMethod::Password,
+                authentication_method: Some(AuthenticationMethod::Password),
                 expires_at: verified
                     .api_key
                     .expires_at

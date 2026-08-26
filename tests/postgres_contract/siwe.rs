@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use lucid_auth::{
-    AuthConfig, AuthError, AuthService, AuthenticationMethod, SiweConfig, SiweMessageVerifier,
-    SiweNonceGenerator, SiwePlugin, SiweSchema, SiweVerificationRequest, postgres::PostgresStore,
+    AuthConfig, AuthError, AuthService, SiweConfig, SiweMessageVerifier, SiweNonceGenerator,
+    SiwePlugin, SiweSchema, SiweVerificationRequest, postgres::PostgresStore,
 };
 use std::sync::{
     Arc,
@@ -139,8 +139,9 @@ async fn assert_persisted_identity(
     );
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_accounts \
-             WHERE user_id = $1 AND issuer = 'local:siwe' AND provider_id = 'siwe'",
+            "SELECT COUNT(*) FROM \"account\" \
+             WHERE \"userId\" = $1 AND \"issuer\" = 'local:siwe' \
+               AND \"providerId\" = 'siwe'",
         )
         .bind(user_id)
         .fetch_one(pool)
@@ -148,26 +149,11 @@ async fn assert_persisted_identity(
         3
     );
     assert_eq!(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_sessions \
-             WHERE user_id = $1 AND authentication_method = $2",
-        )
-        .bind(user_id)
-        .bind(AuthenticationMethod::Extension.as_str())
-        .fetch_one(pool)
-        .await?,
-        4
-    );
-    Ok(())
-}
-
-pub(super) async fn assert_table_absent(
-    pool: &sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    assert!(
-        !sqlx::query_scalar::<_, bool>("SELECT to_regclass('postgres_siwe_wallets') IS NOT NULL")
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM \"session\" WHERE \"userId\" = $1",)
+            .bind(user_id)
             .fetch_one(pool)
-            .await?
+            .await?,
+        4
     );
     Ok(())
 }
@@ -179,15 +165,6 @@ async fn assert_plugin_migration_applied(
         sqlx::query_scalar::<_, bool>("SELECT to_regclass('postgres_siwe_wallets') IS NOT NULL")
             .fetch_one(pool)
             .await?
-    );
-    assert_eq!(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_plugin_migrations \
-             WHERE plugin_id = 'siwe' AND migration_id = 'better-auth-siwe-schema'",
-        )
-        .fetch_one(pool)
-        .await?,
-        1
     );
     Ok(())
 }

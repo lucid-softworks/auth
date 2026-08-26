@@ -1,12 +1,14 @@
 use super::{
     PostgresAgentAuthStore, is_unique_violation, lock_creation, query,
-    rows::{HOST_FIELDS, HostRow, encode_json},
+    rows::{self},
     storage_error,
 };
 use crate::{
     AuthError,
-    agent_auth::{AgentHost, AgentStoreCreateOutcome, schema::AgentAuthModel},
+    agent_auth::{AgentHost, AgentStoreCreateOutcome},
 };
+use serde_json::{Value, json};
+use sqlx::{Postgres, QueryBuilder};
 use uuid::Uuid;
 
 pub(super) async fn create(
@@ -15,48 +17,16 @@ pub(super) async fn create(
 ) -> Result<AgentStoreCreateOutcome<AgentHost>, AuthError> {
     let mut transaction = store.pool().begin().await.map_err(storage_error)?;
     lock_creation(&mut transaction, "agentHost").await?;
-    let model = store.schema.model(AgentAuthModel::AgentHost);
-    let conflict = sqlx::query_scalar::<_, bool>(&format!(
-        "SELECT EXISTS(SELECT 1 FROM {} WHERE \"id\"=$1 OR ($2::TEXT IS NOT NULL AND {}=$2) OR ($3::TEXT IS NOT NULL AND {}=$3))",
-        model.table(),
-        model.column("kid"),
-        model.column("enrollmentTokenHash"),
-    ))
-    .bind(&host.id)
-    .bind(&host.kid)
-    .bind(&host.enrollment_token_hash)
-    .fetch_one(&mut *transaction)
-    .await
-    .map_err(storage_error)?;
-    if conflict {
+    let model = store.model("agentHost")?;
+    if conflicts(&model, &host, &mut transaction).await? {
         return Ok(AgentStoreCreateOutcome::UniqueConflict);
     }
-    let capabilities = encode_json(&host.default_capabilities)?;
-    let result = sqlx::query_as::<_, HostRow>(&query::insert(
-        &store.schema,
-        AgentAuthModel::AgentHost,
-        HOST_FIELDS,
-    ))
-    .bind(&host.id)
-    .bind(&host.name)
-    .bind(host.user_id)
-    .bind(capabilities)
-    .bind(&host.public_key)
-    .bind(&host.kid)
-    .bind(&host.jwks_url)
-    .bind(&host.enrollment_token_hash)
-    .bind(host.enrollment_token_expires_at)
-    .bind(host.status.as_str())
-    .bind(host.activated_at)
-    .bind(host.expires_at)
-    .bind(host.last_used_at)
-    .bind(host.created_at)
-    .bind(host.updated_at)
-    .fetch_one(&mut *transaction)
-    .await;
+    let mut insert = query::insert(&model, rows::host_writes(&model, &host)?);
+    insert.push(" RETURNING ").push(model.all_projection());
+    let result = insert.build().fetch_one(&mut *transaction).await;
     match result {
         Ok(row) => {
-            let host = row.try_into()?;
+            let host = rows::decode_host(&model, &row)?;
             transaction.commit().await.map_err(storage_error)?;
             Ok(AgentStoreCreateOutcome::Created(host))
         }
@@ -65,80 +35,94 @@ pub(super) async fn create(
     }
 }
 
+async fn conflicts(
+    model: &crate::postgres::PostgresModel<'_>,
+    host: &AgentHost,
+    transaction: &mut sqlx::Transaction<'_, Postgres>,
+) -> Result<bool, AuthError> {
+    let mut query = QueryBuilder::new("SELECT EXISTS(SELECT 1 FROM ");
+    query.push(model.quoted_table()).push(" WHERE \"id\" = ");
+    model.encode("id", json!(host.id))?.push_bind(&mut query);
+    for (field, value) in [
+        ("kid", host.kid.clone()),
+        ("enrollmentTokenHash", host.enrollment_token_hash.clone()),
+    ] {
+        query.push(" OR (");
+        model
+            .encode(field, optional_string(value.clone()))?
+            .push_bind(&mut query);
+        query
+            .push(" IS NOT NULL AND ")
+            .push(model.quoted_column(field)?)
+            .push(" = ");
+        model
+            .encode(field, optional_string(value))?
+            .push_bind(&mut query);
+        query.push(")");
+    }
+    query.push(")");
+    query
+        .build_query_scalar()
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(storage_error)
+}
+
 pub(super) async fn find(
     store: &PostgresAgentAuthStore,
-    field: &str,
+    field: &'static str,
     value: &str,
 ) -> Result<Option<AgentHost>, AuthError> {
-    convert(
-        sqlx::query_as::<_, HostRow>(&query::select(
-            &store.schema,
-            AgentAuthModel::AgentHost,
-            HOST_FIELDS,
-            &[field],
-            " LIMIT 1",
-        ))
-        .bind(value)
+    let model = store.model("agentHost")?;
+    let mut query = query::filter(&model, [(field, Value::String(value.to_owned()))])?;
+    query.push(" ORDER BY \"id\" LIMIT 1");
+    query
+        .build()
         .fetch_optional(store.pool())
         .await
-        .map_err(storage_error)?,
-    )
+        .map_err(storage_error)?
+        .as_ref()
+        .map(|row| rows::decode_host(&model, row))
+        .transpose()
 }
 
 pub(super) async fn list_for_user(
     store: &PostgresAgentAuthStore,
     user_id: Uuid,
 ) -> Result<Vec<AgentHost>, AuthError> {
-    let model = store.schema.model(AgentAuthModel::AgentHost);
-    let order = format!(" ORDER BY {}, \"id\"", model.column("createdAt"));
-    sqlx::query_as::<_, HostRow>(&query::select(
-        &store.schema,
-        AgentAuthModel::AgentHost,
-        HOST_FIELDS,
-        &["userId"],
-        &order,
-    ))
-    .bind(user_id)
-    .fetch_all(store.pool())
-    .await
-    .map_err(storage_error)?
-    .into_iter()
-    .map(TryInto::try_into)
-    .collect()
+    let model = store.model("agentHost")?;
+    let mut query = query::filter(&model, [("userId", json!(user_id.to_string()))])?;
+    query
+        .push(" ORDER BY ")
+        .push(model.quoted_column("createdAt")?)
+        .push(", \"id\"");
+    query
+        .build()
+        .fetch_all(store.pool())
+        .await
+        .map_err(storage_error)?
+        .iter()
+        .map(|row| rows::decode_host(&model, row))
+        .collect()
 }
 
 pub(super) async fn update(
     store: &PostgresAgentAuthStore,
     host: AgentHost,
 ) -> Result<Option<AgentHost>, AuthError> {
-    let capabilities = encode_json(&host.default_capabilities)?;
-    convert(
-        sqlx::query_as::<_, HostRow>(&query::update(
-            &store.schema,
-            AgentAuthModel::AgentHost,
-            HOST_FIELDS,
-        ))
-        .bind(&host.id)
-        .bind(&host.name)
-        .bind(host.user_id)
-        .bind(capabilities)
-        .bind(&host.public_key)
-        .bind(&host.kid)
-        .bind(&host.jwks_url)
-        .bind(&host.enrollment_token_hash)
-        .bind(host.enrollment_token_expires_at)
-        .bind(host.status.as_str())
-        .bind(host.activated_at)
-        .bind(host.expires_at)
-        .bind(host.last_used_at)
-        .bind(host.created_at)
-        .bind(host.updated_at)
+    let model = store.model("agentHost")?;
+    let mut query = query::update(&model, rows::host_writes(&model, &host)?, &host.id)?;
+    query.push(" RETURNING ").push(model.all_projection());
+    query
+        .build()
         .fetch_optional(store.pool())
         .await
-        .map_err(storage_error)?,
-    )
+        .map_err(storage_error)?
+        .as_ref()
+        .map(|row| rows::decode_host(&model, row))
+        .transpose()
 }
 
-fn convert(row: Option<HostRow>) -> Result<Option<AgentHost>, AuthError> {
-    row.map(TryInto::try_into).transpose()
+fn optional_string(value: Option<String>) -> Value {
+    value.map_or(Value::Null, Value::String)
 }

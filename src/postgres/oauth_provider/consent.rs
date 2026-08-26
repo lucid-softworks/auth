@@ -1,14 +1,30 @@
 use super::{
-    super::storage_error,
+    super::{
+        PostgresModel,
+        rows::{insert_query_prefix, update_query},
+        storage_error,
+    },
     PostgresOAuthProviderStore,
-    rows::{CONSENT_FIELDS, ConsentRow},
+    rows::{self, CONSENT_FIELDS, ConsentRow},
 };
 use crate::{
     AuthError,
-    oauth_provider::{OAuthProviderConsent, OAuthProviderConsentStore, schema::OAuthProviderModel},
+    oauth_provider::{OAuthProviderConsent, OAuthProviderConsentStore},
 };
 use async_trait::async_trait;
+use sqlx::QueryBuilder;
 use uuid::Uuid;
+
+fn select_consents(
+    model: &PostgresModel<'_>,
+) -> Result<QueryBuilder<'static, sqlx::Postgres>, AuthError> {
+    let mut query = QueryBuilder::new("SELECT ");
+    query
+        .push(model.projection_as(CONSENT_FIELDS)?)
+        .push(" FROM ")
+        .push(model.quoted_table());
+    Ok(query)
+}
 
 #[async_trait]
 impl OAuthProviderConsentStore for PostgresOAuthProviderStore {
@@ -16,17 +32,10 @@ impl OAuthProviderConsentStore for PostgresOAuthProviderStore {
         &self,
         id: Uuid,
     ) -> Result<Option<OAuthProviderConsent>, AuthError> {
-        let model = self.schema.model(OAuthProviderModel::Consent);
-        sqlx::query_as::<_, ConsentRow>(&format!(
-            "SELECT {} FROM {} WHERE \"id\"=$1",
-            model.projection(CONSENT_FIELDS),
-            model.table()
-        ))
-        .bind(id)
-        .fetch_optional(self.pool())
-        .await
-        .map(|row| row.map(Into::into))
-        .map_err(storage_error)
+        let model = self.model("oauthConsent")?;
+        let mut query = select_consents(&model)?;
+        query.push(" WHERE \"id\" = ").push_bind(id);
+        fetch_optional(query, self.pool()).await
     }
 
     async fn find_oauth_consent_for_grant(
@@ -35,49 +44,54 @@ impl OAuthProviderConsentStore for PostgresOAuthProviderStore {
         user_id: Uuid,
         reference_id: Option<&str>,
     ) -> Result<Option<OAuthProviderConsent>, AuthError> {
-        let model = self.schema.model(OAuthProviderModel::Consent);
-        sqlx::query_as::<_, ConsentRow>(&format!(
-            "SELECT {} FROM {} WHERE {}=$1 AND {}=$2 AND {} IS NOT DISTINCT FROM $3 \
-             ORDER BY {} DESC, \"id\" LIMIT 1",
-            model.projection(CONSENT_FIELDS),
-            model.table(),
-            model.column("clientId"),
-            model.column("userId"),
-            model.column("referenceId"),
-            model.column("updatedAt")
-        ))
-        .bind(client_id)
-        .bind(user_id)
-        .bind(reference_id)
-        .fetch_optional(self.pool())
-        .await
-        .map(|row| row.map(Into::into))
-        .map_err(storage_error)
+        let model = self.model("oauthConsent")?;
+        let mut query = select_consents(&model)?;
+        query
+            .push(" WHERE ")
+            .push(model.quoted_column("clientId")?)
+            .push(" = ")
+            .push_bind(client_id.to_owned())
+            .push(" AND ")
+            .push(model.quoted_column("userId")?)
+            .push(" = ")
+            .push_bind(user_id)
+            .push(" AND ")
+            .push(model.quoted_column("referenceId")?)
+            .push(" IS NOT DISTINCT FROM ")
+            .push_bind(reference_id.map(str::to_owned))
+            .push(" ORDER BY ")
+            .push(model.quoted_column("updatedAt")?)
+            .push(" DESC, \"id\" LIMIT 1");
+        fetch_optional(query, self.pool()).await
     }
 
     async fn list_oauth_consents(
         &self,
         user_id: Uuid,
     ) -> Result<Vec<OAuthProviderConsent>, AuthError> {
-        let model = self.schema.model(OAuthProviderModel::Consent);
-        sqlx::query_as::<_, ConsentRow>(&format!(
-            "SELECT {} FROM {} WHERE {}=$1 ORDER BY {}, \"id\"",
-            model.projection(CONSENT_FIELDS),
-            model.table(),
-            model.column("userId"),
-            model.column("createdAt")
-        ))
-        .bind(user_id)
-        .fetch_all(self.pool())
-        .await
-        .map(|rows| rows.into_iter().map(Into::into).collect())
-        .map_err(storage_error)
+        let model = self.model("oauthConsent")?;
+        let mut query = select_consents(&model)?;
+        query
+            .push(" WHERE ")
+            .push(model.quoted_column("userId")?)
+            .push(" = ")
+            .push_bind(user_id)
+            .push(" ORDER BY ")
+            .push(model.quoted_column("createdAt")?)
+            .push(", \"id\"");
+        query
+            .build_query_as::<ConsentRow>()
+            .fetch_all(self.pool())
+            .await
+            .map(|rows| rows.into_iter().map(Into::into).collect())
+            .map_err(storage_error)
     }
 
     async fn upsert_oauth_consent(
         &self,
         consent: OAuthProviderConsent,
     ) -> Result<OAuthProviderConsent, AuthError> {
+        let model = self.model("oauthConsent")?;
         let mut transaction = self.pool().begin().await.map_err(storage_error)?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
             .bind(
@@ -87,63 +101,36 @@ impl OAuthProviderConsentStore for PostgresOAuthProviderStore {
             .execute(&mut *transaction)
             .await
             .map_err(storage_error)?;
-        let model = self.schema.model(OAuthProviderModel::Consent);
-        let existing_id = sqlx::query_scalar::<_, Uuid>(&format!(
-            "SELECT \"id\" FROM {} WHERE {}=$1 AND {} IS NOT DISTINCT FROM $2 \
-             AND {} IS NOT DISTINCT FROM $3 ORDER BY {} DESC, \"id\" LIMIT 1 FOR UPDATE",
-            model.table(),
-            model.column("clientId"),
-            model.column("userId"),
-            model.column("referenceId"),
-            model.column("updatedAt")
-        ))
-        .bind(&consent.client_id)
-        .bind(consent.user_id)
-        .bind(&consent.reference_id)
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(storage_error)?;
-
-        let stored = if let Some(id) = existing_id {
-            sqlx::query_as::<_, ConsentRow>(&format!(
-                "UPDATE {} SET {}=$2, {}=$3, {}=$4, {}=$5, {}=$6 WHERE \"id\"=$1 RETURNING {}",
-                model.table(),
-                model.column("resources"),
-                model.column("requestedUserInfoClaims"),
-                model.column("scopes"),
-                model.column("createdAt"),
-                model.column("updatedAt"),
-                model.projection(CONSENT_FIELDS)
-            ))
-            .bind(id)
-            .bind(&consent.resources)
-            .bind(&consent.requested_user_info_claims)
-            .bind(&consent.scopes)
-            .bind(consent.created_at)
-            .bind(consent.updated_at)
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(storage_error)?
+        let existing_id = find_existing_id(&mut transaction, &model, &consent).await?;
+        let writes = rows::writes(&model, &consent, [])?;
+        let mut query = if let Some(id) = existing_id {
+            let writes = writes
+                .into_iter()
+                .filter(|write| {
+                    matches!(
+                        write.logical(),
+                        "resources"
+                            | "requestedUserInfoClaims"
+                            | "scopes"
+                            | "createdAt"
+                            | "updatedAt"
+                    )
+                })
+                .collect();
+            let mut query = update_query(&model, writes);
+            query.push(" WHERE \"id\" = ").push_bind(id);
+            query
         } else {
-            sqlx::query_as::<_, ConsentRow>(&format!(
-                "INSERT INTO {} ({}) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING {}",
-                model.table(),
-                model.columns(CONSENT_FIELDS),
-                model.projection(CONSENT_FIELDS)
-            ))
-            .bind(consent.id)
-            .bind(&consent.client_id)
-            .bind(consent.user_id)
-            .bind(&consent.reference_id)
-            .bind(&consent.resources)
-            .bind(&consent.requested_user_info_claims)
-            .bind(&consent.scopes)
-            .bind(consent.created_at)
-            .bind(consent.updated_at)
+            insert_query_prefix(&model, writes)
+        };
+        query
+            .push(" RETURNING ")
+            .push(model.projection_as(CONSENT_FIELDS)?);
+        let stored = query
+            .build_query_as::<ConsentRow>()
             .fetch_one(&mut *transaction)
             .await
-            .map_err(storage_error)?
-        };
+            .map_err(storage_error)?;
         transaction.commit().await.map_err(storage_error)?;
         Ok(stored.into())
     }
@@ -152,16 +139,59 @@ impl OAuthProviderConsentStore for PostgresOAuthProviderStore {
         &self,
         id: Uuid,
     ) -> Result<Option<OAuthProviderConsent>, AuthError> {
-        let model = self.schema.model(OAuthProviderModel::Consent);
-        sqlx::query_as::<_, ConsentRow>(&format!(
-            "DELETE FROM {} WHERE \"id\"=$1 RETURNING {}",
-            model.table(),
-            model.projection(CONSENT_FIELDS)
-        ))
-        .bind(id)
-        .fetch_optional(self.pool())
+        let model = self.model("oauthConsent")?;
+        let mut query = QueryBuilder::new("DELETE FROM ");
+        query
+            .push(model.quoted_table())
+            .push(" WHERE \"id\" = ")
+            .push_bind(id)
+            .push(" RETURNING ")
+            .push(model.projection_as(CONSENT_FIELDS)?);
+        fetch_optional(query, self.pool()).await
+    }
+}
+
+async fn find_existing_id(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    model: &PostgresModel<'_>,
+    consent: &OAuthProviderConsent,
+) -> Result<Option<Uuid>, AuthError> {
+    let mut query = QueryBuilder::new("SELECT \"id\" FROM ");
+    query
+        .push(model.quoted_table())
+        .push(" WHERE ")
+        .push(model.quoted_column("clientId")?)
+        .push(" = ")
+        .push_bind(consent.client_id.clone())
+        .push(" AND ")
+        .push(model.quoted_column("userId")?)
+        .push(" IS NOT DISTINCT FROM ")
+        .push_bind(consent.user_id)
+        .push(" AND ")
+        .push(model.quoted_column("referenceId")?)
+        .push(" IS NOT DISTINCT FROM ")
+        .push_bind(consent.reference_id.clone())
+        .push(" ORDER BY ")
+        .push(model.quoted_column("updatedAt")?)
+        .push(" DESC, \"id\" LIMIT 1 FOR UPDATE");
+    query
+        .build_query_scalar::<Uuid>()
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(storage_error)
+}
+
+async fn fetch_optional<'e, E>(
+    mut query: QueryBuilder<'static, sqlx::Postgres>,
+    executor: E,
+) -> Result<Option<OAuthProviderConsent>, AuthError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    query
+        .build_query_as::<ConsentRow>()
+        .fetch_optional(executor)
         .await
         .map(|row| row.map(Into::into))
         .map_err(storage_error)
-    }
 }

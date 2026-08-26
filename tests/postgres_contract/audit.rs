@@ -14,64 +14,6 @@ pub(super) async fn assert_table_absent(
     Ok(())
 }
 
-pub(super) async fn insert_legacy_shape(
-    pool: &sqlx::PgPool,
-    owner_id: Uuid,
-) -> Result<Uuid, Box<dyn std::error::Error>> {
-    sqlx::raw_sql(
-        "CREATE TABLE lucid_auth_audit_events (\
-           id UUID PRIMARY KEY, \
-           actor_user_id UUID REFERENCES lucid_auth_users(id) ON DELETE SET NULL, \
-           subject_user_id UUID REFERENCES lucid_auth_users(id) ON DELETE SET NULL, \
-           action TEXT NOT NULL, target TEXT, \
-           metadata JSONB NOT NULL DEFAULT '{}'::jsonb, \
-           created_at TIMESTAMPTZ NOT NULL\
-         )",
-    )
-    .execute(pool)
-    .await?;
-    let event_id = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO lucid_auth_audit_events \
-         (id, actor_user_id, subject_user_id, action, target, metadata, created_at) \
-         VALUES ($1, NULL, $2, 'owner.recovered_locally', $3, $4, $5)",
-    )
-    .bind(event_id)
-    .bind(owner_id)
-    .bind(owner_id.to_string())
-    .bind(json!({ "mfaReset": true }))
-    .bind(Utc::now() - Duration::minutes(1))
-    .execute(pool)
-    .await?;
-    Ok(event_id)
-}
-
-pub(super) async fn assert_legacy_migrated(
-    store: &PostgresStore,
-    pool: &sqlx::PgPool,
-    event_id: Uuid,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let event = store
-        .list_audit_events(100)
-        .await?
-        .into_iter()
-        .find(|event| event.id == event_id)
-        .expect("legacy audit event is preserved");
-    assert_eq!(event.actor_user_id, None);
-    assert_eq!(event.outcome, AuditOutcome::Success);
-    assert_eq!(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM pg_constraint \
-             WHERE conname = 'lucid_auth_audit_outcome_valid' \
-               AND conrelid = 'lucid_auth_audit_events'::regclass",
-        )
-        .fetch_one(pool)
-        .await?,
-        1
-    );
-    Ok(())
-}
-
 pub(super) async fn assert_retention_is_atomic(
     store: &PostgresStore,
     pool: &sqlx::PgPool,

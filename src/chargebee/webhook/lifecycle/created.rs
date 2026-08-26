@@ -96,7 +96,7 @@ async fn create_local(
     let trial =
         mapping::timestamp(provider.trial_start)?.zip(mapping::timestamp(provider.trial_end)?);
     let has_trial = trial.is_some();
-    let mut local = ChargebeeSubscription::future(reference_id, now);
+    let mut local = ChargebeeSubscription::future(reference_id);
     local.chargebee_customer_id = Some(customer.id.clone());
     local.chargebee_subscription_id = Some(provider.id.clone());
     local.status = mapping::status(&provider.status);

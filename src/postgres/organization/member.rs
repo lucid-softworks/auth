@@ -1,4 +1,4 @@
-use super::{rows::MemberRow, storage_error};
+use super::{rows, storage_error};
 use crate::{
     AuthError, OrganizationMember, OrganizationMemberStore, OrganizationMemberWriteOutcome,
     postgres::PostgresStore,
@@ -6,7 +6,10 @@ use crate::{
 use async_trait::async_trait;
 use uuid::Uuid;
 
-const COLUMNS: &str = "id, organization_id, user_id, role, created_at";
+mod query;
+
+pub(super) use query::lock_organization;
+use query::*;
 
 #[async_trait]
 impl OrganizationMemberStore for PostgresStore {
@@ -14,20 +17,15 @@ impl OrganizationMemberStore for PostgresStore {
         &self,
         member: OrganizationMember,
     ) -> Result<OrganizationMember, AuthError> {
-        sqlx::query("INSERT INTO lucid_auth_organization_members (id,organization_id,user_id,role,created_at) VALUES ($1,$2,$3,$4,$5)")
-            .bind(member.id)
-            .bind(member.organization_id)
-            .bind(member.user_id)
-            .bind(&member.role)
-            .bind(member.created_at)
-            .execute(&self.pool)
-            .await
-            .map_err(storage_error)?;
+        let model = self.physical_model("member")?;
+        let mut connection = self.pool.acquire().await.map_err(storage_error)?;
+        insert_member(&mut *connection, &model, &member).await?;
         Ok(member)
     }
 
     async fn find_member_by_id(&self, id: Uuid) -> Result<Option<OrganizationMember>, AuthError> {
-        find(&self.pool, "id", id).await
+        let model = self.physical_model("member")?;
+        find(&self.pool, &model, [("id", uuid_value(id))], false).await
     }
 
     async fn find_member(
@@ -35,16 +33,33 @@ impl OrganizationMemberStore for PostgresStore {
         organization_id: Uuid,
         user_id: Uuid,
     ) -> Result<Option<OrganizationMember>, AuthError> {
-        sqlx::query_as::<_, MemberRow>(&format!("SELECT {COLUMNS} FROM lucid_auth_organization_members WHERE organization_id=$1 AND user_id=$2"))
-            .bind(organization_id).bind(user_id).fetch_optional(&self.pool).await.map(|row| row.map(Into::into)).map_err(storage_error)
+        let model = self.physical_model("member")?;
+        find(
+            &self.pool,
+            &model,
+            [
+                ("organizationId", uuid_value(organization_id)),
+                ("userId", uuid_value(user_id)),
+            ],
+            false,
+        )
+        .await
     }
 
     async fn list_members(
         &self,
         organization_id: Uuid,
     ) -> Result<Vec<OrganizationMember>, AuthError> {
-        sqlx::query_as::<_, MemberRow>(&format!("SELECT {COLUMNS} FROM lucid_auth_organization_members WHERE organization_id=$1 ORDER BY created_at,id"))
-            .bind(organization_id).fetch_all(&self.pool).await.map(|rows| rows.into_iter().map(Into::into).collect()).map_err(storage_error)
+        let model = self.physical_model("member")?;
+        let mut query = list_query(&model, organization_id)?;
+        query
+            .build()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(storage_error)?
+            .iter()
+            .map(|row| rows::decode_member(&model, row))
+            .collect()
     }
 
     async fn add_member(
@@ -52,26 +67,32 @@ impl OrganizationMemberStore for PostgresStore {
         member: OrganizationMember,
         membership_limit: usize,
     ) -> Result<OrganizationMemberWriteOutcome, AuthError> {
-        let mut tx = self.pool.begin().await.map_err(storage_error)?;
-        lock_organization(&mut tx, member.organization_id).await?;
-        if sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM lucid_auth_organization_members WHERE organization_id=$1 AND user_id=$2)")
-            .bind(member.organization_id).bind(member.user_id).fetch_one(&mut *tx).await.map_err(storage_error)? {
+        let organization_model = self.physical_model("organization")?;
+        let member_model = self.physical_model("member")?;
+        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
+        lock_organization(
+            &mut transaction,
+            &organization_model,
+            member.organization_id,
+        )
+        .await?;
+        if member_exists(
+            &mut transaction,
+            &member_model,
+            member.organization_id,
+            member.user_id,
+        )
+        .await?
+        {
             return Ok(OrganizationMemberWriteOutcome::AlreadyMember);
         }
-        let count = sqlx::query_scalar::<_, i64>(
-            "SELECT count(*) FROM lucid_auth_organization_members WHERE organization_id=$1",
-        )
-        .bind(member.organization_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(storage_error)?;
-        if count >= membership_limit as i64 {
+        if member_count(&mut transaction, &member_model, member.organization_id).await?
+            >= membership_limit as i64
+        {
             return Ok(OrganizationMemberWriteOutcome::LimitReached);
         }
-        sqlx::query("INSERT INTO lucid_auth_organization_members (id,organization_id,user_id,role,created_at) VALUES ($1,$2,$3,$4,$5)")
-            .bind(member.id).bind(member.organization_id).bind(member.user_id).bind(member.role).bind(member.created_at)
-            .execute(&mut *tx).await.map_err(storage_error)?;
-        tx.commit().await.map_err(storage_error)?;
+        insert_member(&mut *transaction, &member_model, &member).await?;
+        transaction.commit().await.map_err(storage_error)?;
         Ok(OrganizationMemberWriteOutcome::Written)
     }
 
@@ -81,31 +102,40 @@ impl OrganizationMemberStore for PostgresStore {
         role: String,
         creator_role: &str,
     ) -> Result<OrganizationMemberWriteOutcome, AuthError> {
-        let mut tx = self.pool.begin().await.map_err(storage_error)?;
-        let Some(current) = sqlx::query_as::<_, MemberRow>(&format!(
-            "SELECT {COLUMNS} FROM lucid_auth_organization_members WHERE id=$1 FOR UPDATE"
-        ))
-        .bind(member_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(storage_error)?
+        let organization_model = self.physical_model("organization")?;
+        let member_model = self.physical_model("member")?;
+        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
+        let Some(current) = find(
+            &mut *transaction,
+            &member_model,
+            [("id", uuid_value(member_id))],
+            true,
+        )
+        .await?
         else {
             return Ok(OrganizationMemberWriteOutcome::NotFound);
         };
-        lock_organization(&mut tx, current.organization_id).await?;
+        lock_organization(
+            &mut transaction,
+            &organization_model,
+            current.organization_id,
+        )
+        .await?;
         if has_role(&current.role, creator_role)
             && !has_role(&role, creator_role)
-            && owner_count(&mut tx, current.organization_id, creator_role).await? <= 1
+            && owner_count(
+                &mut transaction,
+                &member_model,
+                current.organization_id,
+                creator_role,
+            )
+            .await?
+                <= 1
         {
             return Ok(OrganizationMemberWriteOutcome::LastOwner);
         }
-        sqlx::query("UPDATE lucid_auth_organization_members SET role=$2 WHERE id=$1")
-            .bind(member_id)
-            .bind(role)
-            .execute(&mut *tx)
-            .await
-            .map_err(storage_error)?;
-        tx.commit().await.map_err(storage_error)?;
+        update_role(&mut transaction, &member_model, member_id, role).await?;
+        transaction.commit().await.map_err(storage_error)?;
         Ok(OrganizationMemberWriteOutcome::Written)
     }
 
@@ -114,74 +144,55 @@ impl OrganizationMemberStore for PostgresStore {
         member_id: Uuid,
         creator_role: &str,
     ) -> Result<OrganizationMemberWriteOutcome, AuthError> {
-        let mut tx = self.pool.begin().await.map_err(storage_error)?;
-        let Some(current) = sqlx::query_as::<_, MemberRow>(&format!(
-            "SELECT {COLUMNS} FROM lucid_auth_organization_members WHERE id=$1 FOR UPDATE"
-        ))
-        .bind(member_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(storage_error)?
+        let organization_model = self.physical_model("organization")?;
+        let member_model = self.physical_model("member")?;
+        let team_model = self.physical_model_if_present("team")?;
+        let team_member_model = self.physical_model_if_present("teamMember")?;
+        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
+        let Some(current) = find(
+            &mut *transaction,
+            &member_model,
+            [("id", uuid_value(member_id))],
+            true,
+        )
+        .await?
         else {
             return Ok(OrganizationMemberWriteOutcome::NotFound);
         };
-        lock_organization(&mut tx, current.organization_id).await?;
+        lock_organization(
+            &mut transaction,
+            &organization_model,
+            current.organization_id,
+        )
+        .await?;
         if has_role(&current.role, creator_role)
-            && owner_count(&mut tx, current.organization_id, creator_role).await? <= 1
+            && owner_count(
+                &mut transaction,
+                &member_model,
+                current.organization_id,
+                creator_role,
+            )
+            .await?
+                <= 1
         {
             return Ok(OrganizationMemberWriteOutcome::LastOwner);
         }
-        sqlx::query("DELETE FROM lucid_auth_organization_members WHERE id=$1")
-            .bind(member_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(storage_error)?;
-        sqlx::query("DELETE FROM lucid_auth_organization_team_members tm USING lucid_auth_organization_teams t WHERE tm.team_id=t.id AND t.organization_id=$1 AND tm.user_id=$2")
-            .bind(current.organization_id).bind(current.user_id).execute(&mut *tx).await.map_err(storage_error)?;
-        tx.commit().await.map_err(storage_error)?;
+        delete_member(&mut transaction, &member_model, member_id).await?;
+        match (&team_model, &team_member_model) {
+            (Some(team), Some(team_member)) => {
+                delete_team_members(
+                    &mut transaction,
+                    team,
+                    team_member,
+                    current.organization_id,
+                    current.user_id,
+                )
+                .await?;
+            }
+            (None, None) => {}
+            _ => return Err(incomplete_team_schema()),
+        }
+        transaction.commit().await.map_err(storage_error)?;
         Ok(OrganizationMemberWriteOutcome::Written)
     }
-}
-
-async fn find(
-    pool: &sqlx::PgPool,
-    column: &str,
-    value: Uuid,
-) -> Result<Option<OrganizationMember>, AuthError> {
-    sqlx::query_as::<_, MemberRow>(&format!(
-        "SELECT {COLUMNS} FROM lucid_auth_organization_members WHERE {column}=$1"
-    ))
-    .bind(value)
-    .fetch_optional(pool)
-    .await
-    .map(|row| row.map(Into::into))
-    .map_err(storage_error)
-}
-
-pub(super) async fn lock_organization(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    id: Uuid,
-) -> Result<(), AuthError> {
-    sqlx::query("SELECT id FROM lucid_auth_organizations WHERE id=$1 FOR UPDATE")
-        .bind(id)
-        .fetch_one(&mut **tx)
-        .await
-        .map_err(storage_error)?;
-    Ok(())
-}
-
-async fn owner_count(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    organization_id: Uuid,
-    role: &str,
-) -> Result<i64, AuthError> {
-    sqlx::query_scalar("SELECT count(*) FROM lucid_auth_organization_members WHERE organization_id=$1 AND $2 = ANY(string_to_array(role, ','))")
-        .bind(organization_id).bind(role).fetch_one(&mut **tx).await.map_err(storage_error)
-}
-
-fn has_role(roles: &str, role: &str) -> bool {
-    roles
-        .split(',')
-        .map(str::trim)
-        .any(|candidate| candidate == role)
 }

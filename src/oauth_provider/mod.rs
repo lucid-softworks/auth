@@ -36,8 +36,7 @@ pub use resource_challenge::*;
 pub use store::*;
 
 use crate::{
-    AuthConfig, AuthError, AuthPlugin, PluginClientMetadata, PluginDescriptor, PluginMigration,
-    PluginRateLimit,
+    AuthConfig, AuthError, AuthPlugin, PluginClientMetadata, PluginDescriptor, PluginRateLimit,
 };
 use async_trait::async_trait;
 use std::{borrow::Cow, fmt, sync::Arc};
@@ -46,7 +45,6 @@ use std::{borrow::Cow, fmt, sync::Arc};
 pub struct OAuthProviderPlugin {
     config: Arc<OAuthProviderConfig>,
     store: Arc<dyn OAuthProviderStore>,
-    migrations: Vec<PluginMigration>,
     logout: logout_hook::LogoutCoordinator,
 }
 
@@ -59,9 +57,6 @@ impl OAuthProviderPlugin {
     }
 
     pub fn from_arc(mut config: OAuthProviderConfig, store: Arc<dyn OAuthProviderStore>) -> Self {
-        // Invalid mappings are rejected by `validate`; they deliberately contribute no
-        // fallback migration so a requested custom schema can never become the default silently.
-        let migrations = schema::migration(&config.schema).into_iter().collect();
         config.runtime_instance_id = uuid::Uuid::new_v4();
         let config = Arc::new(config);
         let store = Arc::new(runtime_store::OAuthProviderRuntimeStore::new(
@@ -71,7 +66,6 @@ impl OAuthProviderPlugin {
         Self {
             config,
             store,
-            migrations,
             logout: logout_hook::LogoutCoordinator::default(),
         }
     }
@@ -81,7 +75,7 @@ impl OAuthProviderPlugin {
         config: OAuthProviderConfig,
         store: crate::postgres::PostgresStore,
     ) -> Result<Self, OAuthProviderConfigError> {
-        let store = crate::postgres::PostgresOAuthProviderStore::new(store, &config.schema)?;
+        let store = crate::postgres::PostgresOAuthProviderStore::new(store);
         Ok(Self::new(config, store))
     }
 
@@ -176,8 +170,8 @@ impl AuthPlugin for OAuthProviderPlugin {
             .map_err(|error| AuthError::InvalidConfiguration(error.to_string()))
     }
 
-    fn migrations(&self) -> Cow<'_, [PluginMigration]> {
-        Cow::Borrowed(&self.migrations)
+    fn schema(&self) -> Vec<crate::PluginSchemaTable> {
+        schema::schema_tables(&self.config.schema)
     }
 
     async fn before_database_delete(
@@ -250,7 +244,7 @@ mod tests {
             descriptor.client.unwrap().package,
             "@better-auth/oauth-provider"
         );
-        assert_eq!(plugin.migrations().len(), 1);
+        assert!(plugin.migrations().is_empty());
     }
 
     #[test]
@@ -269,27 +263,36 @@ mod tests {
 
     #[cfg(feature = "postgres")]
     #[tokio::test]
-    async fn postgres_factory_carries_schema_into_store_and_migration() {
+    async fn postgres_factory_uses_only_the_bound_hostile_plural_schema() {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://localhost/lucid_auth_compile_test")
             .unwrap();
         let mut config = OAuthProviderConfig::new("/login", "/consent");
-        config.schema.oauth_client.model_name = Some("OAuth Clients".into());
+        config.disable_jwt_plugin = true;
+        config.schema.oauth_client.model_name = Some("OAuth \"Client".into());
         config
             .schema
             .oauth_client
             .fields
-            .insert("clientId".into(), "clientKey".into());
+            .insert("clientId".into(), "client \"key".into());
 
-        let store = crate::postgres::PostgresStore::new(pool);
-        let mapped =
-            crate::postgres::PostgresOAuthProviderStore::new(store.clone(), &config.schema)
-                .unwrap();
-        let plugin = OAuthProviderPlugin::postgres(config, store).unwrap();
-        let sql = &plugin.migrations()[0].sql;
-        assert_eq!(sql.as_ref(), mapped.migration_sql());
-        assert!(sql.contains("CREATE TABLE IF NOT EXISTS \"OAuth Clients\""));
-        assert!(sql.contains("\"clientKey\" TEXT NOT NULL UNIQUE"));
+        let store = crate::postgres::PostgresStore::new(
+            pool,
+            crate::postgres::PostgresAdapterConfig { use_plural: true },
+        );
+        let mapped = crate::postgres::PostgresOAuthProviderStore::new(store.clone());
+        assert!(matches!(
+            mapped.find_oauth_client("unbound").await,
+            Err(AuthError::InvalidConfiguration(_))
+        ));
+        let plugin = OAuthProviderPlugin::postgres(config, store.clone()).unwrap();
+        let mut auth = AuthConfig::new([41; 32]).unwrap();
+        auth.add_plugin(plugin).unwrap();
+        let service = crate::AuthService::try_new(Arc::new(store.clone()), auth).unwrap();
+        assert!(service.plugin_migrations().is_empty());
+        let model = store.physical_model("oauthClient").unwrap();
+        assert_eq!(model.table(), "OAuth \"Clients");
+        assert_eq!(model.column("clientId").unwrap(), "client \"key");
     }
 
     #[tokio::test]

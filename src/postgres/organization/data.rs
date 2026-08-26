@@ -1,12 +1,15 @@
-use super::{rows::OrganizationRow, storage_error};
+use super::{rows, storage_error};
 use crate::{
     AuthError, Organization, OrganizationCreateOutcome, OrganizationDataStore, OrganizationMember,
     OrganizationTeam, OrganizationTeamMember, postgres::PostgresStore,
 };
 use async_trait::async_trait;
+use serde_json::json;
 use uuid::Uuid;
 
-const COLUMNS: &str = "id, name, slug, logo, metadata, created_at";
+mod query;
+
+use query::*;
 
 #[async_trait]
 impl OrganizationDataStore for PostgresStore {
@@ -14,37 +17,32 @@ impl OrganizationDataStore for PostgresStore {
         &self,
         organization: Organization,
     ) -> Result<Organization, AuthError> {
-        sqlx::query("INSERT INTO lucid_auth_organizations (id, name, slug, logo, metadata, created_at) VALUES ($1,$2,$3,$4,$5,$6)")
-            .bind(organization.id)
-            .bind(&organization.name)
-            .bind(&organization.slug)
-            .bind(&organization.logo)
-            .bind(&organization.metadata)
-            .bind(organization.created_at)
-            .execute(&self.pool)
-            .await
-            .map_err(storage_error)?;
+        let model = self.physical_model("organization")?;
+        insert_organization(&self.pool, &model, &organization).await?;
         Ok(organization)
     }
 
     async fn raw_delete_organization(&self, id: Uuid) -> Result<(), AuthError> {
-        let mut tx = self.pool.begin().await.map_err(storage_error)?;
-        sqlx::query("DELETE FROM lucid_auth_organization_members WHERE organization_id=$1")
-            .bind(id)
-            .execute(&mut *tx)
-            .await
-            .map_err(storage_error)?;
-        sqlx::query("DELETE FROM lucid_auth_organization_invitations WHERE organization_id=$1")
-            .bind(id)
-            .execute(&mut *tx)
-            .await
-            .map_err(storage_error)?;
-        sqlx::query("DELETE FROM lucid_auth_organizations WHERE id=$1")
-            .bind(id)
-            .execute(&mut *tx)
-            .await
-            .map_err(storage_error)?;
-        tx.commit().await.map_err(storage_error)
+        let organization = self.physical_model("organization")?;
+        let member = self.physical_model("member")?;
+        let invitation = self.physical_model("invitation")?;
+        let team = self.physical_model_if_present("team")?;
+        let team_member = self.physical_model_if_present("teamMember")?;
+        let role = self.physical_model_if_present("organizationRole")?;
+        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
+        delete_by(&mut transaction, &member, "organizationId", id).await?;
+        delete_by(&mut transaction, &invitation, "organizationId", id).await?;
+        if let (Some(team), Some(team_member)) = (&team, &team_member) {
+            delete_team_members_for_organization(&mut transaction, team, team_member, id).await?;
+            delete_by(&mut transaction, team, "organizationId", id).await?;
+        } else if team.is_some() != team_member.is_some() {
+            return Err(incomplete_team_schema());
+        }
+        if let Some(role) = &role {
+            delete_by(&mut transaction, role, "organizationId", id).await?;
+        }
+        delete_by(&mut transaction, &organization, "id", id).await?;
+        transaction.commit().await.map_err(storage_error)
     }
 
     async fn create_organization(
@@ -54,123 +52,100 @@ impl OrganizationDataStore for PostgresStore {
         default_team: Option<(OrganizationTeam, OrganizationTeamMember)>,
         organization_limit: Option<usize>,
     ) -> Result<OrganizationCreateOutcome, AuthError> {
-        let mut tx = self.pool.begin().await.map_err(storage_error)?;
-        sqlx::query("SELECT id FROM lucid_auth_users WHERE id = $1 FOR UPDATE")
-            .bind(owner.user_id)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(storage_error)?;
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
-            .bind(&organization.slug)
-            .execute(&mut *tx)
-            .await
-            .map_err(storage_error)?;
-        if sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS (SELECT 1 FROM lucid_auth_organizations WHERE slug = $1)",
-        )
-        .bind(&organization.slug)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(storage_error)?
-        {
+        let organization_model = self.physical_model("organization")?;
+        let member_model = self.physical_model("member")?;
+        let user_model = self.physical_model("user")?;
+        let team_models = if default_team.is_some() {
+            Some((
+                self.physical_model("team")?,
+                self.physical_model("teamMember")?,
+            ))
+        } else {
+            None
+        };
+        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
+        lock_user(&mut transaction, &user_model, owner.user_id).await?;
+        advisory_slug_lock(&mut transaction, &organization.slug).await?;
+        if slug_exists(&mut transaction, &organization_model, &organization.slug).await? {
             return Ok(OrganizationCreateOutcome::SlugTaken);
         }
         if let Some(limit) = organization_limit {
-            let count = sqlx::query_scalar::<_, i64>(
-                "SELECT count(*) FROM lucid_auth_organization_members WHERE user_id = $1",
-            )
-            .bind(owner.user_id)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(storage_error)?;
+            let count = count_by(&mut transaction, &member_model, "userId", owner.user_id).await?;
             if count >= limit as i64 {
                 return Ok(OrganizationCreateOutcome::LimitReached);
             }
         }
-        sqlx::query("INSERT INTO lucid_auth_organizations (id, name, slug, logo, metadata, created_at) VALUES ($1,$2,$3,$4,$5,$6)")
-            .bind(organization.id).bind(&organization.name).bind(&organization.slug).bind(&organization.logo).bind(&organization.metadata).bind(organization.created_at)
-            .execute(&mut *tx).await.map_err(storage_error)?;
-        sqlx::query("INSERT INTO lucid_auth_organization_members (id, organization_id, user_id, role, created_at) VALUES ($1,$2,$3,$4,$5)")
-            .bind(owner.id).bind(owner.organization_id).bind(owner.user_id).bind(&owner.role).bind(owner.created_at)
-            .execute(&mut *tx).await.map_err(storage_error)?;
-        if let Some((team, member)) = default_team {
-            sqlx::query("INSERT INTO lucid_auth_organization_teams (id, name, organization_id, created_at, updated_at) VALUES ($1,$2,$3,$4,$5)")
-                .bind(team.id).bind(&team.name).bind(team.organization_id).bind(team.created_at).bind(team.updated_at)
-                .execute(&mut *tx).await.map_err(storage_error)?;
-            sqlx::query("INSERT INTO lucid_auth_organization_team_members (id, team_id, user_id, created_at) VALUES ($1,$2,$3,$4)")
-                .bind(member.id).bind(member.team_id).bind(member.user_id).bind(member.created_at)
-                .execute(&mut *tx).await.map_err(storage_error)?;
+        insert_organization(&mut *transaction, &organization_model, &organization).await?;
+        insert_member(&mut *transaction, &member_model, &owner).await?;
+        if let (Some((team, member)), Some((team_model, team_member_model))) =
+            (default_team, team_models)
+        {
+            insert_team(&mut *transaction, &team_model, &team).await?;
+            insert_team_member(&mut *transaction, &team_member_model, &member).await?;
         }
-        tx.commit().await.map_err(storage_error)?;
+        transaction.commit().await.map_err(storage_error)?;
         Ok(OrganizationCreateOutcome::Created)
     }
 
     async fn find_organization_by_id(&self, id: Uuid) -> Result<Option<Organization>, AuthError> {
-        sqlx::query_as::<_, OrganizationRow>(&format!(
-            "SELECT {COLUMNS} FROM lucid_auth_organizations WHERE id=$1"
-        ))
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map(|row| row.map(Into::into))
-        .map_err(storage_error)
+        let model = self.physical_model("organization")?;
+        fetch_organization(&self.pool, &model, "id", uuid_value(id)).await
     }
 
     async fn find_organization_by_slug(
         &self,
         slug: &str,
     ) -> Result<Option<Organization>, AuthError> {
-        sqlx::query_as::<_, OrganizationRow>(&format!(
-            "SELECT {COLUMNS} FROM lucid_auth_organizations WHERE slug=$1"
-        ))
-        .bind(slug)
-        .fetch_optional(&self.pool)
-        .await
-        .map(|row| row.map(Into::into))
-        .map_err(storage_error)
+        let model = self.physical_model("organization")?;
+        fetch_organization(&self.pool, &model, "slug", json!(slug)).await
     }
 
     async fn list_organizations(&self, user_id: Uuid) -> Result<Vec<Organization>, AuthError> {
-        sqlx::query_as::<_, OrganizationRow>(&format!("SELECT o.{columns} FROM lucid_auth_organizations o JOIN lucid_auth_organization_members m ON m.organization_id=o.id WHERE m.user_id=$1 ORDER BY o.created_at,o.id", columns=COLUMNS.replace(", ", ", o.")))
-            .bind(user_id).fetch_all(&self.pool).await.map(|rows| rows.into_iter().map(Into::into).collect()).map_err(storage_error)
+        let organization = self.physical_model("organization")?;
+        let member = self.physical_model("member")?;
+        let mut query = list_query(&organization, &member, user_id)?;
+        query
+            .build()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(storage_error)?
+            .iter()
+            .map(|row| rows::decode_organization(&organization, row))
+            .collect()
     }
 
     async fn update_organization(
         &self,
         organization: Organization,
     ) -> Result<Option<Organization>, AuthError> {
-        let mut tx = self.pool.begin().await.map_err(storage_error)?;
-        let exists = sqlx::query_scalar::<_, Uuid>(
-            "SELECT id FROM lucid_auth_organizations WHERE id=$1 FOR UPDATE",
-        )
-        .bind(organization.id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(storage_error)?
-        .is_some();
-        if !exists {
+        let model = self.physical_model("organization")?;
+        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
+        if !lock_organization_row(&mut transaction, &model, organization.id).await? {
             return Ok(None);
         }
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
-            .bind(&organization.slug)
-            .execute(&mut *tx)
+        advisory_slug_lock(&mut transaction, &organization.slug).await?;
+        let mut query = update_query(&model, &organization)?;
+        let row = query
+            .build()
+            .fetch_optional(&mut *transaction)
             .await
             .map_err(storage_error)?;
-        let result = sqlx::query_as::<_, OrganizationRow>(&format!("UPDATE lucid_auth_organizations SET name=$2,slug=$3,logo=$4,metadata=$5 WHERE id=$1 AND NOT EXISTS (SELECT 1 FROM lucid_auth_organizations WHERE slug=$3 AND id<>$1) RETURNING {COLUMNS}"))
-            .bind(organization.id).bind(organization.name).bind(organization.slug).bind(organization.logo).bind(organization.metadata)
-            .fetch_optional(&mut *tx).await.map_err(storage_error)?;
-        tx.commit().await.map_err(storage_error)?;
-        Ok(result.map(Into::into))
+        transaction.commit().await.map_err(storage_error)?;
+        row.as_ref()
+            .map(|row| rows::decode_organization(&model, row))
+            .transpose()
     }
 
     async fn delete_organization(&self, id: Uuid) -> Result<Option<Organization>, AuthError> {
-        sqlx::query_as::<_, OrganizationRow>(&format!(
-            "DELETE FROM lucid_auth_organizations WHERE id=$1 RETURNING {COLUMNS}"
-        ))
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map(|row| row.map(Into::into))
-        .map_err(storage_error)
+        let model = self.physical_model("organization")?;
+        let mut query = delete_query(&model, id)?;
+        query
+            .build()
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(storage_error)?
+            .as_ref()
+            .map(|row| rows::decode_organization(&model, row))
+            .transpose()
     }
 }

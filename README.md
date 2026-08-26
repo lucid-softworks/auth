@@ -128,8 +128,8 @@ config.add_plugin(StripePlugin::new(
 ))?;
 ```
 
-Use `PostgresStripeStore` in a PostgreSQL deployment and apply the plugin-owned
-migrations alongside the core migrations. The browser client must use the same
+Use `PostgresStripeStore` in a PostgreSQL deployment, bind it through the
+service, and apply the store's resolved schema. The browser client must use the same
 pinned package and enable subscription inference explicitly:
 
 ```ts
@@ -289,14 +289,14 @@ config.add_plugin(CreemPlugin::in_memory(creem, store.clone()))?;
 ```
 
 For PostgreSQL, construct the plugin store from the same `PostgresStore` and
-the exact options used by the plugin. Add the plugin before applying migrations
+the exact options used by the plugin. Add the plugin before evolving the schema
 so its remapped user fields and `creem_subscription` model are included:
 
 ```rust
-use lucid_auth::{CreemOptions, CreemPlugin, PostgresCreemStore, PostgresStore};
+use lucid_auth::{AuthService, CreemOptions, CreemPlugin, PostgresCreemStore, PostgresStore};
 use std::sync::Arc;
 
-let store = PostgresStore::new(pool);
+let store = PostgresStore::new(pool, Default::default());
 let mut creem = CreemOptions::new(std::env::var("CREEM_API_KEY")?);
 creem.webhook_secret = Some(std::env::var("CREEM_WEBHOOK_SECRET")?);
 let creem_store = Arc::new(PostgresCreemStore::new(
@@ -305,11 +305,14 @@ let creem_store = Arc::new(PostgresCreemStore::new(
     creem.persist_subscriptions,
 )?);
 config.add_plugin(CreemPlugin::new(creem, creem_store))?;
+let service = AuthService::try_new(Arc::new(store.clone()), config)?;
+store.migrate_all(&service.plugin_migrations()).await?;
 ```
 
 Set `test_mode = true` for Creem's test API. Setting
 `persist_subscriptions = false` removes the plugin table, user fields, and
-migration; access checks then report that database persistence is disabled.
+their resolved schema contributions; access checks then report that database
+persistence is disabled.
 The official browser client works unchanged:
 
 ```ts
@@ -535,7 +538,8 @@ config.add_plugin(ChargebeePlugin::new(options, chargebee_store))?;
 
 `MyChargebeeGateway` above is application code implementing the narrow
 `ChargebeeClient` trait; it is not a lucid-auth type. Use
-`PostgresChargebeeStore` and apply the plugin-owned migration for PostgreSQL.
+`PostgresChargebeeStore`, bind it through `AuthService`, and evolve its resolved
+schema for PostgreSQL.
 For organization-owned subscriptions, also install the native Organization
 plugin and enable `ChargebeeOrganizationOptions`; Chargebee organization mode
 does not install Organization support implicitly.
@@ -791,9 +795,8 @@ are provider-driven. Accounts use Better Auth 1.7's `(issuer, accountId)` key;
 access and refresh tokens are stored as returned by default and use Better
 Auth's randomized XChaCha20-Poly1305 hex envelopes only when
 `config.account.encrypt_oauth_tokens = true`. ID tokens follow Better Auth and
-remain unencrypted. PostgreSQL migration `0015_oauth_accounts.sql`
-deliberately replaces the old provider-qualified uniqueness model rather than
-retaining an incompatible fallback.
+remain unencrypted. The bound PostgreSQL schema uses issuer-qualified identity
+exclusively; incompatible provider-qualified layouts are not migrated or read.
 
 Linked-account policy lives under `config.account.account_linking`. Explicit
 links require a provider-verified email unless the provider is trusted, require
@@ -1171,8 +1174,7 @@ schema, migration, rate limit, or error-code table; its only route is
 
 OAuth Provider is the independent authorization-server plugin matching
 `@better-auth/oauth-provider@1.7.1`. The JWT plugin owns provider signing keys;
-the OAuth Provider plugin owns its seven models, routes, rate limits, and
-migration:
+the OAuth Provider plugin owns its seven models, routes, rate limits, and schema:
 
 ```rust
 use lucid_auth::{
@@ -1188,11 +1190,11 @@ config.add_plugin(OAuthProviderPlugin::in_memory(
 ```
 
 Use the schema-aware PostgreSQL constructor in production, passing the same
-cloneable store used by `AuthService`, and apply the plugin migration before
-serving:
+cloneable store used by `AuthService`, and migrate the bound resolved schema
+before serving:
 
 ```rust
-let postgres_store = PostgresStore::new(pool);
+let postgres_store = PostgresStore::new(pool, Default::default());
 let provider_config = OAuthProviderPluginConfig::new(
     "/sign-in",
     "/oauth/consent",
@@ -1203,7 +1205,7 @@ config.add_plugin(OAuthProviderPlugin::postgres(
 )?)?;
 let service = AuthService::try_new(Arc::new(postgres_store.clone()), config)?;
 postgres_store
-    .migrate_plugins(&service.plugin_migrations())
+    .migrate_all(&service.plugin_migrations())
     .await?;
 ```
 
@@ -1254,7 +1256,7 @@ config.add_plugin(McpPlugin::in_memory(McpPluginConfig::new(
 ```
 
 Use `McpPlugin::postgres` with the same `PostgresStore` as `AuthService` in
-production. It contributes the ordinary OAuth Provider migration and no
+production. It contributes the ordinary OAuth Provider schema and no
 MCP-specific model.
 
 There is no `@better-auth/mcp/client` export or MCP-specific Better Auth client
@@ -1375,8 +1377,8 @@ reserved for standalone codes and deliberately returns `invalid_grant` for
 OAuth-owned codes. Both variants own a dedicated `deviceCode` model with atomic
 claim and one-time redemption. In production, use `DeviceAuthorizationPlugin::postgres`
 or `OAuthDeviceAuthorizationPlugin::postgres` with the same cloneable
-`PostgresStore` passed to `AuthService`, then apply `plugin_migrations()` as in
-the OAuth Provider example above.
+`PostgresStore` passed to `AuthService`, then migrate the bound schema as in the
+OAuth Provider example above.
 
 Bearer session authentication is a separate, optional server plugin:
 
@@ -1436,12 +1438,12 @@ Rust server. Native server code uses `service.jwt()` for server-only signing,
 verification, key creation, and exact key selection. The supported algorithms
 are EdDSA/Ed25519, ES256, ES512, PS256, and RS256.
 
-The plugin lazily creates signing keys and contributes its JWKS migration.
+The plugin lazily creates signing keys and contributes its JWKS schema.
 Private JWKs are encrypted by default with Better Auth's randomized
 XChaCha20-Poly1305 format. `AuthConfig::set_versioned_secrets` enables `$ba$`
 versioned envelopes and optional legacy bare-hex decryption during secret
-rotation. Apply `AuthService::plugin_migrations()` for PostgreSQL before serving
-traffic; memory storage needs no setup. Custom table/field names and independent
+rotation. Bind `AuthService` and run `PostgresStore::migrate` before serving;
+memory storage needs no setup. Custom table/field names and independent
 read/create adapter callbacks are available through `JwtConfig`.
 
 Set `jwt.session_cookie_cache = true` together with
@@ -1500,8 +1502,10 @@ token signing fails unless issuer/audience can be resolved safely. These are
 security/correctness fixes, not legacy modes or compatibility aliases.
 
 Additional fields for Better Auth's user, session, account, and verification
-models are explicit and typed. Core and plugin schema descriptors are merged in
-dependency order and available through `AuthService::database_schema_fields`.
+models are explicit and typed. Plugin schema descriptors are merged in the order
+plugins are supplied; each core model then applies its core fields, those merged
+plugin fields, and finally the host's additional fields. The result is available
+through `AuthService::database_schema_fields`.
 Creation applies required/default rules plus input validators and transforms;
 updates also apply `on_update_with`; responses apply returned/output policy.
 Core IDs, tokens, ownership, timestamps, expiry, and input-disabled fields are
@@ -1529,9 +1533,9 @@ config.user.additional_fields.insert(
 );
 ```
 
-PostgreSQL migrations `0014_session_additional_fields.sql` and
-`0017_database_additional_fields.sql` add durable JSONB storage for session,
-account, and verification fields. User fields use the existing JSONB store.
+PostgreSQL creates each configured additional field as its own resolved physical
+column, including model/field remaps, references, and indexes. There is no
+catch-all JSONB persistence column or legacy fallback.
 
 Set `AuthConfig::database_hooks` for host hooks or implement
 `AuthPlugin::database_hooks` for plugin hooks. Before hooks run in plugin
@@ -1603,14 +1607,12 @@ await fetch("/api/auth/sign-in/guest-grant", {
 });
 ```
 
-For PostgreSQL, apply `AuthService::plugin_migrations()` after core migrations.
-New core installations do not create guest-capability tables. On an older
-lucid-auth database, enabling the plugin preserves existing grants, migrates
-legacy session links, and removes the old core session column; leaving it
-disabled retains the legacy grant table as unused data.
+For PostgreSQL, pass `AuthService::plugin_migrations()` to
+`PostgresStore::migrate_all`. The bound Better Auth schema does not include
+guest-capability tables unless this Lucid extension is registered.
 
 Product security auditing is another optional lucid-auth extension. Core stores
-have no audit methods, core migrations create no audit table, and
+have no audit methods, the bound Better Auth schema creates no audit table, and
 `/access/audit` is absent unless `AuditPlugin` is registered. Memory-backed
 applications provide a separate sink:
 
@@ -1724,8 +1726,8 @@ config.add_plugin(TwoFactorPlugin::new(factors, two_factor))?;
 ```
 
 PostgreSQL applications pass the same `Arc<PostgresStore>` used for core auth
-and apply the service's plugin migrations. The plugin owns
-`lucid_auth_two_factors`; core migration does not create it. The official
+and migrate the schema after binding `AuthService`. The configured factor model
+is absent when the plugin is disabled. The official
 `twoFactorClient` enable/disable, TOTP, OTP, and backup-code methods then work
 without a custom browser transport. `AuthService::generate_two_factor_totp` and
 `AuthService::view_two_factor_backup_codes` are trusted server-only equivalents
@@ -1840,8 +1842,8 @@ password-reset SMS delivery, authenticated phone replacement, atomic uniqueness,
 custom schema field names, and the native server-only `consume_phone_number_otp`
 API. `updateUser` may clear
 `phoneNumber` with `null`, which also clears verification, but cannot set or
-replace it directly. PostgreSQL deployments must apply the service's plugin
-migrations so the unique phone-number index is present.
+replace it directly. PostgreSQL deployments migrate the bound service schema so
+the unique phone-number index is present.
 
 Google One Tap is an optional native plugin. Give `OneTapConfig` a Google web
 client ID, or omit it to reuse the client ID from a registered Google social
@@ -1942,8 +1944,8 @@ normal session. Anonymous mode is enabled by default
 and generates the same wallet-derived email shape as Better Auth; disabling it
 requires a valid `email`. A wallet seen on another chain reuses its existing
 user and adds a non-primary wallet/account identity. PostgreSQL deployments
-must apply the plugin migration for the configured wallet-address model (the
-default table is `lucid_auth_wallet_addresses`).
+migrate the bound service schema, including the configured wallet-address
+model.
 
 Organization is an optional native plugin. Its store is independent from the
 core authentication store and can use either memory or PostgreSQL:
@@ -1969,7 +1971,7 @@ organizations, active state, members, invitations, teams, permissions, and
 dynamic roles. Limits and last-owner rules are enforced atomically. Invitation
 delivery, creation policy, and all documented organization/member/invitation/team
 lifecycle hooks have native async traits. PostgreSQL users pass the shared
-`PostgresStore` and apply the plugin migration described below.
+`PostgresStore` and migrate the schema after binding the service.
 
 API Key is an optional native plugin. Register it explicitly; without the plugin,
 its routes and PostgreSQL table do not exist:
@@ -2019,30 +2021,30 @@ This is an in-process native Rust composition boundary, not a JavaScript plugin
 runtime, community SDK, registry, certification program, or marketplace.
 Arbitrary Better Auth npm/JavaScript plugins do not execute in Rust.
 
-PostgreSQL hosts apply core migrations and then the service's validated plugin
-contributions:
+PostgreSQL hosts first bind the complete Better Auth schema through
+`AuthService`, then migrate that resolved schema plus any Lucid extension
+operations:
 
 ```rust
 let report = store.migrate_all(&service.plugin_migrations()).await?;
 assert!(report.compatible);
 ```
 
-Plugin migrations are keyed by `(plugin_id, migration_id)`, share the core
-advisory migration lock, and are transactional and idempotent. See the
+Lucid extension operations are keyed by `(plugin_id, migration_id)`, share the
+schema advisory lock, and are transactional and idempotent. Official Better
+Auth plugins contribute schema instead of replayable SQL. See the
 [native plugin example](examples/native_plugin.rs) for a route, middleware,
 migration, cookie/rate-limit declarations, and application-owned client
 metadata. The example is a project extension and is not an official Better Auth
 plugin or client.
 
-`PostgresStore::migration_plan` discovers the deterministic ordered core/plugin
-migrations and derives their final tables, columns/types, and explicit indexes
-directly from the checked-in SQL. `diagnose_schema` is a read-only in-process
-catalog check for pending or unknown migrations, changed descriptions or
-SHA-256 fingerprints, and missing/mistyped physical objects. Reports contain
-only migration/object identifiers and never receive or serialize a database
-URL. Existing installations gain fingerprints through migration `0018`; a
-nonempty checksum mismatch is rejected instead of silently accepting edited
-migration history.
+`PostgresStore::migration_plan` derives deterministic tables, columns/types,
+and explicit indexes directly from the schema already bound by `AuthService`.
+Only Lucid extension operations appear in its migration descriptors.
+`diagnose_schema` is a read-only in-process catalog check for pending or changed
+extension operations and missing/mistyped physical objects. Reports contain
+only operation/object identifiers and never receive or serialize a database
+URL.
 
 The Better Auth Admin surface is absent unless `AdminPlugin` is registered:
 
@@ -2082,12 +2084,13 @@ For an existing PostgreSQL installation, make an explicit migration choice
 before serving traffic:
 
 - To retain existing `owner`, `member`, and `viewer` values, register the exact
-  pair above and apply all plugin migrations.
+  pair above and apply the full bound schema plus enabled Lucid extension operations.
 - To adopt Better Auth Admin directly, register `AdminPlugin` with roles that
   match the values you intentionally keep, or rewrite persisted role values to
   the configured Better Auth roles in an application migration.
-- To run core-only, register neither plugin. The bundled store leaves legacy
-  Admin columns dormant, while HTTP schemas and principals omit their values.
+- To run core-only, register neither plugin. The bound schema, HTTP responses,
+  and principals omit Admin-only fields; lucid-auth does not read compatibility
+  aliases for a previous shape.
 
 The bundled stores physically colocate Better Auth Admin values with their user
 records for atomic reads; `AdminPlugin` is their sole behavioral owner. The
@@ -2122,9 +2125,9 @@ out-of-band native primitive for a host CLI. It atomically refuses multi-owner
 installations, replaces the sole owner's password, clears bans, sessions,
 passkeys, API keys, and enabled factor-plugin state, marks the replacement
 temporary, and records an actorless audit event when `AuditPlugin` is enabled.
-The operator plugin contributes no HTTP endpoint. Its PostgreSQL migration owns
-the temporary-password table and consumes the legacy core column without keeping
-a compatibility alias.
+The operator plugin contributes no HTTP endpoint. Its PostgreSQL extension
+operation owns the temporary-password table; no compatibility column or alias is
+part of the Better Auth schema.
 
 WebAuthn relying-party and origin configuration lives on `PasskeyConfig`.
 Registration and authentication challenges are stored through the configured
@@ -2204,10 +2207,9 @@ implementations must make session refresh and verification consume/reserve
 operations atomic update/delete/insert-only operations; missing or concurrently
 deleted records must never be inserted again.
 
-Migration `0019_better_auth_session_tokens.sql` intentionally invalidates old
-hashed session rows and stores Better Auth's opaque token so `listSessions` and
-`revokeSession` use the same value. Existing sessions must sign in again after
-that upgrade.
+PostgreSQL stores Better Auth's opaque session token directly so `listSessions`
+and `revokeSession` use the same value. Historical hashed-session layouts are
+not a supported compatibility mode.
 
 ## Conformance tests
 

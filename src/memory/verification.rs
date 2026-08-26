@@ -6,30 +6,25 @@ use chrono::{DateTime, Utc};
 #[async_trait]
 impl VerificationStore for MemoryStore {
     async fn create_verification(&self, value: VerificationValue) -> Result<(), AuthError> {
-        let key = (value.purpose.clone(), value.identifier.clone());
         let mut state = self.state.write().await;
-        if state.verifications.contains_key(&key) {
-            return Err(AuthError::Storage(
-                "verification identifier already exists".into(),
-            ));
+        if state.verifications.contains_key(&value.id) {
+            return Err(AuthError::Storage("verification id already exists".into()));
         }
-        state.verifications.insert(key, value);
+        state.verifications.insert(value.id, value);
         Ok(())
     }
 
     async fn reserve_verification(&self, value: VerificationValue) -> Result<bool, AuthError> {
-        let key = (value.purpose.clone(), value.identifier.clone());
         let mut state = self.state.write().await;
-        if state.verifications.contains_key(&key) {
+        if state.verifications.contains_key(&value.id) {
             return Ok(false);
         }
-        state.verifications.insert(key, value);
+        state.verifications.insert(value.id, value);
         Ok(true)
     }
 
     async fn find_verification(
         &self,
-        purpose: &str,
         identifier: &str,
     ) -> Result<Option<VerificationValue>, AuthError> {
         Ok(self
@@ -37,48 +32,63 @@ impl VerificationStore for MemoryStore {
             .read()
             .await
             .verifications
-            .get(&(purpose.to_owned(), identifier.to_owned()))
+            .values()
+            .filter(|value| value.identifier == identifier)
+            .max_by_key(|value| value.created_at)
             .cloned())
     }
 
     async fn consume_verification(
         &self,
-        purpose: &str,
         identifier: &str,
-        now: DateTime<Utc>,
     ) -> Result<Option<VerificationValue>, AuthError> {
-        let key = (purpose.to_owned(), identifier.to_owned());
         let mut state = self.state.write().await;
-        let Some(value) = state.verifications.remove(&key) else {
+        let latest = state
+            .verifications
+            .values()
+            .filter(|value| value.identifier == identifier)
+            .max_by_key(|value| value.created_at)
+            .map(|value| value.id);
+        let Some(latest) = latest else {
             return Ok(None);
         };
-        Ok((value.expires_at >= now).then_some(value))
+        let value = state
+            .verifications
+            .remove(&latest)
+            .expect("latest verification exists");
+        state
+            .verifications
+            .retain(|_, value| value.identifier != identifier);
+        Ok(Some(value))
     }
 
     async fn update_verification(
         &self,
         value: VerificationValue,
     ) -> Result<Option<VerificationValue>, AuthError> {
-        let key = (value.purpose.clone(), value.identifier.clone());
         let mut state = self.state.write().await;
-        if !state.verifications.contains_key(&key) {
+        if !state.verifications.contains_key(&value.id) {
             return Ok(None);
         }
-        state.verifications.insert(key, value.clone());
+        state.verifications.insert(value.id, value.clone());
         Ok(Some(value))
     }
 
     async fn delete_verification(
         &self,
-        purpose: &str,
         identifier: &str,
     ) -> Result<Option<VerificationValue>, AuthError> {
-        Ok(self
-            .state
-            .write()
-            .await
+        let mut state = self.state.write().await;
+        let latest = state
             .verifications
-            .remove(&(purpose.to_owned(), identifier.to_owned())))
+            .values()
+            .filter(|value| value.identifier == identifier)
+            .max_by_key(|value| value.created_at)
+            .cloned();
+        state
+            .verifications
+            .retain(|_, value| value.identifier != identifier);
+        Ok(latest)
     }
 
     async fn delete_expired_verifications(&self, now: DateTime<Utc>) -> Result<u64, AuthError> {
@@ -86,7 +96,7 @@ impl VerificationStore for MemoryStore {
         let before = state.verifications.len();
         state
             .verifications
-            .retain(|_, value| value.expires_at > now);
+            .retain(|_, value| value.expires_at >= now);
         Ok((before - state.verifications.len()) as u64)
     }
 }
@@ -95,22 +105,14 @@ impl VerificationStore for MemoryStore {
 mod tests {
     use super::*;
     use chrono::Duration;
-    use serde_json::json;
     use std::sync::Arc;
 
     fn value(identifier: &str, expires_at: DateTime<Utc>) -> VerificationValue {
-        VerificationValue {
-            purpose: "test".into(),
-            identifier: identifier.into(),
-            payload: json!({ "value": identifier }),
-            additional_fields: serde_json::Map::new(),
-            expires_at,
-            created_at: Utc::now(),
-        }
+        VerificationValue::new(format!("test:{identifier}"), identifier, expires_at)
     }
 
     #[tokio::test]
-    async fn consumes_once_atomically_and_rejects_expired_values() {
+    async fn consumes_once_atomically_and_returns_expired_values() {
         let store = Arc::new(MemoryStore::default());
         let now = Utc::now();
         store
@@ -118,8 +120,8 @@ mod tests {
             .await
             .unwrap();
         let (left, right) = tokio::join!(
-            store.consume_verification("test", "live", now),
-            store.consume_verification("test", "live", now)
+            store.consume_verification("test:live"),
+            store.consume_verification("test:live")
         );
         assert_eq!(
             usize::from(left.unwrap().is_some()) + usize::from(right.unwrap().is_some()),
@@ -130,17 +132,44 @@ mod tests {
             .create_verification(value("expired", now - Duration::seconds(1)))
             .await
             .unwrap();
-        assert!(
+        assert_eq!(
             store
-                .consume_verification("test", "expired", now)
+                .consume_verification("test:expired")
                 .await
                 .unwrap()
-                .is_none()
+                .unwrap()
+                .identifier,
+            "test:expired"
         );
         store
             .create_verification(value("cleanup", now - Duration::seconds(1)))
             .await
             .unwrap();
         assert_eq!(store.delete_expired_verifications(now).await.unwrap(), 1);
+
+        store
+            .create_verification(value("equal", now))
+            .await
+            .unwrap();
+        assert_eq!(store.delete_expired_verifications(now).await.unwrap(), 0);
+        assert!(
+            store
+                .find_verification("test:equal")
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn reservation_is_first_writer_wins_by_supplied_id() {
+        let store = Arc::new(MemoryStore::default());
+        let expires_at = Utc::now() + Duration::minutes(1);
+        let reservation = value("reservation", expires_at);
+        let (left, right) = tokio::join!(
+            store.reserve_verification(reservation.clone()),
+            store.reserve_verification(reservation),
+        );
+        assert_eq!(usize::from(left.unwrap()) + usize::from(right.unwrap()), 1);
     }
 }

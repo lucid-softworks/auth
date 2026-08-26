@@ -30,6 +30,6 @@ pub use plugin::ChargebeePlugin;
 #[cfg(feature = "postgres")]
 pub use postgres::PostgresChargebeeStore;
 pub use provider::*;
-pub use schema::{migration as chargebee_migration, schema_fields as chargebee_schema_fields};
+pub use schema::schema_tables as chargebee_schema_tables;
 pub use store::*;
 pub use webhook::*;

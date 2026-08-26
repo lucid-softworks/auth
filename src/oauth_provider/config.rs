@@ -225,7 +225,6 @@ fn validate_resources(config: &OAuthProviderConfig) -> Result<(), OAuthProviderC
 
 include!("config/extension_validation.rs");
 fn validate_security(config: &OAuthProviderConfig) -> Result<(), OAuthProviderConfigError> {
-    super::schema::ResolvedOAuthProviderSchema::new(&config.schema)?;
     if config
         .pairwise_secret
         .as_ref()

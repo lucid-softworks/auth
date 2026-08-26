@@ -156,14 +156,14 @@ async fn consume_authorization_code(
         .await
         .map_err(server)?;
     let verification = service
-        .consume_verification_value(AUTHORIZATION_CODE_PURPOSE, &code_id, Utc::now())
+        .consume_verification_value(&code_id, Utc::now())
         .await
         .map_err(server)?;
     let Some(verification) = verification else {
         let _ = store.revoke_oauth_tokens_for_authorization_code(&code_id).await;
         return Err(OAuthProviderError::InvalidGrant("invalid code".into()));
     };
-    let payload = serde_json::from_value(verification.payload)
+    let payload = serde_json::from_str(&verification.value)
         .map_err(|_| OAuthProviderError::InvalidGrant("malformed verification value".into()))?;
     Ok((code_id, payload))
 }

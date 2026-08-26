@@ -1,14 +1,13 @@
 use super::AuthService;
-use crate::{
-    AuthError, DatabaseModel, DatabaseRecord, VerificationIdentifierStorage, VerificationValue,
-};
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use crate::{AuthError, DatabaseRecord, VerificationValue};
 use chrono::{DateTime, Utc};
-use sha2::{Digest, Sha256};
+
+mod consume;
+mod identifier;
 
 impl AuthService {
-    /// Creates a Better Auth verification value using configured identifier,
-    /// hook, database, secondary-storage, and TTL behavior.
+    /// Creates one Better Auth verification record. The identifier must already
+    /// contain every protocol prefix required by its caller.
     pub async fn create_verification_value(
         &self,
         value: VerificationValue,
@@ -20,11 +19,7 @@ impl AuthService {
         &self,
         mut value: VerificationValue,
     ) -> Result<(), AuthError> {
-        value.additional_fields =
-            self.create_additional_fields(DatabaseModel::Verification, value.additional_fields)?;
-        value.identifier = self
-            .processed_verification_identifier(&value.purpose, &value.identifier)
-            .await?;
+        value.identifier = self.process_identifier(&value.identifier).await?;
         let value = match self
             .before_database_create(DatabaseRecord::Verification(value))
             .await?
@@ -44,11 +39,7 @@ impl AuthService {
         &self,
         mut value: VerificationValue,
     ) -> Result<(), AuthError> {
-        value.additional_fields =
-            self.create_additional_fields(DatabaseModel::Verification, value.additional_fields)?;
-        value.identifier = self
-            .processed_verification_identifier(&value.purpose, &value.identifier)
-            .await?;
+        value.identifier = self.process_identifier(&value.identifier).await?;
         let value = match self
             .before_database_create(DatabaseRecord::Verification(value))
             .await?
@@ -57,16 +48,14 @@ impl AuthService {
             _ => unreachable!("database hook model was validated"),
         };
         if self.verification_uses_database() {
-            loop {
-                if self.store.reserve_verification(value.clone()).await?
-                    || self
-                        .store
-                        .update_verification(value.clone())
-                        .await?
-                        .is_some()
-                {
-                    break;
-                }
+            let existing = self.store.find_verification(&value.identifier).await?;
+            if let Some(mut existing) = existing {
+                existing.value = value.value.clone();
+                existing.expires_at = value.expires_at;
+                existing.updated_at = Utc::now();
+                self.store.update_verification(existing).await?;
+            } else {
+                self.store.create_verification(value.clone()).await?;
             }
         }
         self.cache_verification(&value).await?;
@@ -74,29 +63,24 @@ impl AuthService {
             .await
     }
 
-    /// Finds a Better Auth verification value through the configured
-    /// database/secondary-storage route.
+    /// Finds the latest Better Auth verification record for one complete
+    /// identifier.
     pub async fn find_verification_value(
         &self,
-        purpose: &str,
         identifier: &str,
     ) -> Result<Option<VerificationValue>, AuthError> {
-        self.find_verification_record(purpose, identifier, true)
-            .await
+        self.find_verification_record(identifier, true).await
     }
 
     pub(super) async fn find_verification_record(
         &self,
-        purpose: &str,
         identifier: &str,
         cleanup: bool,
     ) -> Result<Option<VerificationValue>, AuthError> {
-        let candidates = self
-            .verification_identifier_candidates(purpose, identifier)
-            .await?;
+        let identifiers = self.verification_identifiers(identifier).await?;
         if let Some(secondary) = &self.config.secondary_storage {
-            for candidate in &candidates {
-                if let Some(raw) = secondary.get(&verification_key(candidate)).await?
+            for stored_identifier in &identifiers {
+                if let Some(raw) = secondary.get(&verification_key(stored_identifier)).await?
                     && let Ok(value) = serde_json::from_str(&raw)
                 {
                     return Ok(Some(value));
@@ -107,8 +91,8 @@ impl AuthService {
             }
         }
         let mut found = None;
-        for candidate in candidates {
-            if let Some(value) = self.store.find_verification(purpose, &candidate).await? {
+        for stored_identifier in identifiers {
+            if let Some(value) = self.store.find_verification(&stored_identifier).await? {
                 found = Some(value);
                 break;
             }
@@ -119,105 +103,27 @@ impl AuthService {
         Ok(found)
     }
 
-    pub(super) async fn consume_verification_record(
-        &self,
-        purpose: &str,
-        identifier: &str,
-        now: DateTime<Utc>,
-    ) -> Result<Option<VerificationValue>, AuthError> {
-        let candidates = self
-            .verification_identifier_candidates(purpose, identifier)
-            .await?;
-        if let Some(secondary) = &self.config.secondary_storage
-            && !self.config.verification.store_in_database
-        {
-            for candidate in &candidates {
-                let Some(raw) = secondary
-                    .get_and_delete(&verification_key(candidate))
-                    .await?
-                else {
-                    continue;
-                };
-                for stale in candidates.iter().filter(|value| *value != candidate) {
-                    secondary.delete(&verification_key(stale)).await?;
-                }
-                let value: VerificationValue =
-                    serde_json::from_str(&raw).map_err(|error| verification_json("read", error))?;
-                return Ok((value.expires_at >= now).then_some(value));
-            }
-            return Ok(None);
-        }
-        let current = self.find_verification_value(purpose, identifier).await?;
-        if let Some(candidate) = &current {
-            self.before_database_delete(&DatabaseRecord::Verification(candidate.clone()))
-                .await?;
-        }
-        let mut consumed = None;
-        for candidate in &candidates {
-            if let Some(value) = self
-                .store
-                .consume_verification(purpose, candidate, now)
-                .await?
-            {
-                consumed = Some(value);
-                break;
-            }
-        }
-        if let Some(secondary) = &self.config.secondary_storage
-            && consumed.is_some()
-        {
-            for candidate in &candidates {
-                secondary.delete(&verification_key(candidate)).await?;
-            }
-        }
-        if let Some(value) = &consumed {
-            self.after_database_delete(&DatabaseRecord::Verification(value.clone()))
-                .await?;
-        }
-        Ok(consumed)
-    }
-
-    /// Atomically consumes one unexpired Better Auth verification value.
-    pub async fn consume_verification_value(
-        &self,
-        purpose: &str,
-        identifier: &str,
-        now: DateTime<Utc>,
-    ) -> Result<Option<VerificationValue>, AuthError> {
-        self.consume_verification_record(purpose, identifier, now)
-            .await
-    }
-
-    /// Deletes one verification identifier from every configured backing store.
+    /// Deletes every row for one complete verification identifier.
     pub async fn delete_verification_value(
         &self,
-        purpose: &str,
         identifier: &str,
     ) -> Result<Option<VerificationValue>, AuthError> {
-        let candidates = self
-            .verification_identifier_candidates(purpose, identifier)
-            .await?;
-        let current = self.find_verification_value(purpose, identifier).await?;
+        let stored_identifier = self.process_identifier(identifier).await?;
+        let current = self.lookup_stored_verification(&stored_identifier).await?;
         if let Some(value) = &current {
             self.before_database_delete(&DatabaseRecord::Verification(value.clone()))
                 .await?;
         }
         if let Some(secondary) = &self.config.secondary_storage {
-            for candidate in &candidates {
-                secondary.delete(&verification_key(candidate)).await?;
-            }
+            secondary
+                .delete(&verification_key(&stored_identifier))
+                .await?;
         }
-        let mut deleted = None;
-        if self.verification_uses_database() {
-            for candidate in candidates {
-                if let Some(value) = self.store.delete_verification(purpose, &candidate).await? {
-                    deleted = Some(value);
-                    break;
-                }
-            }
+        let deleted = if self.verification_uses_database() {
+            self.store.delete_verification(&stored_identifier).await?
         } else {
-            deleted = current;
-        }
+            current
+        };
         if let Some(value) = &deleted {
             self.after_database_delete(&DatabaseRecord::Verification(value.clone()))
                 .await?;
@@ -225,35 +131,33 @@ impl AuthService {
         Ok(deleted)
     }
 
-    /// Replaces an existing verification value and renews its secondary TTL.
+    /// Updates the latest row selected by one complete identifier.
     pub async fn update_verification_value(
         &self,
-        mut value: VerificationValue,
+        identifier: &str,
+        value: String,
+        expires_at: Option<DateTime<Utc>>,
     ) -> Result<Option<VerificationValue>, AuthError> {
-        value.identifier = self
-            .processed_verification_identifier(&value.purpose, &value.identifier)
-            .await?;
-        let value = match self
-            .before_database_update(DatabaseRecord::Verification(value))
+        let stored_identifier = self.process_identifier(identifier).await?;
+        let Some(mut candidate) = self.lookup_stored_verification(&stored_identifier).await? else {
+            return Ok(None);
+        };
+        candidate.value = value;
+        if let Some(expires_at) = expires_at {
+            candidate.expires_at = expires_at;
+        }
+        candidate.updated_at = Utc::now();
+        let candidate = match self
+            .before_database_update(DatabaseRecord::Verification(candidate))
             .await?
         {
             DatabaseRecord::Verification(value) => value,
             _ => unreachable!("database hook model was validated"),
         };
         let updated = if self.verification_uses_database() {
-            self.store.update_verification(value.clone()).await?
-        } else if self
-            .config
-            .secondary_storage
-            .as_ref()
-            .expect("secondary-only verification storage is configured")
-            .get(&verification_key(&value.identifier))
-            .await?
-            .is_some()
-        {
-            Some(value)
+            self.store.update_verification(candidate.clone()).await?
         } else {
-            None
+            Some(candidate)
         };
         if let Some(value) = &updated {
             self.cache_verification(value).await?;
@@ -263,70 +167,21 @@ impl AuthService {
         Ok(updated)
     }
 
-    /// Atomically reserves a verification identifier. Secondary-only storage
-    /// is rejected because Better Auth requires database uniqueness here.
-    pub async fn reserve_verification_value(
+    async fn lookup_stored_verification(
         &self,
-        mut value: VerificationValue,
-    ) -> Result<bool, AuthError> {
-        if self.config.secondary_storage.is_some() && !self.config.verification.store_in_database {
-            return Err(AuthError::InvalidConfiguration(
-                "reserveVerificationValue requires database-backed verification storage. Set verification.storeInDatabase to true for flows that reserve verification values.".into(),
-            ));
-        }
-        value.identifier = self
-            .processed_verification_identifier(&value.purpose, &value.identifier)
-            .await?;
-        let reserved = self.store.reserve_verification(value.clone()).await?;
-        if reserved {
-            self.cache_verification(&value).await?;
-        }
-        Ok(reserved)
-    }
-
-    pub(super) async fn verification_identifier_candidates(
-        &self,
-        purpose: &str,
-        identifier: &str,
-    ) -> Result<Vec<String>, AuthError> {
-        let plain = if purpose.is_empty() {
-            identifier.to_owned()
-        } else {
-            format!("{purpose}:{identifier}")
-        };
-        let processed = self.process_identifier(&plain).await?;
-        if processed == plain {
-            Ok(vec![processed])
-        } else {
-            Ok(vec![processed, plain])
-        }
-    }
-
-    async fn processed_verification_identifier(
-        &self,
-        purpose: &str,
-        identifier: &str,
-    ) -> Result<String, AuthError> {
-        self.verification_identifier_candidates(purpose, identifier)
-            .await
-            .map(|candidates| candidates[0].clone())
-    }
-
-    async fn process_identifier(&self, identifier: &str) -> Result<String, AuthError> {
-        let config = &self.config.verification.store_identifier;
-        let storage = config
-            .overrides
-            .iter()
-            .find(|(prefix, _)| identifier.starts_with(prefix))
-            .map(|(_, storage)| storage)
-            .unwrap_or(&config.default);
-        match storage {
-            VerificationIdentifierStorage::Plain => Ok(identifier.into()),
-            VerificationIdentifierStorage::Hashed => {
-                Ok(URL_SAFE_NO_PAD.encode(Sha256::digest(identifier.as_bytes())))
+        stored_identifier: &str,
+    ) -> Result<Option<VerificationValue>, AuthError> {
+        if let Some(secondary) = &self.config.secondary_storage {
+            if let Some(raw) = secondary.get(&verification_key(stored_identifier)).await? {
+                return serde_json::from_str(&raw)
+                    .map(Some)
+                    .map_err(|error| verification_json("read", error));
             }
-            VerificationIdentifierStorage::Custom(hasher) => hasher.hash(identifier).await,
+            if !self.config.verification.store_in_database {
+                return Ok(None);
+            }
         }
+        self.store.find_verification(stored_identifier).await
     }
 
     fn verification_uses_database(&self) -> bool {
@@ -350,26 +205,9 @@ impl AuthService {
         }
         Ok(())
     }
-
-    pub(super) async fn clear_cached_verification(
-        &self,
-        purpose: &str,
-        identifier: &str,
-    ) -> Result<(), AuthError> {
-        let Some(secondary) = &self.config.secondary_storage else {
-            return Ok(());
-        };
-        for candidate in self
-            .verification_identifier_candidates(purpose, identifier)
-            .await?
-        {
-            secondary.delete(&verification_key(&candidate)).await?;
-        }
-        Ok(())
-    }
 }
 
-fn verification_key(identifier: &str) -> String {
+pub(super) fn verification_key(identifier: &str) -> String {
     format!("verification:{identifier}")
 }
 
@@ -377,4 +215,41 @@ fn verification_json(operation: &str, error: serde_json::Error) -> AuthError {
     AuthError::Storage(format!(
         "secondary-storage verification JSON {operation} failed: {error}"
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AuthConfig, MemoryStore, VerificationIdentifierStorage, VerificationStore};
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    use chrono::Duration;
+    use sha2::{Digest, Sha256};
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn deletion_targets_only_the_processed_identifier() {
+        let store = Arc::new(MemoryStore::default());
+        let mut config = AuthConfig::new([23; 32]).unwrap();
+        config.verification.store_identifier.default = VerificationIdentifierStorage::Hashed;
+        let service = AuthService::new(store.clone(), config);
+        let expires_at = Utc::now() + Duration::minutes(1);
+        let processed = URL_SAFE_NO_PAD.encode(Sha256::digest(b"plain"));
+        store
+            .create_verification(VerificationValue::new(
+                processed.clone(),
+                "processed",
+                expires_at,
+            ))
+            .await
+            .unwrap();
+        store
+            .create_verification(VerificationValue::new("plain", "plain", expires_at))
+            .await
+            .unwrap();
+
+        service.delete_verification_value("plain").await.unwrap();
+
+        assert!(store.find_verification(&processed).await.unwrap().is_none());
+        assert!(store.find_verification("plain").await.unwrap().is_some());
+    }
 }

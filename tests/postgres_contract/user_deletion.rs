@@ -33,18 +33,9 @@ pub(super) async fn assert_transactional(
             None,
         )
         .await?;
-    for table in [
-        "lucid_auth_users",
-        "lucid_auth_accounts",
-        "lucid_auth_sessions",
-    ] {
-        let user_column = if table == "lucid_auth_users" {
-            "id"
-        } else {
-            "user_id"
-        };
+    for (table, user_column) in [("user", "id"), ("account", "userId"), ("session", "userId")] {
         let count = sqlx::query_scalar::<_, i64>(&format!(
-            "SELECT COUNT(*) FROM {table} WHERE {user_column} = $1"
+            "SELECT COUNT(*) FROM \"{table}\" WHERE \"{user_column}\" = $1"
         ))
         .bind(signup.user.id)
         .fetch_one(pool)

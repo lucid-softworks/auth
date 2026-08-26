@@ -10,9 +10,7 @@ use std::sync::Arc;
 
 use crate::oauth_provider::{
     OAuthProviderConfig, OAuthProviderConsent, OAuthProviderStore, OAuthStoredTokenType,
-    authorization::{
-        AUTHORIZATION_CODE_PURPOSE, OAuthAuthorizationCodePayload, OAuthAuthorizationQuery,
-    },
+    authorization::{OAuthAuthorizationCodePayload, OAuthAuthorizationQuery},
     crypto::{random_alphanumeric, store_token},
 };
 use crate::{
@@ -304,15 +302,12 @@ pub(super) async fn issue_code(
         resource: query.resource.clone(),
     };
     service
-        .create_verification_value(VerificationValue {
-            purpose: AUTHORIZATION_CODE_PURPOSE.into(),
-            identifier: stored_code,
-            payload: serde_json::to_value(payload)
+        .create_verification_value(VerificationValue::new(
+            stored_code,
+            serde_json::to_string(&payload)
                 .map_err(|error| OAuthProviderError::ServerError(error.to_string()))?,
-            additional_fields: serde_json::Map::new(),
-            expires_at: now + Duration::seconds(config.code_expires_in as i64),
-            created_at: now,
-        })
+            now + Duration::seconds(config.code_expires_in as i64),
+        ))
         .await
         .map_err(storage_error)?;
     let redirect_uri = query

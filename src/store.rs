@@ -2,6 +2,7 @@ use crate::{
     ApiKey, AuthError, AuthSession, AuthUser, OAuthAccount, StoredPasskey, VerificationValue,
 };
 use async_trait::async_trait;
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// Result of atomically removing a passkey while preserving a configured minimum.
@@ -10,22 +11,6 @@ pub enum PasskeyDeleteOutcome {
     Deleted { remaining: usize },
     NotFound,
     MinimumRequired,
-}
-
-#[derive(Debug, Clone)]
-pub enum EmailVerificationOutcome {
-    InvalidToken,
-    Expired,
-    UserNotFound,
-    AlreadyVerified(AuthUser),
-    Verified(AuthUser),
-}
-
-#[derive(Debug, Clone)]
-pub enum PasswordResetOutcome {
-    InvalidToken,
-    UserNotFound,
-    Reset(Box<AuthUser>),
 }
 
 /// Fields atomically changed by Better Auth's current-user update route.
@@ -63,6 +48,9 @@ pub enum OAuthTokenUpdateOutcome {
 pub trait AuthStore:
     AccessStore + ApiKeyStore + OAuthAccountStore + SecurityStore + VerificationStore + Send + Sync
 {
+    /// Binds the complete Better Auth schema after plugin validation.
+    fn bind_schema(&self, schema: Arc<crate::AuthSchemaCatalog>) -> Result<(), AuthError>;
+
     fn jwk_store(&self) -> Option<&dyn crate::JwkStore> {
         None
     }
@@ -100,21 +88,6 @@ pub trait AuthStore:
         new_email: &str,
         email_verified: bool,
     ) -> Result<Option<AuthUser>, AuthError>;
-
-    /// Atomically consumes a purpose-bound token and marks its user verified.
-    async fn consume_email_verification(
-        &self,
-        token_hash: &str,
-        now: chrono::DateTime<chrono::Utc>,
-    ) -> Result<EmailVerificationOutcome, AuthError>;
-
-    async fn consume_password_reset(
-        &self,
-        token_hash: &str,
-        password_hash: String,
-        now: chrono::DateTime<chrono::Utc>,
-        revoke_sessions: bool,
-    ) -> Result<PasswordResetOutcome, AuthError>;
 
     async fn promote_email_owner(
         &self,
@@ -254,17 +227,15 @@ pub trait VerificationStore: Send + Sync {
 
     async fn find_verification(
         &self,
-        purpose: &str,
         identifier: &str,
     ) -> Result<Option<VerificationValue>, AuthError>;
 
-    /// Atomically consumes a matching unexpired value. Concurrent callers may
-    /// never receive the same record twice.
+    /// Atomically consumes a matching value. Concurrent callers may never
+    /// receive the same record twice. Expiry is evaluated by the service after
+    /// identifier fallback has selected its winner.
     async fn consume_verification(
         &self,
-        purpose: &str,
         identifier: &str,
-        now: chrono::DateTime<chrono::Utc>,
     ) -> Result<Option<VerificationValue>, AuthError>;
 
     async fn update_verification(
@@ -274,7 +245,6 @@ pub trait VerificationStore: Send + Sync {
 
     async fn delete_verification(
         &self,
-        purpose: &str,
         identifier: &str,
     ) -> Result<Option<VerificationValue>, AuthError>;
 

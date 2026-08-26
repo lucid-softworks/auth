@@ -2,8 +2,7 @@ use super::{
     AgentAuthConfig, AgentAuthStore, MemoryAgentAuthStore, endpoints::AGENT_AUTH_ENDPOINTS, schema,
 };
 use crate::{
-    AuthConfig, AuthError, AuthPlugin, PluginClientMetadata, PluginDescriptor, PluginMigration,
-    PluginRateLimit,
+    AuthConfig, AuthError, AuthPlugin, PluginClientMetadata, PluginDescriptor, PluginRateLimit,
 };
 use std::{borrow::Cow, fmt, sync::Arc};
 
@@ -11,7 +10,6 @@ use std::{borrow::Cow, fmt, sync::Arc};
 pub struct AgentAuthPlugin {
     config: Arc<AgentAuthConfig>,
     store: Arc<dyn AgentAuthStore>,
-    migrations: Vec<PluginMigration>,
 }
 
 impl AgentAuthPlugin {
@@ -30,14 +28,9 @@ impl AgentAuthPlugin {
         if config.proof_of_presence.rp_id.as_deref() == Some("") {
             config.proof_of_presence.rp_id = None;
         }
-        schema::ResolvedAgentAuthSchema::new(&config.schema)
-            .map_err(|error| AuthError::InvalidConfiguration(error.to_string()))?;
-        let migration = schema::migration(&config.schema)
-            .map_err(|error| AuthError::InvalidConfiguration(error.to_string()))?;
         Ok(Self {
             config: Arc::new(config),
             store,
-            migrations: vec![migration],
         })
     }
 
@@ -99,8 +92,8 @@ impl AuthPlugin for AgentAuthPlugin {
         Ok(())
     }
 
-    fn migrations(&self) -> Cow<'_, [PluginMigration]> {
-        Cow::Borrowed(&self.migrations)
+    fn schema(&self) -> Vec<crate::PluginSchemaTable> {
+        schema::schema_tables(&self.config.schema)
     }
 
     fn rate_limits(&self) -> Vec<PluginRateLimit> {

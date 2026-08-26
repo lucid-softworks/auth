@@ -3,11 +3,17 @@ mod item;
 mod rows;
 mod subscription;
 
+#[cfg(test)]
+mod test_support;
+
 use super::{
     ChargebeeStore, ChargebeeStoreError, ChargebeeSubscription, ChargebeeSubscriptionItem,
     ChargebeeSubscriptionPatch,
 };
-use crate::postgres::PostgresStore;
+use crate::{
+    AuthError,
+    postgres::{PostgresModel, PostgresStore},
+};
 use async_trait::async_trait;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -15,25 +21,29 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct PostgresChargebeeStore {
     store: PostgresStore,
-    subscriptions_enabled: bool,
-    organization_enabled: bool,
 }
 
 impl PostgresChargebeeStore {
-    pub fn new(
-        store: PostgresStore,
-        subscriptions_enabled: bool,
-        organization_enabled: bool,
-    ) -> Self {
-        Self {
-            store,
-            subscriptions_enabled,
-            organization_enabled,
-        }
+    pub fn new(store: PostgresStore) -> Self {
+        Self { store }
     }
 
     fn pool(&self) -> &PgPool {
         self.store.pool()
+    }
+
+    #[cfg(test)]
+    fn model(&self, logical: &str) -> Result<PostgresModel<'_>, ChargebeeStoreError> {
+        self.store.physical_model(logical).map_err(schema_error)
+    }
+
+    fn model_if_present(
+        &self,
+        logical: &str,
+    ) -> Result<Option<PostgresModel<'_>>, ChargebeeStoreError> {
+        self.store
+            .physical_model_if_present(logical)
+            .map_err(schema_error)
     }
 }
 
@@ -166,24 +176,40 @@ impl ChargebeeStore for PostgresChargebeeStore {
     }
 }
 
-fn storage_error(error: sqlx::Error) -> ChargebeeStoreError {
-    let database = error.as_database_error();
-    match database.and_then(|error| error.constraint()) {
-        Some(
-            "lucid_auth_chargebee_user_customer_uidx"
-            | "lucid_auth_chargebee_organization_customer_uidx",
-        ) => ChargebeeStoreError::DuplicateCustomerId,
-        Some("lucid_auth_chargebee_subscription_provider_uidx") => {
-            ChargebeeStoreError::DuplicateSubscriptionId
-        }
-        _ if database.and_then(|error| error.code()).as_deref() == Some("23505") => {
-            ChargebeeStoreError::DuplicateId
-        }
-        _ if database.and_then(|error| error.code()).as_deref() == Some("23503") => {
-            ChargebeeStoreError::MissingSubscription
-        }
-        _ => ChargebeeStoreError::Unavailable(error.to_string()),
+fn customer_error(error: sqlx::Error) -> ChargebeeStoreError {
+    classify(error, ChargebeeStoreError::DuplicateCustomerId)
+}
+
+fn subscription_error(error: sqlx::Error) -> ChargebeeStoreError {
+    classify(error, ChargebeeStoreError::DuplicateSubscriptionId)
+}
+
+fn item_error(error: sqlx::Error) -> ChargebeeStoreError {
+    if has_code(&error, "23503") {
+        ChargebeeStoreError::MissingSubscription
+    } else {
+        classify(error, ChargebeeStoreError::DuplicateId)
     }
+}
+
+fn classify(error: sqlx::Error, duplicate: ChargebeeStoreError) -> ChargebeeStoreError {
+    if has_code(&error, "23505") {
+        duplicate
+    } else {
+        ChargebeeStoreError::Unavailable(error.to_string())
+    }
+}
+
+fn has_code(error: &sqlx::Error, code: &str) -> bool {
+    error
+        .as_database_error()
+        .and_then(|database| database.code())
+        .as_deref()
+        == Some(code)
+}
+
+fn schema_error(error: AuthError) -> ChargebeeStoreError {
+    ChargebeeStoreError::Unavailable(error.to_string())
 }
 
 fn subscriptions_disabled() -> ChargebeeStoreError {

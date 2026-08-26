@@ -75,10 +75,6 @@ impl DeviceAuthorizationConfig {
         validate_length("userCodeLength", self.user_code_length)?;
         parse_duration_milliseconds(&self.expires_in)?;
         parse_duration_milliseconds(&self.interval)?;
-        super::schema::ResolvedDeviceAuthorizationSchema::new(
-            &self.schema,
-            self.mode == DeviceAuthorizationMode::OAuthProvider,
-        )?;
         Ok(())
     }
 
@@ -214,16 +210,6 @@ pub enum DeviceAuthorizationConfigError {
         "Invalid time string format: \"{0}\". Use formats like \"7d\", \"30m\", \"1 hour\", etc."
     )]
     InvalidDuration(String),
-    #[error("unknown Better Auth Device Authorization field `{field}` on model `deviceCode`")]
-    UnknownSchemaField { field: String },
-    #[error("invalid {kind} identifier `{identifier}`: {reason}")]
-    InvalidSchemaIdentifier {
-        kind: &'static str,
-        identifier: String,
-        reason: &'static str,
-    },
-    #[error("duplicate field identifier `{identifier}` in the Device Authorization schema")]
-    DuplicateSchemaIdentifier { identifier: String },
 }
 
 #[cfg(test)]

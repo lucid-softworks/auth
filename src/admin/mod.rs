@@ -132,6 +132,7 @@ impl AdminRole {
 
 #[derive(Debug, Clone)]
 pub struct AdminConfig {
+    pub schema: AdminSchema,
     pub default_role: String,
     pub admin_roles: Vec<String>,
     pub roles: BTreeMap<String, AdminRole>,
@@ -144,10 +145,17 @@ pub struct AdminConfig {
     custom_roles: bool,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct AdminSchema {
+    pub user: crate::DatabaseModelSchema,
+    pub session: crate::DatabaseModelSchema,
+}
+
 impl Default for AdminConfig {
     fn default() -> Self {
         let admin = AdminRole::administrator();
         Self {
+            schema: AdminSchema::default(),
             default_role: "user".into(),
             admin_roles: vec!["admin".into()],
             roles: BTreeMap::from([

@@ -1,132 +1,42 @@
-use super::{PostgresStore, storage_error};
+mod codec;
+mod usage;
+
+use super::{PostgresModel, PostgresStore, storage_error};
 use crate::{ApiKey, ApiKeyStore, ApiKeyUseOutcome, AuthError};
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
-use sqlx::FromRow;
+use chrono::{DateTime, Utc};
+use serde_json::json;
+use sqlx::{Postgres, QueryBuilder};
 use uuid::Uuid;
 
-const COLUMNS: &str = "id, config_id, name, start, prefix, key_hash, reference_id, \
-    refill_interval, refill_amount, last_refill_at, enabled, rate_limit_enabled, \
-    rate_limit_time_window, rate_limit_max, request_count, remaining, last_request, \
-    expires_at, permissions, metadata, created_at, updated_at";
+use codec::{api_key_update_writes, api_key_writes, decode_api_key};
 
-#[derive(FromRow)]
-struct ApiKeyRow {
-    id: Uuid,
-    config_id: String,
-    name: Option<String>,
-    start: Option<String>,
-    prefix: Option<String>,
-    key_hash: String,
-    reference_id: String,
-    refill_interval: Option<i64>,
-    refill_amount: Option<i64>,
-    last_refill_at: Option<DateTime<Utc>>,
-    enabled: bool,
-    rate_limit_enabled: bool,
-    rate_limit_time_window: Option<i64>,
-    rate_limit_max: Option<i64>,
-    request_count: i64,
-    remaining: Option<i64>,
-    last_request: Option<DateTime<Utc>>,
-    expires_at: Option<DateTime<Utc>>,
-    permissions: Option<serde_json::Value>,
-    metadata: Option<serde_json::Value>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-}
-
-impl TryFrom<ApiKeyRow> for ApiKey {
-    type Error = AuthError;
-
-    fn try_from(row: ApiKeyRow) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.id,
-            config_id: row.config_id,
-            name: row.name,
-            start: row.start,
-            prefix: row.prefix,
-            key_hash: row.key_hash,
-            reference_id: row.reference_id,
-            refill_interval: row.refill_interval,
-            refill_amount: row.refill_amount,
-            last_refill_at: row.last_refill_at,
-            enabled: row.enabled,
-            rate_limit_enabled: row.rate_limit_enabled,
-            rate_limit_time_window: row.rate_limit_time_window,
-            rate_limit_max: row.rate_limit_max,
-            request_count: row.request_count,
-            remaining: row.remaining,
-            last_request: row.last_request,
-            expires_at: row.expires_at,
-            permissions: row
-                .permissions
-                .map(serde_json::from_value)
-                .transpose()
-                .map_err(|error| AuthError::Storage(error.to_string()))?,
-            metadata: row.metadata,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        })
+impl PostgresStore {
+    pub(super) fn api_key_model(&self) -> Result<PostgresModel<'_>, AuthError> {
+        self.physical_model("apikey")
     }
 }
 
 #[async_trait]
 impl ApiKeyStore for PostgresStore {
     async fn create_api_key(&self, api_key: ApiKey) -> Result<ApiKey, AuthError> {
-        let permissions = api_key
-            .permissions
-            .as_ref()
-            .map(serde_json::to_value)
-            .transpose()
-            .map_err(|error| AuthError::Storage(error.to_string()))?;
-        sqlx::query_as::<_, ApiKeyRow>(&format!(
-            "INSERT INTO lucid_auth_api_keys ({COLUMNS}) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) \
-             RETURNING {COLUMNS}"
-        ))
-        .bind(api_key.id)
-        .bind(api_key.config_id)
-        .bind(api_key.name)
-        .bind(api_key.start)
-        .bind(api_key.prefix)
-        .bind(api_key.key_hash)
-        .bind(api_key.reference_id)
-        .bind(api_key.refill_interval)
-        .bind(api_key.refill_amount)
-        .bind(api_key.last_refill_at)
-        .bind(api_key.enabled)
-        .bind(api_key.rate_limit_enabled)
-        .bind(api_key.rate_limit_time_window)
-        .bind(api_key.rate_limit_max)
-        .bind(api_key.request_count)
-        .bind(api_key.remaining)
-        .bind(api_key.last_request)
-        .bind(api_key.expires_at)
-        .bind(permissions)
-        .bind(api_key.metadata)
-        .bind(api_key.created_at)
-        .bind(api_key.updated_at)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(storage_error)?
-        .try_into()
+        let model = self.api_key_model()?;
+        let writes = api_key_writes(&model, &api_key)?;
+        let mut query = super::rows::insert_query(&model, writes);
+        query
+            .build()
+            .fetch_one(&self.pool)
+            .await
+            .map_err(storage_error)
+            .and_then(|row| decode_api_key(&model, &row))
     }
 
     async fn find_api_key(&self, api_key_id: Uuid) -> Result<Option<ApiKey>, AuthError> {
-        fetch_optional(&self.pool, "id = $1", api_key_id).await
+        find_by(self, "id", json!(api_key_id.to_string())).await
     }
 
     async fn find_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>, AuthError> {
-        sqlx::query_as::<_, ApiKeyRow>(&format!(
-            "SELECT {COLUMNS} FROM lucid_auth_api_keys WHERE key_hash = $1"
-        ))
-        .bind(key_hash)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(storage_error)?
-        .map(TryInto::try_into)
-        .transpose()
+        find_by(self, "key", json!(key_hash)).await
     }
 
     async fn list_api_keys(
@@ -134,61 +44,53 @@ impl ApiKeyStore for PostgresStore {
         reference_id: &str,
         config_id: Option<&str>,
     ) -> Result<Vec<ApiKey>, AuthError> {
-        let query = format!(
-            "SELECT {COLUMNS} FROM lucid_auth_api_keys WHERE reference_id = $1 \
-             AND ($2::TEXT IS NULL OR config_id = $2)"
-        );
-        sqlx::query_as::<_, ApiKeyRow>(&query)
-            .bind(reference_id)
-            .bind(config_id)
+        let model = self.api_key_model()?;
+        let mut query = select_query(&model);
+        query
+            .push(" WHERE ")
+            .push(model.quoted_column("referenceId")?)
+            .push(" = ");
+        model
+            .encode("referenceId", json!(reference_id))?
+            .push_bind(&mut query);
+        if let Some(config_id) = config_id {
+            query
+                .push(" AND ")
+                .push(model.quoted_column("configId")?)
+                .push(" = ");
+            model
+                .encode("configId", json!(config_id))?
+                .push_bind(&mut query);
+        }
+        let rows = query
+            .build()
             .fetch_all(&self.pool)
             .await
-            .map_err(storage_error)?
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect()
+            .map_err(storage_error)?;
+        rows.iter().map(|row| decode_api_key(&model, row)).collect()
     }
 
     async fn update_api_key(&self, api_key: ApiKey) -> Result<Option<ApiKey>, AuthError> {
-        let permissions = api_key
-            .permissions
-            .as_ref()
-            .map(serde_json::to_value)
-            .transpose()
-            .map_err(|error| AuthError::Storage(error.to_string()))?;
-        sqlx::query_as::<_, ApiKeyRow>(&format!(
-            "UPDATE lucid_auth_api_keys SET name=$2, refill_interval=$3, refill_amount=$4, \
-             last_refill_at=$5, enabled=$6, rate_limit_enabled=$7, rate_limit_time_window=$8, \
-             rate_limit_max=$9, request_count=$10, remaining=$11, last_request=$12, \
-             expires_at=$13, permissions=$14, metadata=$15, updated_at=$16 \
-             WHERE id=$1 RETURNING {COLUMNS}"
-        ))
-        .bind(api_key.id)
-        .bind(api_key.name)
-        .bind(api_key.refill_interval)
-        .bind(api_key.refill_amount)
-        .bind(api_key.last_refill_at)
-        .bind(api_key.enabled)
-        .bind(api_key.rate_limit_enabled)
-        .bind(api_key.rate_limit_time_window)
-        .bind(api_key.rate_limit_max)
-        .bind(api_key.request_count)
-        .bind(api_key.remaining)
-        .bind(api_key.last_request)
-        .bind(api_key.expires_at)
-        .bind(permissions)
-        .bind(api_key.metadata)
-        .bind(api_key.updated_at)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(storage_error)?
-        .map(TryInto::try_into)
-        .transpose()
+        let model = self.api_key_model()?;
+        let writes = api_key_update_writes(&model, &api_key)?;
+        let mut query = super::rows::update_query(&model, writes);
+        query
+            .push(" WHERE \"id\" = ")
+            .push_bind(api_key.id)
+            .push(" RETURNING ")
+            .push(model.all_projection());
+        decode_optional(&model, query, &self.pool).await
     }
 
     async fn delete_api_key(&self, api_key_id: Uuid) -> Result<bool, AuthError> {
-        sqlx::query("DELETE FROM lucid_auth_api_keys WHERE id = $1")
-            .bind(api_key_id)
+        let model = self.api_key_model()?;
+        let mut query = QueryBuilder::<Postgres>::new("DELETE FROM ");
+        query
+            .push(model.quoted_table())
+            .push(" WHERE \"id\" = ")
+            .push_bind(api_key_id);
+        query
+            .build()
             .execute(&self.pool)
             .await
             .map(|result| result.rows_affected() == 1)
@@ -196,8 +98,18 @@ impl ApiKeyStore for PostgresStore {
     }
 
     async fn delete_expired_api_keys(&self, now: DateTime<Utc>) -> Result<u64, AuthError> {
-        sqlx::query("DELETE FROM lucid_auth_api_keys WHERE expires_at < $1")
-            .bind(now)
+        let model = self.api_key_model()?;
+        let mut query = QueryBuilder::<Postgres>::new("DELETE FROM ");
+        query
+            .push(model.quoted_table())
+            .push(" WHERE ")
+            .push(model.quoted_column("expiresAt")?)
+            .push(" < ");
+        model
+            .encode("expiresAt", json!(now.to_rfc3339()))?
+            .push_bind(&mut query);
+        query
+            .build()
             .execute(&self.pool)
             .await
             .map(|result| result.rows_affected())
@@ -209,133 +121,45 @@ impl ApiKeyStore for PostgresStore {
         api_key_id: Uuid,
         now: DateTime<Utc>,
     ) -> Result<ApiKeyUseOutcome, AuthError> {
-        claim_usage(self, api_key_id, now).await
+        usage::claim_usage(self, api_key_id, now).await
     }
 }
 
-async fn fetch_optional(
+pub(super) fn select_query(model: &PostgresModel<'_>) -> QueryBuilder<'static, Postgres> {
+    let mut query = QueryBuilder::new("SELECT ");
+    query
+        .push(model.all_projection())
+        .push(" FROM ")
+        .push(model.quoted_table());
+    query
+}
+
+pub(super) async fn decode_optional(
+    model: &PostgresModel<'_>,
+    mut query: QueryBuilder<'static, Postgres>,
     pool: &sqlx::PgPool,
-    predicate: &str,
-    id: Uuid,
 ) -> Result<Option<ApiKey>, AuthError> {
-    sqlx::query_as::<_, ApiKeyRow>(&format!(
-        "SELECT {COLUMNS} FROM lucid_auth_api_keys WHERE {predicate}"
-    ))
-    .bind(id)
-    .fetch_optional(pool)
-    .await
-    .map_err(storage_error)?
-    .map(TryInto::try_into)
-    .transpose()
+    query
+        .build()
+        .fetch_optional(pool)
+        .await
+        .map_err(storage_error)?
+        .as_ref()
+        .map(|row| decode_api_key(model, row))
+        .transpose()
 }
 
-async fn claim_usage(
+async fn find_by(
     store: &PostgresStore,
-    api_key_id: Uuid,
-    now: DateTime<Utc>,
-) -> Result<ApiKeyUseOutcome, AuthError> {
-    let mut transaction = store.pool.begin().await.map_err(storage_error)?;
-    let row = sqlx::query_as::<_, ApiKeyRow>(&format!(
-        "SELECT {COLUMNS} FROM lucid_auth_api_keys WHERE id = $1 FOR UPDATE"
-    ))
-    .bind(api_key_id)
-    .fetch_optional(&mut *transaction)
-    .await
-    .map_err(storage_error)?;
-    let api_key: Option<ApiKey> = row.map(TryInto::try_into).transpose()?;
-    let Some(mut api_key) = api_key else {
-        return Ok(ApiKeyUseOutcome::Invalid);
-    };
-    if !api_key.enabled
-        || api_key
-            .expires_at
-            .is_some_and(|expires_at| expires_at < now)
-    {
-        return Ok(ApiKeyUseOutcome::Invalid);
-    }
-    refill(&mut api_key, now);
-    if api_key.remaining == Some(0) {
-        return Ok(ApiKeyUseOutcome::UsageExceeded);
-    }
-    if let Some(remaining) = &mut api_key.remaining {
-        *remaining -= 1;
-    }
-    let retry = retry_after(&api_key, now);
-    if retry.is_none() {
-        record_request(&mut api_key, now);
-    }
-    api_key.updated_at = now;
-    persist_usage(&mut transaction, &api_key).await?;
-    transaction.commit().await.map_err(storage_error)?;
-    Ok(match retry {
-        Some(retry_after_milliseconds) => ApiKeyUseOutcome::RateLimited {
-            retry_after_milliseconds,
-        },
-        None => ApiKeyUseOutcome::Allowed(Box::new(api_key)),
-    })
-}
-
-fn refill(api_key: &mut ApiKey, now: DateTime<Utc>) {
-    if let (Some(interval), Some(amount), Some(_)) = (
-        api_key.refill_interval,
-        api_key.refill_amount,
-        api_key.remaining,
-    ) {
-        let since = api_key.last_refill_at.unwrap_or(api_key.created_at);
-        if since + Duration::milliseconds(interval) < now {
-            api_key.remaining = Some(amount);
-            api_key.last_refill_at = Some(now);
-        }
-    }
-}
-
-fn retry_after(api_key: &ApiKey, now: DateTime<Utc>) -> Option<i64> {
-    let (Some(window), Some(max), Some(last)) = (
-        api_key.rate_limit_time_window,
-        api_key.rate_limit_max,
-        api_key.last_request,
-    ) else {
-        return None;
-    };
-    if !api_key.rate_limit_enabled {
-        return None;
-    }
-    let elapsed = (now - last).num_milliseconds();
-    (elapsed <= window && api_key.request_count >= max).then_some((window - elapsed).max(0))
-}
-
-fn record_request(api_key: &mut ApiKey, now: DateTime<Utc>) {
-    if !api_key.rate_limit_enabled {
-        api_key.last_request = Some(now);
-        return;
-    }
-    if api_key.rate_limit_time_window.is_none() || api_key.rate_limit_max.is_none() {
-        return;
-    }
-    let reset = match (api_key.rate_limit_time_window, api_key.last_request) {
-        (Some(window), Some(last)) => last + Duration::milliseconds(window) < now,
-        _ => true,
-    };
-    api_key.request_count = if reset { 1 } else { api_key.request_count + 1 };
-    api_key.last_request = Some(now);
-}
-
-async fn persist_usage(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    api_key: &ApiKey,
-) -> Result<(), AuthError> {
-    sqlx::query(
-        "UPDATE lucid_auth_api_keys SET remaining=$2, last_refill_at=$3, request_count=$4, \
-         last_request=$5, updated_at=$6 WHERE id=$1",
-    )
-    .bind(api_key.id)
-    .bind(api_key.remaining)
-    .bind(api_key.last_refill_at)
-    .bind(api_key.request_count)
-    .bind(api_key.last_request)
-    .bind(api_key.updated_at)
-    .execute(&mut **transaction)
-    .await
-    .map(|_| ())
-    .map_err(storage_error)
+    logical: &str,
+    value: serde_json::Value,
+) -> Result<Option<ApiKey>, AuthError> {
+    let model = store.api_key_model()?;
+    let mut query = select_query(&model);
+    query
+        .push(" WHERE ")
+        .push(model.quoted_column(logical)?)
+        .push(" = ");
+    model.encode(logical, value)?.push_bind(&mut query);
+    decode_optional(&model, query, &store.pool).await
 }

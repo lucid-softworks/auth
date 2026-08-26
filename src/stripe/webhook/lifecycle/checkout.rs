@@ -3,7 +3,6 @@ use crate::stripe::webhook::transition::{
     checkout_patch, resolve_plan_item, resolve_quantity, trial_timestamp,
 };
 use crate::stripe::{StripeCheckoutSession, StripeEvent, SubscriptionOptions};
-use chrono::Utc;
 use uuid::Uuid;
 
 pub(super) async fn handle(
@@ -61,7 +60,6 @@ async fn complete(
         plan,
         stripe_subscription_id.to_owned(),
         seats,
-        Utc::now(),
     );
     let mut local = context.store.update_subscription(local_id, patch).await?;
 

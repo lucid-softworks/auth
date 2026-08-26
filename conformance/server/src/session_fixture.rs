@@ -29,7 +29,7 @@ pub(crate) async fn create(
         user_id: fixture.owner_id,
         token: token.clone(),
         actor_user_id: None,
-        authentication_method,
+        authentication_method: Some(authentication_method),
         expires_at: now + Duration::hours(1),
         created_at: now,
         updated_at: now,
@@ -133,9 +133,7 @@ async fn ensure_passkey(
             backed_up: false,
             transports: None,
             aaguid: None,
-            credential: json!({}),
             created_at: now,
-            updated_at: now,
         })
         .await
         .expect("persist fixture passkey");

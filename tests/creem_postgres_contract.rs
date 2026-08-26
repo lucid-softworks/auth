@@ -2,14 +2,42 @@
 
 use chrono::Utc;
 use lucid_auth::{
-    AuthStore, AuthUser, CreemModelSchema, CreemSchema, CreemStore, CreemSubscription,
-    CreemSubscriptionPatch, PluginMigrationContribution, PostgresCreemStore, creem_migration,
-    postgres::PostgresStore,
+    AuthConfig, AuthPlugin, AuthService, AuthStore, AuthUser, CreemModelSchema, CreemSchema,
+    CreemStore, CreemSubscription, CreemSubscriptionPatch, PluginDescriptor, PluginProvenance,
+    PluginSchemaTable, PostgresCreemStore, creem_schema_tables, postgres::PostgresStore,
 };
 use serde_json::{Map, Value};
 use sqlx::postgres::PgPoolOptions;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 use uuid::Uuid;
+
+struct SchemaPlugin(CreemSchema);
+
+#[async_trait::async_trait]
+impl AuthPlugin for SchemaPlugin {
+    fn descriptor(&self) -> PluginDescriptor {
+        PluginDescriptor {
+            id: "creem-postgres-contract",
+            display_name: "Creem PostgreSQL Contract",
+            version: "1",
+            provenance: PluginProvenance::LucidExtension,
+            dependencies: &[],
+            conflicts: &[],
+            endpoints: std::borrow::Cow::Borrowed(&[]),
+            cookies: &[],
+            rate_limits: &[],
+            middleware: &[],
+            client: None,
+        }
+    }
+
+    fn schema(&self) -> Vec<PluginSchemaTable> {
+        creem_schema_tables(&self.0, true).unwrap()
+    }
+}
 
 #[tokio::test]
 #[ignore = "requires a PostgreSQL server in DATABASE_URL"]
@@ -54,7 +82,10 @@ impl DatabaseFixture {
             })
             .connect(&database_url)
             .await?;
-        let postgres = PostgresStore::new(pool.clone());
+        let postgres = PostgresStore::new(pool.clone(), Default::default());
+        let mut config = AuthConfig::new([55; 32])?;
+        config.add_plugin(SchemaPlugin(remapped_schema()))?;
+        let _service = AuthService::new(Arc::new(postgres.clone()), config);
         postgres.migrate().await?;
         Ok(Self {
             database_schema,
@@ -77,17 +108,7 @@ impl DatabaseFixture {
 async fn migrate_creem(
     fixture: &DatabaseFixture,
 ) -> Result<PostgresCreemStore, Box<dyn std::error::Error>> {
-    let schema = remapped_schema();
-    let store = PostgresCreemStore::new(fixture.postgres.clone(), &schema, true)?;
-    let migration = creem_migration(&schema, true)?;
-    let contributions = [PluginMigrationContribution {
-        plugin_id: "creem-postgres-contract",
-        migration,
-    }];
-    fixture.postgres.migrate_plugins(&contributions).await?;
-    fixture.postgres.migrate_plugins(&contributions).await?;
-    assert_migration_shape(&fixture.pool, store.migration_sql()).await?;
-    Ok(store)
+    Ok(PostgresCreemStore::new(fixture.postgres.clone()))
 }
 
 async fn assert_real_user_updates(
@@ -174,36 +195,6 @@ fn remapped_schema() -> CreemSchema {
         },
     );
     schema
-}
-
-async fn assert_migration_shape(
-    pool: &sqlx::PgPool,
-    migration_sql: &str,
-) -> Result<(), sqlx::Error> {
-    assert!(migration_sql.contains("CREATE TABLE IF NOT EXISTS \"creem billing rows\""));
-    assert!(!migration_sql.contains("UNIQUE"));
-    assert!(!migration_sql.contains("REFERENCES"));
-    assert!(!migration_sql.contains("CREATE INDEX"));
-    assert_eq!(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM information_schema.table_constraints \
-             WHERE table_schema = current_schema() AND table_name = 'creem billing rows' \
-               AND constraint_type = 'FOREIGN KEY'",
-        )
-        .fetch_one(pool)
-        .await?,
-        0
-    );
-    assert_eq!(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM pg_indexes WHERE schemaname = current_schema() \
-             AND tablename = 'creem billing rows' AND indexdef NOT LIKE '%UNIQUE%'",
-        )
-        .fetch_one(pool)
-        .await?,
-        0
-    );
-    Ok(())
 }
 
 fn subscription(reference_id: &str, provider_id: &str) -> CreemSubscription {

@@ -189,8 +189,6 @@ pub struct Subscription {
     pub seats: Option<f64>,
     pub billing_interval: Option<BillingInterval>,
     pub stripe_schedule_id: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
 }
 
 impl Subscription {

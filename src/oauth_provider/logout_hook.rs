@@ -252,7 +252,7 @@ mod tests {
             user_id: Uuid::new_v4(),
             token: "session-token".into(),
             actor_user_id: None,
-            authentication_method: AuthenticationMethod::Password,
+            authentication_method: Some(AuthenticationMethod::Password),
             expires_at: now + Duration::hours(1),
             created_at: now,
             updated_at: now,

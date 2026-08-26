@@ -19,26 +19,15 @@ async fn authorization_code_consumption(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let now = now();
     service
-        .create_verification_value(VerificationValue {
-            purpose: "oauth-provider-authorization-code".into(),
-            identifier: "concurrent-code".into(),
-            payload: serde_json::json!({"type": "authorization_code"}),
-            additional_fields: Default::default(),
-            expires_at: now + Duration::minutes(10),
-            created_at: now,
-        })
+        .create_verification_value(VerificationValue::new(
+            "concurrent-code",
+            serde_json::json!({"type": "authorization_code"}).to_string(),
+            now + Duration::minutes(10),
+        ))
         .await?;
     let (left, right) = tokio::join!(
-        service.consume_verification_value(
-            "oauth-provider-authorization-code",
-            "concurrent-code",
-            now,
-        ),
-        service.consume_verification_value(
-            "oauth-provider-authorization-code",
-            "concurrent-code",
-            now,
-        ),
+        service.consume_verification_value("concurrent-code", now),
+        service.consume_verification_value("concurrent-code", now),
     );
     assert_eq!(
         usize::from(left?.is_some()) + usize::from(right?.is_some()),

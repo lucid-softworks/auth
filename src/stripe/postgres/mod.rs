@@ -1,8 +1,8 @@
-use super::{
-    StripeSchema, StripeSchemaError, StripeStore, StripeStoreError, Subscription,
-    SubscriptionPatch, schema::ResolvedStripeSchema,
+use super::{StripeStore, StripeStoreError, Subscription, SubscriptionPatch};
+use crate::{
+    AuthError,
+    postgres::{PostgresModel, PostgresStore},
 };
-use crate::postgres::PostgresStore;
 use async_trait::async_trait;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -11,39 +11,40 @@ mod customer;
 mod rows;
 mod subscription;
 
+#[cfg(test)]
+mod test_support;
+
 /// PostgreSQL persistence for one resolved Stripe plugin schema mapping.
 #[derive(Clone)]
 pub struct PostgresStripeStore {
     store: PostgresStore,
-    schema: ResolvedStripeSchema,
-    migration_sql: String,
 }
 
 impl PostgresStripeStore {
-    pub fn new(
-        store: PostgresStore,
-        schema: &StripeSchema,
-        subscriptions_enabled: bool,
-        organization_enabled: bool,
-    ) -> Result<Self, StripeSchemaError> {
-        let schema =
-            ResolvedStripeSchema::new(schema, subscriptions_enabled, organization_enabled)?;
-        let migration_sql = schema.migration_sql();
-        Ok(Self {
-            store,
-            schema,
-            migration_sql,
-        })
-    }
-
-    /// SQL that creates the enabled, remapped Stripe persistence objects.
-    pub fn migration_sql(&self) -> &str {
-        &self.migration_sql
+    pub fn new(store: PostgresStore) -> Self {
+        Self { store }
     }
 
     fn pool(&self) -> &PgPool {
         self.store.pool()
     }
+
+    fn model(&self, logical: &str) -> Result<PostgresModel<'_>, StripeStoreError> {
+        self.store.physical_model(logical).map_err(schema_error)
+    }
+
+    fn model_if_present(
+        &self,
+        logical: &str,
+    ) -> Result<Option<PostgresModel<'_>>, StripeStoreError> {
+        self.store
+            .physical_model_if_present(logical)
+            .map_err(schema_error)
+    }
+}
+
+fn schema_error(error: AuthError) -> StripeStoreError {
+    StripeStoreError::Unavailable(error.to_string())
 }
 
 #[async_trait]

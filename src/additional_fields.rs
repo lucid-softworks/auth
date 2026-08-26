@@ -2,7 +2,7 @@ use crate::AuthError;
 #[cfg(feature = "axum")]
 use crate::{AuthSession, AuthUser};
 use serde_json::{Map, Value};
-use std::{collections::BTreeMap, fmt, sync::Arc};
+use std::{fmt, sync::Arc};
 
 mod validation;
 
@@ -26,7 +26,7 @@ pub enum AdditionalFieldType {
 pub struct AdditionalFieldReference {
     pub model: String,
     pub field: String,
-    pub on_delete: AdditionalFieldOnDelete,
+    pub on_delete: Option<AdditionalFieldOnDelete>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,6 +232,30 @@ impl AdditionalField {
         self.default_value.is_some() || self.default_factory.is_some()
     }
 
+    pub(crate) fn has_default_factory(&self) -> bool {
+        self.default_factory.is_some()
+    }
+
+    pub(crate) fn has_on_update(&self) -> bool {
+        self.on_update.is_some()
+    }
+
+    pub(crate) fn has_input_transform(&self) -> bool {
+        self.input_transform.is_some()
+    }
+
+    pub(crate) fn has_output_transform(&self) -> bool {
+        self.output_transform.is_some()
+    }
+
+    pub(crate) fn has_input_validator(&self) -> bool {
+        self.input_validator.is_some()
+    }
+
+    pub(crate) fn has_output_validator(&self) -> bool {
+        self.output_validator.is_some()
+    }
+
     /// Returns only a static default. Runtime factories are deliberately not
     /// evaluated while generating database or request documentation.
     pub fn static_default_value(&self) -> Option<&Value> {
@@ -271,7 +295,9 @@ impl AdditionalField {
     }
 }
 
-pub type AdditionalFieldSet = BTreeMap<String, AdditionalField>;
+/// Ordered Better Auth additional fields. JavaScript object insertion order is
+/// observable during schema merging and reverse physical-name lookup.
+pub type AdditionalFieldSet = indexmap::IndexMap<String, AdditionalField>;
 
 pub(crate) fn parse_update_fields(
     configured: &AdditionalFieldSet,

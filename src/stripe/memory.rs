@@ -246,7 +246,6 @@ mod tests {
     }
 
     fn subscription(reference_id: &str) -> Subscription {
-        let now = Utc::now();
         Subscription {
             id: Uuid::new_v4(),
             plan: "pro".into(),
@@ -265,8 +264,6 @@ mod tests {
             seats: None,
             billing_interval: None,
             stripe_schedule_id: None,
-            created_at: now,
-            updated_at: now,
         }
     }
 }

@@ -249,7 +249,7 @@ fn verify_input(phone_number: &str, code: &str) -> PhoneNumberVerifyInput {
 }
 
 #[test]
-fn descriptor_schema_migration_and_defaults_match_better_auth_1_7_1() {
+fn descriptor_schema_and_defaults_match_better_auth_1_7_1() {
     let (service, _, _) = fixture();
     let descriptor = service
         .plugin_metadata()
@@ -273,12 +273,31 @@ fn descriptor_schema_migration_and_defaults_match_better_auth_1_7_1() {
     let verified = &fields["phoneNumberVerified"];
     assert!(!verified.required);
     assert!(!verified.input && verified.returned);
-    let migration = service
-        .plugin_migrations()
-        .into_iter()
-        .find(|migration| migration.plugin_id == "phone-number")
+    assert!(service.plugin_migrations().is_empty());
+
+    let store = Arc::new(MemoryStore::default());
+    let mut config = AuthConfig::new([34_u8; 32]).unwrap();
+    config.user.model_name = Some("people".into());
+    let mut phone = PhoneNumberConfig::default();
+    phone.schema.phone_number_field_name = Some("mobile".into());
+    phone.schema.phone_number_verified_field_name = Some("mobileVerified".into());
+    config
+        .add_plugin(PhoneNumberPlugin::new(store.clone(), phone))
         .unwrap();
-    assert_eq!(migration.migration.id, "better-auth-phone-number-schema");
+    let custom = AuthService::try_new(store, config).unwrap();
+    assert!(custom.plugin_migrations().is_empty());
+    let user = custom.database_schema().table("user").unwrap();
+    assert_eq!(user.model_name, "people");
+    let generic = custom.generic_database_schema();
+    let people = generic.table("people").unwrap();
+    for (logical, physical) in [
+        ("phoneNumber", "mobile"),
+        ("phoneNumberVerified", "mobileVerified"),
+    ] {
+        assert_eq!(user.fields[logical].field_name.as_deref(), Some(physical));
+        assert!(people.fields.contains_key(physical));
+        assert!(!people.fields.contains_key(logical));
+    }
 
     let defaults = PhoneNumberConfig::default();
     assert_eq!(defaults.otp_length, 6);

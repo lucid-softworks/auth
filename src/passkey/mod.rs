@@ -1,8 +1,9 @@
 #[cfg(feature = "axum")]
 use crate::AuthService;
 use crate::{
-    AuthConfig, AuthError, AuthPlugin, PluginClientMetadata, PluginCookie, PluginDescriptor,
-    PluginEndpoint, PluginHttpMethod, PluginMigration,
+    AdditionalField, AdditionalFieldReference, AdditionalFieldType, AuthConfig, AuthError,
+    AuthPlugin, PluginClientMetadata, PluginCookie, PluginDescriptor, PluginEndpoint,
+    PluginHttpMethod, PluginSchemaTable,
 };
 use async_trait::async_trait;
 use serde_json::Value;
@@ -11,11 +12,9 @@ use uuid::Uuid;
 use webauthn_rs::prelude::AuthenticatorAttachment;
 use webauthn_rs_core::proto::{ResidentKeyRequirement, UserVerificationPolicy};
 
-#[cfg(feature = "postgres")]
 mod public_key;
 
-#[cfg(feature = "postgres")]
-pub(crate) use public_key::public_key_from_credential_value;
+pub(crate) use public_key::credential_from_official_fields;
 
 #[cfg(feature = "axum")]
 mod axum;
@@ -62,15 +61,10 @@ const COOKIES: &[PluginCookie] = &[PluginCookie {
     name: "better-auth-passkey",
 }];
 
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
-    "better-auth-passkey-schema",
-    "Better Auth 1.7.1 passkey schema",
-    include_str!("../../migrations/passkey_plugin.sql"),
-)];
-
 /// Better Auth passkey plugin options.
 #[derive(Clone)]
 pub struct PasskeyConfig {
+    pub schema: crate::DatabaseModelSchema,
     /// Relying-party ID. Defaults to the configured base URL host, then localhost.
     pub rp_id: Option<String>,
     /// Human-readable relying-party name. Defaults to `Better Auth`.
@@ -89,6 +83,7 @@ pub struct PasskeyConfig {
 impl Default for PasskeyConfig {
     fn default() -> Self {
         Self {
+            schema: crate::DatabaseModelSchema::default(),
             rp_id: None,
             rp_name: None,
             origins: None,
@@ -284,12 +279,55 @@ impl AuthPlugin for PasskeyPlugin {
         Ok(())
     }
 
-    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
-        std::borrow::Cow::Borrowed(MIGRATIONS)
+    fn schema(&self) -> Vec<PluginSchemaTable> {
+        vec![crate::database_schema::remap_plugin_table(
+            passkey_schema(),
+            &self.config.schema,
+            false,
+        )]
     }
 
     #[cfg(feature = "axum")]
     fn routes(&self, service: Arc<AuthService>) -> Vec<crate::AxumPluginRoute> {
         axum::routes(service, self.config.clone())
     }
+}
+
+fn passkey_schema() -> PluginSchemaTable {
+    let optional_string = || AdditionalField::new(AdditionalFieldType::String).optional();
+    PluginSchemaTable::new("passkey")
+        .field("name", optional_string())
+        .field(
+            "publicKey",
+            AdditionalField::new(AdditionalFieldType::String),
+        )
+        .field(
+            "userId",
+            AdditionalField::new(AdditionalFieldType::String)
+                .references(AdditionalFieldReference {
+                    model: "user".into(),
+                    field: "id".into(),
+                    on_delete: None,
+                })
+                .index(true),
+        )
+        .field(
+            "credentialID",
+            AdditionalField::new(AdditionalFieldType::String).index(true),
+        )
+        .field("counter", AdditionalField::new(AdditionalFieldType::Number))
+        .field(
+            "deviceType",
+            AdditionalField::new(AdditionalFieldType::String),
+        )
+        .field(
+            "backedUp",
+            AdditionalField::new(AdditionalFieldType::Boolean),
+        )
+        .field("transports", optional_string())
+        .field(
+            "createdAt",
+            AdditionalField::new(AdditionalFieldType::Date).optional(),
+        )
+        .field("aaguid", optional_string())
 }

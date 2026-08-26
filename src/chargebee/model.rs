@@ -153,12 +153,10 @@ pub struct ChargebeeSubscription {
     pub canceled_at: Option<DateTime<Utc>>,
     pub seats: Option<f64>,
     pub metadata: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
 }
 
 impl ChargebeeSubscription {
-    pub fn future(reference_id: impl Into<String>, now: DateTime<Utc>) -> Self {
+    pub fn future(reference_id: impl Into<String>) -> Self {
         Self {
             id: Uuid::new_v4(),
             reference_id: reference_id.into(),
@@ -172,8 +170,6 @@ impl ChargebeeSubscription {
             canceled_at: None,
             seats: None,
             metadata: None,
-            created_at: now,
-            updated_at: now,
         }
     }
 

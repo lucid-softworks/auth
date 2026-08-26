@@ -1,0 +1,82 @@
+{
+  "betterAuthVersion": "1.7.1",
+  "tableOrder": [
+    "people",
+    "login",
+    "identity",
+    "challenge",
+    "widget_record",
+    "archive",
+    "tail"
+  ],
+  "fieldKeys": {
+    "people": [
+      "name",
+      "mail",
+      "emailVerified",
+      "image",
+      "createdAt",
+      "updatedAt",
+      "role",
+      "locale"
+    ],
+    "login": [
+      "expiresAt",
+      "token",
+      "createdAt",
+      "updatedAt",
+      "ipAddress",
+      "userAgent",
+      "owner_id"
+    ],
+    "widget_record": ["owner_id", "code_value", "note"]
+  },
+  "references": {
+    "login.owner_id": { "model": "people", "field": "id", "onDelete": "cascade" },
+    "widget_record.owner_id": { "model": "people", "field": "id", "onDelete": "cascade" }
+  },
+  "indexes": {
+    "identity": [
+      {
+        "columns": ["issuer", "accountId"],
+        "name": "identity_issuer_accountId_uidx",
+        "unique": true
+      }
+    ],
+    "widget_record": [
+      {
+        "columns": ["code_value"],
+        "name": "widget_record_code_value_uidx",
+        "unique": true
+      }
+    ]
+  },
+  "resolvers": {
+    "singularModel": "people",
+    "pluralModel": "peoples",
+    "singularField": "mail",
+    "pluralField": "mail",
+    "reverseModel": "user",
+    "reverseField": "email"
+  },
+  "errors": {
+    "model": "Model \"missing\" not found in schema",
+    "field": "Field missing not found in model user",
+    "index": "Index on table \"widget\" references unknown field \"missing\"."
+  },
+  "migration": {
+    "createdTables": [
+      "people",
+      "login",
+      "identity",
+      "challenge",
+      "widget_record",
+      "tail"
+    ],
+    "addedTables": [],
+    "addedIndexNames": [
+      "identity_issuer_accountId_uidx",
+      "widget_record_code_value_uidx"
+    ]
+  }
+}

@@ -1,47 +1,74 @@
-use super::super::super::storage_error;
+use super::super::super::{PostgresModel, rows::update_query, storage_error};
 use super::super::PostgresOAuthProviderStore;
 use crate::{
     AuthError,
     oauth_provider::{OAuthSessionLogoutPlan, OAuthTokenRevocationCount},
 };
 use chrono::{DateTime, Utc};
+use serde_json::Value;
+use sqlx::{QueryBuilder, types::Json};
 use uuid::Uuid;
 
-use crate::oauth_provider::schema::OAuthProviderModel;
-
 type AccessPlanRow = (Uuid, String, Option<DateTime<Utc>>);
-type RefreshPlanRow = (Uuid, String, Option<DateTime<Utc>>, Vec<String>);
+type RefreshPlanRow = (Uuid, String, Option<DateTime<Utc>>, Json<Vec<String>>);
 
 pub(super) async fn prepare(
     store: &PostgresOAuthProviderStore,
     session_id: Uuid,
 ) -> Result<OAuthSessionLogoutPlan, AuthError> {
-    let access = store.schema.model(OAuthProviderModel::AccessToken);
-    let access_rows = sqlx::query_as::<_, AccessPlanRow>(&format!(
-        "SELECT \"id\", {}, {} FROM {} WHERE {}=$1",
-        access.column("clientId"),
-        access.column("revoked"),
-        access.table(),
-        access.column("sessionId")
-    ))
-    .bind(session_id)
-    .fetch_all(store.pool())
-    .await
-    .map_err(storage_error)?;
-    let refresh = store.schema.model(OAuthProviderModel::RefreshToken);
-    let refresh_rows = sqlx::query_as::<_, RefreshPlanRow>(&format!(
-        "SELECT \"id\", {}, {}, {} FROM {} WHERE {}=$1",
-        refresh.column("clientId"),
-        refresh.column("revoked"),
-        refresh.column("scopes"),
-        refresh.table(),
-        refresh.column("sessionId")
-    ))
-    .bind(session_id)
-    .fetch_all(store.pool())
-    .await
-    .map_err(storage_error)?;
+    let access = store.model("oauthAccessToken")?;
+    let access_rows = access_plan(store, &access, session_id).await?;
+    let refresh = store.model("oauthRefreshToken")?;
+    let refresh_rows = refresh_plan(store, &refresh, session_id).await?;
     Ok(build_plan(access_rows, refresh_rows))
+}
+
+async fn access_plan(
+    store: &PostgresOAuthProviderStore,
+    model: &PostgresModel<'_>,
+    session_id: Uuid,
+) -> Result<Vec<AccessPlanRow>, AuthError> {
+    let mut query = QueryBuilder::new("SELECT \"id\", ");
+    query
+        .push(model.quoted_column("clientId")?)
+        .push(", ")
+        .push(model.quoted_column("revoked")?)
+        .push(" FROM ")
+        .push(model.quoted_table())
+        .push(" WHERE ")
+        .push(model.quoted_column("sessionId")?)
+        .push(" = ")
+        .push_bind(session_id);
+    query
+        .build_query_as::<AccessPlanRow>()
+        .fetch_all(store.pool())
+        .await
+        .map_err(storage_error)
+}
+
+async fn refresh_plan(
+    store: &PostgresOAuthProviderStore,
+    model: &PostgresModel<'_>,
+    session_id: Uuid,
+) -> Result<Vec<RefreshPlanRow>, AuthError> {
+    let mut query = QueryBuilder::new("SELECT \"id\", ");
+    query
+        .push(model.quoted_column("clientId")?)
+        .push(", ")
+        .push(model.quoted_column("revoked")?)
+        .push(", ")
+        .push(model.quoted_column("scopes")?)
+        .push(" FROM ")
+        .push(model.quoted_table())
+        .push(" WHERE ")
+        .push(model.quoted_column("sessionId")?)
+        .push(" = ")
+        .push_bind(session_id);
+    query
+        .build_query_as::<RefreshPlanRow>()
+        .fetch_all(store.pool())
+        .await
+        .map_err(storage_error)
 }
 
 fn build_plan(access: Vec<AccessPlanRow>, refresh: Vec<RefreshPlanRow>) -> OAuthSessionLogoutPlan {
@@ -61,7 +88,7 @@ fn build_plan(access: Vec<AccessPlanRow>, refresh: Vec<RefreshPlanRow>) -> OAuth
         refresh_token_ids: refresh
             .into_iter()
             .filter_map(|(id, _, revoked, scopes)| {
-                (revoked.is_none() && !scopes.iter().any(|scope| scope == "offline_access"))
+                (revoked.is_none() && !scopes.0.iter().any(|scope| scope == "offline_access"))
                     .then_some(id)
             })
             .collect(),
@@ -73,21 +100,23 @@ pub(super) async fn apply(
     plan: &OAuthSessionLogoutPlan,
     revoked_at: DateTime<Utc>,
 ) -> Result<OAuthTokenRevocationCount, AuthError> {
+    let access = store.model("oauthAccessToken")?;
+    let refresh = store.model("oauthRefreshToken")?;
     let mut transaction = store.pool().begin().await.map_err(storage_error)?;
-    let access = store.schema.model(OAuthProviderModel::AccessToken);
-    let access_tokens = sqlx::query(&format!(
-        "UPDATE {} SET {}=$2 WHERE \"id\"=ANY($1::UUID[]) AND {} IS NULL",
-        access.table(),
-        access.column("revoked"),
-        access.column("revoked")
-    ))
-    .bind(&plan.access_token_ids)
-    .bind(revoked_at)
-    .execute(&mut *transaction)
-    .await
-    .map_err(storage_error)?
-    .rows_affected() as usize;
-    let refresh_tokens = revoke_refresh(store, &mut transaction, plan, revoked_at).await?;
+    let access_tokens = revoke_ids(
+        &mut transaction,
+        &access,
+        &plan.access_token_ids,
+        revoked_at,
+    )
+    .await?;
+    let refresh_tokens = revoke_ids(
+        &mut transaction,
+        &refresh,
+        &plan.refresh_token_ids,
+        revoked_at,
+    )
+    .await?;
     transaction.commit().await.map_err(storage_error)?;
     Ok(OAuthTokenRevocationCount {
         access_tokens,
@@ -95,23 +124,24 @@ pub(super) async fn apply(
     })
 }
 
-async fn revoke_refresh(
-    store: &PostgresOAuthProviderStore,
+async fn revoke_ids(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    plan: &OAuthSessionLogoutPlan,
+    model: &PostgresModel<'_>,
+    ids: &[Uuid],
     revoked_at: DateTime<Utc>,
 ) -> Result<usize, AuthError> {
-    let refresh = store.schema.model(OAuthProviderModel::RefreshToken);
-    sqlx::query(&format!(
-        "UPDATE {} SET {}=$2 WHERE \"id\"=ANY($1::UUID[]) AND {} IS NULL",
-        refresh.table(),
-        refresh.column("revoked"),
-        refresh.column("revoked")
-    ))
-    .bind(&plan.refresh_token_ids)
-    .bind(revoked_at)
-    .execute(&mut **transaction)
-    .await
-    .map(|result| result.rows_affected() as usize)
-    .map_err(storage_error)
+    let writes = model.encode_fields([("revoked", Value::String(revoked_at.to_rfc3339()))])?;
+    let mut query = update_query(model, writes);
+    query
+        .push(" WHERE \"id\" = ANY(")
+        .push_bind(ids.to_vec())
+        .push("::UUID[]) AND ")
+        .push(model.quoted_column("revoked")?)
+        .push(" IS NULL");
+    query
+        .build()
+        .execute(&mut **transaction)
+        .await
+        .map(|result| result.rows_affected() as usize)
+        .map_err(storage_error)
 }

@@ -1,101 +1,183 @@
-use super::{PostgresChargebeeStore, storage_error};
-use crate::chargebee::ChargebeeStoreError;
+use super::{PostgresChargebeeStore, customer_error, schema_error};
+use crate::{chargebee::ChargebeeStoreError, postgres::PostgresModel};
+use serde_json::{Value, json};
+use sqlx::{Postgres, QueryBuilder};
 use uuid::Uuid;
 
-const CUSTOMER_FIELD: &str = "chargebeeCustomerId";
+const FIELD: &str = "chargebeeCustomerId";
 
 pub(super) async fn user_customer_id(
     store: &PostgresChargebeeStore,
-    user_id: Uuid,
+    id: Uuid,
 ) -> Result<Option<String>, ChargebeeStoreError> {
-    sqlx::query_scalar(&format!(
-        "SELECT additional_fields ->> '{CUSTOMER_FIELD}' FROM lucid_auth_users WHERE id = $1"
-    ))
-    .bind(user_id)
-    .fetch_optional(store.pool())
-    .await
-    .map(|value: Option<Option<String>>| value.flatten())
-    .map_err(storage_error)
+    customer_id(store, "user", id).await
 }
-
 pub(super) async fn set_user_customer_id(
     store: &PostgresChargebeeStore,
-    user_id: Uuid,
-    customer_id: Option<String>,
+    id: Uuid,
+    value: Option<String>,
 ) -> Result<(), ChargebeeStoreError> {
-    sqlx::query(&format!(
-        "UPDATE lucid_auth_users SET additional_fields = CASE \
-         WHEN $2::TEXT IS NULL THEN COALESCE(additional_fields, '{{}}'::JSONB) - '{CUSTOMER_FIELD}' \
-         ELSE jsonb_set(COALESCE(additional_fields, '{{}}'::JSONB), '{{{CUSTOMER_FIELD}}}', \
-         to_jsonb($2::TEXT), true) END WHERE id = $1"
-    ))
-    .bind(user_id)
-    .bind(customer_id)
-    .execute(store.pool())
-    .await
-    .map(|_| ())
-    .map_err(storage_error)
+    set_customer_id(store, "user", id, value).await
 }
-
 pub(super) async fn user_id_by_customer(
     store: &PostgresChargebeeStore,
-    customer_id: &str,
+    value: &str,
 ) -> Result<Option<Uuid>, ChargebeeStoreError> {
-    sqlx::query_scalar(&format!(
-        "SELECT id FROM lucid_auth_users WHERE additional_fields ->> '{CUSTOMER_FIELD}' = $1 \
-         ORDER BY id LIMIT 1"
-    ))
-    .bind(customer_id)
-    .fetch_optional(store.pool())
-    .await
-    .map_err(storage_error)
+    id_by_customer(store, "user", value).await
 }
-
 pub(super) async fn organization_customer_id(
     store: &PostgresChargebeeStore,
-    organization_id: Uuid,
+    id: Uuid,
 ) -> Result<Option<String>, ChargebeeStoreError> {
-    if !store.organization_enabled {
-        return Ok(None);
-    }
-    sqlx::query_scalar("SELECT chargebee_customer_id FROM lucid_auth_organizations WHERE id = $1")
-        .bind(organization_id)
-        .fetch_optional(store.pool())
-        .await
-        .map(|value: Option<Option<String>>| value.flatten())
-        .map_err(storage_error)
+    customer_id(store, "organization", id).await
 }
-
 pub(super) async fn set_organization_customer_id(
     store: &PostgresChargebeeStore,
-    organization_id: Uuid,
-    customer_id: Option<String>,
+    id: Uuid,
+    value: Option<String>,
 ) -> Result<(), ChargebeeStoreError> {
-    if !store.organization_enabled {
+    set_customer_id(store, "organization", id, value).await
+}
+pub(super) async fn organization_id_by_customer(
+    store: &PostgresChargebeeStore,
+    value: &str,
+) -> Result<Option<Uuid>, ChargebeeStoreError> {
+    id_by_customer(store, "organization", value).await
+}
+
+async fn customer_id(
+    store: &PostgresChargebeeStore,
+    logical: &str,
+    id: Uuid,
+) -> Result<Option<String>, ChargebeeStoreError> {
+    let Some(model) = customer_model(store, logical)? else {
+        return Ok(None);
+    };
+    let mut query = select_query(&model, id)?;
+    query
+        .build_query_scalar()
+        .fetch_optional(store.pool())
+        .await
+        .map(|value| value.flatten())
+        .map_err(customer_error)
+}
+
+async fn set_customer_id(
+    store: &PostgresChargebeeStore,
+    logical: &str,
+    id: Uuid,
+    value: Option<String>,
+) -> Result<(), ChargebeeStoreError> {
+    let Some(model) = customer_model(store, logical)? else {
         return Ok(());
-    }
-    sqlx::query("UPDATE lucid_auth_organizations SET chargebee_customer_id = $2 WHERE id = $1")
-        .bind(organization_id)
-        .bind(customer_id)
+    };
+    let mut query = update_query(&model, id, value)?;
+    query
+        .build()
         .execute(store.pool())
         .await
         .map(|_| ())
-        .map_err(storage_error)
+        .map_err(customer_error)
 }
 
-pub(super) async fn organization_id_by_customer(
+async fn id_by_customer(
     store: &PostgresChargebeeStore,
-    customer_id: &str,
+    logical: &str,
+    value: &str,
 ) -> Result<Option<Uuid>, ChargebeeStoreError> {
-    if !store.organization_enabled {
+    let Some(model) = customer_model(store, logical)? else {
         return Ok(None);
+    };
+    let mut query = reverse_query(&model, value)?;
+    query
+        .build_query_scalar()
+        .fetch_optional(store.pool())
+        .await
+        .map_err(customer_error)
+}
+
+fn customer_model<'a>(
+    store: &'a PostgresChargebeeStore,
+    logical: &str,
+) -> Result<Option<PostgresModel<'a>>, ChargebeeStoreError> {
+    Ok(store
+        .model_if_present(logical)?
+        .filter(|model| model.has_field(FIELD)))
+}
+fn select_query(
+    model: &PostgresModel<'_>,
+    id: Uuid,
+) -> Result<QueryBuilder<'static, Postgres>, ChargebeeStoreError> {
+    let mut query = QueryBuilder::new("SELECT ");
+    query
+        .push(model.quoted_column(FIELD).map_err(schema_error)?)
+        .push(" FROM ")
+        .push(model.quoted_table())
+        .push(" WHERE \"id\" = ");
+    model
+        .encode("id", json!(id.to_string()))
+        .map_err(schema_error)?
+        .push_bind(&mut query);
+    Ok(query)
+}
+fn update_query(
+    model: &PostgresModel<'_>,
+    id: Uuid,
+    value: Option<String>,
+) -> Result<QueryBuilder<'static, Postgres>, ChargebeeStoreError> {
+    let mut query = QueryBuilder::new("UPDATE ");
+    query
+        .push(model.quoted_table())
+        .push(" SET ")
+        .push(model.quoted_column(FIELD).map_err(schema_error)?)
+        .push(" = ");
+    model
+        .encode(FIELD, value.map_or(Value::Null, Value::String))
+        .map_err(schema_error)?
+        .push_bind(&mut query);
+    query.push(" WHERE \"id\" = ");
+    model
+        .encode("id", json!(id.to_string()))
+        .map_err(schema_error)?
+        .push_bind(&mut query);
+    Ok(query)
+}
+fn reverse_query(
+    model: &PostgresModel<'_>,
+    value: &str,
+) -> Result<QueryBuilder<'static, Postgres>, ChargebeeStoreError> {
+    let mut query = QueryBuilder::new("SELECT \"id\" FROM ");
+    query
+        .push(model.quoted_table())
+        .push(" WHERE ")
+        .push(model.quoted_column(FIELD).map_err(schema_error)?)
+        .push(" = ");
+    model
+        .encode(FIELD, json!(value))
+        .map_err(schema_error)?
+        .push_bind(&mut query);
+    query.push(" ORDER BY \"id\" LIMIT 1");
+    Ok(query)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn customer_queries_use_physical_columns_without_json() {
+        let store = super::super::test_support::store();
+        let organization = store.model("organization").unwrap();
+        let select = select_query(&organization, Uuid::nil()).unwrap();
+        assert!(select.sql().contains("FROM \"chargebee\"\"organizations\""));
+        assert!(
+            select
+                .sql()
+                .contains("SELECT \"physical chargebeeCustomerId\"")
+        );
+        assert!(!select.sql().contains("additional_fields"));
+        let update =
+            update_query(&organization, Uuid::nil(), Some("customer_secret".into())).unwrap();
+        assert!(!update.sql().contains("customer_secret"));
     }
-    sqlx::query_scalar(
-        "SELECT id FROM lucid_auth_organizations WHERE chargebee_customer_id = $1 \
-         ORDER BY id LIMIT 1",
-    )
-    .bind(customer_id)
-    .fetch_optional(store.pool())
-    .await
-    .map_err(storage_error)
 }

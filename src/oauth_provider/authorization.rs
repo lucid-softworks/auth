@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-pub(crate) const AUTHORIZATION_CODE_PURPOSE: &str = "oauth-provider-authorization-code";
-
 /// Authorization request persisted inside Better Auth core verification
 /// storage for a single-use authorization code.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

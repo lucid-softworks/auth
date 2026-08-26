@@ -36,7 +36,7 @@ async fn provisions_and_authenticates_a_password_user() {
     assert_eq!(result.session.principal().actor_id, user.id);
     assert_eq!(
         result.session.principal().authentication_method,
-        AuthenticationMethod::Password
+        Some(AuthenticationMethod::Password)
     );
     assert!(service.session(&result.token).await.unwrap().is_some());
 }
@@ -50,7 +50,7 @@ async fn creates_a_restricted_anonymous_principal() {
     assert_eq!(result.session.principal().role, None);
     assert_eq!(
         result.session.principal().authentication_method,
-        AuthenticationMethod::Anonymous
+        Some(AuthenticationMethod::Anonymous)
     );
 }
 
@@ -81,9 +81,7 @@ async fn enrolled_accounts_still_receive_a_normal_password_session() {
             backed_up: false,
             transports: None,
             aaguid: None,
-            credential: serde_json::json!({}),
             created_at: now,
-            updated_at: now,
         })
         .await
         .unwrap();
@@ -95,7 +93,7 @@ async fn enrolled_accounts_still_receive_a_normal_password_session() {
 
     assert_eq!(
         result.session.session.authentication_method,
-        AuthenticationMethod::Password
+        Some(AuthenticationMethod::Password)
     );
 }
 

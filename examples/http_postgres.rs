@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_connections(10)
         .connect(&database_url)
         .await?;
-    let store = Arc::new(PostgresStore::new(pool));
+    let store = Arc::new(PostgresStore::new(pool, Default::default()));
     let service = Arc::new(AuthService::try_new(store.clone(), config)?);
 
     let schema = store.migrate_all(&service.plugin_migrations()).await?;

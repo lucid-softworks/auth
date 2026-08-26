@@ -1,92 +1,163 @@
-mod migration;
-
 use crate::{
-    AdditionalField, AdditionalFieldType, DatabaseModel, PluginMigration, PluginSchemaField,
+    AdditionalField, AdditionalFieldOnDelete, AdditionalFieldReference, AdditionalFieldType,
+    PluginSchemaTable,
 };
+use serde_json::json;
 
-pub(crate) const SUBSCRIPTION_TABLE: &str = "lucid_auth_chargebee_subscriptions";
-pub(crate) const ITEM_TABLE: &str = "lucid_auth_chargebee_subscription_items";
-pub(crate) const ORGANIZATION_TABLE: &str = "lucid_auth_organizations";
 pub(crate) const CUSTOMER_FIELD: &str = "chargebeeCustomerId";
-pub(crate) const ORGANIZATION_CUSTOMER_COLUMN: &str = "chargebee_customer_id";
 
-/// The exact conditional customer field contributed by 1.2.0.
-pub fn schema_fields(organization_enabled: bool) -> Vec<PluginSchemaField> {
+/// The exact conditional schema contributed by 1.2.0.
+pub fn schema_tables(
+    subscriptions_enabled: bool,
+    organization_enabled: bool,
+) -> Vec<PluginSchemaTable> {
     let model = if organization_enabled {
-        DatabaseModel::Organization
-    } else {
-        DatabaseModel::User
-    };
-    vec![PluginSchemaField::new(
-        model,
-        CUSTOMER_FIELD,
-        AdditionalField::new(AdditionalFieldType::String)
-            .optional()
-            .unique(true)
-            .field_name(if organization_enabled {
-                ORGANIZATION_CUSTOMER_COLUMN
-            } else {
-                CUSTOMER_FIELD
-            }),
-    )]
-}
-
-/// One deterministic migration for the enabled 1.2.0 schema shape.
-pub fn migration(subscriptions_enabled: bool, organization_enabled: bool) -> PluginMigration {
-    let customer = if organization_enabled {
         "organization"
     } else {
         "user"
     };
-    let subscriptions = if subscriptions_enabled {
-        "subscriptions"
+    let customer = customer_table(model);
+    if !subscriptions_enabled {
+        return vec![customer];
+    }
+    let subscription = subscription_table();
+    let item = subscription_item_table();
+    if organization_enabled {
+        vec![subscription, item, customer]
     } else {
-        "customers"
-    };
-    PluginMigration::owned(
-        format!("chargebee-better-auth-1-2-0-{customer}-{subscriptions}"),
-        "Chargebee Better Auth 1.2.0 conditional schema",
-        migration::render(subscriptions_enabled, organization_enabled),
+        vec![customer, subscription, item]
+    }
+}
+
+fn customer_table(model: &'static str) -> PluginSchemaTable {
+    PluginSchemaTable::new(model).field(
+        CUSTOMER_FIELD,
+        AdditionalField::new(AdditionalFieldType::String)
+            .optional()
+            .unique(true),
     )
 }
 
+fn subscription_table() -> PluginSchemaTable {
+    PluginSchemaTable::new("subscription")
+        .field(
+            "referenceId",
+            AdditionalField::new(AdditionalFieldType::String),
+        )
+        .field("chargebeeCustomerId", optional(AdditionalFieldType::String))
+        .field(
+            "chargebeeSubscriptionId",
+            optional(AdditionalFieldType::String).unique(true),
+        )
+        .field(
+            "status",
+            optional(AdditionalFieldType::String).default_value(json!("future")),
+        )
+        .field("periodStart", optional(AdditionalFieldType::Date))
+        .field("periodEnd", optional(AdditionalFieldType::Date))
+        .field("trialStart", optional(AdditionalFieldType::Date))
+        .field("trialEnd", optional(AdditionalFieldType::Date))
+        .field("canceledAt", optional(AdditionalFieldType::Date))
+        .field("seats", optional(AdditionalFieldType::Number))
+        .field("metadata", optional(AdditionalFieldType::String))
+}
+
+fn subscription_item_table() -> PluginSchemaTable {
+    PluginSchemaTable::new("subscriptionItem")
+        .field(
+            "subscriptionId",
+            AdditionalField::new(AdditionalFieldType::String).references(
+                AdditionalFieldReference {
+                    model: "subscription".into(),
+                    field: "id".into(),
+                    on_delete: Some(AdditionalFieldOnDelete::Cascade),
+                },
+            ),
+        )
+        .field(
+            "itemPriceId",
+            AdditionalField::new(AdditionalFieldType::String),
+        )
+        .field(
+            "itemType",
+            AdditionalField::new(AdditionalFieldType::String),
+        )
+        .field(
+            "quantity",
+            AdditionalField::new(AdditionalFieldType::Number),
+        )
+        .field("unitPrice", optional(AdditionalFieldType::Number))
+        .field("amount", optional(AdditionalFieldType::Number))
+}
+
+fn optional(field_type: AdditionalFieldType) -> AdditionalField {
+    AdditionalField::new(field_type).optional()
+}
+
+/// One deterministic migration for the enabled 1.2.0 schema shape.
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn customer_field_switches_between_user_and_organization() {
-        let user = schema_fields(false);
+        let user = schema_tables(false, false);
         assert_eq!(user.len(), 1);
-        assert_eq!(user[0].model, DatabaseModel::User);
-        assert_eq!(user[0].name, CUSTOMER_FIELD);
-        assert!(user[0].field.unique);
-        assert!(!user[0].field.required);
+        assert_eq!(user[0].logical_name, "user");
+        assert!(user[0].fields[CUSTOMER_FIELD].unique);
+        assert!(!user[0].fields[CUSTOMER_FIELD].required);
 
-        let organization = schema_fields(true);
+        let organization = schema_tables(false, true);
         assert_eq!(organization.len(), 1);
-        assert_eq!(organization[0].model, DatabaseModel::Organization);
-        assert_eq!(
-            organization[0].field.field_name.as_deref(),
-            Some(ORGANIZATION_CUSTOMER_COLUMN)
-        );
+        assert_eq!(organization[0].logical_name, "organization");
+        assert_eq!(organization[0].fields[CUSTOMER_FIELD].field_name, None);
     }
 
     #[test]
-    fn every_conditional_shape_has_a_distinct_migration() {
-        let shapes = [
-            migration(false, false),
-            migration(true, false),
-            migration(false, true),
-            migration(true, true),
-        ];
-        for (index, shape) in shapes.iter().enumerate() {
-            assert!(
-                shapes
-                    .iter()
-                    .enumerate()
-                    .all(|(other, candidate)| other == index || candidate.id != shape.id)
-            );
-        }
+    fn subscription_tables_have_exact_conditional_order_and_shape() {
+        let user = schema_tables(true, false);
+        assert_eq!(
+            user.iter()
+                .map(|table| table.logical_name.as_str())
+                .collect::<Vec<_>>(),
+            ["user", "subscription", "subscriptionItem"]
+        );
+        let organization = schema_tables(true, true);
+        assert_eq!(
+            organization
+                .iter()
+                .map(|table| table.logical_name.as_str())
+                .collect::<Vec<_>>(),
+            ["subscription", "subscriptionItem", "organization"]
+        );
+        assert_eq!(
+            organization[0]
+                .fields
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            [
+                "referenceId",
+                "chargebeeCustomerId",
+                "chargebeeSubscriptionId",
+                "status",
+                "periodStart",
+                "periodEnd",
+                "trialStart",
+                "trialEnd",
+                "canceledAt",
+                "seats",
+                "metadata",
+            ]
+        );
+        assert!(!organization[1].fields["subscriptionId"].index);
+        assert_eq!(
+            organization[1].fields["subscriptionId"]
+                .references
+                .as_ref()
+                .unwrap()
+                .on_delete,
+            Some(AdditionalFieldOnDelete::Cascade)
+        );
     }
 }

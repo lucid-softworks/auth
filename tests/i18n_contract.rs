@@ -305,7 +305,7 @@ async fn session_and_async_callback_detection_use_the_exact_user_projection() {
             user_id: Uuid::new_v4(),
             token: "token".into(),
             actor_user_id: None,
-            authentication_method: lucid_auth::AuthenticationMethod::Password,
+            authentication_method: Some(lucid_auth::AuthenticationMethod::Password),
             expires_at: now,
             created_at: now,
             updated_at: now,

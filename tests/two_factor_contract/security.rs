@@ -54,7 +54,7 @@ async fn assert_backup_code_update_is_atomic(fixture: &Fixture, user_id: Uuid) {
         .await
         .unwrap()
         .unwrap();
-    let expected = record.encrypted_backup_codes.unwrap();
+    let expected = record.encrypted_backup_codes;
     let (left, right) = tokio::join!(
         fixture
             .factors

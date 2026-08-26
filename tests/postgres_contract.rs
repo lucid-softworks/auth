@@ -1,13 +1,14 @@
 use lucid_auth::{
     AccessStore, AccountDeleteOutcome, AdditionalField, AdditionalFieldType, AdminPlugin,
-    AnonymousPlugin, AuditPlugin, AuthConfig, AuthError, AuthService, AuthSession, AuthStore,
-    AuthUser, AuthenticationMethod, GuestCapabilityPlugin, LastLoginMethodConfig,
-    LastLoginMethodPlugin, MultiSessionPlugin, NewPasswordUser, OAuthAccount, OAuthAccountStore,
-    OAuthTokenUpdateOutcome, OperatorSecurityConfig, OperatorSecurityPlugin,
-    OrganizationDynamicAccessControlConfig, OrganizationPlugin, OrganizationPluginConfig,
-    OrganizationTeamsConfig, OwnerPolicyPlugin, PasskeyConfig, PasskeyPlugin, PluginMigration,
-    PluginMigrationContribution, StepUpPolicyConfig, StepUpPolicyPlugin, TwoFactorConfig,
-    TwoFactorPlugin, UsernamePlugin, postgres::PostgresStore,
+    AgentAuthConfig, AgentAuthPlugin, AnonymousPlugin, AuditPlugin, AuthConfig, AuthError,
+    AuthService, AuthSession, AuthStore, AuthUser, AuthenticationMethod, GuestCapabilityPlugin,
+    LastLoginMethodConfig, LastLoginMethodPlugin, MultiSessionPlugin, NewPasswordUser,
+    OAuthAccount, OAuthAccountStore, OAuthTokenUpdateOutcome, OperatorSecurityConfig,
+    OperatorSecurityPlugin, OrganizationDynamicAccessControlConfig, OrganizationPlugin,
+    OrganizationPluginConfig, OrganizationTeamsConfig, OwnerPolicyPlugin, PasskeyConfig,
+    PasskeyPlugin, PluginMigration, PluginMigrationContribution, PostgresAgentAuthStore,
+    RateLimitStorageMode, StepUpPolicyConfig, StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin,
+    UsernamePlugin, postgres::PostgresStore,
 };
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
@@ -35,6 +36,8 @@ mod dodo_payments;
 mod email_otp;
 #[path = "postgres_contract/guest_capability.rs"]
 mod guest_capability;
+#[path = "postgres_contract/hostile_remap.rs"]
+mod hostile_remap;
 #[path = "postgres_contract/last_login_method.rs"]
 mod last_login_method;
 #[path = "postgres_contract/magic_link.rs"]
@@ -76,10 +79,7 @@ mod user_deletion;
 #[path = "postgres_contract/verification.rs"]
 mod verification;
 
-use passkey::{
-    assert_legacy_passkey_migrated, insert_legacy_passkey, passkey_counters_are_atomic,
-    passkey_public_key_column_count,
-};
+use passkey::passkey_counters_are_atomic;
 
 #[tokio::test]
 #[ignore = "requires a PostgreSQL server in DATABASE_URL"]
@@ -107,59 +107,92 @@ async fn migrations_and_authentication_round_trip() -> Result<(), Box<dyn std::e
         .connect(&database_url)
         .await?;
 
-    let store = Arc::new(PostgresStore::new(pool.clone()));
+    let store = Arc::new(PostgresStore::new(
+        pool.clone(),
+        lucid_auth::postgres::PostgresAdapterConfig::default(),
+    ));
+    let (service, api_keys, phone_numbers) = contract_service(&store)?;
     store.migrate().await?;
-    migration_checksum_upgrade_is_safe(&store, &pool).await?;
     store.migrate().await?;
+    organization::assert_table_absent(&pool).await?;
     plugin_migrations_are_idempotent(&store, &pool).await?;
     schema::assert_extension_tables_absent(&pool).await?;
+    store.migrate_plugins(&service.plugin_migrations()).await?;
+    store.migrate_plugins(&service.plugin_migrations()).await?;
     oauth::assert_issuer_qualified_accounts(&store, &pool).await?;
     oauth::assert_one_tap_account_and_session_persistence(&store).await?;
 
-    let (service, api_keys, phone_numbers) = contract_service(&store)?;
     test_utils::assert_persistence(&store, &pool).await?;
     let user = provision_owner(&service).await?;
-    migrate_legacy_extensions(&service, &store, &pool, user.id).await?;
-    chargebee::assert_migration_and_persistence(&service, &store, &pool, user.id).await?;
-    agent_auth::assert_switch_contract(&pool, user.id).await?;
-    anonymous::assert_lifecycle(&service, &store).await?;
-    let signed_in = authenticate_owner(&service, &user).await?;
-    dodo_payments::assert_schema_and_persistence(&service, &store, user.id).await?;
-    multi_session::assert_http_round_trip(&service).await?;
-    last_login_method::assert_http_round_trip(&service, &store, user.id).await?;
-    session_refresh::assert_atomic(&service, &store).await?;
-    organization::assert_persistence(&service, &store, &signed_in.session).await?;
-    admin::assert_query_and_update(&service, &signed_in.session).await?;
-    account_update::assert_persistence(&service, &store, &signed_in.session, &pool).await?;
-    let step_up_session = step_up::authenticate_fixture(&service, &store).await?;
-    step_up::assert_atomic(&service, &store, &pool, &step_up_session).await?;
-
-    verification::values_are_atomic(&store, user.id).await?;
-    mcp::assert_durable_dpop_replay(&store, &pool).await?;
-    verification::email_is_atomic(&store, &user).await?;
-    verification::password_reset_is_atomic(&store, &pool, user.id).await?;
-    email_otp::assert_redemption_is_atomic(&service, &pool).await?;
-    phone_number::assert_atomic_and_persistent(&service, &store, &pool, &phone_numbers).await?;
-    siwe::assert_atomic_and_persistent(&service, &pool).await?;
-    magic_link::assert_promotion_is_atomic(&store, &pool).await?;
-    signup::email_is_case_insensitive(&service, &pool).await?;
-    signup::username_is_atomic(&service, &pool).await?;
-    guest_capability::assert_atomic(&store, &service, &pool, &signed_in.session).await?;
-    user_deletion::assert_transactional(&service, &pool).await?;
-    passkey_counters_are_atomic(&store, user.id).await?;
-    rate_limit::assert_atomic(&store, &pool).await?;
-    two_factor::assert_atomic(&store, &pool, user.id).await?;
-    api_key::assert_limits_are_atomic(&service, &api_keys, &signed_in.session).await?;
-    audit::assert_retention_is_atomic(&store, &pool, user.id).await?;
-    operator_security::assert_atomic(&service, &store, &signed_in, user.id).await?;
-    schema::assert_clean_and_detects_drift(&store, &pool, &service.plugin_migrations()).await?;
-    schema::session_token_upgrade_invalidates_incompatible_hashes(&store, &pool).await?;
+    run_authentication_contracts(&service, &store, &pool, &user, &api_keys, &phone_numbers).await?;
 
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {schema} CASCADE"))
         .execute(&admin)
         .await?;
     admin.close().await;
+    Ok(())
+}
+
+async fn run_authentication_contracts(
+    service: &Arc<AuthService>,
+    store: &Arc<PostgresStore>,
+    pool: &sqlx::PgPool,
+    user: &AuthUser,
+    api_keys: &lucid_auth::ApiKeyConfiguration,
+    phone_numbers: &phone_number::Fixture,
+) -> Result<(), Box<dyn std::error::Error>> {
+    chargebee::assert_migration_and_persistence(service, store, pool, user.id).await?;
+    agent_auth::assert_switch_contract(store, pool, user.id).await?;
+    anonymous::assert_lifecycle(service, store).await?;
+    let signed_in = authenticate_owner(service, user).await?;
+    dodo_payments::assert_schema_and_persistence(service, store, user.id).await?;
+    multi_session::assert_http_round_trip(service).await?;
+    last_login_method::assert_http_round_trip(service, store, user.id).await?;
+    session_refresh::assert_atomic(service, store).await?;
+    organization::assert_persistence(service, store, &signed_in.session).await?;
+    admin::assert_query_and_update(service, &signed_in.session).await?;
+    account_update::assert_persistence(service, store, &signed_in.session, pool).await?;
+    let step_up_session = step_up::authenticate_fixture(service, store).await?;
+    step_up::assert_atomic(service, store, pool, &step_up_session).await?;
+    run_atomic_contracts(
+        service,
+        store,
+        pool,
+        user,
+        api_keys,
+        phone_numbers,
+        &signed_in,
+    )
+    .await
+}
+
+async fn run_atomic_contracts(
+    service: &Arc<AuthService>,
+    store: &Arc<PostgresStore>,
+    pool: &sqlx::PgPool,
+    user: &AuthUser,
+    api_keys: &lucid_auth::ApiKeyConfiguration,
+    phone_numbers: &phone_number::Fixture,
+    signed_in: &lucid_auth::SignInResult,
+) -> Result<(), Box<dyn std::error::Error>> {
+    verification::values_are_atomic(store, user.id).await?;
+    mcp::assert_durable_dpop_replay(store, pool).await?;
+    email_otp::assert_redemption_is_atomic(service, pool).await?;
+    phone_number::assert_atomic_and_persistent(service, store, pool, phone_numbers).await?;
+    siwe::assert_atomic_and_persistent(service, pool).await?;
+    magic_link::assert_promotion_is_atomic(store, pool).await?;
+    signup::email_is_case_insensitive(service, pool).await?;
+    signup::username_is_atomic(service, pool).await?;
+    guest_capability::assert_atomic(store, service, pool, &signed_in.session).await?;
+    user_deletion::assert_transactional(service, pool).await?;
+    passkey_counters_are_atomic(store, user.id).await?;
+    rate_limit::assert_atomic(store, pool).await?;
+    two_factor::assert_atomic(store, pool, user.id).await?;
+    api_key::assert_limits_are_atomic(service, api_keys, &signed_in.session).await?;
+    audit::assert_retention_is_atomic(store, pool, user.id).await?;
+    operator_security::assert_atomic(service, store, signed_in, user.id).await?;
+    schema::assert_clean_and_detects_drift(store, pool, &service.plugin_migrations()).await?;
     Ok(())
 }
 
@@ -175,28 +208,6 @@ async fn provision_owner(service: &AuthService) -> Result<AuthUser, AuthError> {
         .await
 }
 
-async fn migration_checksum_upgrade_is_safe(
-    store: &PostgresStore,
-    pool: &sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    sqlx::query("DELETE FROM lucid_auth_migrations WHERE version = 18")
-        .execute(pool)
-        .await?;
-    sqlx::query("ALTER TABLE lucid_auth_migrations DROP COLUMN checksum")
-        .execute(pool)
-        .await?;
-    store.migrate().await?;
-    assert_eq!(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_migrations WHERE checksum IS NULL",
-        )
-        .fetch_one(pool)
-        .await?,
-        0
-    );
-    Ok(())
-}
-
 fn contract_service(
     store: &Arc<PostgresStore>,
 ) -> Result<
@@ -208,6 +219,7 @@ fn contract_service(
     AuthError,
 > {
     let mut config = AuthConfig::new([42_u8; 32])?;
+    config.rate_limit.storage = RateLimitStorageMode::Database;
     config.email_and_password.enabled = true;
     config.user.delete_user.enabled = true;
     config.user.additional_fields.insert(
@@ -237,6 +249,7 @@ fn register_contract_plugins(
     config: &mut AuthConfig,
     store: &Arc<PostgresStore>,
 ) -> Result<phone_number::Fixture, AuthError> {
+    config.add_plugin(chargebee::SchemaPlugin)?;
     config.add_plugin(OwnerPolicyPlugin)?;
     config.add_plugin(UsernamePlugin::default())?;
     config.add_plugin(MultiSessionPlugin::default())?;
@@ -248,6 +261,10 @@ fn register_contract_plugins(
     siwe::register(config, store)?;
     let phone_numbers = phone_number::register(config, store)?;
     config.add_plugin(PasskeyPlugin::new(PasskeyConfig::default()))?;
+    config.add_plugin(AgentAuthPlugin::new(
+        AgentAuthConfig::default(),
+        PostgresAgentAuthStore::new(store.as_ref().clone()),
+    )?)?;
     config.add_plugin(GuestCapabilityPlugin::new(store.clone()))?;
     config.add_plugin(AuditPlugin::new(store.clone()).with_max_events(100))?;
     config.add_plugin(TwoFactorPlugin::new(
@@ -282,37 +299,6 @@ fn register_contract_plugins(
     ))?;
     dodo_payments::register(config, store.clone())?;
     Ok(phone_numbers)
-}
-
-async fn migrate_legacy_extensions(
-    service: &AuthService,
-    store: &PostgresStore,
-    pool: &sqlx::PgPool,
-    user_id: Uuid,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let passkey = insert_legacy_passkey(pool, user_id).await?;
-    let guest = guest_capability::insert_legacy_shape(pool, user_id).await?;
-    let audit = audit::insert_legacy_shape(pool, user_id).await?;
-    let step_up = step_up::insert_legacy_shape(pool, user_id).await?;
-    let operator = service
-        .provision_password_user(NewPasswordUser {
-            username: "legacy_operator".into(),
-            name: "Legacy Operator State".into(),
-            email: None,
-            password: "legacy operator password".into(),
-            role: "member".into(),
-        })
-        .await?;
-    operator_security::insert_legacy_shape(pool, operator.id).await?;
-    store.migrate_plugins(&service.plugin_migrations()).await?;
-    store.migrate_plugins(&service.plugin_migrations()).await?;
-    assert_eq!(passkey_public_key_column_count(pool).await?, 1);
-    assert_legacy_passkey_migrated(store, &passkey).await?;
-    guest_capability::assert_legacy_migrated(pool, guest).await?;
-    audit::assert_legacy_migrated(store, pool, audit).await?;
-    step_up::assert_legacy_migrated(store, pool, step_up).await?;
-    operator_security::assert_legacy_migrated(service, pool, operator.id).await?;
-    Ok(())
 }
 
 async fn authenticate_owner(

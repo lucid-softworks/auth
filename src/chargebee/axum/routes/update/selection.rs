@@ -65,7 +65,7 @@ mod tests {
 
     #[test]
     fn unchanged_check_is_order_insensitive_but_not_multiset_equality() {
-        let mut local = ChargebeeSubscription::future("user", Utc::now());
+        let mut local = ChargebeeSubscription::future("user");
         local.status = ChargebeeSubscriptionStatus::Active;
         local.seats = Some(1.0);
         assert!(already_subscribed(

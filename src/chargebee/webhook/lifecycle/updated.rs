@@ -3,7 +3,6 @@ use crate::chargebee::{
     ChargebeeOptions, ChargebeeProviderCustomer, ChargebeeProviderSubscription, ChargebeeStore,
     ChargebeeSubscription, ChargebeeSubscriptionPatch, ChargebeeSubscriptionStatus,
 };
-use chrono::Utc;
 
 pub(in crate::chargebee::webhook) async fn handle(
     options: &ChargebeeOptions,
@@ -42,14 +41,12 @@ async fn handle_inner(
 
     let was_trialing = local.status == ChargebeeSubscriptionStatus::InTrial;
     let next_status = mapping::status(&provider.status);
-    let now = Utc::now();
     let updated = store
         .update_subscription(
             local.id,
             ChargebeeSubscriptionPatch {
                 chargebee_subscription_id: Some(Some(provider.id.clone())),
                 status: Some(next_status.clone()),
-                updated_at: Some(now),
                 period_start: mapping::timestamp(provider.current_term_start)?.map(Some),
                 period_end: mapping::timestamp(provider.current_term_end)?.map(Some),
                 canceled_at: Some(mapping::timestamp(provider.cancelled_at)?),

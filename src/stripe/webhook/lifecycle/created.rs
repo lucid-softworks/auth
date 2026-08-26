@@ -3,7 +3,6 @@ use crate::stripe::webhook::transition::{
     resolve_plan_item, resolve_quantity, timestamp, trial_timestamp,
 };
 use crate::stripe::{StripeEvent, StripePlan, StripeSubscription, Subscription};
-use chrono::Utc;
 use uuid::Uuid;
 
 pub(super) async fn handle(
@@ -86,7 +85,6 @@ fn create_local(
     plan: &StripePlan,
     reference_id: &str,
 ) -> Subscription {
-    let now = Utc::now();
     let trial = trial_timestamp(
         stripe_subscription.trial_start,
         stripe_subscription.trial_end,
@@ -109,8 +107,6 @@ fn create_local(
         seats: Some(resolve_quantity(stripe_subscription, item, plan)),
         billing_interval: item.price.recurring.as_ref().map(|value| value.interval),
         stripe_schedule_id: None,
-        created_at: now,
-        updated_at: now,
     }
 }
 

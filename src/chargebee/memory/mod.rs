@@ -284,8 +284,7 @@ mod tests {
     }
 
     fn subscription(reference_id: &str, provider_id: Option<&str>) -> ChargebeeSubscription {
-        let now = Utc::now();
-        let mut subscription = ChargebeeSubscription::future(reference_id, now);
+        let mut subscription = ChargebeeSubscription::future(reference_id);
         subscription.chargebee_subscription_id = provider_id.map(str::to_owned);
         subscription.status = ChargebeeSubscriptionStatus::Future;
         subscription

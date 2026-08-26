@@ -4,7 +4,6 @@ use super::{
 };
 use crate::stripe::webhook::transition::{lifecycle_patch, resolve_plan_item, resolve_quantity};
 use crate::stripe::{StripeEvent, StripeSubscription, SubscriptionStatus};
-use chrono::Utc;
 use uuid::Uuid;
 
 pub(super) async fn handle(
@@ -41,13 +40,7 @@ pub(super) async fn handle(
         .store
         .update_subscription(
             before.id,
-            lifecycle_patch(
-                &stripe_subscription,
-                resolved.item,
-                resolved.plan,
-                seats,
-                Utc::now(),
-            ),
+            lifecycle_patch(&stripe_subscription, resolved.item, resolved.plan, seats),
         )
         .await?;
     let Some(updated) = updated else {

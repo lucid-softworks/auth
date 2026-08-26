@@ -1,19 +1,13 @@
-use super::{
-    PostgresAgentAuthStore, query,
-    rows::{
-        AGENT_FIELDS, APPROVAL_FIELDS, AgentRow, ApprovalRow, GRANT_FIELDS, GrantRow, HOST_FIELDS,
-        HostRow,
-    },
-    storage_error, transition_write,
-};
+use super::{PostgresAgentAuthStore, query, rows, storage_error, transition_write};
 use crate::{
     AuthError,
     agent_auth::{
         AgentApprovalStatus, AgentCapabilityTransitionOutcome, AgentCapabilityTransitionPlan,
-        AgentCapabilityTransitionResult, schema::AgentAuthModel,
+        AgentCapabilityTransitionResult,
     },
 };
-use sqlx::{Postgres, Transaction};
+use serde_json::json;
+use sqlx::{Postgres, QueryBuilder, Transaction};
 
 pub(super) async fn apply(
     store: &PostgresAgentAuthStore,
@@ -82,26 +76,23 @@ async fn locked_related_agents(
     tx: &mut Transaction<'_, Postgres>,
     expected: &crate::AgentIdentity,
 ) -> Result<Vec<crate::AgentIdentity>, AuthError> {
-    sqlx::query_as::<_, AgentRow>(&query::select(
-        &store.schema,
-        AgentAuthModel::Agent,
-        AGENT_FIELDS,
-        &["hostId"],
-        " FOR UPDATE",
-    ))
-    .bind(&expected.host_id)
-    .fetch_all(&mut **tx)
-    .await
-    .map_err(storage_error)?
-    .into_iter()
-    .map(TryInto::try_into)
-    .collect::<Result<Vec<_>, _>>()
-    .map(|agents| {
-        agents
-            .into_iter()
-            .filter(|agent: &crate::AgentIdentity| agent.id != expected.id)
-            .collect()
-    })
+    let model = store.model("agent")?;
+    let mut query = query::filter(&model, [("hostId", json!(expected.host_id))])?;
+    query.push(" FOR UPDATE");
+    query
+        .build()
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(storage_error)?
+        .iter()
+        .map(|row| rows::decode_agent(&model, row))
+        .collect::<Result<Vec<_>, _>>()
+        .map(|agents| {
+            agents
+                .into_iter()
+                .filter(|agent| agent.id != expected.id)
+                .collect()
+        })
 }
 
 async fn locked_related_grants(
@@ -121,19 +112,25 @@ async fn locked_agent(
     tx: &mut Transaction<'_, Postgres>,
     id: &str,
 ) -> Result<Option<crate::AgentIdentity>, AuthError> {
-    sqlx::query_as::<_, AgentRow>(&query::select(
-        &store.schema,
-        AgentAuthModel::Agent,
-        AGENT_FIELDS,
-        &["id"],
-        " FOR UPDATE",
-    ))
-    .bind(id)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(storage_error)?
-    .map(TryInto::try_into)
-    .transpose()
+    let model = store.model("agent")?;
+    let mut query = locked_agent_query(&model, id)?;
+    query
+        .build()
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(storage_error)?
+        .as_ref()
+        .map(|row| rows::decode_agent(&model, row))
+        .transpose()
+}
+
+pub(super) fn locked_agent_query(
+    model: &crate::postgres::PostgresModel<'_>,
+    id: &str,
+) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
+    let mut query = query::filter(model, [("id", json!(id))])?;
+    query.push(" FOR UPDATE");
+    Ok(query)
 }
 
 async fn locked_host(
@@ -141,19 +138,17 @@ async fn locked_host(
     tx: &mut Transaction<'_, Postgres>,
     id: &str,
 ) -> Result<Option<crate::AgentHost>, AuthError> {
-    sqlx::query_as::<_, HostRow>(&query::select(
-        &store.schema,
-        AgentAuthModel::AgentHost,
-        HOST_FIELDS,
-        &["id"],
-        " FOR UPDATE",
-    ))
-    .bind(id)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(storage_error)?
-    .map(TryInto::try_into)
-    .transpose()
+    let model = store.model("agentHost")?;
+    let mut query = query::filter(&model, [("id", json!(id))])?;
+    query.push(" FOR UPDATE");
+    query
+        .build()
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(storage_error)?
+        .as_ref()
+        .map(|row| rows::decode_host(&model, row))
+        .transpose()
 }
 
 async fn locked_grants(
@@ -161,20 +156,17 @@ async fn locked_grants(
     tx: &mut Transaction<'_, Postgres>,
     id: &str,
 ) -> Result<Vec<crate::AgentCapabilityGrant>, AuthError> {
-    sqlx::query_as::<_, GrantRow>(&query::select(
-        &store.schema,
-        AgentAuthModel::AgentCapabilityGrant,
-        GRANT_FIELDS,
-        &["agentId"],
-        " FOR UPDATE",
-    ))
-    .bind(id)
-    .fetch_all(&mut **tx)
-    .await
-    .map_err(storage_error)?
-    .into_iter()
-    .map(TryInto::try_into)
-    .collect()
+    let model = store.model("agentCapabilityGrant")?;
+    let mut query = query::filter(&model, [("agentId", json!(id))])?;
+    query.push(" FOR UPDATE");
+    query
+        .build()
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(storage_error)?
+        .iter()
+        .map(|row| rows::decode_grant(&model, row))
+        .collect()
 }
 
 async fn locked_pending_approvals(
@@ -182,21 +174,23 @@ async fn locked_pending_approvals(
     tx: &mut Transaction<'_, Postgres>,
     id: &str,
 ) -> Result<Vec<crate::AgentApprovalRequest>, AuthError> {
-    sqlx::query_as::<_, ApprovalRow>(&query::select(
-        &store.schema,
-        AgentAuthModel::ApprovalRequest,
-        APPROVAL_FIELDS,
-        &["agentId", "status"],
-        " FOR UPDATE",
-    ))
-    .bind(id)
-    .bind(AgentApprovalStatus::Pending.as_str())
-    .fetch_all(&mut **tx)
-    .await
-    .map_err(storage_error)?
-    .into_iter()
-    .map(TryInto::try_into)
-    .collect()
+    let model = store.model("approvalRequest")?;
+    let mut query = query::filter(
+        &model,
+        [
+            ("agentId", json!(id)),
+            ("status", json!(AgentApprovalStatus::Pending.as_str())),
+        ],
+    )?;
+    query.push(" FOR UPDATE");
+    query
+        .build()
+        .fetch_all(&mut **tx)
+        .await
+        .map_err(storage_error)?
+        .iter()
+        .map(|row| rows::decode_approval(&model, row))
+        .collect()
 }
 
 fn sort_records(
@@ -222,35 +216,10 @@ fn sort_related(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent_auth::{
-        AgentAuthModelSchema, AgentAuthSchema, schema::ResolvedAgentAuthSchema,
-    };
-    use std::collections::BTreeMap;
 
     #[test]
     fn transition_lock_is_partitioned_by_agent() {
         assert_eq!(lock_key("host-1"), "agent-capability-host:host-1");
         assert_ne!(lock_key("host-1"), lock_key("host-2"));
-    }
-
-    #[test]
-    fn locking_queries_honor_remapped_tables_and_columns() {
-        let schema = ResolvedAgentAuthSchema::new(&AgentAuthSchema {
-            agent_capability_grant: AgentAuthModelSchema {
-                model_name: Some("Grant Records".into()),
-                fields: BTreeMap::from([("agentId".into(), "subject id".into())]),
-            },
-            ..AgentAuthSchema::default()
-        })
-        .unwrap();
-        let sql = query::select(
-            &schema,
-            AgentAuthModel::AgentCapabilityGrant,
-            GRANT_FIELDS,
-            &["agentId"],
-            " FOR UPDATE",
-        );
-        assert!(sql.contains("FROM \"Grant Records\""));
-        assert!(sql.contains("WHERE \"subject id\"=$1 FOR UPDATE"));
     }
 }

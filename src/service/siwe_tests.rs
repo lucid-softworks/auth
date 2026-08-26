@@ -258,7 +258,7 @@ async fn email_mode_and_generated_nonce_bounds_are_exact() {
     let max = AuthService::new(store, config);
     assert_eq!(max.create_siwe_nonce().await.unwrap().len(), 250);
     let stored = max
-        .find_verification_value("", &format!("siwe:{}", "a".repeat(250)))
+        .find_verification_value(&format!("siwe:{}", "a".repeat(250)))
         .await
         .unwrap()
         .unwrap();

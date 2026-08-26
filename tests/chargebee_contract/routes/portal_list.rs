@@ -1,6 +1,5 @@
 use super::super::support::{ChargebeeCall, fixture, get, post};
 use axum::http::StatusCode;
-use chrono::Utc;
 use lucid_auth::{
     ChargebeeItemType, ChargebeeProviderSubscription, ChargebeeProviderSubscriptionItem,
     ChargebeeStore, ChargebeeSubscription, ChargebeeSubscriptionItem, ChargebeeSubscriptionStatus,
@@ -83,7 +82,7 @@ async fn list_is_local_only_filters_statuses_and_prefers_the_first_plan_item() {
 async fn cancel_opens_the_portal_and_embeds_the_exact_callback_url() {
     let fixture = fixture(true, |_| {}).await;
     let reference = fixture.user_id.unwrap().to_string();
-    let mut local = ChargebeeSubscription::future(&reference, Utc::now());
+    let mut local = ChargebeeSubscription::future(&reference);
     local.status = ChargebeeSubscriptionStatus::Active;
     local.chargebee_customer_id = Some("customer_cancel".into());
     local.chargebee_subscription_id = Some("subscription_cancel".into());
@@ -124,7 +123,7 @@ async fn create_subscription(
     reference: &str,
     status: ChargebeeSubscriptionStatus,
 ) -> ChargebeeSubscription {
-    let mut subscription = ChargebeeSubscription::future(reference, Utc::now());
+    let mut subscription = ChargebeeSubscription::future(reference);
     subscription.status = status;
     fixture
         .store

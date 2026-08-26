@@ -1,6 +1,5 @@
 use super::super::support::{ChargebeeCall, fixture, post};
 use axum::http::StatusCode;
-use chrono::Utc;
 use lucid_auth::{
     ChargebeeProviderSubscription, ChargebeeProviderSubscriptionItem, ChargebeeStore,
     ChargebeeSubscription, ChargebeeSubscriptionStatus,
@@ -17,7 +16,7 @@ async fn update_selects_the_matching_active_provider_subscription() {
         .set_user_customer_id(user_id, Some("customer_update".into()))
         .await
         .unwrap();
-    let mut local = ChargebeeSubscription::future(user_id.to_string(), Utc::now());
+    let mut local = ChargebeeSubscription::future(user_id.to_string());
     local.status = ChargebeeSubscriptionStatus::Active;
     local.chargebee_customer_id = Some("customer_update".into());
     local.chargebee_subscription_id = Some("subscription_update".into());

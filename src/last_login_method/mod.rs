@@ -1,7 +1,7 @@
 use crate::{
     AdditionalField, AdditionalFieldType, AuthConfig, AuthError, AuthPlugin, DatabaseHookContext,
-    DatabaseHooks, DatabaseModel, DatabaseRecord, PluginClientMetadata, PluginCookie,
-    PluginDescriptor, PluginSchemaField,
+    DatabaseHooks, DatabaseRecord, PluginClientMetadata, PluginCookie, PluginDescriptor,
+    PluginSchemaTable,
 };
 use async_trait::async_trait;
 use std::{fmt, future::Future, sync::Arc};
@@ -154,7 +154,7 @@ impl AuthPlugin for LastLoginMethodPlugin {
         Ok(())
     }
 
-    fn schema_fields(&self) -> Vec<PluginSchemaField> {
+    fn schema(&self) -> Vec<PluginSchemaTable> {
         if !self.config.store_in_database {
             return Vec::new();
         }
@@ -166,14 +166,15 @@ impl AuthPlugin for LastLoginMethodPlugin {
             .as_deref()
             .filter(|name| !name.is_empty())
             .unwrap_or("lastLoginMethod");
-        vec![PluginSchemaField::new(
-            DatabaseModel::User,
-            "lastLoginMethod",
-            AdditionalField::new(AdditionalFieldType::String)
-                .optional()
-                .input(false)
-                .field_name(field_name),
-        )]
+        vec![
+            PluginSchemaTable::new("user").field(
+                "lastLoginMethod",
+                AdditionalField::new(AdditionalFieldType::String)
+                    .optional()
+                    .input(false)
+                    .field_name(field_name),
+            ),
+        ]
     }
 
     fn database_hooks(&self) -> Option<&dyn DatabaseHooks> {

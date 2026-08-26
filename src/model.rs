@@ -28,19 +28,6 @@ impl AuthenticationMethod {
             Self::OAuth => "oauth",
         }
     }
-
-    #[cfg(feature = "postgres")]
-    pub(crate) fn parse(value: &str) -> Self {
-        match value {
-            "anonymous" => Self::Anonymous,
-            "passkey" => Self::Passkey,
-            "email_verified" => Self::EmailVerified,
-            "two_factor" => Self::TwoFactor,
-            "extension" => Self::Extension,
-            "oauth" => Self::OAuth,
-            _ => Self::Password,
-        }
-    }
 }
 
 /// A user account independent of any HTTP or application framework.
@@ -119,45 +106,35 @@ pub struct StoredPasskey {
     pub transports: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aaguid: Option<String>,
-    #[serde(skip)]
-    pub credential: serde_json::Value,
     pub created_at: DateTime<Utc>,
-    #[serde(skip)]
-    pub updated_at: DateTime<Utc>,
 }
 
 /// A durable, one-time verification or protocol challenge.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VerificationValue {
-    pub purpose: String,
+    pub id: Uuid,
     pub identifier: String,
-    pub payload: serde_json::Value,
-    #[serde(default, flatten)]
-    pub additional_fields: serde_json::Map<String, serde_json::Value>,
+    pub value: String,
     pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 impl VerificationValue {
-    /// Projects the native structured payload to Better Auth's stored
-    /// verification `value` string for database-hook observers.
-    pub fn payload_string(&self) -> Option<String> {
-        match &self.payload {
-            serde_json::Value::Null => None,
-            serde_json::Value::String(value) => Some(value.clone()),
-            serde_json::Value::Object(value) => {
-                let code = value
-                    .get("otp")
-                    .or_else(|| value.get("code"))
-                    .and_then(serde_json::Value::as_str);
-                let attempts = value.get("attempts").and_then(serde_json::Value::as_u64);
-                match (code, attempts) {
-                    (Some(code), Some(attempts)) => Some(format!("{code}:{attempts}")),
-                    (Some(code), None) => Some(code.to_owned()),
-                    _ => serde_json::to_string(&self.payload).ok(),
-                }
-            }
-            _ => serde_json::to_string(&self.payload).ok(),
+    pub fn new(
+        identifier: impl Into<String>,
+        value: impl Into<String>,
+        expires_at: DateTime<Utc>,
+    ) -> Self {
+        let now = Utc::now();
+        Self {
+            id: Uuid::new_v4(),
+            identifier: identifier.into(),
+            value: value.into(),
+            expires_at,
+            created_at: now,
+            updated_at: now,
         }
     }
 }
@@ -238,8 +215,12 @@ pub struct AuthSession {
     pub id: Uuid,
     pub user_id: Uuid,
     pub token: String,
+    #[serde(rename = "impersonatedBy", skip_serializing_if = "Option::is_none")]
     pub actor_user_id: Option<Uuid>,
-    pub authentication_method: AuthenticationMethod,
+    /// Transient credential context available only on freshly-created native
+    /// sessions. Better Auth does not persist this field.
+    #[serde(skip)]
+    pub authentication_method: Option<AuthenticationMethod>,
     pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -263,7 +244,7 @@ pub struct Principal {
     pub session_id: Uuid,
     /// Host authorization role projected only by an enabled policy plugin.
     pub role: Option<String>,
-    pub authentication_method: AuthenticationMethod,
+    pub authentication_method: Option<AuthenticationMethod>,
     /// When the session's credential was verified.
     pub authenticated_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,

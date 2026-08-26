@@ -44,26 +44,25 @@ pub(crate) async fn assert_persistence(
         .add_member(user.id, organization.id, None)
         .await?;
     assert_eq!(member.role, "member");
-    sqlx::query("INSERT INTO lucid_auth_organization_invitations (id,organization_id,email,role,status,team_id,inviter_id,expires_at,created_at) VALUES ($1,$2,$3,'member','pending',NULL,$4,NOW() + INTERVAL '1 hour',NOW())")
-        .bind(uuid::Uuid::new_v4())
-        .bind(organization.id)
-        .bind("delete-order@example.com")
-        .bind(user.id)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        r#"INSERT INTO "invitation"
+           (id, "organizationId", email, role, status, "inviterId", "expiresAt", "createdAt")
+           VALUES ($1, $2, $3, 'member', 'pending', $4, NOW() + INTERVAL '1 hour', NOW())"#,
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(organization.id)
+    .bind("delete-order@example.com")
+    .bind(user.id)
+    .execute(pool)
+    .await?;
     organizations.delete_organization(organization.id).await?;
-    for table in [
-        "lucid_auth_organization_members",
-        "lucid_auth_organization_invitations",
-        "lucid_auth_organizations",
+    for (table, organization_column) in [
+        ("member", "\"organizationId\""),
+        ("invitation", "\"organizationId\""),
+        ("organization", "id"),
     ] {
         let count = sqlx::query_scalar::<_, i64>(&format!(
-            "SELECT count(*) FROM {table} WHERE {}=$1",
-            if table == "lucid_auth_organizations" {
-                "id"
-            } else {
-                "organization_id"
-            }
+            "SELECT count(*) FROM \"{table}\" WHERE {organization_column} = $1"
         ))
         .bind(organization.id)
         .fetch_one(pool)

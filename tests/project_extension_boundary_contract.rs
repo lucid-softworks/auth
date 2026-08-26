@@ -221,10 +221,13 @@ fn assert_migration_ownership(service: &AuthService) {
                 "lucid-guest-capability",
                 "lucid-guest-capability-schema".to_owned(),
             ),
-            ("lucid-step-up-policy", "extract-step-up-policy".to_owned()),
+            (
+                "lucid-step-up-policy",
+                "lucid-step-up-policy-schema".to_owned(),
+            ),
             (
                 "lucid-operator-security",
-                "extract-managed-password-policy".to_owned(),
+                "lucid-operator-security-schema".to_owned(),
             ),
             (
                 "lucid-security-audit",

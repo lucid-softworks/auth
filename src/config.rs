@@ -8,11 +8,16 @@ use std::sync::Arc;
 use url::Url;
 
 mod account;
+mod database;
 mod id;
 mod path;
 mod secret;
 mod verification;
 pub use account::{AccountConfig, AccountLinkingConfig, OAuthStateStrategy};
+pub use database::{
+    AccountFieldMappings, RateLimitFieldMappings, SessionFieldMappings, UserFieldMappings,
+    VerificationFieldMappings,
+};
 pub use id::AuthIdGenerator;
 pub use secret::VersionedSecret;
 pub use verification::{
@@ -307,7 +312,6 @@ impl AuthConfig {
                 "a base URL is required when a delete-account sender is configured".into(),
             ));
         }
-        validate_additional_field_config(self)?;
         validate_social_provider_config(self)
     }
 }
@@ -343,31 +347,6 @@ fn validate_social_provider_config(config: &AuthConfig) -> Result<(), AuthError>
                 "trusted social provider '{trusted}' is not configured"
             )));
         }
-    }
-    Ok(())
-}
-
-fn validate_additional_field_config(config: &AuthConfig) -> Result<(), AuthError> {
-    for (model, fields) in [
-        (crate::DatabaseModel::User, &config.user.additional_fields),
-        (
-            crate::DatabaseModel::Session,
-            &config.session.additional_fields,
-        ),
-        (
-            crate::DatabaseModel::Account,
-            &config.account.additional_fields,
-        ),
-        (
-            crate::DatabaseModel::Verification,
-            &config.verification.additional_fields,
-        ),
-    ] {
-        crate::additional_fields::validate_field_names(
-            model.as_str(),
-            fields,
-            crate::additional_fields::reserved_field_names(model),
-        )?;
     }
     Ok(())
 }

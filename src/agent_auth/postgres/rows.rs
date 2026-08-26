@@ -1,262 +1,287 @@
 use crate::{
     AuthError,
     agent_auth::{AgentApprovalRequest, AgentCapabilityGrant, AgentHost, AgentIdentity},
+    postgres::{PostgresModel, PostgresWrite},
 };
-use chrono::{DateTime, Utc};
 use serde::de::DeserializeOwned;
-use sqlx::FromRow;
+use serde_json::{Map, Value, json};
+use sqlx::postgres::PgRow;
 use std::str::FromStr;
-use uuid::Uuid;
 
-pub(super) const HOST_FIELDS: &[(&str, &str)] = &[
-    ("id", "id"),
-    ("name", "name"),
-    ("userId", "user_id"),
-    ("defaultCapabilities", "default_capabilities"),
-    ("publicKey", "public_key"),
-    ("kid", "kid"),
-    ("jwksUrl", "jwks_url"),
-    ("enrollmentTokenHash", "enrollment_token_hash"),
-    ("enrollmentTokenExpiresAt", "enrollment_token_expires_at"),
-    ("status", "status"),
-    ("activatedAt", "activated_at"),
-    ("expiresAt", "expires_at"),
-    ("lastUsedAt", "last_used_at"),
-    ("createdAt", "created_at"),
-    ("updatedAt", "updated_at"),
-];
-
-pub(super) const AGENT_FIELDS: &[(&str, &str)] = &[
-    ("id", "id"),
-    ("name", "name"),
-    ("userId", "user_id"),
-    ("hostId", "host_id"),
-    ("status", "status"),
-    ("mode", "mode"),
-    ("publicKey", "public_key"),
-    ("kid", "kid"),
-    ("jwksUrl", "jwks_url"),
-    ("lastUsedAt", "last_used_at"),
-    ("activatedAt", "activated_at"),
-    ("expiresAt", "expires_at"),
-    ("metadata", "metadata"),
-    ("createdAt", "created_at"),
-    ("updatedAt", "updated_at"),
-];
-
-pub(super) const GRANT_FIELDS: &[(&str, &str)] = &[
-    ("id", "id"),
-    ("agentId", "agent_id"),
-    ("capability", "capability"),
-    ("constraints", "constraints"),
-    ("deniedBy", "denied_by"),
-    ("grantedBy", "granted_by"),
-    ("expiresAt", "expires_at"),
-    ("status", "status"),
-    ("reason", "reason"),
-    ("createdAt", "created_at"),
-    ("updatedAt", "updated_at"),
-];
-
-pub(super) const APPROVAL_FIELDS: &[(&str, &str)] = &[
-    ("id", "id"),
-    ("method", "method"),
-    ("agentId", "agent_id"),
-    ("hostId", "host_id"),
-    ("userId", "user_id"),
-    ("capabilities", "capabilities"),
-    ("status", "status"),
-    ("userCodeHash", "user_code_hash"),
-    ("loginHint", "login_hint"),
-    ("bindingMessage", "binding_message"),
-    ("clientNotificationToken", "client_notification_token"),
-    ("clientNotificationEndpoint", "client_notification_endpoint"),
-    ("deliveryMode", "delivery_mode"),
-    ("interval", "interval"),
-    ("lastPolledAt", "last_polled_at"),
-    ("expiresAt", "expires_at"),
-    ("createdAt", "created_at"),
-    ("updatedAt", "updated_at"),
-];
-
-#[derive(FromRow)]
-pub(super) struct HostRow {
-    id: String,
-    name: Option<String>,
-    user_id: Option<Uuid>,
-    default_capabilities: Option<String>,
-    public_key: Option<String>,
-    kid: Option<String>,
-    jwks_url: Option<String>,
-    enrollment_token_hash: Option<String>,
-    enrollment_token_expires_at: Option<DateTime<Utc>>,
-    status: String,
-    activated_at: Option<DateTime<Utc>>,
-    expires_at: Option<DateTime<Utc>>,
-    last_used_at: Option<DateTime<Utc>>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
+pub(super) fn host_writes<'a>(
+    model: &'a PostgresModel<'_>,
+    value: &AgentHost,
+) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
+    model.encode_fields([
+        ("id", json!(value.id)),
+        ("name", optional_string(value.name.clone())),
+        ("userId", optional_uuid(value.user_id)),
+        (
+            "defaultCapabilities",
+            json!(encode_json(&value.default_capabilities)?),
+        ),
+        ("publicKey", optional_string(value.public_key.clone())),
+        ("kid", optional_string(value.kid.clone())),
+        ("jwksUrl", optional_string(value.jwks_url.clone())),
+        (
+            "enrollmentTokenHash",
+            optional_string(value.enrollment_token_hash.clone()),
+        ),
+        (
+            "enrollmentTokenExpiresAt",
+            optional_date(value.enrollment_token_expires_at),
+        ),
+        ("status", json!(value.status.as_str())),
+        ("activatedAt", optional_date(value.activated_at)),
+        ("expiresAt", optional_date(value.expires_at)),
+        ("lastUsedAt", optional_date(value.last_used_at)),
+        ("createdAt", date(value.created_at)),
+        ("updatedAt", date(value.updated_at)),
+    ])
 }
 
-impl TryFrom<HostRow> for AgentHost {
-    type Error = AuthError;
+pub(super) fn agent_writes<'a>(
+    model: &'a PostgresModel<'_>,
+    value: &AgentIdentity,
+) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
+    model.encode_fields([
+        ("id", json!(value.id)),
+        ("name", json!(value.name)),
+        ("userId", optional_uuid(value.user_id)),
+        ("hostId", json!(value.host_id)),
+        ("status", json!(value.status.as_str())),
+        ("mode", json!(value.mode.as_str())),
+        ("publicKey", json!(value.public_key)),
+        ("kid", optional_string(value.kid.clone())),
+        ("jwksUrl", optional_string(value.jwks_url.clone())),
+        ("lastUsedAt", optional_date(value.last_used_at)),
+        ("activatedAt", optional_date(value.activated_at)),
+        ("expiresAt", optional_date(value.expires_at)),
+        (
+            "metadata",
+            value
+                .metadata
+                .as_ref()
+                .map(encode_json)
+                .transpose()?
+                .map_or(Value::Null, Value::String),
+        ),
+        ("createdAt", date(value.created_at)),
+        ("updatedAt", date(value.updated_at)),
+    ])
+}
 
-    fn try_from(row: HostRow) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.id,
-            name: row.name,
-            user_id: row.user_id,
-            default_capabilities: parse_json_or_default(row.default_capabilities)?,
-            public_key: row.public_key,
-            kid: row.kid,
-            jwks_url: row.jwks_url,
-            enrollment_token_hash: row.enrollment_token_hash,
-            enrollment_token_expires_at: row.enrollment_token_expires_at,
-            status: parse_enum(&row.status)?,
-            activated_at: row.activated_at,
-            expires_at: row.expires_at,
-            last_used_at: row.last_used_at,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        })
+pub(super) fn grant_writes<'a>(
+    model: &'a PostgresModel<'_>,
+    value: &AgentCapabilityGrant,
+) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
+    model.encode_fields([
+        ("id", json!(value.id)),
+        ("agentId", json!(value.agent_id)),
+        ("capability", json!(value.capability)),
+        (
+            "constraints",
+            value
+                .constraints
+                .as_ref()
+                .map(encode_json)
+                .transpose()?
+                .map_or(Value::Null, Value::String),
+        ),
+        ("deniedBy", optional_uuid(value.denied_by)),
+        ("grantedBy", optional_uuid(value.granted_by)),
+        ("expiresAt", optional_date(value.expires_at)),
+        ("status", json!(value.status.as_str())),
+        ("reason", optional_string(value.reason.clone())),
+        ("createdAt", date(value.created_at)),
+        ("updatedAt", date(value.updated_at)),
+    ])
+}
+
+pub(super) fn approval_writes<'a>(
+    model: &'a PostgresModel<'_>,
+    value: &AgentApprovalRequest,
+) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
+    model.encode_fields([
+        ("id", json!(value.id)),
+        ("method", json!(value.method.as_str())),
+        ("agentId", optional_string(value.agent_id.clone())),
+        ("hostId", optional_string(value.host_id.clone())),
+        ("userId", optional_uuid(value.user_id)),
+        ("capabilities", optional_string(value.capabilities.clone())),
+        ("status", json!(value.status.as_str())),
+        (
+            "userCodeHash",
+            optional_string(value.user_code_hash.clone()),
+        ),
+        ("loginHint", optional_string(value.login_hint.clone())),
+        (
+            "bindingMessage",
+            optional_string(value.binding_message.clone()),
+        ),
+        (
+            "clientNotificationToken",
+            optional_string(value.client_notification_token.clone()),
+        ),
+        (
+            "clientNotificationEndpoint",
+            optional_string(value.client_notification_endpoint.clone()),
+        ),
+        ("deliveryMode", optional_string(value.delivery_mode.clone())),
+        ("interval", number(value.interval)?),
+        ("lastPolledAt", optional_date(value.last_polled_at)),
+        ("expiresAt", date(value.expires_at)),
+        ("createdAt", date(value.created_at)),
+        ("updatedAt", date(value.updated_at)),
+    ])
+}
+
+pub(super) fn decode_host(model: &PostgresModel<'_>, row: &PgRow) -> Result<AgentHost, AuthError> {
+    let mut values = model.decode_all(row)?;
+    Ok(AgentHost {
+        id: required_string(&mut values, "id")?,
+        name: optional_string_value(&mut values, "name")?,
+        user_id: optional_uuid_value(&mut values, "userId")?,
+        default_capabilities: parse_json_or_default(optional_string_value(
+            &mut values,
+            "defaultCapabilities",
+        )?)?,
+        public_key: optional_string_value(&mut values, "publicKey")?,
+        kid: optional_string_value(&mut values, "kid")?,
+        jwks_url: optional_string_value(&mut values, "jwksUrl")?,
+        enrollment_token_hash: optional_string_value(&mut values, "enrollmentTokenHash")?,
+        enrollment_token_expires_at: optional_date_value(&mut values, "enrollmentTokenExpiresAt")?,
+        status: parse_enum(&required_string(&mut values, "status")?)?,
+        activated_at: optional_date_value(&mut values, "activatedAt")?,
+        expires_at: optional_date_value(&mut values, "expiresAt")?,
+        last_used_at: optional_date_value(&mut values, "lastUsedAt")?,
+        created_at: required_date(&mut values, "createdAt")?,
+        updated_at: required_date(&mut values, "updatedAt")?,
+    })
+}
+
+pub(super) fn decode_agent(
+    model: &PostgresModel<'_>,
+    row: &PgRow,
+) -> Result<AgentIdentity, AuthError> {
+    let mut values = model.decode_all(row)?;
+    Ok(AgentIdentity {
+        id: required_string(&mut values, "id")?,
+        name: required_string(&mut values, "name")?,
+        user_id: optional_uuid_value(&mut values, "userId")?,
+        host_id: required_string(&mut values, "hostId")?,
+        status: parse_enum(&required_string(&mut values, "status")?)?,
+        mode: parse_enum(&required_string(&mut values, "mode")?)?,
+        public_key: required_string(&mut values, "publicKey")?,
+        kid: optional_string_value(&mut values, "kid")?,
+        jwks_url: optional_string_value(&mut values, "jwksUrl")?,
+        last_used_at: optional_date_value(&mut values, "lastUsedAt")?,
+        activated_at: optional_date_value(&mut values, "activatedAt")?,
+        expires_at: optional_date_value(&mut values, "expiresAt")?,
+        metadata: parse_optional_json(optional_string_value(&mut values, "metadata")?)?,
+        created_at: required_date(&mut values, "createdAt")?,
+        updated_at: required_date(&mut values, "updatedAt")?,
+    })
+}
+
+pub(super) fn decode_grant(
+    model: &PostgresModel<'_>,
+    row: &PgRow,
+) -> Result<AgentCapabilityGrant, AuthError> {
+    let mut values = model.decode_all(row)?;
+    Ok(AgentCapabilityGrant {
+        id: required_string(&mut values, "id")?,
+        agent_id: required_string(&mut values, "agentId")?,
+        capability: required_string(&mut values, "capability")?,
+        constraints: parse_optional_json(optional_string_value(&mut values, "constraints")?)?,
+        denied_by: optional_uuid_value(&mut values, "deniedBy")?,
+        granted_by: optional_uuid_value(&mut values, "grantedBy")?,
+        expires_at: optional_date_value(&mut values, "expiresAt")?,
+        status: parse_enum(&required_string(&mut values, "status")?)?,
+        reason: optional_string_value(&mut values, "reason")?,
+        created_at: required_date(&mut values, "createdAt")?,
+        updated_at: required_date(&mut values, "updatedAt")?,
+    })
+}
+
+pub(super) fn decode_approval(
+    model: &PostgresModel<'_>,
+    row: &PgRow,
+) -> Result<AgentApprovalRequest, AuthError> {
+    let mut values = model.decode_all(row)?;
+    Ok(AgentApprovalRequest {
+        id: required_string(&mut values, "id")?,
+        method: parse_enum(&required_string(&mut values, "method")?)?,
+        agent_id: optional_string_value(&mut values, "agentId")?,
+        host_id: optional_string_value(&mut values, "hostId")?,
+        user_id: optional_uuid_value(&mut values, "userId")?,
+        capabilities: optional_string_value(&mut values, "capabilities")?,
+        status: parse_enum(&required_string(&mut values, "status")?)?,
+        user_code_hash: optional_string_value(&mut values, "userCodeHash")?,
+        login_hint: optional_string_value(&mut values, "loginHint")?,
+        binding_message: optional_string_value(&mut values, "bindingMessage")?,
+        client_notification_token: optional_string_value(&mut values, "clientNotificationToken")?,
+        client_notification_endpoint: optional_string_value(
+            &mut values,
+            "clientNotificationEndpoint",
+        )?,
+        delivery_mode: optional_string_value(&mut values, "deliveryMode")?,
+        interval: required_number(&mut values, "interval")?,
+        last_polled_at: optional_date_value(&mut values, "lastPolledAt")?,
+        expires_at: required_date(&mut values, "expiresAt")?,
+        created_at: required_date(&mut values, "createdAt")?,
+        updated_at: required_date(&mut values, "updatedAt")?,
+    })
+}
+
+fn required_string(values: &mut Map<String, Value>, field: &str) -> Result<String, AuthError> {
+    match values.remove(field) {
+        Some(Value::String(value)) => Ok(value),
+        _ => Err(invalid(field)),
     }
 }
 
-#[derive(FromRow)]
-pub(super) struct AgentRow {
-    id: String,
-    name: String,
-    user_id: Option<Uuid>,
-    host_id: String,
-    status: String,
-    mode: String,
-    public_key: String,
-    kid: Option<String>,
-    jwks_url: Option<String>,
-    last_used_at: Option<DateTime<Utc>>,
-    activated_at: Option<DateTime<Utc>>,
-    expires_at: Option<DateTime<Utc>>,
-    metadata: Option<String>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-}
-
-impl TryFrom<AgentRow> for AgentIdentity {
-    type Error = AuthError;
-
-    fn try_from(row: AgentRow) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.id,
-            name: row.name,
-            user_id: row.user_id,
-            host_id: row.host_id,
-            status: parse_enum(&row.status)?,
-            mode: parse_enum(&row.mode)?,
-            public_key: row.public_key,
-            kid: row.kid,
-            jwks_url: row.jwks_url,
-            last_used_at: row.last_used_at,
-            activated_at: row.activated_at,
-            expires_at: row.expires_at,
-            metadata: parse_optional_json(row.metadata)?,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        })
-    }
-}
-
-#[derive(FromRow)]
-pub(super) struct GrantRow {
-    id: String,
-    agent_id: String,
-    capability: String,
-    constraints: Option<String>,
-    denied_by: Option<Uuid>,
-    granted_by: Option<Uuid>,
-    expires_at: Option<DateTime<Utc>>,
-    status: String,
-    reason: Option<String>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-}
-
-impl TryFrom<GrantRow> for AgentCapabilityGrant {
-    type Error = AuthError;
-
-    fn try_from(row: GrantRow) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.id,
-            agent_id: row.agent_id,
-            capability: row.capability,
-            constraints: parse_optional_json(row.constraints)?,
-            denied_by: row.denied_by,
-            granted_by: row.granted_by,
-            expires_at: row.expires_at,
-            status: parse_enum(&row.status)?,
-            reason: row.reason,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        })
-    }
-}
-
-#[derive(FromRow)]
-pub(super) struct ApprovalRow {
-    id: String,
-    method: String,
-    agent_id: Option<String>,
-    host_id: Option<String>,
-    user_id: Option<Uuid>,
-    capabilities: Option<String>,
-    status: String,
-    user_code_hash: Option<String>,
-    login_hint: Option<String>,
-    binding_message: Option<String>,
-    client_notification_token: Option<String>,
-    client_notification_endpoint: Option<String>,
-    delivery_mode: Option<String>,
-    interval: f64,
-    last_polled_at: Option<DateTime<Utc>>,
-    expires_at: DateTime<Utc>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-}
-
-impl TryFrom<ApprovalRow> for AgentApprovalRequest {
-    type Error = AuthError;
-
-    fn try_from(row: ApprovalRow) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.id,
-            method: parse_enum(&row.method)?,
-            agent_id: row.agent_id,
-            host_id: row.host_id,
-            user_id: row.user_id,
-            capabilities: row.capabilities,
-            status: parse_enum(&row.status)?,
-            user_code_hash: row.user_code_hash,
-            login_hint: row.login_hint,
-            binding_message: row.binding_message,
-            client_notification_token: row.client_notification_token,
-            client_notification_endpoint: row.client_notification_endpoint,
-            delivery_mode: row.delivery_mode,
-            interval: row.interval,
-            last_polled_at: row.last_polled_at,
-            expires_at: row.expires_at,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        })
-    }
-}
-
-pub(super) fn encode_json<T: serde::Serialize>(value: &T) -> Result<String, AuthError> {
-    serde_json::to_string(value).map_err(storage_error)
-}
-
-pub(super) fn encode_optional_json<T: serde::Serialize>(
-    value: &Option<T>,
+fn optional_string_value(
+    values: &mut Map<String, Value>,
+    field: &str,
 ) -> Result<Option<String>, AuthError> {
-    value.as_ref().map(encode_json).transpose()
+    match values.remove(field) {
+        Some(Value::String(value)) => Ok(Some(value)),
+        Some(Value::Null) => Ok(None),
+        _ => Err(invalid(field)),
+    }
+}
+
+fn optional_uuid_value(
+    values: &mut Map<String, Value>,
+    field: &str,
+) -> Result<Option<uuid::Uuid>, AuthError> {
+    optional_string_value(values, field)?
+        .map(|value| uuid::Uuid::parse_str(&value).map_err(storage_error))
+        .transpose()
+}
+
+fn required_date(
+    values: &mut Map<String, Value>,
+    field: &str,
+) -> Result<chrono::DateTime<chrono::Utc>, AuthError> {
+    parse_date(&required_string(values, field)?)
+}
+
+fn optional_date_value(
+    values: &mut Map<String, Value>,
+    field: &str,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, AuthError> {
+    optional_string_value(values, field)?
+        .map(|value| parse_date(&value))
+        .transpose()
+}
+
+fn required_number(values: &mut Map<String, Value>, field: &str) -> Result<f64, AuthError> {
+    values
+        .remove(field)
+        .and_then(|value| value.as_f64())
+        .ok_or_else(|| invalid(field))
 }
 
 fn parse_json_or_default<T>(value: Option<String>) -> Result<T, AuthError>
@@ -285,87 +310,46 @@ where
     value.parse().map_err(storage_error)
 }
 
-fn storage_error(error: impl std::fmt::Display) -> AuthError {
-    AuthError::Storage(error.to_string())
+fn parse_date(value: &str) -> Result<chrono::DateTime<chrono::Utc>, AuthError> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|value| value.with_timezone(&chrono::Utc))
+        .map_err(storage_error)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::agent_auth::{
-        AgentApprovalStatus, AgentConstraintPrimitive, AgentConstraintValue, AgentGrantStatus,
-        AgentHostStatus,
-    };
-    use std::collections::BTreeMap;
+fn encode_json<T: serde::Serialize>(value: &T) -> Result<String, AuthError> {
+    serde_json::to_string(value).map_err(storage_error)
+}
 
-    #[test]
-    fn host_row_preserves_string_thumbprint_ids_and_json_capabilities() {
-        let now = Utc::now();
-        let host: AgentHost = HostRow {
-            id: "sha256-thumbprint".into(),
-            name: None,
-            user_id: None,
-            default_capabilities: Some("[\"github.read\"]".into()),
-            public_key: None,
-            kid: None,
-            jwks_url: None,
-            enrollment_token_hash: None,
-            enrollment_token_expires_at: None,
-            status: "pending_enrollment".into(),
-            activated_at: None,
-            expires_at: None,
-            last_used_at: None,
-            created_at: now,
-            updated_at: now,
-        }
-        .try_into()
-        .unwrap();
-        assert_eq!(host.id, "sha256-thumbprint");
-        assert_eq!(host.default_capabilities, ["github.read"]);
-        assert_eq!(host.status, AgentHostStatus::PendingEnrollment);
-    }
+fn optional_string(value: Option<String>) -> Value {
+    value.map_or(Value::Null, Value::String)
+}
 
-    #[test]
-    fn grant_constraints_round_trip_through_the_upstream_text_transform() {
-        let constraints = BTreeMap::from([(
-            "repository".into(),
-            AgentConstraintValue::Primitive(AgentConstraintPrimitive::String("auth".into())),
-        )]);
-        let encoded = encode_optional_json(&Some(constraints.clone())).unwrap();
-        let now = Utc::now();
-        let grant: AgentCapabilityGrant = GrantRow {
-            id: "grant-1".into(),
-            agent_id: "agent-1".into(),
-            capability: "github.read".into(),
-            constraints: encoded,
-            denied_by: None,
-            granted_by: None,
-            expires_at: None,
-            status: "active".into(),
-            reason: None,
-            created_at: now,
-            updated_at: now,
-        }
-        .try_into()
-        .unwrap();
-        assert_eq!(grant.constraints, Some(constraints));
-        assert_eq!(grant.status, AgentGrantStatus::Active);
-    }
+fn optional_uuid(value: Option<uuid::Uuid>) -> Value {
+    value.map_or(Value::Null, |value| json!(value.to_string()))
+}
 
-    #[test]
-    fn malformed_transforms_and_statuses_are_storage_errors() {
-        assert!(parse_json::<Vec<String>>("not json").is_err());
-        assert!(parse_enum::<AgentApprovalStatus>("granted").is_err());
-    }
+fn date(value: chrono::DateTime<chrono::Utc>) -> Value {
+    json!(value.to_rfc3339())
+}
 
-    #[test]
-    fn all_field_sets_include_string_primary_ids() {
-        for fields in [HOST_FIELDS, AGENT_FIELDS, GRANT_FIELDS, APPROVAL_FIELDS] {
-            assert_eq!(fields.first(), Some(&("id", "id")));
-        }
-        assert_eq!(HOST_FIELDS.len(), 15);
-        assert_eq!(AGENT_FIELDS.len(), 15);
-        assert_eq!(GRANT_FIELDS.len(), 11);
-        assert_eq!(APPROVAL_FIELDS.len(), 18);
+fn optional_date(value: Option<chrono::DateTime<chrono::Utc>>) -> Value {
+    value.map_or(Value::Null, date)
+}
+
+fn number(value: f64) -> Result<Value, AuthError> {
+    if value.fract() == 0.0 && value >= i32::MIN as f64 && value <= i32::MAX as f64 {
+        Ok(json!(value as i32))
+    } else {
+        Err(AuthError::Storage(
+            "Agent Auth interval must be a 32-bit integer".into(),
+        ))
     }
+}
+
+fn invalid(field: &str) -> AuthError {
+    AuthError::Storage(format!("invalid canonical Agent Auth field `{field}`"))
+}
+
+fn storage_error(error: impl std::fmt::Display) -> AuthError {
+    AuthError::Storage(error.to_string())
 }

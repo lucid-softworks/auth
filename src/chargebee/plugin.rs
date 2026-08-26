@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     AuthConfig, AuthPlugin, DatabaseHookContext, DatabaseRecord, PluginClientMetadata,
-    PluginDescriptor, PluginHttpMethod, PluginMigration, PluginRequestSecurity, PluginSchemaField,
+    PluginDescriptor, PluginHttpMethod, PluginRequestSecurity, PluginSchemaTable,
 };
 use std::{borrow::Cow, fmt, sync::Arc};
 
@@ -80,13 +80,6 @@ impl AuthPlugin for ChargebeePlugin {
         }
     }
 
-    fn migrations(&self) -> Cow<'_, [PluginMigration]> {
-        Cow::Owned(vec![super::schema::migration(
-            self.subscriptions_enabled(),
-            self.organization_enabled(),
-        )])
-    }
-
     fn validate(&self, _config: &AuthConfig) -> Result<(), crate::AuthError> {
         self.options
             .client
@@ -99,8 +92,8 @@ impl AuthPlugin for ChargebeePlugin {
         Ok(())
     }
 
-    fn schema_fields(&self) -> Vec<PluginSchemaField> {
-        super::schema::schema_fields(self.organization_enabled())
+    fn schema(&self) -> Vec<PluginSchemaTable> {
+        super::schema::schema_tables(self.subscriptions_enabled(), self.organization_enabled())
     }
 
     fn open_api_endpoints(&self) -> Vec<crate::OpenApiEndpoint> {

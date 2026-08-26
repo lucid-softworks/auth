@@ -1,12 +1,13 @@
-use super::{AuthService, hash_token, random_token};
+use super::AuthService;
 use crate::{
     AuthError, PasswordCredentialChanged, PasswordCredentialSource, PasswordResetEmail,
     VerificationValue,
 };
 use chrono::Utc;
-use serde_json::json;
+use rand::RngExt;
 
-const PURPOSE: &str = "password-reset";
+const RESET_IDENTIFIER_PREFIX: &str = "reset-password:";
+const TOKEN_ALPHABET: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 impl AuthService {
     pub async fn request_password_reset(
@@ -22,25 +23,22 @@ impl AuthService {
             .ok_or(AuthError::ResetPasswordDisabled)?;
         let email = super::email_password::normalize_email(email)?;
         let Some(user) = self.store.find_user_by_email(&email).await? else {
-            let _ = hash_token(&random_token());
-            let _ = self.find_verification_value(PURPOSE, "dummy").await?;
+            let _ = reset_token();
+            let _ = self
+                .find_verification_value("dummy-verification-token")
+                .await?;
             return Ok(());
         };
-        let token = random_token();
-        let identifier = hash_token(&token);
+        let token = reset_token();
         let now = Utc::now();
-        self.create_verification_record(VerificationValue {
-            purpose: PURPOSE.into(),
-            identifier,
-            payload: json!({ "user_id": user.id }),
-            additional_fields: serde_json::Map::new(),
-            expires_at: now
-                + self
-                    .config
-                    .email_and_password
-                    .reset_password_token_expires_in,
-            created_at: now,
-        })
+        self.create_verification_record(VerificationValue::new(
+            format!("{RESET_IDENTIFIER_PREFIX}{token}"),
+            user.id.to_string(),
+            now + self
+                .config
+                .email_and_password
+                .reset_password_token_expires_in,
+        ))
         .await?;
         let message = PasswordResetEmail {
             url: self.password_reset_url(&token, redirect_to)?,
@@ -53,26 +51,21 @@ impl AuthService {
 
     pub async fn password_reset_token_valid(&self, token: &str) -> Result<bool, AuthError> {
         Ok(self
-            .find_verification_value(PURPOSE, &hash_token(token))
+            .find_verification_value(&format!("{RESET_IDENTIFIER_PREFIX}{token}"))
             .await?
-            .is_some_and(|value| value.expires_at > Utc::now()))
+            .is_some_and(|value| value.expires_at >= Utc::now()))
     }
 
     pub async fn reset_password(&self, token: &str, password: String) -> Result<(), AuthError> {
         self.validate_new_password(&password).await?;
-        let token_hash = hash_token(token);
         let Some(value) = self
-            .consume_verification_record(PURPOSE, &token_hash, Utc::now())
+            .consume_verification_record(&format!("{RESET_IDENTIFIER_PREFIX}{token}"), Utc::now())
             .await?
         else {
             return Err(AuthError::InvalidPasswordResetToken);
         };
-        let user_id = value
-            .payload
-            .get("user_id")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| uuid::Uuid::parse_str(value).ok())
-            .ok_or_else(|| AuthError::Storage("password reset payload is invalid".into()))?;
+        let user_id = uuid::Uuid::parse_str(&value.value)
+            .map_err(|_| AuthError::Storage("password reset value is invalid".into()))?;
         if self.store.find_user_by_id(user_id).await?.is_none() {
             return Err(AuthError::PasswordResetUserNotFound);
         }
@@ -141,4 +134,11 @@ impl AuthService {
         url.query_pairs_mut().append_pair(key, value);
         Ok(url.into())
     }
+}
+
+fn reset_token() -> String {
+    let mut rng = rand::rng();
+    (0..24)
+        .map(|_| TOKEN_ALPHABET[rng.random_range(0..TOKEN_ALPHABET.len())] as char)
+        .collect()
 }

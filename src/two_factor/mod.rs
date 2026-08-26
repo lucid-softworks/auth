@@ -8,8 +8,9 @@ mod memory;
 pub use memory::MemoryTwoFactorStore;
 
 use crate::{
-    AuthConfig, AuthError, AuthPlugin, AuthUser, PluginClientMetadata, PluginCookie,
-    PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginMigration, PluginRateLimit,
+    AdditionalField, AdditionalFieldReference, AdditionalFieldType, AuthConfig, AuthError,
+    AuthPlugin, AuthUser, PluginClientMetadata, PluginCookie, PluginDescriptor, PluginEndpoint,
+    PluginHttpMethod, PluginRateLimit, PluginSchemaTable,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
@@ -97,27 +98,23 @@ const fn rate_limit(path: &'static str) -> PluginRateLimit {
     }
 }
 
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
-    "better-auth-two-factor-schema",
-    "Better Auth 1.7.1 two-factor schema",
-    include_str!("../../migrations/two_factor_plugin.sql"),
-)];
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TwoFactorRecord {
     pub id: Uuid,
     pub user_id: Uuid,
-    pub enabled: bool,
-    pub encrypted_secret: Option<String>,
-    pub encrypted_backup_codes: Option<String>,
+    pub encrypted_secret: String,
+    pub encrypted_backup_codes: String,
     pub verified: bool,
     pub failed_verification_count: u32,
     pub locked_until: Option<DateTime<Utc>>,
-    pub last_totp_counter: Option<i64>,
 }
 
 #[async_trait]
 pub trait TwoFactorStore: Send + Sync {
+    async fn two_factor_enabled(&self, user_id: Uuid) -> Result<bool, AuthError>;
+
+    async fn set_two_factor_enabled(&self, user_id: Uuid, enabled: bool) -> Result<(), AuthError>;
+
     async fn find_two_factor(&self, user_id: Uuid) -> Result<Option<TwoFactorRecord>, AuthError>;
 
     async fn upsert_two_factor(
@@ -135,13 +132,8 @@ pub trait TwoFactorStore: Send + Sync {
         replacement: String,
     ) -> Result<bool, AuthError>;
 
-    /// Accepts a TOTP counter exactly once and optionally completes enrollment.
-    async fn accept_totp_counter(
-        &self,
-        user_id: Uuid,
-        counter: i64,
-        enable: bool,
-    ) -> Result<bool, AuthError>;
+    /// Atomically marks the standalone record verified and enables the user projection.
+    async fn complete_two_factor_enrollment(&self, user_id: Uuid) -> Result<bool, AuthError>;
 
     /// Atomically increments the account failure budget and returns whether it locked.
     async fn record_two_factor_failure(
@@ -224,6 +216,7 @@ impl Default for AccountLockoutConfig {
 
 #[derive(Clone)]
 pub struct TwoFactorConfig {
+    pub schema: TwoFactorSchema,
     pub issuer: Option<String>,
     pub skip_verification_on_enable: bool,
     pub allow_passwordless: bool,
@@ -235,9 +228,16 @@ pub struct TwoFactorConfig {
     pub account_lockout: AccountLockoutConfig,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct TwoFactorSchema {
+    pub user: crate::DatabaseModelSchema,
+    pub two_factor: crate::DatabaseModelSchema,
+}
+
 impl Default for TwoFactorConfig {
     fn default() -> Self {
         Self {
+            schema: TwoFactorSchema::default(),
             issuer: None,
             skip_verification_on_enable: false,
             allow_passwordless: false,
@@ -326,8 +326,19 @@ impl AuthPlugin for TwoFactorPlugin {
         Ok(())
     }
 
-    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
-        std::borrow::Cow::Borrowed(MIGRATIONS)
+    fn schema(&self) -> Vec<PluginSchemaTable> {
+        vec![
+            crate::database_schema::remap_plugin_table(
+                two_factor_user_schema(),
+                &self.config.schema.user,
+                false,
+            ),
+            crate::database_schema::remap_plugin_table(
+                two_factor_schema(),
+                &self.config.schema.two_factor,
+                false,
+            ),
+        ]
     }
 
     async fn reset_user_security_state(&self, user_id: Uuid) -> Result<(), AuthError> {
@@ -344,6 +355,63 @@ impl AuthPlugin for TwoFactorPlugin {
     fn routes(&self, service: Arc<crate::AuthService>) -> Vec<crate::AxumPluginRoute> {
         axum::routes(service)
     }
+}
+
+fn two_factor_user_schema() -> PluginSchemaTable {
+    PluginSchemaTable::new("user").field(
+        "twoFactorEnabled",
+        AdditionalField::new(AdditionalFieldType::Boolean)
+            .optional()
+            .default_value(serde_json::json!(false))
+            .input(false),
+    )
+}
+
+fn two_factor_schema() -> PluginSchemaTable {
+    PluginSchemaTable::new("twoFactor")
+        .field(
+            "secret",
+            AdditionalField::new(AdditionalFieldType::String)
+                .returned(false)
+                .index(true),
+        )
+        .field(
+            "backupCodes",
+            AdditionalField::new(AdditionalFieldType::String).returned(false),
+        )
+        .field(
+            "userId",
+            AdditionalField::new(AdditionalFieldType::String)
+                .returned(false)
+                .references(AdditionalFieldReference {
+                    model: "user".into(),
+                    field: "id".into(),
+                    on_delete: None,
+                })
+                .index(true),
+        )
+        .field(
+            "verified",
+            AdditionalField::new(AdditionalFieldType::Boolean)
+                .optional()
+                .default_value(serde_json::json!(true))
+                .input(false),
+        )
+        .field(
+            "failedVerificationCount",
+            AdditionalField::new(AdditionalFieldType::Number)
+                .optional()
+                .default_value(serde_json::json!(0))
+                .input(false)
+                .returned(false),
+        )
+        .field(
+            "lockedUntil",
+            AdditionalField::new(AdditionalFieldType::Date)
+                .optional()
+                .input(false)
+                .returned(false),
+        )
 }
 
 fn invalid<T>(message: &str) -> Result<T, AuthError> {

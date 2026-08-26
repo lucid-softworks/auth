@@ -117,7 +117,7 @@ mod tests {
         assert!(descriptor.endpoints.is_empty());
         assert!(descriptor.cookies.is_empty());
         assert!(descriptor.rate_limits.is_empty());
-        assert!(plugin.schema_fields().is_empty());
+        assert!(plugin.schema().is_empty());
         assert!(plugin.migrations().is_empty());
         let client = descriptor.client.expect("Commet has an official client");
         assert_eq!(client.package, "@commet/better-auth");

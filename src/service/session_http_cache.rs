@@ -118,25 +118,10 @@ impl AuthService {
         let (response, _) = self.decode_session_cookie_cache(token, value).await?;
         let response: crate::protocol::better_auth::SessionResponse =
             serde_json::from_value(response).ok()?;
-        let session = response.session;
+        let session = native_cookie_session(token, response.session)?;
         let user = response.user;
         Some(SessionWithUser {
-            session: crate::AuthSession {
-                id: uuid::Uuid::parse_str(&session.id).ok()?,
-                user_id: uuid::Uuid::parse_str(&session.user_id).ok()?,
-                token: token.into(),
-                actor_user_id: session
-                    .impersonated_by
-                    .as_deref()
-                    .and_then(|value| uuid::Uuid::parse_str(value).ok()),
-                authentication_method: crate::AuthenticationMethod::Password,
-                expires_at: session.expires_at,
-                created_at: session.created_at,
-                updated_at: session.updated_at,
-                ip_address: session.ip_address,
-                user_agent: session.user_agent,
-                additional_fields: session.additional_fields,
-            },
+            session,
             user: crate::AuthUser {
                 id: uuid::Uuid::parse_str(&user.id).ok()?,
                 username: user.username,
@@ -218,6 +203,28 @@ impl AuthService {
     }
 }
 
+fn native_cookie_session(
+    token: &str,
+    session: crate::protocol::better_auth::BetterAuthSession,
+) -> Option<crate::AuthSession> {
+    Some(crate::AuthSession {
+        id: uuid::Uuid::parse_str(&session.id).ok()?,
+        user_id: uuid::Uuid::parse_str(&session.user_id).ok()?,
+        token: token.into(),
+        actor_user_id: session
+            .impersonated_by
+            .as_deref()
+            .and_then(|value| uuid::Uuid::parse_str(value).ok()),
+        authentication_method: None,
+        expires_at: session.expires_at,
+        created_at: session.created_at,
+        updated_at: session.updated_at,
+        ip_address: session.ip_address,
+        user_agent: session.user_agent,
+        additional_fields: session.additional_fields,
+    })
+}
+
 fn cache_json(error: serde_json::Error) -> AuthError {
     AuthError::Storage(format!("session cookie-cache JSON failed: {error}"))
 }
@@ -232,5 +239,38 @@ fn normalize_javascript_dates(value: &mut Value) {
         Value::Array(values) => values.iter_mut().for_each(normalize_javascript_dates),
         Value::Object(values) => values.values_mut().for_each(normalize_javascript_dates),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::better_auth::BetterAuthSession;
+    use chrono::Duration;
+    use uuid::Uuid;
+
+    #[test]
+    fn cookie_cache_decode_does_not_fabricate_authentication_method() {
+        let now = Utc::now();
+        let actor = Uuid::new_v4();
+        let session = native_cookie_session(
+            "wire-token",
+            BetterAuthSession {
+                id: Uuid::new_v4().to_string(),
+                user_id: Uuid::new_v4().to_string(),
+                expires_at: now + Duration::minutes(5),
+                token: "wire-token".into(),
+                created_at: now,
+                updated_at: now,
+                ip_address: None,
+                user_agent: None,
+                additional_fields: serde_json::Map::new(),
+                impersonated_by: Some(actor.to_string()),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(session.authentication_method, None);
+        assert_eq!(session.actor_user_id, Some(actor));
     }
 }

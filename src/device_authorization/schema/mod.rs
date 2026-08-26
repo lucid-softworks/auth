@@ -1,27 +1,5 @@
-mod migration;
-mod resolution;
-
-pub(crate) use resolution::ResolvedDeviceAuthorizationSchema;
-
-use crate::PluginMigration;
+use crate::{AdditionalField, AdditionalFieldType, DatabaseSchemaIndex, PluginSchemaTable};
 use std::collections::BTreeMap;
-
-pub(crate) const STANDALONE_FIELDS: &[(&str, &str, &str)] = &[
-    ("deviceCode", "device_code", "TEXT NOT NULL UNIQUE"),
-    ("userCode", "user_code", "TEXT NOT NULL UNIQUE"),
-    ("userId", "user_id", "UUID"),
-    ("expiresAt", "expires_at", "TIMESTAMPTZ NOT NULL"),
-    ("status", "status", "TEXT NOT NULL"),
-    ("lastPolledAt", "last_polled_at", "TIMESTAMPTZ"),
-    ("pollingInterval", "polling_interval", "DOUBLE PRECISION"),
-    ("clientId", "client_id", "TEXT"),
-    ("scope", "scope", "TEXT"),
-];
-
-pub(crate) const OAUTH_FIELDS: &[(&str, &str, &str)] = &[
-    ("resources", "resources", "TEXT[]"),
-    ("oauthClientId", "oauth_client_id", "TEXT"),
-];
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DeviceAuthorizationModelSchema {
@@ -35,25 +13,60 @@ pub struct DeviceAuthorizationSchema {
     pub device_code: DeviceAuthorizationModelSchema,
 }
 
-pub(crate) fn migration(
+pub(crate) fn catalog(schema: &DeviceAuthorizationSchema, oauth_mode: bool) -> PluginSchemaTable {
+    let mut table = PluginSchemaTable::new("deviceCode");
+    if let Some(model_name) = &schema.device_code.model_name {
+        table = table.model_name(model_name.clone());
+    }
+    for (logical, field_type, required) in [
+        ("deviceCode", AdditionalFieldType::String, true),
+        ("userCode", AdditionalFieldType::String, true),
+        ("userId", AdditionalFieldType::String, false),
+        ("expiresAt", AdditionalFieldType::Date, true),
+        ("status", AdditionalFieldType::String, true),
+        ("lastPolledAt", AdditionalFieldType::Date, false),
+        ("pollingInterval", AdditionalFieldType::Number, false),
+        ("clientId", AdditionalFieldType::String, false),
+        ("scope", AdditionalFieldType::String, false),
+    ] {
+        table = table.field(
+            logical,
+            configured_field(schema, logical, field_type, required),
+        );
+    }
+    if oauth_mode {
+        table = table
+            .field(
+                "resources",
+                configured_field(schema, "resources", AdditionalFieldType::StringArray, false),
+            )
+            .field(
+                "oauthClientId",
+                configured_field(schema, "oauthClientId", AdditionalFieldType::String, false),
+            );
+    }
+    table
+        .index(DatabaseSchemaIndex::new(["deviceCode"]).unique(true))
+        .index(DatabaseSchemaIndex::new(["userCode"]).unique(true))
+}
+
+fn configured_field(
     schema: &DeviceAuthorizationSchema,
-    oauth_mode: bool,
-) -> Result<PluginMigration, super::DeviceAuthorizationConfigError> {
-    let resolved = ResolvedDeviceAuthorizationSchema::new(schema, oauth_mode)?;
-    let default =
-        ResolvedDeviceAuthorizationSchema::new(&DeviceAuthorizationSchema::default(), oauth_mode)?;
-    let kind = if oauth_mode { "oauth" } else { "standalone" };
-    let id = if resolved.fingerprint() == default.fingerprint() {
-        format!("better-auth-device-authorization-{kind}-schema")
-    } else {
-        format!(
-            "better-auth-device-authorization-{kind}-schema-{}",
-            resolved.fingerprint()
-        )
-    };
-    Ok(PluginMigration::owned(
-        id,
-        "Better Auth 1.7.1 Device Authorization schema",
-        resolved.migration_sql(),
-    ))
+    logical: &str,
+    field_type: AdditionalFieldType,
+    required: bool,
+) -> AdditionalField {
+    let mut field = AdditionalField::new(field_type);
+    if !required {
+        field = field.optional();
+    }
+    if let Some(physical) = schema
+        .device_code
+        .fields
+        .get(logical)
+        .filter(|name| !name.is_empty())
+    {
+        field = field.field_name(physical.clone());
+    }
+    field
 }

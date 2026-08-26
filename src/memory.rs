@@ -1,6 +1,6 @@
 use crate::{
-    ApiKey, AuthError, AuthSession, AuthStore, AuthUser, EmailVerificationOutcome, GuestGrant,
-    OAuthAccount, PasskeyDeleteOutcome, PasswordResetOutcome, StoredPasskey, VerificationValue,
+    ApiKey, AuthError, AuthSession, AuthStore, AuthUser, GuestGrant, OAuthAccount,
+    PasskeyDeleteOutcome, StoredPasskey, VerificationValue,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -40,8 +40,8 @@ struct MemoryState {
     api_keys: HashMap<Uuid, ApiKey>,
     rate_limits: HashMap<String, RateLimitWindow>,
     temporary_passwords: HashSet<Uuid>,
-    verifications: HashMap<(String, String), VerificationValue>,
-    jwks: HashMap<String, Vec<crate::StoredJwk>>,
+    verifications: HashMap<Uuid, VerificationValue>,
+    jwks: Vec<crate::StoredJwk>,
 }
 
 struct RateLimitWindow {
@@ -57,6 +57,10 @@ pub struct MemoryStore {
 
 #[async_trait]
 impl AuthStore for MemoryStore {
+    fn bind_schema(&self, _schema: Arc<crate::AuthSchemaCatalog>) -> Result<(), AuthError> {
+        Ok(())
+    }
+
     fn jwk_store(&self) -> Option<&dyn crate::JwkStore> {
         Some(self)
     }
@@ -109,85 +113,6 @@ impl AuthStore for MemoryStore {
         email_verified: bool,
     ) -> Result<Option<AuthUser>, AuthError> {
         user::update_email(self, user_id, expected_email, new_email, email_verified).await
-    }
-
-    async fn consume_email_verification(
-        &self,
-        token_hash: &str,
-        now: DateTime<Utc>,
-    ) -> Result<EmailVerificationOutcome, AuthError> {
-        let mut state = self.state.write().await;
-        let key = ("email-verification".to_owned(), token_hash.to_owned());
-        let Some(value) = state.verifications.remove(&key) else {
-            return Ok(EmailVerificationOutcome::InvalidToken);
-        };
-        if value.expires_at <= now {
-            return Ok(EmailVerificationOutcome::Expired);
-        }
-        let Some(email) = value
-            .payload
-            .get("email")
-            .and_then(serde_json::Value::as_str)
-        else {
-            return Err(AuthError::Storage(
-                "email verification payload is invalid".into(),
-            ));
-        };
-        let Some(user_id) = state.emails.get(email).copied() else {
-            return Ok(EmailVerificationOutcome::UserNotFound);
-        };
-        let user = state
-            .users
-            .get_mut(&user_id)
-            .ok_or_else(|| AuthError::Storage("email index is inconsistent".into()))?;
-        if user.email_verified {
-            return Ok(EmailVerificationOutcome::AlreadyVerified(user.clone()));
-        }
-        user.email_verified = true;
-        user.updated_at = now;
-        Ok(EmailVerificationOutcome::Verified(user.clone()))
-    }
-
-    async fn consume_password_reset(
-        &self,
-        token_hash: &str,
-        password_hash: String,
-        now: DateTime<Utc>,
-        revoke_sessions: bool,
-    ) -> Result<PasswordResetOutcome, AuthError> {
-        let mut state = self.state.write().await;
-        let key = ("password-reset".to_owned(), token_hash.to_owned());
-        let Some(value) = state.verifications.remove(&key) else {
-            return Ok(PasswordResetOutcome::InvalidToken);
-        };
-        if value.expires_at <= now {
-            return Ok(PasswordResetOutcome::InvalidToken);
-        }
-        let Some(user_id) = value
-            .payload
-            .get("user_id")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|value| Uuid::parse_str(value).ok())
-        else {
-            return Err(AuthError::Storage(
-                "password reset payload is invalid".into(),
-            ));
-        };
-        if !state.users.contains_key(&user_id) {
-            return Ok(PasswordResetOutcome::UserNotFound);
-        }
-        state.passwords.insert(user_id, password_hash);
-        if revoke_sessions {
-            state
-                .sessions
-                .retain(|_, session| session.user_id != user_id);
-        }
-        let user = state
-            .users
-            .get_mut(&user_id)
-            .ok_or_else(|| AuthError::Storage("email index is inconsistent".into()))?;
-        user.updated_at = now;
-        Ok(PasswordResetOutcome::Reset(Box::new(user.clone())))
     }
 
     async fn promote_email_owner(
@@ -295,7 +220,6 @@ impl AuthStore for MemoryStore {
             return Ok(None);
         };
         passkey.name = Some(name);
-        passkey.updated_at = Utc::now();
         Ok(Some(passkey.clone()))
     }
 

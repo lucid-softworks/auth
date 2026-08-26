@@ -1,166 +1,107 @@
 use super::{
-    super::storage_error,
+    super::{
+        PostgresModel,
+        rows::{insert_query_prefix, update_query},
+        storage_error,
+    },
     PostgresOAuthProviderStore,
-    rows::{CLIENT_FIELDS, ClientRow, LINK_FIELDS},
+    rows::{self, CLIENT_FIELDS, ClientRow},
 };
 use crate::{
     AuthError,
     oauth_provider::{
         OAuthClientRegistrationMode, OAuthClientRegistrationOutcome, OAuthClientRegistrationWrite,
-        OAuthProviderClient, OAuthProviderClientStore,
-        schema::{OAuthProviderModel, ResolvedModel, ResolvedOAuthProviderSchema},
+        OAuthProviderClient, OAuthProviderClientResource, OAuthProviderClientStore,
     },
 };
 use async_trait::async_trait;
 use chrono::Utc;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, QueryBuilder};
 use uuid::Uuid;
+
+fn decode(row: ClientRow) -> OAuthProviderClient {
+    row.into()
+}
 
 async fn insert_client(
     connection: &mut PgConnection,
     client: &OAuthProviderClient,
-    model: &ResolvedModel,
+    model: &PostgresModel<'_>,
 ) -> Result<OAuthProviderClient, AuthError> {
-    sqlx::query_as::<_, ClientRow>(&format!(
-        "INSERT INTO {} ({}) VALUES \
-         ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,\
-          $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37) \
-         RETURNING {}",
-        model.table(),
-        model.columns(CLIENT_FIELDS),
-        model.projection(CLIENT_FIELDS)
-    ))
-    .bind(client.id)
-    .bind(&client.client_id)
-    .bind(&client.client_secret)
-    .bind(&client.client_discovery_id)
-    .bind(client.disabled)
-    .bind(client.skip_consent)
-    .bind(client.enable_end_session)
-    .bind(&client.subject_type)
-    .bind(&client.scopes)
-    .bind(&client.client_credentials_scopes)
-    .bind(client.user_id)
-    .bind(client.created_at)
-    .bind(client.updated_at)
-    .bind(client.expires_at)
-    .bind(&client.name)
-    .bind(&client.uri)
-    .bind(&client.icon)
-    .bind(&client.contacts)
-    .bind(&client.tos)
-    .bind(&client.policy)
-    .bind(&client.software_id)
-    .bind(&client.software_version)
-    .bind(&client.software_statement)
-    .bind(&client.redirect_uris)
-    .bind(&client.post_logout_redirect_uris)
-    .bind(&client.backchannel_logout_uri)
-    .bind(client.backchannel_logout_session_required)
-    .bind(&client.token_endpoint_auth_method)
-    .bind(&client.application_type)
-    .bind(&client.jwks)
-    .bind(&client.jwks_uri)
-    .bind(&client.grant_types)
-    .bind(&client.response_types)
-    .bind(client.require_pkce)
-    .bind(client.dpop_bound_access_tokens)
-    .bind(&client.reference_id)
-    .bind(&client.metadata)
-    .fetch_one(connection)
-    .await
-    .map(Into::into)
-    .map_err(storage_error)
+    let writes = rows::writes(
+        model,
+        client,
+        [("clientSecret", serde_json::json!(client.client_secret))],
+    )?;
+    let mut query = insert_query_prefix(model, writes);
+    query
+        .push(" RETURNING ")
+        .push(model.projection_as(CLIENT_FIELDS)?);
+    query
+        .build_query_as::<ClientRow>()
+        .fetch_one(connection)
+        .await
+        .map(decode)
+        .map_err(storage_error)
 }
 
 async fn update_client(
     connection: &mut PgConnection,
     client: &OAuthProviderClient,
-    model: &ResolvedModel,
+    model: &PostgresModel<'_>,
 ) -> Result<Option<OAuthProviderClient>, AuthError> {
-    sqlx::query_as::<_, ClientRow>(&client_update_sql(model))
-        .bind(client.id)
-        .bind(&client.client_id)
-        .bind(&client.client_secret)
-        .bind(&client.client_discovery_id)
-        .bind(client.disabled)
-        .bind(client.skip_consent)
-        .bind(client.enable_end_session)
-        .bind(&client.subject_type)
-        .bind(&client.scopes)
-        .bind(&client.client_credentials_scopes)
-        .bind(client.user_id)
-        .bind(client.created_at)
-        .bind(client.updated_at)
-        .bind(client.expires_at)
-        .bind(&client.name)
-        .bind(&client.uri)
-        .bind(&client.icon)
-        .bind(&client.contacts)
-        .bind(&client.tos)
-        .bind(&client.policy)
-        .bind(&client.software_id)
-        .bind(&client.software_version)
-        .bind(&client.software_statement)
-        .bind(&client.redirect_uris)
-        .bind(&client.post_logout_redirect_uris)
-        .bind(&client.backchannel_logout_uri)
-        .bind(client.backchannel_logout_session_required)
-        .bind(&client.token_endpoint_auth_method)
-        .bind(&client.application_type)
-        .bind(&client.jwks)
-        .bind(&client.jwks_uri)
-        .bind(&client.grant_types)
-        .bind(&client.response_types)
-        .bind(client.require_pkce)
-        .bind(client.dpop_bound_access_tokens)
-        .bind(&client.reference_id)
-        .bind(&client.metadata)
+    let writes = rows::writes(
+        model,
+        client,
+        [("clientSecret", serde_json::json!(client.client_secret))],
+    )?
+    .into_iter()
+    .filter(|write| !matches!(write.logical(), "id" | "clientId"))
+    .collect();
+    let mut query = update_query(model, writes);
+    query
+        .push(" WHERE \"id\" = ")
+        .push_bind(client.id)
+        .push(" AND ")
+        .push(model.quoted_column("clientId")?)
+        .push(" = ")
+        .push_bind(client.client_id.clone())
+        .push(" RETURNING ")
+        .push(model.projection_as(CLIENT_FIELDS)?);
+    query
+        .build_query_as::<ClientRow>()
         .fetch_optional(connection)
         .await
-        .map(|row| row.map(Into::into))
+        .map(|row| row.map(decode))
         .map_err(storage_error)
-}
-
-fn client_update_sql(model: &ResolvedModel) -> String {
-    let assignments = CLIENT_FIELDS
-        .iter()
-        .skip(2)
-        .enumerate()
-        .map(|(offset, (logical, _))| format!("{}=${}", model.column(logical), offset + 3))
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!(
-        "UPDATE {} SET {assignments} WHERE \"id\"=$1 AND {}=$2 RETURNING {}",
-        model.table(),
-        model.column("clientId"),
-        model.projection(CLIENT_FIELDS)
-    )
 }
 
 async fn lock_registration(
     connection: &mut PgConnection,
     client_id: &str,
     resource_ids: &[String],
-    schema: &ResolvedOAuthProviderSchema,
+    resource: &PostgresModel<'_>,
 ) -> Result<Option<String>, AuthError> {
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
         .bind(client_id)
         .execute(&mut *connection)
         .await
         .map_err(storage_error)?;
-    let resource = schema.model(OAuthProviderModel::Resource);
-    sqlx::query_scalar::<_, String>(&format!(
-        "SELECT requested FROM unnest($1::TEXT[]) AS requested LEFT JOIN {} resource \
-         ON resource.{}=requested WHERE resource.{} IS NULL LIMIT 1",
-        resource.table(),
-        resource.column("identifier"),
-        resource.column("identifier")
-    ))
-    .bind(resource_ids)
-    .fetch_optional(connection)
-    .await
-    .map_err(storage_error)
+    let mut query = QueryBuilder::new("SELECT requested FROM unnest(");
+    query
+        .push_bind(resource_ids.to_vec())
+        .push("::TEXT[]) AS requested LEFT JOIN ")
+        .push(resource.quoted_table())
+        .push(" resource ON resource.")
+        .push(resource.quoted_column("identifier")?)
+        .push(" = requested WHERE resource.")
+        .push(resource.quoted_column("identifier")?)
+        .push(" IS NULL LIMIT 1");
+    query
+        .build_query_scalar::<String>()
+        .fetch_optional(connection)
+        .await
+        .map_err(storage_error)
 }
 
 enum RegistrationWrite {
@@ -174,20 +115,24 @@ enum RegistrationWrite {
 async fn write_registered_client(
     connection: &mut PgConnection,
     write: &OAuthClientRegistrationWrite,
-    schema: &ResolvedOAuthProviderSchema,
+    model: &PostgresModel<'_>,
 ) -> Result<RegistrationWrite, AuthError> {
-    let model = schema.model(OAuthProviderModel::Client);
-    let existing = sqlx::query_as::<_, ClientRow>(&format!(
-        "SELECT {} FROM {} WHERE {}=$1 FOR UPDATE",
-        model.projection(CLIENT_FIELDS),
-        model.table(),
-        model.column("clientId")
-    ))
-    .bind(&write.client.client_id)
-    .fetch_optional(&mut *connection)
-    .await
-    .map_err(storage_error)?
-    .map(OAuthProviderClient::from);
+    let mut query = QueryBuilder::new("SELECT ");
+    query
+        .push(model.projection_as(CLIENT_FIELDS)?)
+        .push(" FROM ")
+        .push(model.quoted_table())
+        .push(" WHERE ")
+        .push(model.quoted_column("clientId")?)
+        .push(" = ")
+        .push_bind(write.client.client_id.clone())
+        .push(" FOR UPDATE");
+    let existing = query
+        .build_query_as::<ClientRow>()
+        .fetch_optional(&mut *connection)
+        .await
+        .map_err(storage_error)?
+        .map(decode);
     let rejected = |outcome| Ok(RegistrationWrite::Rejected(outcome));
     match (&write.mode, existing) {
         (OAuthClientRegistrationMode::Create, Some(_)) => {
@@ -225,24 +170,29 @@ async fn link_registration_resources(
     connection: &mut PgConnection,
     client_id: &str,
     resource_ids: Vec<String>,
-    schema: &ResolvedOAuthProviderSchema,
+    model: &PostgresModel<'_>,
 ) -> Result<(), AuthError> {
-    let model = schema.model(OAuthProviderModel::ClientResource);
     for resource_id in resource_ids {
-        sqlx::query(&format!(
-            "INSERT INTO {} ({}) VALUES ($1,$2,$3,NULL,$4) ON CONFLICT ({}, {}) DO NOTHING",
-            model.table(),
-            model.columns(LINK_FIELDS),
-            model.column("clientId"),
-            model.column("resourceId")
-        ))
-        .bind(Uuid::new_v4())
-        .bind(client_id)
-        .bind(resource_id)
-        .bind(Utc::now())
-        .execute(&mut *connection)
-        .await
-        .map_err(storage_error)?;
+        let link = OAuthProviderClientResource {
+            id: Uuid::new_v4(),
+            client_id: client_id.to_owned(),
+            resource_id,
+            metadata: None,
+            created_at: Some(Utc::now()),
+        };
+        let writes = rows::writes(model, &link, [])?;
+        let mut query = insert_query_prefix(model, writes);
+        query
+            .push(" ON CONFLICT (")
+            .push(model.quoted_column("clientId")?)
+            .push(", ")
+            .push(model.quoted_column("resourceId")?)
+            .push(") DO NOTHING");
+        query
+            .build()
+            .execute(&mut *connection)
+            .await
+            .map_err(storage_error)?;
     }
     Ok(())
 }
@@ -253,18 +203,22 @@ impl OAuthProviderClientStore for PostgresOAuthProviderStore {
         &self,
         client_id: &str,
     ) -> Result<Option<OAuthProviderClient>, AuthError> {
-        let model = self.schema.model(OAuthProviderModel::Client);
-        sqlx::query_as::<_, ClientRow>(&format!(
-            "SELECT {} FROM {} WHERE {}=$1",
-            model.projection(CLIENT_FIELDS),
-            model.table(),
-            model.column("clientId")
-        ))
-        .bind(client_id)
-        .fetch_optional(self.pool())
-        .await
-        .map(|row| row.map(Into::into))
-        .map_err(storage_error)
+        let model = self.model("oauthClient")?;
+        let mut query = QueryBuilder::new("SELECT ");
+        query
+            .push(model.projection_as(CLIENT_FIELDS)?)
+            .push(" FROM ")
+            .push(model.quoted_table())
+            .push(" WHERE ")
+            .push(model.quoted_column("clientId")?)
+            .push(" = ")
+            .push_bind(client_id.to_owned());
+        query
+            .build_query_as::<ClientRow>()
+            .fetch_optional(self.pool())
+            .await
+            .map(|row| row.map(decode))
+            .map_err(storage_error)
     }
 
     async fn list_oauth_clients(
@@ -272,23 +226,34 @@ impl OAuthProviderClientStore for PostgresOAuthProviderStore {
         user_id: Option<Uuid>,
         reference_id: Option<&str>,
     ) -> Result<Vec<OAuthProviderClient>, AuthError> {
-        let model = self.schema.model(OAuthProviderModel::Client);
-        sqlx::query_as::<_, ClientRow>(&format!(
-            "SELECT {} FROM {} WHERE ($1::UUID IS NULL AND $2::TEXT IS NULL) OR {}=$1 OR {}=$2 \
-             ORDER BY {} NULLS FIRST, {}",
-            model.projection(CLIENT_FIELDS),
-            model.table(),
-            model.column("userId"),
-            model.column("referenceId"),
-            model.column("createdAt"),
-            model.column("clientId")
-        ))
-        .bind(user_id)
-        .bind(reference_id)
-        .fetch_all(self.pool())
-        .await
-        .map(|rows| rows.into_iter().map(Into::into).collect())
-        .map_err(storage_error)
+        let model = self.model("oauthClient")?;
+        let mut query = QueryBuilder::new("SELECT ");
+        query
+            .push(model.projection_as(CLIENT_FIELDS)?)
+            .push(" FROM ")
+            .push(model.quoted_table())
+            .push(" WHERE (")
+            .push_bind(user_id)
+            .push("::UUID IS NULL AND ")
+            .push_bind(reference_id.map(str::to_owned))
+            .push("::TEXT IS NULL) OR ")
+            .push(model.quoted_column("userId")?)
+            .push(" = ")
+            .push_bind(user_id)
+            .push(" OR ")
+            .push(model.quoted_column("referenceId")?)
+            .push(" = ")
+            .push_bind(reference_id.map(str::to_owned))
+            .push(" ORDER BY ")
+            .push(model.quoted_column("createdAt")?)
+            .push(" NULLS FIRST, ")
+            .push(model.quoted_column("clientId")?);
+        query
+            .build_query_as::<ClientRow>()
+            .fetch_all(self.pool())
+            .await
+            .map(|rows| rows.into_iter().map(decode).collect())
+            .map_err(storage_error)
     }
 
     async fn persist_oauth_client_registration(
@@ -298,30 +263,27 @@ impl OAuthProviderClientStore for PostgresOAuthProviderStore {
         let mut resource_ids = std::mem::take(&mut write.resource_ids);
         resource_ids.sort_unstable();
         resource_ids.dedup();
-
+        let client = self.model("oauthClient")?;
+        let resource = self.model("oauthResource")?;
+        let link = self.model("oauthClientResource")?;
         let mut transaction = self.pool().begin().await.map_err(storage_error)?;
         if let Some(identifier) = lock_registration(
             &mut transaction,
             &write.client.client_id,
             &resource_ids,
-            &self.schema,
+            &resource,
         )
         .await?
         {
             return Ok(OAuthClientRegistrationOutcome::ResourceNotFound(identifier));
         }
         let (stored, updated) =
-            match write_registered_client(&mut transaction, &write, &self.schema).await? {
+            match write_registered_client(&mut transaction, &write, &client).await? {
                 RegistrationWrite::Stored { client, updated } => (client, updated),
                 RegistrationWrite::Rejected(outcome) => return Ok(outcome),
             };
-        link_registration_resources(
-            &mut transaction,
-            &stored.client_id,
-            resource_ids,
-            &self.schema,
-        )
-        .await?;
+        link_registration_resources(&mut transaction, &stored.client_id, resource_ids, &link)
+            .await?;
         transaction.commit().await.map_err(storage_error)?;
         Ok(if updated {
             OAuthClientRegistrationOutcome::Updated(stored)
@@ -334,30 +296,30 @@ impl OAuthProviderClientStore for PostgresOAuthProviderStore {
         &self,
         client: OAuthProviderClient,
     ) -> Result<Option<OAuthProviderClient>, AuthError> {
+        let model = self.model("oauthClient")?;
         let mut connection = self.pool().acquire().await.map_err(storage_error)?;
-        update_client(
-            &mut connection,
-            &client,
-            self.schema.model(OAuthProviderModel::Client),
-        )
-        .await
+        update_client(&mut connection, &client, &model).await
     }
 
     async fn delete_oauth_client(
         &self,
         client_id: &str,
     ) -> Result<Option<OAuthProviderClient>, AuthError> {
-        let model = self.schema.model(OAuthProviderModel::Client);
-        sqlx::query_as::<_, ClientRow>(&format!(
-            "DELETE FROM {} WHERE {}=$1 RETURNING {}",
-            model.table(),
-            model.column("clientId"),
-            model.projection(CLIENT_FIELDS)
-        ))
-        .bind(client_id)
-        .fetch_optional(self.pool())
-        .await
-        .map(|row| row.map(Into::into))
-        .map_err(storage_error)
+        let model = self.model("oauthClient")?;
+        let mut query = QueryBuilder::new("DELETE FROM ");
+        query
+            .push(model.quoted_table())
+            .push(" WHERE ")
+            .push(model.quoted_column("clientId")?)
+            .push(" = ")
+            .push_bind(client_id.to_owned())
+            .push(" RETURNING ")
+            .push(model.projection_as(CLIENT_FIELDS)?);
+        query
+            .build_query_as::<ClientRow>()
+            .fetch_optional(self.pool())
+            .await
+            .map(|row| row.map(decode))
+            .map_err(storage_error)
     }
 }

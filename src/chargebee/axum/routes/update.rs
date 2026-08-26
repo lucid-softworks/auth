@@ -11,7 +11,6 @@ use axum::{
     response::Response,
     routing::{MethodRouter, post},
 };
-use chrono::Utc;
 use serde_json::{Map, Value};
 use std::sync::Arc;
 
@@ -323,7 +322,6 @@ async fn synchronize_local(
                 active.id,
                 ChargebeeSubscriptionPatch {
                     chargebee_subscription_id: Some(Some(provider.id.clone())),
-                    updated_at: Some(Utc::now()),
                     ..ChargebeeSubscriptionPatch::default()
                 },
             )

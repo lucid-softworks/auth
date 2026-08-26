@@ -21,7 +21,7 @@ pub use crate::secondary_storage::{MemorySecondaryStorage, SecondaryStorage};
 pub use crate::two_factor::{
     AccountLockoutConfig, BackupCodeConfig, MemoryTwoFactorStore, OtpConfig, TotpConfig,
     TwoFactorConfig, TwoFactorError, TwoFactorOtp, TwoFactorOtpSender, TwoFactorPlugin,
-    TwoFactorRecord, TwoFactorStore,
+    TwoFactorRecord, TwoFactorSchema, TwoFactorStore,
 };
 pub use crate::username::{
     UsernameConfig, UsernameError, UsernameNormalizer, UsernamePlugin, UsernameValidationOrder,

@@ -119,6 +119,8 @@ pub enum RateLimitStorageMode {
 /// Better Auth-compatible request rate limiting.
 #[derive(Clone)]
 pub struct RateLimitConfig {
+    pub model_name: Option<String>,
+    pub fields: crate::RateLimitFieldMappings,
     pub enabled: bool,
     pub window: u64,
     pub max: u32,
@@ -129,6 +131,8 @@ pub struct RateLimitConfig {
 impl Default for RateLimitConfig {
     fn default() -> Self {
         Self {
+            model_name: None,
+            fields: crate::RateLimitFieldMappings::default(),
             // Better Auth enables this in production and disables it in
             // development/test. Cargo's release/debug distinction is the
             // native equivalent without introducing environment variables.

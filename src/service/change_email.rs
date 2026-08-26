@@ -1,10 +1,5 @@
-use super::{AuthService, hash_token, random_token};
-use crate::{
-    AuthError, AuthUser, ChangeEmailConfirmation, SessionWithUser, VerificationEmail,
-    VerificationValue,
-};
-use chrono::Utc;
-use serde_json::json;
+use super::AuthService;
+use crate::{AuthError, AuthUser, ChangeEmailConfirmation, SessionWithUser, VerificationEmail};
 
 pub(super) const CHANGE_CONFIRMATION_PURPOSE: &str = "change-email-confirmation";
 pub(super) const CHANGE_VERIFICATION_PURPOSE: &str = "change-email-verification";
@@ -33,7 +28,8 @@ impl AuthService {
             return Err(AuthError::VerificationEmailNotEnabled);
         }
         if self.store.find_user_by_email(&new_email).await?.is_some() {
-            let _ = hash_token(&random_token());
+            let _ =
+                self.create_email_verification_token(&session.user.email, Some(&new_email), None)?;
             return Ok(None);
         }
         if can_update {
@@ -82,22 +78,19 @@ impl AuthService {
             .send_change_email_confirmation
             .as_ref()
             .ok_or(AuthError::VerificationEmailNotEnabled)?;
-        let (token, token_hash) = self
-            .create_change_token(CHANGE_CONFIRMATION_PURPOSE, user, new_email)
-            .await?;
-        let confirmation = ChangeEmailConfirmation {
-            user: user.clone(),
-            new_email: new_email.into(),
-            url: self.verification_url(&token, callback_url)?,
-            token,
-        };
-        if let Err(error) = sender.send(confirmation).await {
-            let _ = self
-                .consume_verification_record(CHANGE_CONFIRMATION_PURPOSE, &token_hash, Utc::now())
-                .await;
-            return Err(error);
-        }
-        Ok(())
+        let token = self.create_email_verification_token(
+            &user.email,
+            Some(new_email),
+            Some(CHANGE_CONFIRMATION_PURPOSE),
+        )?;
+        sender
+            .send(ChangeEmailConfirmation {
+                user: user.clone(),
+                new_email: new_email.into(),
+                url: self.verification_url(&token, callback_url)?,
+                token,
+            })
+            .await
     }
 
     pub(super) async fn deliver_change_verification(
@@ -112,47 +105,19 @@ impl AuthService {
             .sender
             .as_ref()
             .ok_or(AuthError::VerificationEmailNotEnabled)?;
-        let (token, token_hash) = self
-            .create_change_token(CHANGE_VERIFICATION_PURPOSE, user, new_email)
-            .await?;
+        let token = self.create_email_verification_token(
+            &user.email,
+            Some(new_email),
+            Some(CHANGE_VERIFICATION_PURPOSE),
+        )?;
         let mut target = user.clone();
         target.email = new_email.into();
-        let email = VerificationEmail {
-            user: target,
-            url: self.verification_url(&token, callback_url)?,
-            token,
-        };
-        if let Err(error) = sender.send(email).await {
-            let _ = self
-                .consume_verification_record(CHANGE_VERIFICATION_PURPOSE, &token_hash, Utc::now())
-                .await;
-            return Err(error);
-        }
-        Ok(())
-    }
-
-    async fn create_change_token(
-        &self,
-        purpose: &str,
-        user: &AuthUser,
-        new_email: &str,
-    ) -> Result<(String, String), AuthError> {
-        let token = random_token();
-        let token_hash = hash_token(&token);
-        let now = Utc::now();
-        self.create_verification_record(VerificationValue {
-            purpose: purpose.into(),
-            identifier: token_hash.clone(),
-            payload: json!({
-                "userId": user.id,
-                "email": user.email,
-                "newEmail": new_email,
-            }),
-            additional_fields: serde_json::Map::new(),
-            expires_at: now + self.config.email_verification.expires_in,
-            created_at: now,
-        })
-        .await?;
-        Ok((token, token_hash))
+        sender
+            .send(VerificationEmail {
+                user: target,
+                url: self.verification_url(&token, callback_url)?,
+                token,
+            })
+            .await
     }
 }

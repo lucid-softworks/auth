@@ -10,11 +10,11 @@ pub use model::{SiweIdentityWrite, SiweIdentityWriteOutcome, WalletAddress, Wall
 pub use store::SiweStore;
 
 use crate::{
-    AuthError, AuthPlugin, PluginClientMetadata, PluginDescriptor, PluginEndpoint,
-    PluginHttpMethod, PluginMigration,
+    AdditionalField, AdditionalFieldReference, AdditionalFieldType, AuthError, AuthPlugin,
+    PluginClientMetadata, PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginSchemaTable,
 };
 use async_trait::async_trait;
-use std::{borrow::Cow, sync::Arc};
+use std::sync::Arc;
 
 const ENDPOINTS: &[PluginEndpoint] = &[
     endpoint("/siwe/nonce", "siwe.nonce"),
@@ -90,66 +90,6 @@ pub struct SiweSchema {
     pub created_at_field_name: Option<String>,
 }
 
-impl SiweSchema {
-    pub(crate) fn table(&self) -> &str {
-        configured_name(&self.model_name, "lucid_auth_wallet_addresses")
-    }
-
-    pub(crate) fn user_id(&self) -> &str {
-        configured_name(&self.user_id_field_name, "user_id")
-    }
-
-    pub(crate) fn address(&self) -> &str {
-        configured_name(&self.address_field_name, "address")
-    }
-
-    pub(crate) fn chain_id(&self) -> &str {
-        configured_name(&self.chain_id_field_name, "chain_id")
-    }
-
-    pub(crate) fn is_primary(&self) -> &str {
-        configured_name(&self.is_primary_field_name, "is_primary")
-    }
-
-    pub(crate) fn created_at(&self) -> &str {
-        configured_name(&self.created_at_field_name, "created_at")
-    }
-
-    fn migration_sql(&self) -> String {
-        let table = quote_identifier(self.table());
-        let user_id = quote_identifier(self.user_id());
-        let address = quote_identifier(self.address());
-        let chain_id = quote_identifier(self.chain_id());
-        let is_primary = quote_identifier(self.is_primary());
-        let created_at = quote_identifier(self.created_at());
-        format!(
-            "CREATE TABLE IF NOT EXISTS {table} (\n\
-               id UUID PRIMARY KEY,\n\
-               {user_id} UUID NOT NULL REFERENCES lucid_auth_users(id) ON DELETE CASCADE,\n\
-               {address} TEXT NOT NULL,\n\
-               {chain_id} DOUBLE PRECISION NOT NULL,\n\
-               {is_primary} BOOLEAN NOT NULL DEFAULT FALSE,\n\
-               {created_at} TIMESTAMPTZ NOT NULL\n\
-             );\n\n\
-             CREATE INDEX IF NOT EXISTS lucid_auth_siwe_user_id_idx\n\
-               ON {table} ({user_id});\n\n\
-             CREATE UNIQUE INDEX IF NOT EXISTS lucid_auth_siwe_identity_unique_idx\n\
-               ON {table} (lower({address}), {chain_id});\n"
-        )
-    }
-}
-
-fn configured_name<'a>(configured: &'a Option<String>, default: &'a str) -> &'a str {
-    configured
-        .as_deref()
-        .filter(|name| !name.is_empty())
-        .unwrap_or(default)
-}
-
-pub(crate) fn quote_identifier(identifier: &str) -> String {
-    format!("\"{}\"", identifier.replace('"', "\"\""))
-}
-
 #[derive(Clone)]
 pub struct SiweConfig {
     pub domain: String,
@@ -220,20 +160,13 @@ pub enum SiweError {
 pub struct SiwePlugin {
     pub(crate) store: Arc<dyn SiweStore>,
     pub(crate) config: Arc<SiweConfig>,
-    migrations: Vec<PluginMigration>,
 }
 
 impl SiwePlugin {
     pub fn new(store: Arc<dyn SiweStore>, config: SiweConfig) -> Self {
-        let migration = PluginMigration::owned(
-            "better-auth-siwe-schema",
-            "Better Auth 1.7.1 SIWE wallet-address schema",
-            config.schema.migration_sql(),
-        );
         Self {
             store,
             config: Arc::new(config),
-            migrations: vec![migration],
         }
     }
 }
@@ -260,12 +193,67 @@ impl AuthPlugin for SiwePlugin {
         }
     }
 
-    fn migrations(&self) -> Cow<'_, [PluginMigration]> {
-        Cow::Borrowed(&self.migrations)
+    fn schema(&self) -> Vec<PluginSchemaTable> {
+        vec![wallet_schema(&self.config.schema)]
     }
 
     #[cfg(feature = "axum")]
     fn routes(&self, service: Arc<crate::AuthService>) -> Vec<crate::AxumPluginRoute> {
         axum::routes(service, self.config.clone())
     }
+}
+
+fn wallet_schema(schema: &SiweSchema) -> PluginSchemaTable {
+    let mut table = PluginSchemaTable::new("walletAddress");
+    if let Some(model_name) = &schema.model_name {
+        table = table.model_name(model_name.clone());
+    }
+    let mut user_id = AdditionalField::new(AdditionalFieldType::String)
+        .references(AdditionalFieldReference {
+            model: "user".into(),
+            field: "id".into(),
+            on_delete: None,
+        })
+        .index(true);
+    if let Some(name) = schema
+        .user_id_field_name
+        .as_ref()
+        .filter(|name| !name.is_empty())
+    {
+        user_id = user_id.field_name(name.clone());
+    }
+    table = table.field("userId", user_id);
+    for (logical, field_type, physical) in [
+        (
+            "address",
+            AdditionalFieldType::String,
+            &schema.address_field_name,
+        ),
+        (
+            "chainId",
+            AdditionalFieldType::Number,
+            &schema.chain_id_field_name,
+        ),
+        (
+            "createdAt",
+            AdditionalFieldType::Date,
+            &schema.created_at_field_name,
+        ),
+    ] {
+        let mut field = AdditionalField::new(field_type);
+        if let Some(name) = physical.as_ref().filter(|name| !name.is_empty()) {
+            field = field.field_name(name.clone());
+        }
+        table = table.field(logical, field);
+    }
+    let mut primary =
+        AdditionalField::new(AdditionalFieldType::Boolean).default_value(serde_json::json!(false));
+    if let Some(name) = schema
+        .is_primary_field_name
+        .as_ref()
+        .filter(|name| !name.is_empty())
+    {
+        primary = primary.field_name(name.clone());
+    }
+    table.field("isPrimary", primary)
 }

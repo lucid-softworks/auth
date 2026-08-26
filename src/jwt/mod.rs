@@ -5,7 +5,6 @@ mod crypto;
 mod duration;
 mod keyring;
 mod model;
-mod schema;
 mod store;
 mod token;
 
@@ -27,8 +26,8 @@ pub use token::JwtService;
 pub(crate) use cookie_cache::{decode as decode_cookie_cache, encode as encode_cookie_cache};
 
 use crate::{
-    AuthConfig, AuthPlugin, PluginClientMetadata, PluginDescriptor, PluginEndpoint,
-    PluginHttpMethod, PluginMigration,
+    AdditionalField, AdditionalFieldType, AuthConfig, AuthPlugin, PluginClientMetadata,
+    PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginSchemaTable,
 };
 use async_trait::async_trait;
 use std::{borrow::Cow, sync::Arc};
@@ -36,19 +35,12 @@ use std::{borrow::Cow, sync::Arc};
 #[derive(Clone)]
 pub struct JwtPlugin {
     config: Arc<JwtConfig>,
-    migrations: Vec<PluginMigration>,
 }
 
 impl JwtPlugin {
     pub fn new(config: JwtConfig) -> Self {
-        let migration = PluginMigration::owned(
-            "better-auth-jwt-schema",
-            "Better Auth 1.7.1 JWT JWKS schema",
-            config.schema.migration_sql(),
-        );
         Self {
             config: Arc::new(config),
-            migrations: vec![migration],
         }
     }
 
@@ -141,8 +133,8 @@ impl AuthPlugin for JwtPlugin {
         Ok(())
     }
 
-    fn migrations(&self) -> Cow<'_, [PluginMigration]> {
-        Cow::Borrowed(&self.migrations)
+    fn schema(&self) -> Vec<PluginSchemaTable> {
+        vec![jwk_schema(&self.config.schema)]
     }
 
     #[cfg(feature = "axum")]
@@ -159,6 +151,61 @@ impl AuthPlugin for JwtPlugin {
     ) -> ::axum::response::Response {
         axum::after_response(service, &self.config, request, response).await
     }
+}
+
+fn jwk_schema(schema: &JwtSchema) -> PluginSchemaTable {
+    let mut table = PluginSchemaTable::new("jwks");
+    if let Some(model_name) = &schema.model_name {
+        table = table.model_name(model_name.clone());
+    }
+    for (logical, field_type, required, physical) in [
+        (
+            "publicKey",
+            AdditionalFieldType::String,
+            true,
+            &schema.public_key_field_name,
+        ),
+        (
+            "privateKey",
+            AdditionalFieldType::String,
+            true,
+            &schema.private_key_field_name,
+        ),
+        (
+            "createdAt",
+            AdditionalFieldType::Date,
+            true,
+            &schema.created_at_field_name,
+        ),
+        (
+            "expiresAt",
+            AdditionalFieldType::Date,
+            false,
+            &schema.expires_at_field_name,
+        ),
+        (
+            "alg",
+            AdditionalFieldType::String,
+            false,
+            &schema.alg_field_name,
+        ),
+        (
+            "crv",
+            AdditionalFieldType::String,
+            false,
+            &schema.crv_field_name,
+        ),
+    ] {
+        let mut field = AdditionalField::new(field_type);
+        if !required {
+            field = field.optional();
+        }
+        if let Some(physical) = physical.as_ref().filter(|name| !name.is_empty()) {
+            field = field.field_name(physical.clone());
+        }
+        table = table.field(logical, field);
+    }
+    table
 }
 
 fn invalid<T>(message: &str) -> Result<T, crate::AuthError> {

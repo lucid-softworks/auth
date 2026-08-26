@@ -1,7 +1,6 @@
 use super::{LifecycleContext, LifecycleError, event_object};
 use crate::stripe::webhook::transition::deletion_patch;
 use crate::stripe::{StripeEvent, StripeSubscription};
-use chrono::Utc;
 
 pub(super) async fn handle(
     context: LifecycleContext<'_>,
@@ -24,7 +23,7 @@ pub(super) async fn handle(
     };
     let updated = context
         .store
-        .update_subscription(local.id, deletion_patch(&stripe_subscription, Utc::now()))
+        .update_subscription(local.id, deletion_patch(&stripe_subscription))
         .await?;
     let Some(updated) = updated else {
         tracing::warn!(

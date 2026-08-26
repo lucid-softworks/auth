@@ -1,10 +1,10 @@
 use super::{McpPluginConfig, McpPluginConfigError};
 use crate::{
     AuthConfig, AuthError, AuthPlugin, OAuthProviderPlugin, OAuthProviderPluginConfig,
-    OAuthProviderStore, PluginDescriptor, PluginMigration, PluginRateLimit,
+    OAuthProviderStore, PluginDescriptor, PluginRateLimit,
 };
 use async_trait::async_trait;
-use std::{borrow::Cow, fmt, sync::Arc};
+use std::{fmt, sync::Arc};
 
 #[derive(Clone)]
 pub struct McpPlugin {
@@ -114,8 +114,8 @@ impl AuthPlugin for McpPlugin {
         self.provider.validate(auth)
     }
 
-    fn migrations(&self) -> Cow<'_, [PluginMigration]> {
-        self.provider.migrations()
+    fn schema(&self) -> Vec<crate::PluginSchemaTable> {
+        self.provider.schema()
     }
 
     fn rate_limits(&self) -> Vec<PluginRateLimit> {
@@ -199,7 +199,7 @@ mod tests {
         assert_eq!(server.package, "@better-auth/mcp");
         assert_eq!(server.export, "mcp");
         assert_eq!(descriptor.client.unwrap().factory, "oauthProviderClient");
-        assert_eq!(plugin.migrations().len(), 1);
+        assert!(plugin.migrations().is_empty());
         assert_eq!(plugin.rate_limits().len(), 6);
     }
 

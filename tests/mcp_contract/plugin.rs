@@ -8,7 +8,7 @@ fn preset_is_the_oauth_provider_and_uses_only_the_inherited_surface() {
     assert_eq!(descriptor.id, "oauth-provider");
     assert_eq!(descriptor.client.unwrap().factory, "oauthProviderClient");
     assert_eq!(plugin.rate_limits().len(), 6);
-    assert_eq!(plugin.migrations().len(), 1);
+    assert!(plugin.migrations().is_empty());
     assert_eq!(
         plugin.oauth_provider_config().refresh_token_reuse_interval,
         30
@@ -23,6 +23,31 @@ fn preset_is_the_oauth_provider_and_uses_only_the_inherited_surface() {
             .client_registration_default_resources,
         [RESOURCE]
     );
+
+    let mut provider = OAuthProviderPluginConfig::new("/login", "/consent");
+    provider.schema.oauth_client.model_name = Some("mcpClients".into());
+    provider
+        .schema
+        .oauth_client
+        .fields
+        .insert("clientId".into(), "clientKey".into());
+    let custom = McpPlugin::in_memory(McpPluginConfig::new(RESOURCE, provider)).unwrap();
+    let mut config = AuthConfig::new([215_u8; 32]).unwrap();
+    config.add_plugin(JwtPlugin::default()).unwrap();
+    config.add_plugin(custom).unwrap();
+    let service = AuthService::try_new(Arc::new(MemoryStore::default()), config).unwrap();
+    assert!(service.plugin_migrations().is_empty());
+    let logical_client = service.database_schema().table("oauthClient").unwrap();
+    assert_eq!(logical_client.model_name, "mcpClients");
+    assert_eq!(
+        logical_client.fields["clientId"].field_name.as_deref(),
+        Some("clientKey")
+    );
+    let generic = service.generic_database_schema();
+    let physical_client = generic.table("mcpClients").unwrap();
+    assert!(physical_client.fields.contains_key("clientKey"));
+    assert!(!physical_client.fields.contains_key("clientId"));
+    assert!(generic.table("oauthClient").is_none());
 }
 
 #[test]

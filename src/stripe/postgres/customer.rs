@@ -1,19 +1,17 @@
 use super::{PostgresStripeStore, storage_error};
-use crate::stripe::StripeStoreError;
+use crate::{postgres::PostgresModel, stripe::StripeStoreError};
+use serde_json::{Value, json};
+use sqlx::{Postgres, QueryBuilder};
 use uuid::Uuid;
 
-const USER_CUSTOMER_KEY: &str = "stripeCustomerId";
+const CUSTOMER_FIELD: &str = "stripeCustomerId";
 
 pub(super) async fn user_customer_id(
     store: &PostgresStripeStore,
     user_id: Uuid,
 ) -> Result<Option<String>, StripeStoreError> {
-    sqlx::query_scalar(&user_customer_query(store))
-        .bind(user_id)
-        .fetch_optional(store.pool())
-        .await
-        .map(|value| value.flatten())
-        .map_err(storage_error)
+    let model = store.model("user")?;
+    scalar(store, customer_query(&model, user_id)?).await
 }
 
 pub(super) async fn set_user_customer_id(
@@ -21,39 +19,26 @@ pub(super) async fn set_user_customer_id(
     user_id: Uuid,
     customer_id: Option<String>,
 ) -> Result<(), StripeStoreError> {
-    sqlx::query(&set_user_customer_query(store))
-        .bind(user_id)
-        .bind(customer_id)
-        .execute(store.pool())
-        .await
-        .map(|_| ())
-        .map_err(storage_error)
+    let model = store.model("user")?;
+    execute(store, set_customer_query(&model, user_id, customer_id)?).await
 }
 
 pub(super) async fn user_id_by_customer(
     store: &PostgresStripeStore,
     customer_id: &str,
 ) -> Result<Option<Uuid>, StripeStoreError> {
-    sqlx::query_scalar(&user_by_customer_query(store))
-        .bind(customer_id)
-        .fetch_optional(store.pool())
-        .await
-        .map_err(storage_error)
+    let model = store.model("user")?;
+    id_by_customer(store, by_customer_query(&model, customer_id)?).await
 }
 
 pub(super) async fn organization_customer_id(
     store: &PostgresStripeStore,
     organization_id: Uuid,
 ) -> Result<Option<String>, StripeStoreError> {
-    let Some(query) = organization_customer_query(store) else {
+    let Some(model) = customer_model(store, "organization")? else {
         return Ok(None);
     };
-    sqlx::query_scalar(&query)
-        .bind(organization_id)
-        .fetch_optional(store.pool())
-        .await
-        .map(|value| value.flatten())
-        .map_err(storage_error)
+    scalar(store, customer_query(&model, organization_id)?).await
 }
 
 pub(super) async fn set_organization_customer_id(
@@ -61,132 +46,153 @@ pub(super) async fn set_organization_customer_id(
     organization_id: Uuid,
     customer_id: Option<String>,
 ) -> Result<(), StripeStoreError> {
-    let Some(query) = set_organization_customer_query(store) else {
+    let Some(model) = customer_model(store, "organization")? else {
         return Ok(());
     };
-    sqlx::query(&query)
-        .bind(organization_id)
-        .bind(customer_id)
-        .execute(store.pool())
-        .await
-        .map(|_| ())
-        .map_err(storage_error)
+    execute(
+        store,
+        set_customer_query(&model, organization_id, customer_id)?,
+    )
+    .await
 }
 
 pub(super) async fn organization_id_by_customer(
     store: &PostgresStripeStore,
     customer_id: &str,
 ) -> Result<Option<Uuid>, StripeStoreError> {
-    let Some(query) = organization_by_customer_query(store) else {
+    let Some(model) = customer_model(store, "organization")? else {
         return Ok(None);
     };
-    sqlx::query_scalar(&query)
-        .bind(customer_id)
+    id_by_customer(store, by_customer_query(&model, customer_id)?).await
+}
+
+fn customer_query(
+    model: &PostgresModel<'_>,
+    id: Uuid,
+) -> Result<QueryBuilder<'static, Postgres>, StripeStoreError> {
+    let mut query = QueryBuilder::new("SELECT ");
+    query
+        .push(model.quoted_column(CUSTOMER_FIELD).map_err(schema_error)?)
+        .push(" FROM ")
+        .push(model.quoted_table())
+        .push(" WHERE \"id\" = ");
+    model
+        .encode("id", uuid_value(id))
+        .map_err(schema_error)?
+        .push_bind(&mut query);
+    Ok(query)
+}
+
+fn set_customer_query(
+    model: &PostgresModel<'_>,
+    id: Uuid,
+    customer_id: Option<String>,
+) -> Result<QueryBuilder<'static, Postgres>, StripeStoreError> {
+    let mut query = QueryBuilder::new("UPDATE ");
+    query
+        .push(model.quoted_table())
+        .push(" SET ")
+        .push(model.quoted_column(CUSTOMER_FIELD).map_err(schema_error)?)
+        .push(" = ");
+    model
+        .encode(
+            CUSTOMER_FIELD,
+            customer_id.map_or(Value::Null, Value::String),
+        )
+        .map_err(schema_error)?
+        .push_bind(&mut query);
+    query.push(" WHERE \"id\" = ");
+    model
+        .encode("id", uuid_value(id))
+        .map_err(schema_error)?
+        .push_bind(&mut query);
+    Ok(query)
+}
+
+fn by_customer_query(
+    model: &PostgresModel<'_>,
+    customer_id: &str,
+) -> Result<QueryBuilder<'static, Postgres>, StripeStoreError> {
+    let mut query = QueryBuilder::new("SELECT \"id\" FROM ");
+    query
+        .push(model.quoted_table())
+        .push(" WHERE ")
+        .push(model.quoted_column(CUSTOMER_FIELD).map_err(schema_error)?)
+        .push(" = ");
+    model
+        .encode(CUSTOMER_FIELD, json!(customer_id))
+        .map_err(schema_error)?
+        .push_bind(&mut query);
+    query.push(" ORDER BY \"id\" LIMIT 1");
+    Ok(query)
+}
+
+fn customer_model<'a>(
+    store: &'a PostgresStripeStore,
+    logical: &str,
+) -> Result<Option<PostgresModel<'a>>, StripeStoreError> {
+    Ok(store
+        .model_if_present(logical)?
+        .filter(|model| model.has_field(CUSTOMER_FIELD)))
+}
+
+async fn scalar(
+    store: &PostgresStripeStore,
+    mut query: QueryBuilder<'static, Postgres>,
+) -> Result<Option<String>, StripeStoreError> {
+    query
+        .build_query_scalar()
+        .fetch_optional(store.pool())
+        .await
+        .map(|value| value.flatten())
+        .map_err(storage_error)
+}
+
+async fn id_by_customer(
+    store: &PostgresStripeStore,
+    mut query: QueryBuilder<'static, Postgres>,
+) -> Result<Option<Uuid>, StripeStoreError> {
+    query
+        .build_query_scalar()
         .fetch_optional(store.pool())
         .await
         .map_err(storage_error)
 }
 
-fn user_customer_query(store: &PostgresStripeStore) -> String {
-    format!(
-        "SELECT additional_fields ->> '{USER_CUSTOMER_KEY}' FROM {} WHERE id = $1",
-        store.schema.user().table()
-    )
+async fn execute(
+    store: &PostgresStripeStore,
+    mut query: QueryBuilder<'static, Postgres>,
+) -> Result<(), StripeStoreError> {
+    query
+        .build()
+        .execute(store.pool())
+        .await
+        .map(|_| ())
+        .map_err(storage_error)
 }
 
-fn set_user_customer_query(store: &PostgresStripeStore) -> String {
-    format!(
-        "UPDATE {} SET additional_fields = CASE \
-         WHEN $2::TEXT IS NULL THEN COALESCE(additional_fields, '{{}}'::JSONB) - '{USER_CUSTOMER_KEY}' \
-         ELSE jsonb_set(COALESCE(additional_fields, '{{}}'::JSONB), '{{{USER_CUSTOMER_KEY}}}', to_jsonb($2::TEXT), true) \
-         END WHERE id = $1",
-        store.schema.user().table()
-    )
+fn uuid_value(value: Uuid) -> Value {
+    Value::String(value.to_string())
 }
 
-fn user_by_customer_query(store: &PostgresStripeStore) -> String {
-    format!(
-        "SELECT id FROM {} WHERE additional_fields ->> '{USER_CUSTOMER_KEY}' = $1 ORDER BY id LIMIT 1",
-        store.schema.user().table()
-    )
-}
-
-fn organization_customer_query(store: &PostgresStripeStore) -> Option<String> {
-    let organization = store.schema.organization()?;
-    Some(format!(
-        "SELECT {} FROM {} WHERE id = $1",
-        organization.column("stripeCustomerId"),
-        organization.table()
-    ))
-}
-
-fn set_organization_customer_query(store: &PostgresStripeStore) -> Option<String> {
-    let organization = store.schema.organization()?;
-    Some(format!(
-        "UPDATE {} SET {} = $2 WHERE id = $1",
-        organization.table(),
-        organization.column("stripeCustomerId")
-    ))
-}
-
-fn organization_by_customer_query(store: &PostgresStripeStore) -> Option<String> {
-    let organization = store.schema.organization()?;
-    Some(format!(
-        "SELECT id FROM {} WHERE {} = $1 ORDER BY id LIMIT 1",
-        organization.table(),
-        organization.column("stripeCustomerId")
-    ))
+fn schema_error(error: crate::AuthError) -> StripeStoreError {
+    StripeStoreError::Unavailable(error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        postgres::PostgresStore,
-        stripe::{StripeModelSchema, StripeSchema},
-    };
-    use sqlx::postgres::PgPoolOptions;
-    use std::collections::BTreeMap;
-
-    fn store(schema: StripeSchema) -> PostgresStripeStore {
-        let pool = PgPoolOptions::new()
-            .connect_lazy("postgres://localhost/lucid_auth")
-            .unwrap();
-        PostgresStripeStore::new(PostgresStore::new(pool), &schema, true, true).unwrap()
-    }
 
     #[tokio::test]
-    async fn user_customer_uses_the_logical_additional_field_key() {
-        let store = store(StripeSchema {
-            user: StripeModelSchema {
-                model_name: Some("auth people".into()),
-                fields: BTreeMap::from([("stripeCustomerId".into(), "billing id".into())]),
-            },
-            ..StripeSchema::default()
-        });
-
-        let select = user_customer_query(&store);
-        let update = set_user_customer_query(&store);
-        assert!(select.contains("\"auth people\""));
-        assert!(select.contains("->> 'stripeCustomerId'"));
-        assert!(!select.contains("billing id"));
-        assert!(update.contains("'{stripeCustomerId}'"));
-        assert!(update.contains("$2::TEXT"));
-    }
-
-    #[tokio::test]
-    async fn organization_customer_uses_remapped_physical_identifiers() {
-        let store = store(StripeSchema {
-            organization: StripeModelSchema {
-                model_name: Some("work spaces".into()),
-                fields: BTreeMap::from([("stripeCustomerId".into(), "billing \"id\"".into())]),
-            },
-            ..StripeSchema::default()
-        });
-
-        let query = organization_by_customer_query(&store).unwrap();
-        assert!(query.contains("\"work spaces\""));
-        assert!(query.contains("\"billing \"\"id\"\"\""));
-        assert!(query.ends_with("= $1 ORDER BY id LIMIT 1"));
+    async fn customer_queries_use_physical_columns_without_json_or_literal_values() {
+        let store = super::super::test_support::store();
+        let user = store.model("user").unwrap();
+        let select = customer_query(&user, Uuid::nil()).unwrap();
+        assert!(select.sql().contains("FROM \"billing\"\"userss\""));
+        assert!(select.sql().contains("SELECT \"stripe customer\""));
+        assert!(!select.sql().contains("additional_fields"));
+        let update = set_customer_query(&user, Uuid::nil(), Some("cus_secret".into())).unwrap();
+        assert!(update.sql().contains("SET \"stripe customer\" = $1"));
+        assert!(!update.sql().contains("cus_secret"));
     }
 }

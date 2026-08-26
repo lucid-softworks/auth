@@ -1,97 +1,133 @@
-use super::{PostgresStore, storage_error};
+mod codec;
+
+use super::{PostgresModel, PostgresStore, storage_error};
 use crate::{AuthError, TwoFactorRecord, TwoFactorStore};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use sqlx::FromRow;
+use serde_json::json;
+use sqlx::{Postgres, QueryBuilder};
 use uuid::Uuid;
 
-#[derive(FromRow)]
-struct TwoFactorRow {
-    id: Uuid,
-    user_id: Uuid,
-    enabled: bool,
-    encrypted_secret: Option<String>,
-    encrypted_backup_codes: Option<String>,
-    verified: bool,
-    failed_verification_count: i32,
-    locked_until: Option<DateTime<Utc>>,
-    last_totp_counter: Option<i64>,
-}
+use codec::{decode_two_factor, two_factor_update_writes, two_factor_writes};
 
-impl From<TwoFactorRow> for TwoFactorRecord {
-    fn from(row: TwoFactorRow) -> Self {
-        Self {
-            id: row.id,
-            user_id: row.user_id,
-            enabled: row.enabled,
-            encrypted_secret: row.encrypted_secret,
-            encrypted_backup_codes: row.encrypted_backup_codes,
-            verified: row.verified,
-            failed_verification_count: row.failed_verification_count.max(0) as u32,
-            locked_until: row.locked_until,
-            last_totp_counter: row.last_totp_counter,
-        }
+impl PostgresStore {
+    fn two_factor_model(&self) -> Result<PostgresModel<'_>, AuthError> {
+        self.physical_model("twoFactor")
     }
 }
 
-const COLUMNS: &str = "id, user_id, enabled, encrypted_secret, encrypted_backup_codes, verified, \
-    failed_verification_count, locked_until, last_totp_counter";
-
 #[async_trait]
 impl TwoFactorStore for PostgresStore {
+    async fn two_factor_enabled(&self, user_id: Uuid) -> Result<bool, AuthError> {
+        let model = self.user_model()?;
+        let mut query = QueryBuilder::<Postgres>::new("SELECT ");
+        query
+            .push(model.quoted_column("twoFactorEnabled")?)
+            .push(" FROM ")
+            .push(model.quoted_table())
+            .push(" WHERE \"id\" = ")
+            .push_bind(user_id);
+        query
+            .build_query_scalar::<Option<bool>>()
+            .fetch_optional(&self.pool)
+            .await
+            .map(|value| value.flatten().unwrap_or(false))
+            .map_err(storage_error)
+    }
+
+    async fn set_two_factor_enabled(&self, user_id: Uuid, enabled: bool) -> Result<(), AuthError> {
+        let model = self.user_model()?;
+        let writes = model.encode_fields([("twoFactorEnabled", json!(enabled))])?;
+        let mut query = super::rows::update_query(&model, writes);
+        query.push(" WHERE \"id\" = ").push_bind(user_id);
+        let result = query
+            .build()
+            .execute(&self.pool)
+            .await
+            .map_err(storage_error)?;
+        if result.rows_affected() == 0 {
+            return Err(AuthError::NotFound);
+        }
+        Ok(())
+    }
+
     async fn find_two_factor(&self, user_id: Uuid) -> Result<Option<TwoFactorRecord>, AuthError> {
-        sqlx::query_as::<_, TwoFactorRow>(&format!(
-            "SELECT {COLUMNS} FROM lucid_auth_two_factors WHERE user_id = $1"
-        ))
-        .bind(user_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map(|row| row.map(Into::into))
-        .map_err(storage_error)
+        let model = self.two_factor_model()?;
+        let mut query = select_query(&model);
+        push_user_predicate(&mut query, &model, user_id)?;
+        decode_optional(&model, query, &self.pool).await
     }
 
     async fn upsert_two_factor(
         &self,
         record: TwoFactorRecord,
     ) -> Result<TwoFactorRecord, AuthError> {
-        sqlx::query_as::<_, TwoFactorRow>(&format!(
-            "INSERT INTO lucid_auth_two_factors ({COLUMNS}) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) \
-             ON CONFLICT (user_id) DO UPDATE SET \
-               enabled = EXCLUDED.enabled, encrypted_secret = EXCLUDED.encrypted_secret, \
-               encrypted_backup_codes = EXCLUDED.encrypted_backup_codes, \
-               verified = EXCLUDED.verified, \
-               failed_verification_count = EXCLUDED.failed_verification_count, \
-               locked_until = EXCLUDED.locked_until, \
-               last_totp_counter = EXCLUDED.last_totp_counter \
-             RETURNING {COLUMNS}"
-        ))
-        .bind(record.id)
-        .bind(record.user_id)
-        .bind(record.enabled)
-        .bind(record.encrypted_secret)
-        .bind(record.encrypted_backup_codes)
-        .bind(record.verified)
-        .bind(
-            i32::try_from(record.failed_verification_count).map_err(|_| {
-                AuthError::InvalidRequest("two-factor failure count is too large".into())
-            })?,
-        )
-        .bind(record.locked_until)
-        .bind(record.last_totp_counter)
-        .fetch_one(&self.pool)
-        .await
-        .map(Into::into)
-        .map_err(storage_error)
+        let user_model = self.user_model()?;
+        let model = self.two_factor_model()?;
+        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
+        let mut lock = QueryBuilder::<Postgres>::new("SELECT \"id\" FROM ");
+        lock.push(user_model.quoted_table())
+            .push(" WHERE \"id\" = ")
+            .push_bind(record.user_id)
+            .push(" FOR UPDATE");
+        if lock
+            .build()
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(storage_error)?
+            .is_none()
+        {
+            return Err(AuthError::NotFound);
+        }
+
+        let updates = two_factor_update_writes(&model, &record)?;
+        let mut update = super::rows::update_query(&model, updates);
+        push_user_predicate(&mut update, &model, record.user_id)?;
+        update.push(" RETURNING ").push(model.all_projection());
+        if let Some(row) = update
+            .build()
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(storage_error)?
+        {
+            let stored = decode_two_factor(&model, &row)?;
+            transaction.commit().await.map_err(storage_error)?;
+            return Ok(stored);
+        }
+
+        let writes = two_factor_writes(&model, &record)?;
+        let mut insert = super::rows::insert_query(&model, writes);
+        let row = insert
+            .build()
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(storage_error)?;
+        let stored = decode_two_factor(&model, &row)?;
+        transaction.commit().await.map_err(storage_error)?;
+        Ok(stored)
     }
 
     async fn delete_two_factor(&self, user_id: Uuid) -> Result<(), AuthError> {
-        sqlx::query("DELETE FROM lucid_auth_two_factors WHERE user_id = $1")
-            .bind(user_id)
-            .execute(&self.pool)
+        let user_model = self.user_model()?;
+        let model = self.two_factor_model()?;
+        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
+        let mut delete = QueryBuilder::<Postgres>::new("DELETE FROM ");
+        delete.push(model.quoted_table());
+        push_user_predicate(&mut delete, &model, user_id)?;
+        delete
+            .build()
+            .execute(&mut *transaction)
             .await
-            .map(|_| ())
-            .map_err(storage_error)
+            .map_err(storage_error)?;
+        let writes = user_model.encode_fields([("twoFactorEnabled", json!(false))])?;
+        let mut update = super::rows::update_query(&user_model, writes);
+        update.push(" WHERE \"id\" = ").push_bind(user_id);
+        update
+            .build()
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage_error)?;
+        transaction.commit().await.map_err(storage_error)
     }
 
     async fn replace_backup_codes(
@@ -100,40 +136,52 @@ impl TwoFactorStore for PostgresStore {
         expected: &str,
         replacement: String,
     ) -> Result<bool, AuthError> {
-        sqlx::query(
-            "UPDATE lucid_auth_two_factors SET encrypted_backup_codes = $1 \
-             WHERE user_id = $2 AND encrypted_backup_codes = $3",
-        )
-        .bind(replacement)
-        .bind(user_id)
-        .bind(expected)
-        .execute(&self.pool)
-        .await
-        .map(|result| result.rows_affected() == 1)
-        .map_err(storage_error)
+        let model = self.two_factor_model()?;
+        let writes = model.encode_fields([("backupCodes", json!(replacement))])?;
+        let mut query = super::rows::update_query(&model, writes);
+        push_user_predicate(&mut query, &model, user_id)?;
+        query
+            .push(" AND ")
+            .push(model.quoted_column("backupCodes")?)
+            .push(" = ");
+        model
+            .encode("backupCodes", json!(expected))?
+            .push_bind(&mut query);
+        query
+            .build()
+            .execute(&self.pool)
+            .await
+            .map(|result| result.rows_affected() == 1)
+            .map_err(storage_error)
     }
 
-    async fn accept_totp_counter(
-        &self,
-        user_id: Uuid,
-        counter: i64,
-        enable: bool,
-    ) -> Result<bool, AuthError> {
-        sqlx::query(
-            "UPDATE lucid_auth_two_factors SET \
-               last_totp_counter = $1, \
-               enabled = CASE WHEN $2 THEN TRUE ELSE enabled END, \
-               verified = CASE WHEN $2 THEN TRUE ELSE verified END \
-             WHERE user_id = $3 AND \
-               (last_totp_counter IS NULL OR last_totp_counter < $1)",
-        )
-        .bind(counter)
-        .bind(enable)
-        .bind(user_id)
-        .execute(&self.pool)
-        .await
-        .map(|result| result.rows_affected() == 1)
-        .map_err(storage_error)
+    async fn complete_two_factor_enrollment(&self, user_id: Uuid) -> Result<bool, AuthError> {
+        let user_model = self.user_model()?;
+        let model = self.two_factor_model()?;
+        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
+        let writes = model.encode_fields([("verified", json!(true))])?;
+        let mut update_record = super::rows::update_query(&model, writes);
+        push_user_predicate(&mut update_record, &model, user_id)?;
+        let updated = update_record
+            .build()
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage_error)?
+            .rows_affected()
+            == 1;
+        if !updated {
+            return Ok(false);
+        }
+        let writes = user_model.encode_fields([("twoFactorEnabled", json!(true))])?;
+        let mut update_user = super::rows::update_query(&user_model, writes);
+        update_user.push(" WHERE \"id\" = ").push_bind(user_id);
+        update_user
+            .build()
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage_error)?;
+        transaction.commit().await.map_err(storage_error)?;
+        Ok(true)
     }
 
     async fn record_two_factor_failure(
@@ -145,32 +193,93 @@ impl TwoFactorStore for PostgresStore {
         let max_attempts = i32::try_from(max_attempts).map_err(|_| {
             AuthError::InvalidConfiguration("two-factor attempt budget is too large".into())
         })?;
-        sqlx::query_scalar::<_, bool>(
-            "UPDATE lucid_auth_two_factors SET \
-               failed_verification_count = failed_verification_count + 1, \
-               locked_until = CASE \
-                 WHEN failed_verification_count + 1 >= $2 THEN $3 ELSE locked_until END \
-             WHERE user_id = $1 \
-             RETURNING failed_verification_count >= $2",
-        )
-        .bind(user_id)
-        .bind(max_attempts)
-        .bind(locked_until)
-        .fetch_optional(&self.pool)
-        .await
-        .map(|locked| locked.unwrap_or(false))
-        .map_err(storage_error)
+        let model = self.two_factor_model()?;
+        let failures = model.quoted_column("failedVerificationCount")?;
+        let locked = model.quoted_column("lockedUntil")?;
+        let mut query = QueryBuilder::<Postgres>::new("UPDATE ");
+        query
+            .push(model.quoted_table())
+            .push(" SET ")
+            .push(failures)
+            .push(" = ")
+            .push(failures)
+            .push(" + 1, ")
+            .push(locked)
+            .push(" = CASE WHEN ")
+            .push(failures)
+            .push(" + 1 >= ")
+            .push_bind(max_attempts)
+            .push(" THEN ")
+            .push_bind(locked_until)
+            .push(" ELSE ")
+            .push(locked)
+            .push(" END");
+        push_user_predicate(&mut query, &model, user_id)?;
+        query
+            .push(" RETURNING ")
+            .push(failures)
+            .push(" >= ")
+            .push_bind(max_attempts);
+        query
+            .build_query_scalar::<bool>()
+            .fetch_optional(&self.pool)
+            .await
+            .map(|locked| locked.unwrap_or(false))
+            .map_err(storage_error)
     }
 
     async fn reset_two_factor_failures(&self, user_id: Uuid) -> Result<(), AuthError> {
-        sqlx::query(
-            "UPDATE lucid_auth_two_factors SET failed_verification_count = 0, locked_until = NULL \
-             WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .execute(&self.pool)
-        .await
-        .map(|_| ())
-        .map_err(storage_error)
+        let model = self.two_factor_model()?;
+        let writes = model.encode_fields([
+            ("failedVerificationCount", json!(0)),
+            ("lockedUntil", serde_json::Value::Null),
+        ])?;
+        let mut query = super::rows::update_query(&model, writes);
+        push_user_predicate(&mut query, &model, user_id)?;
+        query
+            .build()
+            .execute(&self.pool)
+            .await
+            .map(|_| ())
+            .map_err(storage_error)
     }
+}
+
+fn select_query(model: &PostgresModel<'_>) -> QueryBuilder<'static, Postgres> {
+    let mut query = QueryBuilder::new("SELECT ");
+    query
+        .push(model.all_projection())
+        .push(" FROM ")
+        .push(model.quoted_table());
+    query
+}
+
+fn push_user_predicate(
+    query: &mut QueryBuilder<'static, Postgres>,
+    model: &PostgresModel<'_>,
+    user_id: Uuid,
+) -> Result<(), AuthError> {
+    query
+        .push(" WHERE ")
+        .push(model.quoted_column("userId")?)
+        .push(" = ");
+    model
+        .encode("userId", json!(user_id.to_string()))?
+        .push_bind(query);
+    Ok(())
+}
+
+async fn decode_optional(
+    model: &PostgresModel<'_>,
+    mut query: QueryBuilder<'static, Postgres>,
+    pool: &sqlx::PgPool,
+) -> Result<Option<TwoFactorRecord>, AuthError> {
+    query
+        .build()
+        .fetch_optional(pool)
+        .await
+        .map_err(storage_error)?
+        .as_ref()
+        .map(|row| decode_two_factor(model, row))
+        .transpose()
 }

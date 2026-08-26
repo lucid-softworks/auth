@@ -5,7 +5,6 @@ use lucid_auth::{
     PasskeyPlugin, StepUpAssurance, StepUpPolicyConfig, StepUpPolicyPlugin, StepUpSession,
     StepUpStore, StoredPasskey, TwoFactorConfig, TwoFactorPlugin,
 };
-use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -92,7 +91,7 @@ async fn core_password_sessions_have_no_step_up_policy_when_the_plugin_is_disabl
 
     assert_eq!(
         signed_in.session.session.authentication_method,
-        AuthenticationMethod::Password
+        Some(AuthenticationMethod::Password)
     );
     assert!(service.step_up_policy().is_none());
     assert!(service.session(&signed_in.token).await.unwrap().is_some());
@@ -218,9 +217,7 @@ async fn passkey_enrollment_produces_pending_state_and_recovery_codes_are_one_ti
             backed_up: false,
             transports: None,
             aaguid: None,
-            credential: json!({}),
             created_at: now,
-            updated_at: now,
         })
         .await
         .unwrap();

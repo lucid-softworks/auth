@@ -6,7 +6,6 @@ use crate::{
 use chrono::{Duration, Utc};
 use uuid::Uuid;
 
-const VERIFICATION_PURPOSE: &str = "";
 const EMAIL_CLAIM_IDENTIFIER_PREFIX: &str = "siwe-email-claim-";
 
 struct SiweEmailChoice {
@@ -122,7 +121,6 @@ impl AuthService {
         };
         let _ = self
             .consume_verification_value(
-                VERIFICATION_PURPOSE,
                 &format!("{EMAIL_CLAIM_IDENTIFIER_PREFIX}{email}"),
                 Utc::now(),
             )
@@ -209,14 +207,11 @@ impl AuthService {
 
     async fn reserve_siwe_email(&self, email: &str, address: &str) -> Result<bool, AuthError> {
         let now = Utc::now();
-        self.reserve_verification_value(VerificationValue {
-            purpose: VERIFICATION_PURPOSE.into(),
-            identifier: format!("{EMAIL_CLAIM_IDENTIFIER_PREFIX}{email}"),
-            payload: serde_json::json!(address),
-            additional_fields: serde_json::Map::new(),
-            expires_at: now + Duration::seconds(60),
-            created_at: now,
-        })
+        self.reserve_verification_value(VerificationValue::new(
+            format!("{EMAIL_CLAIM_IDENTIFIER_PREFIX}{email}"),
+            address,
+            now + Duration::seconds(60),
+        ))
         .await
     }
 

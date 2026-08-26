@@ -41,7 +41,7 @@ use super::super::{
     OAuthProviderClientAssertion, OAuthProviderConfig, OAuthProviderError, OAuthProviderExtension,
     OAuthProviderRefreshToken, OAuthProviderResource, OAuthProviderStore, OAuthRefreshRotation,
     OAuthRefreshRotationOutcome, OAuthStoredTokenType, OAuthTokenIssuance,
-    authorization::{AUTHORIZATION_CODE_PURPOSE, OAuthAuthorizationCodePayload},
+    authorization::OAuthAuthorizationCodePayload,
     crypto::{
         apply_token_prefix, client_assertion_id, decrypt_client_secret, hash_token, random_letters,
         store_token, strip_token_prefix, verify_client_secret, verify_s256_pkce,

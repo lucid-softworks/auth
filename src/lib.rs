@@ -16,6 +16,7 @@ mod config;
 mod cookie;
 mod creem;
 mod database_hooks;
+mod database_schema;
 pub mod device_authorization;
 mod dodo_payments;
 mod dub;
@@ -80,26 +81,28 @@ pub use additional_fields::{
 };
 pub use admin::{
     AdminConfig, AdminCreateUser, AdminError, AdminListCondition, AdminListOperator,
-    AdminListUsersQuery, AdminPermissionSet, AdminPlugin, AdminRole, AdminSortDirection,
-    AdminUserUpdate,
+    AdminListUsersQuery, AdminPermissionSet, AdminPlugin, AdminRole, AdminSchema,
+    AdminSortDirection, AdminUserUpdate,
 };
 pub use anonymous::{
     AnonymousEmailGenerator, AnonymousLinkAccount, AnonymousLinkAccountCallback,
     AnonymousNameGenerator, AnonymousPlugin, AnonymousPluginConfig, AnonymousSignInContext,
 };
 pub use api_key::{
-    ApiKeyConfiguration, ApiKeyError, ApiKeyExpirationConfig, ApiKeyGenerator, ApiKeyPlugin,
-    ApiKeyRateLimitConfig, ApiKeyReference, ApiKeyStartingCharactersConfig,
+    ApiKeyConfiguration, ApiKeyError, ApiKeyExpirationConfig, ApiKeyGenerator, ApiKeyOptions,
+    ApiKeyPlugin, ApiKeyRateLimitConfig, ApiKeyReference, ApiKeyStartingCharactersConfig,
 };
 pub use config::{
-    AccountConfig, AccountLinkingConfig, AuthConfig, AuthIdGenerator, EmailPasswordConfig,
-    OAuthStateStrategy, VerificationConfig, VerificationIdentifierConfig,
+    AccountConfig, AccountFieldMappings, AccountLinkingConfig, AuthConfig, AuthIdGenerator,
+    EmailPasswordConfig, OAuthStateStrategy, RateLimitFieldMappings, SessionFieldMappings,
+    UserFieldMappings, VerificationConfig, VerificationFieldMappings, VerificationIdentifierConfig,
     VerificationIdentifierHasher, VerificationIdentifierStorage, VersionedSecret,
 };
 pub use database_hooks::{
     BeforeDatabaseHook, DatabaseHookContext, DatabaseHookRequest, DatabaseHooks, DatabaseModel,
     DatabaseRecord, DeferredHookResponse,
 };
+pub use database_schema::*;
 pub use device_authorization::*;
 pub use email::{
     EmailVerificationConfig, PasswordResetCallback, PasswordResetEmail, PasswordResetEmailSender,
@@ -181,8 +184,9 @@ pub use organization::{
     OrganizationLifecycleHooks, OrganizationMember, OrganizationMemberStore,
     OrganizationMemberWithUser, OrganizationMemberWriteOutcome, OrganizationPermissions,
     OrganizationPlugin, OrganizationPluginConfig, OrganizationRole, OrganizationRoleStore,
-    OrganizationStore, OrganizationTeam, OrganizationTeamMember, OrganizationTeamStore,
-    OrganizationTeamWriteOutcome, OrganizationTeamsConfig, OrganizationUpdate,
+    OrganizationSchema, OrganizationStore, OrganizationTeam, OrganizationTeamMember,
+    OrganizationTeamStore, OrganizationTeamWriteOutcome, OrganizationTeamsConfig,
+    OrganizationUpdate,
 };
 pub use owner_policy::OwnerPolicyPlugin;
 pub use passkey::{
@@ -206,8 +210,7 @@ pub use plugin::{
     PluginClientPathMethod, PluginClientProvenance, PluginCookie, PluginDescriptor, PluginEndpoint,
     PluginHttpMethod, PluginMiddleware, PluginMigration, PluginMigrationContribution,
     PluginProvenance, PluginRateLimit, PluginRequestContext, PluginRequestSecurity,
-    PluginSchemaField, SensitiveOperation, UserManagementAction, UserManagementDecision,
-    UserManagementOperation,
+    SensitiveOperation, UserManagementAction, UserManagementDecision, UserManagementOperation,
 };
 #[cfg(feature = "axum")]
 pub use plugin::{AxumPluginRoute, PluginSession};
@@ -238,10 +241,9 @@ pub use step_up::{
     StepUpPolicyPlugin, StepUpPolicyService, StepUpSession, StepUpSessionProjection, StepUpStore,
 };
 pub use store::{
-    AccessStore, AccountDeleteOutcome, ApiKeyStore, ApiKeyUseOutcome, AuthStore,
-    EmailVerificationOutcome, OAuthAccountOwner, OAuthAccountStore, OAuthTokenUpdateOutcome,
-    PasskeyDeleteOutcome, PasswordResetOutcome, SecurityStore, UserProfileUpdate,
-    VerificationStore,
+    AccessStore, AccountDeleteOutcome, ApiKeyStore, ApiKeyUseOutcome, AuthStore, OAuthAccountOwner,
+    OAuthAccountStore, OAuthTokenUpdateOutcome, PasskeyDeleteOutcome, SecurityStore,
+    UserProfileUpdate, VerificationStore,
 };
 pub use user_deletion::{
     ChangeEmailConfig, ChangeEmailConfirmation, ChangeEmailConfirmationSender,

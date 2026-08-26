@@ -32,7 +32,7 @@ pub(super) async fn assert_atomic(
     assert_eq!(allowed, 5);
     assert_eq!(denied, 15);
     assert_eq!(
-        sqlx::query_scalar::<_, i64>("SELECT count FROM lucid_auth_rate_limits WHERE key = $1",)
+        sqlx::query_scalar::<_, i32>("SELECT count FROM \"rateLimit\" WHERE key = $1")
             .bind(&key)
             .fetch_one(pool)
             .await?,
@@ -40,17 +40,20 @@ pub(super) async fn assert_atomic(
     );
 
     let stale = format!("stale|/{}", uuid::Uuid::new_v4());
-    sqlx::query("INSERT INTO lucid_auth_rate_limits (key, count, last_request) VALUES ($1, 1, $2)")
-        .bind(&stale)
-        .bind((now - chrono::Duration::minutes(2)).timestamp_millis())
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "INSERT INTO \"rateLimit\" (id, key, count, \"lastRequest\") VALUES ($1, $2, 1, $3)",
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(&stale)
+    .bind((now - chrono::Duration::minutes(2)).timestamp_millis())
+    .execute(pool)
+    .await?;
     store
         .consume_rate_limit("cleanup|/probe", now, RateLimitRule::new(10, 100), 60)
         .await?;
     assert!(
         !sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM lucid_auth_rate_limits WHERE key = $1)",
+            "SELECT EXISTS(SELECT 1 FROM \"rateLimit\" WHERE key = $1)",
         )
         .bind(stale)
         .fetch_one(pool)

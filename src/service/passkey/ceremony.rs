@@ -5,9 +5,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use webauthn_rs_core::proto::{AuthenticationState, RegistrationState};
 
-pub(super) const REGISTRATION_PURPOSE: &str = "passkey-registration";
-pub(super) const AUTHENTICATION_PURPOSE: &str = "passkey-authentication";
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) enum PasskeyCeremony {
     Registration {
@@ -26,33 +23,28 @@ pub(super) enum PasskeyCeremony {
 impl AuthService {
     pub(super) async fn store_passkey_ceremony(
         &self,
-        purpose: &str,
         token: &str,
         ceremony: PasskeyCeremony,
     ) -> Result<(), AuthError> {
         let now = Utc::now();
         self.store.delete_expired_verifications(now).await?;
-        self.create_verification_record(VerificationValue {
-            purpose: purpose.into(),
-            identifier: token.into(),
-            payload: serde_json::to_value(ceremony)
+        self.create_verification_record(VerificationValue::new(
+            token,
+            serde_json::to_string(&ceremony)
                 .map_err(|error| AuthError::Storage(error.to_string()))?,
-            additional_fields: serde_json::Map::new(),
-            expires_at: now + Duration::minutes(5),
-            created_at: now,
-        })
+            now + Duration::minutes(5),
+        ))
         .await
     }
 
     pub(super) async fn consume_passkey_ceremony(
         &self,
-        purpose: &str,
         token: &str,
     ) -> Result<PasskeyCeremony, AuthError> {
         let value = self
-            .consume_verification_record(purpose, token, Utc::now())
+            .consume_verification_record(token, Utc::now())
             .await?
             .ok_or(AuthError::PasskeyChallengeExpired)?;
-        serde_json::from_value(value.payload).map_err(|_| AuthError::PasskeyChallengeExpired)
+        serde_json::from_str(&value.value).map_err(|_| AuthError::PasskeyChallengeExpired)
     }
 }

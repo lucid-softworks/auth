@@ -320,7 +320,7 @@ async fn disabled_and_stale_deletion_match_official_errors() {
         user_id: user.id,
         token: old_token.into(),
         actor_user_id: None,
-        authentication_method: lucid_auth::AuthenticationMethod::Password,
+        authentication_method: Some(lucid_auth::AuthenticationMethod::Password),
         expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
         created_at: old,
         updated_at: old,

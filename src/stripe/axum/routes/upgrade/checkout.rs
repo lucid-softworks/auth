@@ -225,7 +225,6 @@ fn encode_uri_component(input: &str) -> String {
 mod tests {
     use super::*;
     use crate::{CheckoutLineItem, ProrationBehavior, StripeRequestOptions, SubscriptionStatus};
-    use chrono::Utc;
     use serde_json::json;
     use uuid::Uuid;
 
@@ -351,7 +350,6 @@ mod tests {
     }
 
     fn subscription() -> Subscription {
-        let now = Utc::now();
         Subscription {
             id: Uuid::new_v4(),
             plan: "pro".into(),
@@ -370,8 +368,6 @@ mod tests {
             seats: Some(1.0),
             billing_interval: None,
             stripe_schedule_id: None,
-            created_at: now,
-            updated_at: now,
         }
     }
 }

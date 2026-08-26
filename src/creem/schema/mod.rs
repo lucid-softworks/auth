@@ -1,35 +1,6 @@
-mod migration;
-mod resolution;
-
-use crate::{
-    AdditionalField, AdditionalFieldType, DatabaseModel, PluginMigration, PluginSchemaField,
-};
-pub(crate) use resolution::ResolvedCreemSchema;
-#[cfg(feature = "postgres")]
-pub(crate) use resolution::ResolvedModel;
+use crate::{AdditionalField, AdditionalFieldType, PluginSchemaTable};
 use serde_json::Value;
 use std::collections::BTreeMap;
-
-pub(crate) const SUBSCRIPTION_FIELDS: &[(&str, &str, &str)] = &[
-    ("productId", "product_id", "TEXT NOT NULL"),
-    ("referenceId", "reference_id", "TEXT NOT NULL"),
-    ("creemCustomerId", "creem_customer_id", "TEXT"),
-    ("creemSubscriptionId", "creem_subscription_id", "TEXT"),
-    ("creemOrderId", "creem_order_id", "TEXT"),
-    ("status", "status", "TEXT NOT NULL DEFAULT 'pending'"),
-    ("periodStart", "period_start", "TIMESTAMPTZ"),
-    ("periodEnd", "period_end", "TIMESTAMPTZ"),
-    (
-        "cancelAtPeriodEnd",
-        "cancel_at_period_end",
-        "BOOLEAN NOT NULL DEFAULT FALSE",
-    ),
-];
-
-pub(crate) const USER_FIELDS: &[(&str, &str, &str)] = &[
-    ("creemCustomerId", "creemCustomerId", "TEXT"),
-    ("hadTrial", "hadTrial", "BOOLEAN NOT NULL DEFAULT FALSE"),
-];
 
 /// One model/table and its Better Auth field-to-adapter-name remappings.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -85,44 +56,101 @@ pub enum CreemSchemaError {
 }
 
 /// Produces the plugin-owned, deterministic migration for this schema.
-pub fn migration(
+/// Core user fields contributed only while subscription persistence is on.
+pub fn schema_tables(
     schema: &CreemSchema,
     persist_subscriptions: bool,
-) -> Result<PluginMigration, CreemSchemaError> {
-    let resolved = ResolvedCreemSchema::new(schema, persist_subscriptions)?;
-    Ok(PluginMigration::owned(
-        format!("creem-better-auth-1-1-4-schema-{}", resolved.fingerprint()),
-        "Creem Better Auth 1.1.4 conditional schema",
-        resolved.migration_sql(),
-    ))
+) -> Result<Vec<PluginSchemaTable>, CreemSchemaError> {
+    if !persist_subscriptions {
+        if !schema.is_empty() {
+            return Err(CreemSchemaError::PersistenceDisabled);
+        }
+        return Ok(Vec::new());
+    }
+    if let Some(unknown) = schema
+        .models
+        .keys()
+        .find(|name| !matches!(name.as_str(), "creem_subscription" | "user"))
+    {
+        return Err(CreemSchemaError::UnknownModel(unknown.clone()));
+    }
+    let subscription = schema.models.get("creem_subscription");
+    let user = schema.models.get("user");
+    let mut subscription_table = configured_table("creem_subscription", subscription);
+    for (logical, field) in [
+        (
+            "productId",
+            AdditionalField::new(AdditionalFieldType::String),
+        ),
+        (
+            "referenceId",
+            AdditionalField::new(AdditionalFieldType::String),
+        ),
+        ("creemCustomerId", optional(AdditionalFieldType::String)),
+        ("creemSubscriptionId", optional(AdditionalFieldType::String)),
+        ("creemOrderId", optional(AdditionalFieldType::String)),
+        (
+            "status",
+            AdditionalField::new(AdditionalFieldType::String)
+                .default_value(Value::String("pending".into())),
+        ),
+        ("periodStart", optional(AdditionalFieldType::Date)),
+        ("periodEnd", optional(AdditionalFieldType::Date)),
+        (
+            "cancelAtPeriodEnd",
+            optional(AdditionalFieldType::Boolean).default_value(Value::Bool(false)),
+        ),
+    ] {
+        subscription_table =
+            subscription_table.field(logical, configured_field(logical, field, subscription));
+    }
+    let user_table = configured_table("user", user)
+        .field(
+            "creemCustomerId",
+            configured_field(
+                "creemCustomerId",
+                optional(AdditionalFieldType::String),
+                user,
+            ),
+        )
+        .field(
+            "hadTrial",
+            configured_field(
+                "hadTrial",
+                optional(AdditionalFieldType::Boolean).default_value(Value::Bool(false)),
+                user,
+            ),
+        );
+    Ok(vec![subscription_table, user_table])
 }
 
-/// Core user fields contributed only while subscription persistence is on.
-pub fn user_schema_fields(
-    schema: &CreemSchema,
-    persist_subscriptions: bool,
-) -> Result<Vec<PluginSchemaField>, CreemSchemaError> {
-    let resolved = ResolvedCreemSchema::new(schema, persist_subscriptions)?;
-    let Some(user) = resolved.user() else {
-        return Ok(Vec::new());
-    };
-    Ok(vec![
-        PluginSchemaField::new(
-            DatabaseModel::User,
-            "creemCustomerId",
-            AdditionalField::new(AdditionalFieldType::String)
-                .optional()
-                .field_name(user.unquoted_column("creemCustomerId")),
-        ),
-        PluginSchemaField::new(
-            DatabaseModel::User,
-            "hadTrial",
-            AdditionalField::new(AdditionalFieldType::Boolean)
-                .optional()
-                .default_value(Value::Bool(false))
-                .field_name(user.unquoted_column("hadTrial")),
-        ),
-    ])
+fn configured_table(logical: &'static str, config: Option<&CreemModelSchema>) -> PluginSchemaTable {
+    let table = PluginSchemaTable::new(logical);
+    match config
+        .and_then(|config| config.model_name.as_deref())
+        .filter(|name| !name.is_empty())
+    {
+        Some(name) => table.model_name(name),
+        None => table,
+    }
+}
+
+fn configured_field(
+    logical: &'static str,
+    field: AdditionalField,
+    config: Option<&CreemModelSchema>,
+) -> AdditionalField {
+    match config
+        .and_then(|config| config.fields.get(logical))
+        .filter(|name| !name.is_empty())
+    {
+        Some(name) => field.field_name(name),
+        None => field,
+    }
+}
+
+fn optional(field_type: AdditionalFieldType) -> AdditionalField {
+    AdditionalField::new(field_type).optional()
 }
 
 #[cfg(test)]
@@ -132,40 +160,30 @@ mod tests {
     #[test]
     fn disabled_persistence_has_no_schema_but_rejects_any_mapping() {
         let default = CreemSchema::default();
-        assert!(user_schema_fields(&default, false).unwrap().is_empty());
-        assert!(migration(&default, false).unwrap().sql.is_empty());
-
+        assert!(schema_tables(&default, false).unwrap().is_empty());
         let mut mapped = CreemSchema::default();
         mapped.insert_model("user", CreemModelSchema::default());
         assert_eq!(
-            migration(&mapped, false).unwrap_err(),
+            schema_tables(&mapped, false).unwrap_err(),
             CreemSchemaError::PersistenceDisabled
         );
     }
 
     #[test]
     fn user_fields_preserve_upstream_input_output_and_default_policy() {
-        let fields = user_schema_fields(&CreemSchema::default(), true).unwrap();
-        assert_eq!(fields.len(), 2);
-        let customer = fields
-            .iter()
-            .find(|field| field.name == "creemCustomerId")
-            .unwrap();
-        assert!(!customer.field.required);
-        assert!(customer.field.input);
-        assert!(customer.field.returned);
-        assert!(!customer.field.has_default());
-        let trial = fields
-            .iter()
-            .find(|field| field.name == "hadTrial")
-            .unwrap();
-        assert!(!trial.field.required);
-        assert!(trial.field.input);
-        assert!(trial.field.returned);
-        assert_eq!(
-            trial.field.static_default_value(),
-            Some(&Value::Bool(false))
-        );
+        let tables = schema_tables(&CreemSchema::default(), true).unwrap();
+        assert_eq!(tables.len(), 2);
+        assert_eq!(tables[0].logical_name, "creem_subscription");
+        let customer = &tables[1].fields["creemCustomerId"];
+        assert!(!customer.required);
+        assert!(customer.input);
+        assert!(customer.returned);
+        assert!(!customer.has_default());
+        let trial = &tables[1].fields["hadTrial"];
+        assert!(!trial.required);
+        assert!(trial.input);
+        assert!(trial.returned);
+        assert_eq!(trial.static_default_value(), Some(&Value::Bool(false)));
     }
 
     #[test]
@@ -181,14 +199,14 @@ mod tests {
                 ]),
             },
         );
-        let generated = migration(&schema, true).unwrap();
-        assert!(generated.sql.contains("lucid_auth_creem_subscriptions"));
-        assert!(generated.sql.contains("\"product_id\" TEXT NOT NULL"));
-        assert!(!generated.sql.contains("ignored"));
+        let generated = schema_tables(&schema, true).unwrap();
+        assert_eq!(generated[0].model_name, None);
+        assert_eq!(generated[0].fields["productId"].field_name, None);
+        assert!(!generated[0].fields.contains_key("notAField"));
 
         schema.insert_model("unknown", CreemModelSchema::default());
         assert_eq!(
-            migration(&schema, true).unwrap_err(),
+            schema_tables(&schema, true).unwrap_err(),
             CreemSchemaError::UnknownModel("unknown".into())
         );
     }

@@ -119,7 +119,7 @@ pub(super) async fn assert_one_tap_account_and_session_persistence(
         user_id: user.id,
         token: "postgres-one-tap-session".into(),
         actor_user_id: None,
-        authentication_method: AuthenticationMethod::OAuth,
+        authentication_method: Some(AuthenticationMethod::OAuth),
         expires_at: now + chrono::Duration::days(7),
         created_at: now,
         updated_at: now,
@@ -132,10 +132,7 @@ pub(super) async fn assert_one_tap_account_and_session_persistence(
         .find_session("postgres-one-tap-session")
         .await?
         .expect("One Tap session persists");
-    assert_eq!(
-        persisted.0.authentication_method,
-        AuthenticationMethod::OAuth
-    );
+    assert_eq!(persisted.0.authentication_method, None);
     assert_eq!(persisted.1.id, user.id);
     let owner = store
         .find_oauth_account_owner("https://accounts.google.com", "postgres-one-tap-subject")
@@ -207,9 +204,9 @@ async fn assert_token_rotation_is_atomic(
 async fn assert_oauth_columns(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
     let columns = sqlx::query_scalar::<_, String>(
         "SELECT column_name FROM information_schema.columns \
-         WHERE table_schema = current_schema() AND table_name = 'lucid_auth_accounts' \
-         AND column_name IN ('issuer', 'access_token', 'refresh_token', 'id_token', \
-           'access_token_expires_at', 'refresh_token_expires_at', 'scope') \
+         WHERE table_schema = current_schema() AND table_name = 'account' \
+         AND column_name IN ('issuer', 'accessToken', 'refreshToken', 'idToken', \
+           'accessTokenExpiresAt', 'refreshTokenExpiresAt', 'scope') \
          ORDER BY column_name",
     )
     .fetch_all(pool)

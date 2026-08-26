@@ -1,6 +1,5 @@
 use crate::stripe::*;
 use async_trait::async_trait;
-use chrono::Utc;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -219,7 +218,6 @@ pub(super) fn provider_subscription(status: SubscriptionStatus) -> StripeSubscri
 }
 
 pub(super) fn local_subscription(reference_id: &str) -> Subscription {
-    let now = Utc::now();
     Subscription {
         id: Uuid::new_v4(),
         plan: "pro".into(),
@@ -238,8 +236,6 @@ pub(super) fn local_subscription(reference_id: &str) -> Subscription {
         seats: Some(1.0),
         billing_interval: Some(BillingInterval::Month),
         stripe_schedule_id: None,
-        created_at: now,
-        updated_at: now,
     }
 }
 

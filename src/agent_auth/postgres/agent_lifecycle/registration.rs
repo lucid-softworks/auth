@@ -1,6 +1,6 @@
 use crate::{
     AuthError,
-    agent_auth::{AgentRegistrationBundle, AgentRegistrationOutcome, schema::AgentAuthModel},
+    agent_auth::{AgentRegistrationBundle, AgentRegistrationOutcome},
 };
 use sqlx::{Postgres, Transaction};
 use std::collections::HashSet;
@@ -19,19 +19,9 @@ pub(in crate::agent_auth::postgres) async fn register(
     if conflicts(store, &mut transaction, &bundle).await? {
         return Ok(AgentRegistrationOutcome::UniqueConflict);
     }
-    let result = persist(store, &mut transaction, &bundle).await;
-    match result {
-        Ok(()) => {
-            transaction.commit().await.map_err(storage_error)?;
-            Ok(AgentRegistrationOutcome::Registered(Box::new(bundle)))
-        }
-        Err(AuthError::Storage(message))
-            if message.contains("unique constraint") || message.contains("duplicate key value") =>
-        {
-            Ok(AgentRegistrationOutcome::UniqueConflict)
-        }
-        Err(error) => Err(error),
-    }
+    persist(store, &mut transaction, &bundle).await?;
+    transaction.commit().await.map_err(storage_error)?;
+    Ok(AgentRegistrationOutcome::Registered(Box::new(bundle)))
 }
 
 async fn lock_models(transaction: &mut Transaction<'_, Postgres>) -> Result<(), AuthError> {
@@ -85,13 +75,13 @@ async fn host_conflict(
     let Some(host) = &bundle.host else {
         return Ok(false);
     };
-    let model = store.schema.model(AgentAuthModel::AgentHost);
+    let model = store.model("agentHost")?;
     sqlx::query_scalar(&format!(
         "SELECT EXISTS(SELECT 1 FROM {} WHERE {}=$1 OR ($2::TEXT IS NOT NULL AND {}=$2) OR ($3::TEXT IS NOT NULL AND {}=$3))",
-        model.table(),
-        model.column("id"),
-        model.column("kid"),
-        model.column("publicKey"),
+        model.quoted_table(),
+        model.quoted_column("id")?,
+        model.quoted_column("kid")?,
+        model.quoted_column("publicKey")?,
     ))
     .bind(&host.id)
     .bind(&host.kid)
@@ -106,13 +96,13 @@ async fn agent_conflict(
     transaction: &mut Transaction<'_, Postgres>,
     bundle: &AgentRegistrationBundle,
 ) -> Result<bool, AuthError> {
-    let model = store.schema.model(AgentAuthModel::Agent);
+    let model = store.model("agent")?;
     sqlx::query_scalar(&format!(
         "SELECT EXISTS(SELECT 1 FROM {} WHERE {}=$1 OR ($2::TEXT IS NOT NULL AND {}=$2) OR {}=$3)",
-        model.table(),
-        model.column("id"),
-        model.column("kid"),
-        model.column("publicKey"),
+        model.quoted_table(),
+        model.quoted_column("id")?,
+        model.quoted_column("kid")?,
+        model.quoted_column("publicKey")?,
     ))
     .bind(&bundle.agent.id)
     .bind(&bundle.agent.kid)
@@ -127,13 +117,13 @@ async fn grant_conflict(
     transaction: &mut Transaction<'_, Postgres>,
     bundle: &AgentRegistrationBundle,
 ) -> Result<bool, AuthError> {
-    let model = store.schema.model(AgentAuthModel::AgentCapabilityGrant);
+    let model = store.model("agentCapabilityGrant")?;
     let sql = format!(
         "SELECT EXISTS(SELECT 1 FROM {} WHERE {}=$1 OR ({}=$2 AND {}=$3))",
-        model.table(),
-        model.column("id"),
-        model.column("agentId"),
-        model.column("capability"),
+        model.quoted_table(),
+        model.quoted_column("id")?,
+        model.quoted_column("agentId")?,
+        model.quoted_column("capability")?,
     );
     for grant in &bundle.grants {
         let conflict = sqlx::query_scalar(&sql)
@@ -158,12 +148,12 @@ async fn approval_conflict(
     let Some(approval) = &bundle.approval else {
         return Ok(false);
     };
-    let model = store.schema.model(AgentAuthModel::ApprovalRequest);
+    let model = store.model("approvalRequest")?;
     sqlx::query_scalar(&format!(
         "SELECT EXISTS(SELECT 1 FROM {} WHERE {}=$1 OR ($2::TEXT IS NOT NULL AND {}=$2))",
-        model.table(),
-        model.column("id"),
-        model.column("userCodeHash"),
+        model.quoted_table(),
+        model.quoted_column("id")?,
+        model.quoted_column("userCodeHash")?,
     ))
     .bind(&approval.id)
     .bind(&approval.user_code_hash)
@@ -178,14 +168,14 @@ async fn persist(
     bundle: &AgentRegistrationBundle,
 ) -> Result<(), AuthError> {
     if let Some(host) = &bundle.host {
-        inserts::host(transaction, &store.schema, host).await?;
+        inserts::host(transaction, store, host).await?;
     }
-    inserts::agent(transaction, &store.schema, &bundle.agent).await?;
+    inserts::agent(transaction, store, &bundle.agent).await?;
     for grant in &bundle.grants {
-        inserts::grant(transaction, &store.schema, grant).await?;
+        inserts::grant(transaction, store, grant).await?;
     }
     if let Some(approval) = &bundle.approval {
-        inserts::approval(transaction, &store.schema, approval).await?;
+        inserts::approval(transaction, store, approval).await?;
     }
     Ok(())
 }

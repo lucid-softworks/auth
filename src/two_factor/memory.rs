@@ -2,17 +2,35 @@ use super::{TwoFactorRecord, TwoFactorStore};
 use crate::AuthError;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
 #[derive(Clone, Default)]
 pub struct MemoryTwoFactorStore {
     records: Arc<RwLock<HashMap<Uuid, TwoFactorRecord>>>,
+    enabled_users: Arc<RwLock<HashSet<Uuid>>>,
 }
 
 #[async_trait]
 impl TwoFactorStore for MemoryTwoFactorStore {
+    async fn two_factor_enabled(&self, user_id: Uuid) -> Result<bool, AuthError> {
+        Ok(self.enabled_users.read().await.contains(&user_id))
+    }
+
+    async fn set_two_factor_enabled(&self, user_id: Uuid, enabled: bool) -> Result<(), AuthError> {
+        let mut users = self.enabled_users.write().await;
+        if enabled {
+            users.insert(user_id);
+        } else {
+            users.remove(&user_id);
+        }
+        Ok(())
+    }
+
     async fn find_two_factor(&self, user_id: Uuid) -> Result<Option<TwoFactorRecord>, AuthError> {
         Ok(self.records.read().await.get(&user_id).cloned())
     }
@@ -30,6 +48,7 @@ impl TwoFactorStore for MemoryTwoFactorStore {
 
     async fn delete_two_factor(&self, user_id: Uuid) -> Result<(), AuthError> {
         self.records.write().await.remove(&user_id);
+        self.enabled_users.write().await.remove(&user_id);
         Ok(())
     }
 
@@ -43,34 +62,20 @@ impl TwoFactorStore for MemoryTwoFactorStore {
         let Some(record) = records.get_mut(&user_id) else {
             return Ok(false);
         };
-        if record.encrypted_backup_codes.as_deref() != Some(expected) {
+        if record.encrypted_backup_codes != expected {
             return Ok(false);
         }
-        record.encrypted_backup_codes = Some(replacement);
+        record.encrypted_backup_codes = replacement;
         Ok(true)
     }
 
-    async fn accept_totp_counter(
-        &self,
-        user_id: Uuid,
-        counter: i64,
-        enable: bool,
-    ) -> Result<bool, AuthError> {
+    async fn complete_two_factor_enrollment(&self, user_id: Uuid) -> Result<bool, AuthError> {
         let mut records = self.records.write().await;
         let Some(record) = records.get_mut(&user_id) else {
             return Ok(false);
         };
-        if record
-            .last_totp_counter
-            .is_some_and(|previous| counter <= previous)
-        {
-            return Ok(false);
-        }
-        record.last_totp_counter = Some(counter);
-        if enable {
-            record.enabled = true;
-            record.verified = true;
-        }
+        record.verified = true;
+        self.enabled_users.write().await.insert(user_id);
         Ok(true)
     }
 

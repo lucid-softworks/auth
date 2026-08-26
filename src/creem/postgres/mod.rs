@@ -1,8 +1,10 @@
 use super::{
-    CreemSchema, CreemSchemaError, CreemStore, CreemStoreError, CreemStoredUser, CreemSubscription,
-    CreemSubscriptionPatch, schema::ResolvedCreemSchema,
+    CreemStore, CreemStoreError, CreemStoredUser, CreemSubscription, CreemSubscriptionPatch,
 };
-use crate::postgres::PostgresStore;
+use crate::{
+    AuthError,
+    postgres::{PostgresModel, PostgresStore},
+};
 use async_trait::async_trait;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -11,36 +13,40 @@ mod rows;
 mod subscription;
 mod user;
 
+#[cfg(test)]
+mod test_support;
+
 /// PostgreSQL persistence for one isolated Creem schema mapping.
 #[derive(Clone)]
 pub struct PostgresCreemStore {
     store: PostgresStore,
-    schema: ResolvedCreemSchema,
-    migration_sql: String,
 }
 
 impl PostgresCreemStore {
-    pub fn new(
-        store: PostgresStore,
-        schema: &CreemSchema,
-        persist_subscriptions: bool,
-    ) -> Result<Self, CreemSchemaError> {
-        let schema = ResolvedCreemSchema::new(schema, persist_subscriptions)?;
-        let migration_sql = schema.migration_sql();
-        Ok(Self {
-            store,
-            schema,
-            migration_sql,
-        })
-    }
-
-    pub fn migration_sql(&self) -> &str {
-        &self.migration_sql
+    pub fn new(store: PostgresStore) -> Self {
+        Self { store }
     }
 
     fn pool(&self) -> &PgPool {
         self.store.pool()
     }
+
+    fn model(&self, logical: &str) -> Result<PostgresModel<'_>, CreemStoreError> {
+        self.store.physical_model(logical).map_err(schema_error)
+    }
+
+    fn model_if_present(
+        &self,
+        logical: &str,
+    ) -> Result<Option<PostgresModel<'_>>, CreemStoreError> {
+        self.store
+            .physical_model_if_present(logical)
+            .map_err(schema_error)
+    }
+}
+
+fn schema_error(error: AuthError) -> CreemStoreError {
+    CreemStoreError::Unavailable(error.to_string())
 }
 
 #[async_trait]

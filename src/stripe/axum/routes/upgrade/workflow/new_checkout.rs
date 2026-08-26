@@ -4,7 +4,6 @@ use crate::{
     StripeError, StripePlan, StripePlugin, Subscription, SubscriptionConfiguration,
     SubscriptionPatch, SubscriptionStatus, UpgradeSubscriptionInput,
 };
-use chrono::Utc;
 use uuid::Uuid;
 
 pub(super) struct NewCheckoutArguments<'a> {
@@ -96,7 +95,6 @@ async fn prepare_subscription(
                 SubscriptionPatch {
                     plan: Some(arguments.plan.persisted_name()),
                     seats: Some(Some(seats)),
-                    updated_at: Some(Utc::now()),
                     ..SubscriptionPatch::default()
                 },
             )
@@ -104,7 +102,6 @@ async fn prepare_subscription(
             .map_err(policy::store_error)
             .map(|updated| updated.unwrap_or(incomplete));
     }
-    let now = Utc::now();
     arguments
         .plugin
         .store
@@ -126,8 +123,6 @@ async fn prepare_subscription(
             seats: Some(seats),
             billing_interval: None,
             stripe_schedule_id: None,
-            created_at: now,
-            updated_at: now,
         })
         .await
         .map_err(policy::store_error)

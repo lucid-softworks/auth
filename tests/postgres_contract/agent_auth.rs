@@ -1,16 +1,17 @@
 use lucid_auth::{
-    AgentAuthSchema, AgentAuthStore, AgentCapabilityGrant, AgentGrantStatus, AgentHost,
-    AgentHostStatus, AgentHostSwitchOutcome, AgentIdentity, AgentMode, AgentStatus,
-    PostgresAgentAuthStore,
+    AgentAuthStore, AgentCapabilityGrant, AgentGrantStatus, AgentHost, AgentHostStatus,
+    AgentHostSwitchOutcome, AgentIdentity, AgentMode, AgentStatus, PostgresAgentAuthStore,
+    postgres::PostgresStore,
 };
 use uuid::Uuid;
 
 pub(super) async fn assert_switch_contract(
+    postgres: &PostgresStore,
     pool: &sqlx::PgPool,
     user_id: Uuid,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let store = PostgresAgentAuthStore::new(pool.clone(), &AgentAuthSchema::default())?;
-    sqlx::raw_sql(store.migration_sql()).execute(pool).await?;
+    assert_legacy_tables_absent(pool).await?;
+    let store = PostgresAgentAuthStore::new(postgres.clone());
     let now = chrono::Utc::now();
     let activated_at = now - chrono::Duration::hours(1);
     seed_switch(&store, now, activated_at).await?;
@@ -19,7 +20,24 @@ pub(super) async fn assert_switch_contract(
         .await?
         .expect("host exists");
     assert_outcome(&store, outcome, activated_at).await?;
-    drop_agent_auth_tables(pool).await?;
+    Ok(())
+}
+
+async fn assert_legacy_tables_absent(
+    pool: &sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for table in [
+        "lucid_auth_agent_hosts",
+        "lucid_auth_agents",
+        "lucid_auth_agent_capability_grants",
+        "lucid_auth_agent_approval_requests",
+    ] {
+        let relation = sqlx::query_scalar::<_, Option<String>>("SELECT to_regclass($1)::TEXT")
+            .bind(table)
+            .fetch_one(pool)
+            .await?;
+        assert_eq!(relation, None, "legacy Agent Auth table {table} exists");
+    }
     Ok(())
 }
 
@@ -121,14 +139,5 @@ async fn assert_outcome(
         store.find_grant_by_id("pg-denied").await?.unwrap().status,
         AgentGrantStatus::Revoked
     );
-    Ok(())
-}
-
-async fn drop_agent_auth_tables(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    sqlx::raw_sql(
-        "DROP TABLE lucid_auth_agent_approval_requests, lucid_auth_agent_capability_grants, lucid_auth_agents, lucid_auth_agent_hosts",
-    )
-    .execute(pool)
-    .await?;
     Ok(())
 }

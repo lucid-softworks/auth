@@ -100,24 +100,28 @@ fn descriptor_matches_the_client_and_conditional_webhook_surface() {
 #[test]
 fn persistence_exactly_controls_schema_and_remapping_validation() {
     let enabled = plugin(CreemOptions::new("key"));
-    let fields = enabled.schema_fields();
-    assert_eq!(fields.len(), 2);
-    assert_eq!(fields[0].name, "creemCustomerId");
-    assert_eq!(fields[0].field.field_type, AdditionalFieldType::String);
-    assert!(!fields[0].field.required);
-    assert!(fields[0].field.input);
-    assert!(fields[0].field.returned);
-    assert_eq!(fields[1].name, "hadTrial");
-    assert_eq!(fields[1].field.field_type, AdditionalFieldType::Boolean);
-    assert!(!fields[1].field.required);
-    assert!(fields[1].field.input);
-    assert!(fields[1].field.returned);
-    assert_eq!(enabled.migrations().len(), 1);
+    let tables = enabled.schema();
+    assert_eq!(tables.len(), 2);
+    assert_eq!(tables[0].logical_name, "creem_subscription");
+    assert_eq!(tables[1].logical_name, "user");
+    let fields = &tables[1].fields;
+    assert_eq!(
+        fields["creemCustomerId"].field_type,
+        AdditionalFieldType::String
+    );
+    assert!(!fields["creemCustomerId"].required);
+    assert!(fields["creemCustomerId"].input);
+    assert!(fields["creemCustomerId"].returned);
+    assert_eq!(fields["hadTrial"].field_type, AdditionalFieldType::Boolean);
+    assert!(!fields["hadTrial"].required);
+    assert!(fields["hadTrial"].input);
+    assert!(fields["hadTrial"].returned);
+    assert!(enabled.migrations().is_empty());
 
     let mut options = CreemOptions::new("key");
     options.persist_subscriptions = false;
     let disabled = plugin(options.clone());
-    assert!(disabled.schema_fields().is_empty());
+    assert!(disabled.schema().is_empty());
     assert!(disabled.migrations().is_empty());
 
     options

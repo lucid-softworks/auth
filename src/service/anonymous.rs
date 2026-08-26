@@ -1,13 +1,10 @@
 use super::{AuthService, SignInResult, email_password::normalize_email};
 use crate::{
     AnonymousLinkAccount, AnonymousPlugin, AnonymousPluginConfig, AnonymousSignInContext,
-    AuthError, AuthUser, AuthenticationMethod, SessionWithUser, VerificationValue,
+    AuthError, AuthUser, AuthenticationMethod, SessionWithUser,
 };
 use chrono::Utc;
-use serde_json::json;
 use uuid::Uuid;
-
-const UPGRADE_PURPOSE: &str = "anonymous-upgrade";
 
 impl AuthService {
     pub async fn sign_in_anonymous(
@@ -85,21 +82,6 @@ impl AuthService {
                 return Err(AuthError::AnonymousSessionCreationFailed);
             }
         };
-        if self
-            .create_verification_record(VerificationValue {
-                purpose: UPGRADE_PURPOSE.into(),
-                identifier: user.id.to_string(),
-                payload: json!({}),
-                additional_fields: serde_json::Map::new(),
-                expires_at: result.session.session.expires_at,
-                created_at: now,
-            })
-            .await
-            .is_err()
-        {
-            let _ = self.store.delete_user(user.id).await;
-            return Err(AuthError::AnonymousUserCreationFailed);
-        }
         Ok(result)
     }
 
@@ -124,9 +106,6 @@ impl AuthService {
         if !session.user.is_anonymous {
             return Err(AuthError::UserIsNotAnonymous);
         }
-        let _ = self
-            .consume_verification_record(UPGRADE_PURPOSE, &session.user.id.to_string(), Utc::now())
-            .await;
         self.delete_user_sessions_with_hooks(session.user.id)
             .await
             .map_err(|_| AuthError::AnonymousUserSessionDeletionFailed)?;
@@ -147,16 +126,12 @@ impl AuthService {
         {
             return Ok(());
         }
+        if self.is_guest_capability_session(source.session.id).await {
+            return Ok(());
+        }
         let Some(plugin) = self.plugins.find::<AnonymousPlugin>() else {
             return Ok(());
         };
-        let claimed = self
-            .consume_verification_record(UPGRADE_PURPOSE, &source.user.id.to_string(), Utc::now())
-            .await?
-            .is_some();
-        if !claimed {
-            return Ok(());
-        }
         let callback_result = match &plugin.config.on_link_account {
             Some(callback) => {
                 callback
@@ -168,19 +143,7 @@ impl AuthService {
             }
             None => Ok(()),
         };
-        if let Err(error) = callback_result {
-            let _ = self
-                .create_verification_record(VerificationValue {
-                    purpose: UPGRADE_PURPOSE.into(),
-                    identifier: source.user.id.to_string(),
-                    payload: json!({}),
-                    additional_fields: serde_json::Map::new(),
-                    expires_at: source.session.expires_at,
-                    created_at: Utc::now(),
-                })
-                .await;
-            return Err(error);
-        }
+        callback_result?;
         if !plugin.config.disable_delete_anonymous_user {
             self.store
                 .delete_user(source.user.id)

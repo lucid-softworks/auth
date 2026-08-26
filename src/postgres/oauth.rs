@@ -1,301 +1,232 @@
-use super::{UserRow, storage_error};
+mod account;
+
+use super::{PostgresModel, PostgresStore, storage_error};
 use crate::{
     AccountDeleteOutcome, AuthError, AuthUser, OAuthAccount, OAuthAccountOwner,
     OAuthTokenUpdateOutcome,
 };
+use account::{decode_account, token_writes};
+pub(super) use account::{insert_account_transaction, upsert_account_transaction};
 use chrono::{DateTime, Utc};
-use sqlx::{FromRow, PgPool, Postgres, Transaction};
+use sqlx::QueryBuilder;
 use uuid::Uuid;
 
-const ACCOUNT_COLUMNS: &str = "id, user_id, issuer, account_id, provider_id, access_token, \
-    refresh_token, id_token, access_token_expires_at, refresh_token_expires_at, scope, \
-    password_hash, additional_fields, created_at, updated_at";
-
-const USER_COLUMNS: &str = "id, username, display_username, name, email, email_verified, image, \
-    additional_fields, role, is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at";
+impl PostgresStore {
+    pub(super) fn account_model(&self) -> Result<PostgresModel<'_>, AuthError> {
+        self.physical_model("account")
+    }
+}
 
 #[async_trait::async_trait]
-impl crate::OAuthAccountStore for super::PostgresStore {
+impl crate::OAuthAccountStore for PostgresStore {
     async fn find_oauth_account_owner(
         &self,
         issuer: &str,
         account_id: &str,
     ) -> Result<Option<OAuthAccountOwner>, AuthError> {
-        find_owner(&self.pool, issuer, account_id).await
+        find_owner(self, issuer, account_id).await
     }
+
     async fn create_oauth_user(
         &self,
         user: AuthUser,
         account: OAuthAccount,
     ) -> Result<OAuthAccountOwner, AuthError> {
-        create_user(&self.pool, user, account).await
+        create_user(self, user, account).await
     }
+
     async fn link_oauth_account(&self, account: OAuthAccount) -> Result<OAuthAccount, AuthError> {
-        link(&self.pool, account).await
+        link(self, account).await
     }
+
     async fn update_oauth_account_tokens(
         &self,
         account: OAuthAccount,
     ) -> Result<OAuthAccount, AuthError> {
-        update_tokens(&self.pool, account).await
+        update_tokens(self, account).await
     }
+
     async fn list_user_accounts(&self, user_id: Uuid) -> Result<Vec<OAuthAccount>, AuthError> {
-        list(&self.pool, user_id).await
+        list(self, user_id).await
     }
+
     async fn delete_user_account(
         &self,
         user_id: Uuid,
         account_id: Uuid,
         allow_last: bool,
     ) -> Result<AccountDeleteOutcome, AuthError> {
-        delete(&self.pool, user_id, account_id, allow_last).await
+        delete(self, user_id, account_id, allow_last).await
     }
+
     async fn compare_and_swap_oauth_tokens(
         &self,
         account: OAuthAccount,
         expected_refresh_token: Option<&str>,
         expected_updated_at: DateTime<Utc>,
     ) -> Result<OAuthTokenUpdateOutcome, AuthError> {
-        compare_and_swap_tokens(
-            &self.pool,
-            account,
-            expected_refresh_token,
-            expected_updated_at,
-        )
-        .await
+        compare_and_swap_tokens(self, account, expected_refresh_token, expected_updated_at).await
     }
 }
 
-#[derive(FromRow)]
-struct AccountRow {
-    id: Uuid,
-    user_id: Uuid,
-    issuer: String,
-    account_id: String,
-    provider_id: String,
-    access_token: Option<String>,
-    refresh_token: Option<String>,
-    id_token: Option<String>,
-    access_token_expires_at: Option<DateTime<Utc>>,
-    refresh_token_expires_at: Option<DateTime<Utc>>,
-    scope: Option<String>,
-    password_hash: Option<String>,
-    additional_fields: serde_json::Value,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-}
-
-impl From<AccountRow> for OAuthAccount {
-    fn from(row: AccountRow) -> Self {
-        Self {
-            id: row.id,
-            user_id: row.user_id,
-            issuer: row.issuer,
-            account_id: row.account_id,
-            provider_id: row.provider_id,
-            access_token: row.access_token,
-            refresh_token: row.refresh_token,
-            id_token: row.id_token,
-            access_token_expires_at: row.access_token_expires_at,
-            refresh_token_expires_at: row.refresh_token_expires_at,
-            scope: row.scope,
-            password: row.password_hash,
-            additional_fields: row
-                .additional_fields
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        }
-    }
-}
-
-pub(super) async fn find_owner(
-    pool: &PgPool,
+async fn find_owner(
+    store: &PostgresStore,
     issuer: &str,
     account_id: &str,
 ) -> Result<Option<OAuthAccountOwner>, AuthError> {
-    let account = sqlx::query_as::<_, AccountRow>(&format!(
-        "SELECT {ACCOUNT_COLUMNS} FROM lucid_auth_accounts WHERE issuer = $1 AND account_id = $2"
-    ))
-    .bind(issuer)
-    .bind(account_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(storage_error)?;
-    let Some(account) = account else {
+    let model = store.account_model()?;
+    let mut query = super::rows::select_query(&model);
+    query
+        .push(" WHERE ")
+        .push(model.quoted_column("issuer")?)
+        .push(" = ")
+        .push_bind(issuer.to_owned())
+        .push(" AND ")
+        .push(model.quoted_column("accountId")?)
+        .push(" = ")
+        .push_bind(account_id.to_owned());
+    let row = query
+        .build()
+        .fetch_optional(&store.pool)
+        .await
+        .map_err(storage_error)?;
+    let Some(row) = row else {
         return Ok(None);
     };
-    let account = OAuthAccount::from(account);
-    let user = super::user::load_by_id(pool, account.user_id)
+    let account = decode_account(&model, &row)?;
+    let user = super::user::load_by_id(store, account.user_id)
         .await?
         .ok_or_else(|| AuthError::Storage("OAuth account owner is missing".into()))?;
     Ok(Some(OAuthAccountOwner { account, user }))
 }
 
-pub(super) async fn create_user(
-    pool: &PgPool,
+async fn create_user(
+    store: &PostgresStore,
     mut user: AuthUser,
     mut account: OAuthAccount,
 ) -> Result<OAuthAccountOwner, AuthError> {
     user.email = user.email.to_lowercase();
     account.user_id = user.id;
-    let mut transaction = pool.begin().await.map_err(storage_error)?;
-    let user = insert_user(&mut transaction, user).await?;
-    let account = insert_account(&mut transaction, account).await?;
+    let user_model = store.user_model()?;
+    let account_model = store.account_model()?;
+    let mut transaction = store.pool.begin().await.map_err(storage_error)?;
+    let user = super::user::insert_transaction(&mut transaction, &user_model, user).await?;
+    let account = insert_account_transaction(&mut transaction, &account_model, &account).await?;
     transaction.commit().await.map_err(storage_error)?;
     Ok(OAuthAccountOwner { account, user })
 }
 
-pub(super) async fn link(pool: &PgPool, account: OAuthAccount) -> Result<OAuthAccount, AuthError> {
-    let mut transaction = pool.begin().await.map_err(storage_error)?;
-    let exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM lucid_auth_users WHERE id = $1)",
-    )
-    .bind(account.user_id)
-    .fetch_one(&mut *transaction)
-    .await
-    .map_err(storage_error)?;
-    if !exists {
+async fn link(store: &PostgresStore, account: OAuthAccount) -> Result<OAuthAccount, AuthError> {
+    let user_model = store.user_model()?;
+    let account_model = store.account_model()?;
+    let mut transaction = store.pool.begin().await.map_err(storage_error)?;
+    let mut exists = QueryBuilder::new("SELECT EXISTS(SELECT 1 FROM ");
+    exists
+        .push(user_model.quoted_table())
+        .push(" WHERE \"id\" = ")
+        .push_bind(account.user_id)
+        .push(")");
+    if !exists
+        .build_query_scalar::<bool>()
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage_error)?
+    {
         return Err(AuthError::NotFound);
     }
-    let account = insert_account(&mut transaction, account).await?;
+    let account = insert_account_transaction(&mut transaction, &account_model, &account).await?;
     transaction.commit().await.map_err(storage_error)?;
     Ok(account)
 }
 
-pub(super) async fn update_tokens(
-    pool: &PgPool,
+async fn update_tokens(
+    store: &PostgresStore,
     account: OAuthAccount,
 ) -> Result<OAuthAccount, AuthError> {
-    sqlx::query_as::<_, AccountRow>(&format!(
-        "UPDATE lucid_auth_accounts SET provider_id = $4, access_token = $5, refresh_token = $6, \
-         id_token = $7, access_token_expires_at = $8, refresh_token_expires_at = $9, \
-         additional_fields = $10, updated_at = $11 WHERE id = $1 AND issuer = $2 AND account_id = $3 \
-         RETURNING {ACCOUNT_COLUMNS}"
-    ))
-    .bind(account.id)
-    .bind(&account.issuer)
-    .bind(&account.account_id)
-    .bind(&account.provider_id)
-    .bind(&account.access_token)
-    .bind(&account.refresh_token)
-    .bind(&account.id_token)
-    .bind(account.access_token_expires_at)
-    .bind(account.refresh_token_expires_at)
-    .bind(serde_json::Value::Object(account.additional_fields))
-    .bind(account.updated_at)
-    .fetch_optional(pool)
-    .await
-    .map_err(storage_error)?
-    .map(OAuthAccount::from)
-    .ok_or(AuthError::NotFound)
+    let model = store.account_model()?;
+    let writes = token_writes(&model, &account)?;
+    let mut query = super::rows::update_query(&model, writes);
+    query
+        .push(" WHERE \"id\" = ")
+        .push_bind(account.id)
+        .push(" AND ")
+        .push(model.quoted_column("issuer")?)
+        .push(" = ")
+        .push_bind(account.issuer.clone())
+        .push(" AND ")
+        .push(model.quoted_column("accountId")?)
+        .push(" = ")
+        .push_bind(account.account_id.clone())
+        .push(" RETURNING ")
+        .push(model.all_projection());
+    let row = query
+        .build()
+        .fetch_optional(&store.pool)
+        .await
+        .map_err(storage_error)?
+        .ok_or(AuthError::NotFound)?;
+    decode_account(&model, &row)
 }
 
-pub(super) async fn insert_user(
-    transaction: &mut Transaction<'_, Postgres>,
-    user: AuthUser,
-) -> Result<AuthUser, AuthError> {
-    sqlx::query_as::<_, UserRow>(&format!(
-        "INSERT INTO lucid_auth_users \
-         (id, username, display_username, name, email, email_verified, image, additional_fields, role, \
-          is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at) \
-         VALUES ($1, NULL, NULL, $2, $3, $4, $5, $6, $7, false, false, NULL, NULL, $8, $8) \
-         RETURNING {USER_COLUMNS}"
-    ))
-    .bind(user.id)
-    .bind(user.name)
-    .bind(user.email)
-    .bind(user.email_verified)
-    .bind(user.image)
-    .bind(serde_json::Value::Object(user.additional_fields))
-    .bind(user.role)
-    .bind(user.created_at)
-    .fetch_one(&mut **transaction)
-    .await
-    .map(AuthUser::from)
-    .map_err(unique_or_storage)
+async fn list(store: &PostgresStore, user_id: Uuid) -> Result<Vec<OAuthAccount>, AuthError> {
+    let model = store.account_model()?;
+    let mut query = super::rows::select_query(&model);
+    query
+        .push(" WHERE ")
+        .push(model.quoted_column("userId")?)
+        .push(" = ")
+        .push_bind(user_id)
+        .push(" ORDER BY ")
+        .push(model.quoted_column("createdAt")?)
+        .push(", \"id\"");
+    query
+        .build()
+        .fetch_all(&store.pool)
+        .await
+        .map_err(storage_error)?
+        .iter()
+        .map(|row| decode_account(&model, row))
+        .collect()
 }
 
-pub(super) async fn insert_account(
-    transaction: &mut Transaction<'_, Postgres>,
-    account: OAuthAccount,
-) -> Result<OAuthAccount, AuthError> {
-    sqlx::query_as::<_, AccountRow>(&format!(
-        "INSERT INTO lucid_auth_accounts \
-         (id, user_id, issuer, account_id, provider_id, access_token, refresh_token, id_token, \
-          access_token_expires_at, refresh_token_expires_at, scope, password_hash, additional_fields, created_at, updated_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) \
-         RETURNING {ACCOUNT_COLUMNS}"
-    ))
-    .bind(account.id)
-    .bind(account.user_id)
-    .bind(account.issuer)
-    .bind(account.account_id)
-    .bind(account.provider_id)
-    .bind(account.access_token)
-    .bind(account.refresh_token)
-    .bind(account.id_token)
-    .bind(account.access_token_expires_at)
-    .bind(account.refresh_token_expires_at)
-    .bind(account.scope)
-    .bind(account.password)
-    .bind(serde_json::Value::Object(account.additional_fields))
-    .bind(account.created_at)
-    .bind(account.updated_at)
-    .fetch_one(&mut **transaction)
-    .await
-    .map(OAuthAccount::from)
-    .map_err(unique_or_storage)
-}
-
-fn unique_or_storage(error: sqlx::Error) -> AuthError {
-    if error
-        .as_database_error()
-        .is_some_and(|database| database.is_unique_violation())
-    {
-        AuthError::UserAlreadyExists
-    } else {
-        storage_error(error)
-    }
-}
-
-pub(super) async fn list(pool: &PgPool, user_id: Uuid) -> Result<Vec<OAuthAccount>, AuthError> {
-    sqlx::query_as::<_, AccountRow>(&format!(
-        "SELECT {ACCOUNT_COLUMNS} FROM lucid_auth_accounts WHERE user_id = $1 \
-         ORDER BY created_at, id"
-    ))
-    .bind(user_id)
-    .fetch_all(pool)
-    .await
-    .map(|rows| rows.into_iter().map(OAuthAccount::from).collect())
-    .map_err(storage_error)
-}
-
-pub(super) async fn delete(
-    pool: &PgPool,
+async fn delete(
+    store: &PostgresStore,
     user_id: Uuid,
     account_id: Uuid,
     allow_last: bool,
 ) -> Result<AccountDeleteOutcome, AuthError> {
-    let mut transaction = pool.begin().await.map_err(storage_error)?;
-    let ids = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM lucid_auth_accounts WHERE user_id = $1 FOR UPDATE",
-    )
-    .bind(user_id)
-    .fetch_all(&mut *transaction)
-    .await
-    .map_err(storage_error)?;
+    let model = store.account_model()?;
+    let mut transaction = store.pool.begin().await.map_err(storage_error)?;
+    let mut select = QueryBuilder::new("SELECT \"id\" FROM ");
+    select
+        .push(model.quoted_table())
+        .push(" WHERE ")
+        .push(model.quoted_column("userId")?)
+        .push(" = ")
+        .push_bind(user_id)
+        .push(" FOR UPDATE");
+    let ids: Vec<Uuid> = select
+        .build_query_scalar()
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(storage_error)?;
     if !ids.contains(&account_id) {
         return Ok(AccountDeleteOutcome::NotFound);
     }
     if ids.len() == 1 && !allow_last {
         return Ok(AccountDeleteOutcome::LastAccount);
     }
-    sqlx::query("DELETE FROM lucid_auth_accounts WHERE id = $1 AND user_id = $2")
-        .bind(account_id)
-        .bind(user_id)
+    let mut delete = QueryBuilder::new("DELETE FROM ");
+    delete
+        .push(model.quoted_table())
+        .push(" WHERE \"id\" = ")
+        .push_bind(account_id)
+        .push(" AND ")
+        .push(model.quoted_column("userId")?)
+        .push(" = ")
+        .push_bind(user_id);
+    delete
+        .build()
         .execute(&mut *transaction)
         .await
         .map_err(storage_error)?;
@@ -303,46 +234,57 @@ pub(super) async fn delete(
     Ok(AccountDeleteOutcome::Deleted)
 }
 
-pub(super) async fn compare_and_swap_tokens(
-    pool: &PgPool,
+async fn compare_and_swap_tokens(
+    store: &PostgresStore,
     account: OAuthAccount,
     expected_refresh_token: Option<&str>,
     expected_updated_at: DateTime<Utc>,
 ) -> Result<OAuthTokenUpdateOutcome, AuthError> {
-    let updated = sqlx::query_as::<_, AccountRow>(&format!(
-        "UPDATE lucid_auth_accounts SET access_token = $4, refresh_token = $5, id_token = $6, \
-         access_token_expires_at = $7, refresh_token_expires_at = $8, \
-         additional_fields = $9, updated_at = $10 \
-         WHERE id = $1 AND user_id = $2 AND updated_at = $3 \
-         AND refresh_token IS NOT DISTINCT FROM $11 RETURNING {ACCOUNT_COLUMNS}"
-    ))
-    .bind(account.id)
-    .bind(account.user_id)
-    .bind(expected_updated_at)
-    .bind(&account.access_token)
-    .bind(&account.refresh_token)
-    .bind(&account.id_token)
-    .bind(account.access_token_expires_at)
-    .bind(account.refresh_token_expires_at)
-    .bind(serde_json::Value::Object(account.additional_fields))
-    .bind(account.updated_at)
-    .bind(expected_refresh_token)
-    .fetch_optional(pool)
-    .await
-    .map_err(storage_error)?;
-    if let Some(updated) = updated {
-        return Ok(OAuthTokenUpdateOutcome::Updated(updated.into()));
+    let model = store.account_model()?;
+    let writes = token_writes(&model, &account)?;
+    let mut query = super::rows::update_query(&model, writes);
+    query
+        .push(" WHERE \"id\" = ")
+        .push_bind(account.id)
+        .push(" AND ")
+        .push(model.quoted_column("userId")?)
+        .push(" = ")
+        .push_bind(account.user_id)
+        .push(" AND ")
+        .push(model.quoted_column("updatedAt")?)
+        .push(" = ")
+        .push_bind(expected_updated_at)
+        .push(" AND ")
+        .push(model.quoted_column("refreshToken")?)
+        .push(" IS NOT DISTINCT FROM ")
+        .push_bind(expected_refresh_token.map(str::to_owned))
+        .push(" RETURNING ")
+        .push(model.all_projection());
+    if let Some(updated) = query
+        .build()
+        .fetch_optional(&store.pool)
+        .await
+        .map_err(storage_error)?
+    {
+        return Ok(OAuthTokenUpdateOutcome::Updated(decode_account(
+            &model, &updated,
+        )?));
     }
-    let current = sqlx::query_as::<_, AccountRow>(&format!(
-        "SELECT {ACCOUNT_COLUMNS} FROM lucid_auth_accounts WHERE id = $1 AND user_id = $2"
-    ))
-    .bind(account.id)
-    .bind(account.user_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(storage_error)?;
+    let mut current = super::rows::select_query(&model);
+    current
+        .push(" WHERE \"id\" = ")
+        .push_bind(account.id)
+        .push(" AND ")
+        .push(model.quoted_column("userId")?)
+        .push(" = ")
+        .push_bind(account.user_id);
+    let current = current
+        .build()
+        .fetch_optional(&store.pool)
+        .await
+        .map_err(storage_error)?;
     Ok(match current {
-        Some(current) => OAuthTokenUpdateOutcome::Stale(current.into()),
+        Some(current) => OAuthTokenUpdateOutcome::Stale(decode_account(&model, &current)?),
         None => OAuthTokenUpdateOutcome::NotFound,
     })
 }

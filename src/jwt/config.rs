@@ -173,43 +173,6 @@ pub struct JwtSchema {
     pub crv_field_name: Option<String>,
 }
 
-impl JwtSchema {
-    pub(crate) fn table(&self) -> &str {
-        configured_name(&self.model_name, "lucid_auth_jwks")
-    }
-
-    pub(crate) fn public_key(&self) -> &str {
-        configured_name(&self.public_key_field_name, "public_key")
-    }
-
-    pub(crate) fn private_key(&self) -> &str {
-        configured_name(&self.private_key_field_name, "private_key")
-    }
-
-    pub(crate) fn created_at(&self) -> &str {
-        configured_name(&self.created_at_field_name, "created_at")
-    }
-
-    pub(crate) fn expires_at(&self) -> &str {
-        configured_name(&self.expires_at_field_name, "expires_at")
-    }
-
-    pub(crate) fn alg(&self) -> &str {
-        configured_name(&self.alg_field_name, "alg")
-    }
-
-    pub(crate) fn crv(&self) -> &str {
-        configured_name(&self.crv_field_name, "crv")
-    }
-}
-
-fn configured_name<'a>(configured: &'a Option<String>, fallback: &'a str) -> &'a str {
-    configured
-        .as_deref()
-        .filter(|value| !value.is_empty())
-        .unwrap_or(fallback)
-}
-
 #[derive(Debug, Clone)]
 pub struct JwtJwksConfig {
     pub remote_url: Option<String>,

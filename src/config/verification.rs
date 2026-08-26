@@ -24,6 +24,8 @@ pub struct VerificationIdentifierConfig {
 
 #[derive(Debug, Clone, Default)]
 pub struct VerificationConfig {
+    pub model_name: Option<String>,
+    pub fields: crate::VerificationFieldMappings,
     pub additional_fields: crate::AdditionalFieldSet,
     pub disable_cleanup: bool,
     pub store_identifier: VerificationIdentifierConfig,

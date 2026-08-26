@@ -30,6 +30,7 @@ hex = "0.4"
 hmac = "0.12"
 hkdf = "0.12"
 ipnet = "2"
+indexmap = "2"
 jsonwebtoken = { version = "10.2", default-features = false, features = ["rust_crypto"] }
 josekit = "0.10.3"
 percent-encoding = "2"
@@ -45,7 +46,7 @@ serde_urlencoded = { version = "0.7", optional = true }
 sha1 = "0.10"
 sha2 = "0.10"
 sha3 = "0.10"
-sqlx = { version = "0.8", optional = true, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono"] }
+sqlx = { version = "0.8", optional = true, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"] }
 thiserror = "2"
 tokio = { version = "1", features = ["net", "rt", "sync", "time"] }
 tokio-stream = { version = "0.1", optional = true }

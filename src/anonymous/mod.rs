@@ -1,8 +1,8 @@
 #[cfg(feature = "axum")]
 use crate::AuthService;
 use crate::{
-    AuthConfig, AuthError, AuthPlugin, PluginClientMetadata, PluginDescriptor, PluginEndpoint,
-    PluginHttpMethod, SessionWithUser,
+    AdditionalField, AdditionalFieldType, AuthConfig, AuthError, AuthPlugin, PluginClientMetadata,
+    PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginSchemaTable, SessionWithUser,
 };
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -53,6 +53,7 @@ pub trait AnonymousLinkAccountCallback: Send + Sync {
 
 #[derive(Clone, Default)]
 pub struct AnonymousPluginConfig {
+    pub schema: crate::DatabaseModelSchema,
     pub email_domain_name: Option<String>,
     pub disable_delete_anonymous_user: bool,
     pub generate_name: Option<Arc<dyn AnonymousNameGenerator>>,
@@ -107,6 +108,20 @@ impl AuthPlugin for AnonymousPlugin {
             ));
         }
         Ok(())
+    }
+
+    fn schema(&self) -> Vec<PluginSchemaTable> {
+        vec![crate::database_schema::remap_plugin_table(
+            PluginSchemaTable::new("user").field(
+                "isAnonymous",
+                AdditionalField::new(AdditionalFieldType::Boolean)
+                    .optional()
+                    .input(false)
+                    .default_value(serde_json::json!(false)),
+            ),
+            &self.config.schema,
+            false,
+        )]
     }
 
     #[cfg(feature = "axum")]

@@ -1,7 +1,8 @@
 use super::AdminConfig;
 use crate::{
-    AuthConfig, AuthError, AuthPlugin, PluginClientMetadata, PluginCookie, PluginDescriptor,
-    PluginEndpoint, PluginHttpMethod, SessionWithUser,
+    AdditionalField, AdditionalFieldType, AuthConfig, AuthError, AuthPlugin, PluginClientMetadata,
+    PluginCookie, PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginSchemaTable,
+    SessionWithUser,
 };
 use async_trait::async_trait;
 use chrono::Utc;
@@ -130,6 +131,51 @@ impl AuthPlugin for AdminPlugin {
 
     fn validate(&self, _config: &AuthConfig) -> Result<(), AuthError> {
         self.config.validate()
+    }
+
+    fn schema(&self) -> Vec<PluginSchemaTable> {
+        vec![
+            crate::database_schema::remap_plugin_table(
+                PluginSchemaTable::new("user")
+                    .field(
+                        "role",
+                        AdditionalField::new(AdditionalFieldType::String)
+                            .optional()
+                            .input(false),
+                    )
+                    .field(
+                        "banned",
+                        AdditionalField::new(AdditionalFieldType::Boolean)
+                            .optional()
+                            .input(false)
+                            .default_value(serde_json::json!(false)),
+                    )
+                    .field(
+                        "banReason",
+                        AdditionalField::new(AdditionalFieldType::String)
+                            .optional()
+                            .input(false),
+                    )
+                    .field(
+                        "banExpires",
+                        AdditionalField::new(AdditionalFieldType::Date)
+                            .optional()
+                            .input(false),
+                    ),
+                &self.config.schema.user,
+                false,
+            ),
+            crate::database_schema::remap_plugin_table(
+                PluginSchemaTable::new("session").field(
+                    "impersonatedBy",
+                    AdditionalField::new(AdditionalFieldType::String)
+                        .optional()
+                        .input(false),
+                ),
+                &self.config.schema.session,
+                false,
+            ),
+        ]
     }
 
     async fn authorize_application_access(

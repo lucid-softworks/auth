@@ -1,10 +1,9 @@
 use super::{
-    StripeOptions, StripeStore, SubscriptionConfiguration, descriptor_endpoints,
-    open_api_endpoints, user_schema_field,
+    StripeOptions, StripeStore, SubscriptionConfiguration, descriptor_endpoints, open_api_endpoints,
 };
 use crate::{
     AuthConfig, AuthError, AuthPlugin, DatabaseHookContext, DatabaseRecord, PluginClientMetadata,
-    PluginDescriptor, PluginMigration, PluginSchemaField,
+    PluginDescriptor, PluginSchemaTable,
 };
 use std::{borrow::Cow, fmt, sync::Arc};
 
@@ -115,31 +114,20 @@ impl AuthPlugin for StripePlugin {
     }
 
     fn validate(&self, _config: &AuthConfig) -> Result<(), AuthError> {
-        super::schema::migration(
-            &self.options.schema,
-            self.subscriptions_enabled(),
-            self.organization_enabled(),
-        )
-        .map(|_| ())
-        .map_err(|error| AuthError::InvalidConfiguration(error.to_string()))
-    }
-
-    fn migrations(&self) -> Cow<'_, [PluginMigration]> {
-        let migration = super::schema::migration(
-            &self.options.schema,
-            self.subscriptions_enabled(),
-            self.organization_enabled(),
-        )
-        .expect("Stripe schema was validated during plugin registry construction");
-        if migration.sql.is_empty() {
-            Cow::Borrowed(&[])
-        } else {
-            Cow::Owned(vec![migration])
+        if !self.organization_enabled() && !self.options.schema.organization.is_empty() {
+            return Err(AuthError::InvalidConfiguration(
+                "Stripe schema targets organization while organization billing is disabled".into(),
+            ));
         }
+        Ok(())
     }
 
-    fn schema_fields(&self) -> Vec<PluginSchemaField> {
-        vec![user_schema_field(&self.options.schema)]
+    fn schema(&self) -> Vec<PluginSchemaTable> {
+        super::schema::schema_tables(
+            &self.options.schema,
+            self.subscriptions_enabled(),
+            self.organization_enabled(),
+        )
     }
 
     fn open_api_endpoints(&self) -> Vec<crate::OpenApiEndpoint> {

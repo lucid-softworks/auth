@@ -1,6 +1,5 @@
 use super::super::support::{fixture, get, get_redirect};
 use axum::http::StatusCode;
-use chrono::Utc;
 use lucid_auth::{
     ChargebeeProviderSubscription, ChargebeeStore, ChargebeeSubscription,
     ChargebeeSubscriptionStatus,
@@ -63,7 +62,7 @@ async fn authenticated_cancel_callback_reconciles_provider_cancellation() {
         .set_user_customer_id(user_id, Some("customer_callback".into()))
         .await
         .unwrap();
-    let mut local = ChargebeeSubscription::future(user_id.to_string(), Utc::now());
+    let mut local = ChargebeeSubscription::future(user_id.to_string());
     local.status = ChargebeeSubscriptionStatus::Active;
     local.chargebee_customer_id = Some("customer_callback".into());
     local.chargebee_subscription_id = Some("subscription_callback".into());

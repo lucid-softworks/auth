@@ -69,32 +69,26 @@ pub(super) async fn assert_atomic_and_persistent(
     pool: &sqlx::PgPool,
     fixture: &Fixture,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    assert_plugin_migration_applied(pool).await?;
+    assert_plugin_schema_applied(pool).await?;
     assert_otp_redemption_is_atomic(service, pool, fixture).await?;
     assert_phone_number_uniqueness_is_atomic(store, pool).await?;
     assert_password_reset_persists(service, store, fixture).await?;
     Ok(())
 }
 
-async fn assert_plugin_migration_applied(
+async fn assert_plugin_schema_applied(
     pool: &sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    assert!(
-        sqlx::query_scalar::<_, bool>(
-            "SELECT to_regclass('lucid_auth_users_phone_number_unique_idx') IS NOT NULL",
-        )
-        .fetch_one(pool)
-        .await?
-    );
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_plugin_migrations \
-             WHERE plugin_id = 'phone-number' \
-               AND migration_id = 'better-auth-phone-number-schema'",
+            "SELECT COUNT(*) FROM information_schema.columns \
+             WHERE table_schema = current_schema() \
+               AND table_name = 'user' \
+               AND column_name IN ('phoneNumber', 'phoneNumberVerified')",
         )
         .fetch_one(pool)
         .await?,
-        1
+        2
     );
     Ok(())
 }
@@ -115,19 +109,15 @@ async fn assert_otp_redemption_is_atomic(
     );
     assert_eq!(usize::from(left.is_ok()) + usize::from(right.is_ok()), 1);
     assert_eq!(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_users \
-             WHERE additional_fields ->> 'phoneNumber' = $1",
-        )
-        .bind(phone_number)
-        .fetch_one(pool)
-        .await?,
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM \"user\" WHERE \"phoneNumber\" = $1",)
+            .bind(phone_number)
+            .fetch_one(pool)
+            .await?,
         1
     );
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_verifications \
-             WHERE purpose = 'phone-number' AND identifier = $1",
+            "SELECT COUNT(*) FROM \"verification\" WHERE \"identifier\" = $1",
         )
         .bind(phone_number)
         .fetch_one(pool)
@@ -164,13 +154,10 @@ async fn assert_phone_number_uniqueness_is_atomic(
         1
     );
     assert_eq!(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_users \
-             WHERE additional_fields ->> 'phoneNumber' = $1",
-        )
-        .bind(phone_number)
-        .fetch_one(pool)
-        .await?,
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM \"user\" WHERE \"phoneNumber\" = $1",)
+            .bind(phone_number)
+            .fetch_one(pool)
+            .await?,
         1
     );
     Ok(())

@@ -9,7 +9,6 @@ use crate::{
 };
 use chrono::{Duration, Utc};
 
-const VERIFICATION_PURPOSE: &str = "";
 const NONCE_IDENTIFIER_PREFIX: &str = "siwe:";
 
 impl AuthService {
@@ -26,15 +25,12 @@ impl AuthService {
         }
         let now = Utc::now();
         let identifier = format!("{NONCE_IDENTIFIER_PREFIX}{nonce}");
-        self.replace_verification_with_create_hooks(VerificationValue {
-            purpose: VERIFICATION_PURPOSE.into(),
-            identifier,
-            payload: serde_json::json!(nonce),
-            additional_fields: serde_json::Map::new(),
-            expires_at: now + Duration::seconds(900),
-            created_at: now,
-        })
-        .await?;
+        let mut verification =
+            VerificationValue::new(identifier, nonce.clone(), now + Duration::seconds(900));
+        verification.created_at = now;
+        verification.updated_at = now;
+        self.replace_verification_with_create_hooks(verification)
+            .await?;
         Ok(nonce)
     }
 
@@ -96,11 +92,7 @@ impl AuthService {
             .ok_or(SiweError::MessageMismatch)?
             .to_owned();
         if self
-            .consume_verification_value(
-                VERIFICATION_PURPOSE,
-                &format!("{NONCE_IDENTIFIER_PREFIX}{nonce}"),
-                Utc::now(),
-            )
+            .consume_verification_value(&format!("{NONCE_IDENTIFIER_PREFIX}{nonce}"), Utc::now())
             .await
             .map_err(|error| AuthError::Siwe(SiweError::Unexpected(error.to_string())))?
             .is_none()

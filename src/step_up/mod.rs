@@ -14,7 +14,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
-    "extract-step-up-policy",
+    "lucid-step-up-policy-schema",
     "Lucid step-up assurance and recovery-code state",
     include_str!("../../migrations/step_up_policy_plugin.sql"),
 )];
@@ -160,8 +160,8 @@ impl StepUpPolicyPlugin {
         session: &SessionWithUser,
     ) -> Result<StepUpAssurance, AuthError> {
         match session.session.authentication_method {
-            AuthenticationMethod::Passkey => Ok(StepUpAssurance::StrongPasskey),
-            AuthenticationMethod::TwoFactor => Ok(StepUpAssurance::StrongTwoFactor),
+            Some(AuthenticationMethod::Passkey) => Ok(StepUpAssurance::StrongPasskey),
+            Some(AuthenticationMethod::TwoFactor) => Ok(StepUpAssurance::StrongTwoFactor),
             _ if self
                 .auth_store
                 .list_passkeys(session.user.id)

@@ -105,7 +105,7 @@ fn plugin_contributes_lifecycle_hooks_but_no_schema_or_migrations() {
     let plugin = PolarPlugin::new(options);
 
     assert!(plugin.database_hooks().is_some());
-    assert!(plugin.schema_fields().is_empty());
+    assert!(plugin.schema().is_empty());
     assert!(plugin.migrations().is_empty());
 
     let mut config = AuthConfig::new([73_u8; 32]).unwrap();

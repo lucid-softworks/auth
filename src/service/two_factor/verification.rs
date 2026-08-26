@@ -1,15 +1,11 @@
-use super::{
-    AuthService, BackupCodeVerification, TwoFactorError, TwoFactorRecord, TwoFactorVerification,
-};
+use super::{AuthService, BackupCodeVerification, TwoFactorError, TwoFactorVerification};
 use crate::{AuthError, SessionWithUser, TwoFactorOtp, VerificationValue};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::Utc;
 use rand::RngExt;
-use serde_json::json;
 use sha2::{Digest, Sha256};
-use uuid::Uuid;
 
-const OTP_PURPOSE: &str = "two-factor-otp";
+const OTP_PREFIX: &str = "2fa-otp-";
 
 impl AuthService {
     pub(crate) async fn verify_two_factor_totp(
@@ -38,10 +34,7 @@ impl AuthService {
             self.assert_two_factor_unlocked(&record).await?;
             self.check_challenge_attempts(&context, 5).await?;
         }
-        let encrypted = record
-            .encrypted_secret
-            .as_deref()
-            .ok_or(TwoFactorError::TotpNotEnabled)?;
+        let encrypted = record.encrypted_secret.as_str();
         let secret = String::from_utf8(crate::two_factor::crypto::decrypt(
             &self.config.secret,
             encrypted,
@@ -54,22 +47,21 @@ impl AuthService {
             plugin.config.totp.period.num_seconds(),
             Utc::now().timestamp(),
         );
-        let Some(counter) = counter else {
+        let Some(_) = counter else {
             if context.is_sign_in() {
                 self.record_challenge_failure(&context).await?;
             }
             return Err(TwoFactorError::InvalidCode.into());
         };
-        let completing_enrollment = !record.enabled || !record.verified;
-        if !plugin
-            .store
-            .accept_totp_counter(context.user.id, counter, completing_enrollment)
-            .await?
+        let completing_enrollment =
+            !record.verified || !plugin.store.two_factor_enabled(context.user.id).await?;
+        if completing_enrollment
+            && !plugin
+                .store
+                .complete_two_factor_enrollment(context.user.id)
+                .await?
         {
-            if context.is_sign_in() {
-                self.record_challenge_failure(&context).await?;
-            }
-            return Err(TwoFactorError::InvalidCode.into());
+            return Err(TwoFactorError::TotpNotEnabled.into());
         }
         if completing_enrollment && let Some((session, token)) = context.active.as_ref() {
             self.reset_two_factor_failures(context.user.id).await?;
@@ -104,18 +96,14 @@ impl AuthService {
             .await?;
         let code = random_digits(otp.digits);
         let key = context.key();
+        let identifier = otp_identifier(&key);
         let now = Utc::now();
-        let _ = self
-            .consume_verification_record(OTP_PURPOSE, &key, now)
-            .await?;
-        self.create_verification_record(VerificationValue {
-            purpose: OTP_PURPOSE.into(),
-            identifier: key,
-            payload: json!({ "hash": otp_hash(&code), "attempts": 0 }),
-            additional_fields: serde_json::Map::new(),
-            expires_at: now + otp.period,
-            created_at: now,
-        })
+        let _ = self.consume_verification_record(&identifier, now).await?;
+        self.create_verification_record(VerificationValue::new(
+            identifier,
+            format!("{}:0", otp_hash(&code)),
+            now + otp.period,
+        ))
         .await?;
         let _ = otp
             .sender
@@ -145,51 +133,40 @@ impl AuthService {
             .await?;
         let existing = plugin.store.find_two_factor(context.user.id).await?;
         if context.is_sign_in() {
-            let record = existing.as_ref().ok_or(TwoFactorError::OtpNotEnabled)?;
-            self.assert_two_factor_unlocked(record).await?;
+            if !plugin.store.two_factor_enabled(context.user.id).await? {
+                return Err(TwoFactorError::OtpNotEnabled.into());
+            }
+            if let Some(record) = existing.as_ref() {
+                self.assert_two_factor_unlocked(record).await?;
+            }
         }
         let key = context.key();
+        let identifier = otp_identifier(&key);
         let value = self
-            .consume_verification_record(OTP_PURPOSE, &key, Utc::now())
+            .consume_verification_record(&identifier, Utc::now())
             .await?
             .ok_or(TwoFactorError::OtpExpired)?;
-        let attempts = value.payload["attempts"]
-            .as_u64()
-            .and_then(|value| u32::try_from(value).ok())
-            .unwrap_or(otp.allowed_attempts);
+        let (expected, attempts) = otp_value(&value.value, otp.allowed_attempts);
         if attempts >= otp.allowed_attempts {
             return Err(TwoFactorError::TooManyAttempts.into());
         }
-        let expected = value.payload["hash"].as_str().unwrap_or_default();
         if !constant_time_equal(expected.as_bytes(), otp_hash(code).as_bytes()) {
-            self.create_verification_record(VerificationValue {
-                purpose: OTP_PURPOSE.into(),
-                identifier: key,
-                payload: json!({ "hash": expected, "attempts": attempts + 1 }),
-                additional_fields: serde_json::Map::new(),
-                expires_at: value.expires_at,
-                created_at: value.created_at,
-            })
+            self.create_verification_record(VerificationValue::new(
+                identifier,
+                format!("{expected}:{}", attempts + 1),
+                value.expires_at,
+            ))
             .await?;
             if context.is_sign_in() {
                 self.record_two_factor_failure(context.user.id).await?;
             }
             return Err(TwoFactorError::InvalidCode.into());
         }
-        if existing.as_ref().is_none_or(|record| !record.enabled) {
-            let mut record = existing.unwrap_or_else(|| TwoFactorRecord {
-                id: Uuid::new_v4(),
-                user_id: context.user.id,
-                enabled: true,
-                encrypted_secret: None,
-                encrypted_backup_codes: None,
-                verified: true,
-                failed_verification_count: 0,
-                locked_until: None,
-                last_totp_counter: None,
-            });
-            record.enabled = true;
-            plugin.store.upsert_two_factor(record).await?;
+        if !plugin.store.two_factor_enabled(context.user.id).await? {
+            plugin
+                .store
+                .set_two_factor_enabled(context.user.id, true)
+                .await?;
             if let Some((session, token)) = context.active.as_ref() {
                 let result = self.rotate_active_session(session, token).await?;
                 return Ok(TwoFactorVerification {
@@ -223,10 +200,7 @@ impl AuthService {
             self.assert_two_factor_unlocked(&record).await?;
             self.check_challenge_attempts(&context, 5).await?;
         }
-        let encrypted = record
-            .encrypted_backup_codes
-            .as_deref()
-            .ok_or(TwoFactorError::BackupCodesNotEnabled)?;
+        let encrypted = record.encrypted_backup_codes.as_str();
         let mut codes: Vec<String> = serde_json::from_slice(&crate::two_factor::crypto::decrypt(
             &self.config.secret,
             encrypted,
@@ -268,6 +242,18 @@ impl AuthService {
             token: None,
         })
     }
+}
+
+fn otp_identifier(key: &str) -> String {
+    format!("{OTP_PREFIX}{key}")
+}
+
+fn otp_value(value: &str, invalid_attempts: u32) -> (&str, u32) {
+    value
+        .rsplit_once(':')
+        .map_or((value, 0), |(otp, attempts)| {
+            (otp, attempts.parse().unwrap_or(invalid_attempts))
+        })
 }
 
 fn otp_hash(code: &str) -> String {

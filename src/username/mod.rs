@@ -10,7 +10,11 @@ pub use config::{
 };
 pub use error::UsernameError;
 
-use crate::{AuthPlugin, PluginClientMetadata, PluginDescriptor, PluginEndpoint, PluginHttpMethod};
+use crate::{
+    AdditionalField, AdditionalFieldType, AuthPlugin, PluginClientMetadata, PluginDescriptor,
+    PluginEndpoint, PluginHttpMethod, PluginSchemaTable,
+};
+use std::sync::Arc;
 
 const ENDPOINTS: &[PluginEndpoint] = &[
     PluginEndpoint {
@@ -60,6 +64,52 @@ impl AuthPlugin for UsernamePlugin {
                 "usernameClient",
             )),
         }
+    }
+
+    fn schema(&self) -> Vec<PluginSchemaTable> {
+        let config = self.config.clone();
+        let username_config = config.clone();
+        let username = AdditionalField::new(AdditionalFieldType::String)
+            .optional()
+            .sortable(true)
+            .unique(true)
+            .transform_input(Arc::new(move |value: serde_json::Value| {
+                let Some(value) = value.as_str() else {
+                    return Ok(value);
+                };
+                let normalized = if !username_config.normalize_username {
+                    value.to_owned()
+                } else if let Some(normalizer) = &username_config.username_normalizer {
+                    normalizer.normalize(value)
+                } else {
+                    value.to_lowercase()
+                };
+                Ok(serde_json::Value::String(normalized))
+            }));
+        let mut table = PluginSchemaTable::new("user").field("username", username);
+        if config.display_username {
+            table = table.field(
+                "displayUsername",
+                AdditionalField::new(AdditionalFieldType::String)
+                    .optional()
+                    .transform_input(Arc::new(move |value: serde_json::Value| {
+                        let Some(value) = value.as_str() else {
+                            return Ok(value);
+                        };
+                        Ok(serde_json::Value::String(
+                            config.display_username_normalizer.as_ref().map_or_else(
+                                || value.to_owned(),
+                                |normalizer| normalizer.normalize(value),
+                            ),
+                        ))
+                    })),
+            );
+        }
+        vec![crate::database_schema::remap_plugin_table(
+            table,
+            &self.config.schema,
+            false,
+        )]
     }
 
     #[cfg(feature = "axum")]

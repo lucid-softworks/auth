@@ -103,13 +103,7 @@ fn compare_migrations(
     pending: &mut Vec<String>,
     issues: &mut Vec<PostgresSchemaIssue>,
 ) {
-    let expected_core = expected_core(plan);
     let expected_plugins = expected_plugins(plan);
-    let applied_core = catalog
-        .core_migrations
-        .iter()
-        .map(|migration| (migration.version, migration))
-        .collect::<BTreeMap<_, _>>();
     let applied_plugins = catalog
         .plugin_migrations
         .iter()
@@ -124,25 +118,6 @@ fn compare_migrations(
         })
         .collect::<BTreeMap<_, _>>();
 
-    for (version, (description, checksum)) in &expected_core {
-        let id = format!("core:{version}");
-        match applied_core.get(version) {
-            None => pending.push(id),
-            Some(applied) => compare_applied(
-                &id,
-                description,
-                checksum,
-                &applied.description,
-                applied.checksum.as_deref(),
-                issues,
-            ),
-        }
-    }
-    for version in applied_core.keys() {
-        if !expected_core.contains_key(version) {
-            issues.push(PostgresSchemaIssue::UnknownCoreMigration { version: *version });
-        }
-    }
     compare_plugins(&expected_plugins, &applied_plugins, pending, issues);
 }
 
@@ -180,34 +155,19 @@ fn compare_plugins<'a>(
     }
 }
 
-fn expected_core(plan: &PostgresMigrationPlan) -> BTreeMap<i64, (&String, &String)> {
-    plan.migrations
-        .iter()
-        .filter_map(|migration| match migration {
-            PostgresMigrationDescriptor::Core {
-                version,
-                description,
-                checksum,
-            } => Some((*version, (description, checksum))),
-            PostgresMigrationDescriptor::Plugin { .. } => None,
-        })
-        .collect()
-}
-
 fn expected_plugins(plan: &PostgresMigrationPlan) -> BTreeMap<(&str, &str), (&String, &String)> {
     plan.migrations
         .iter()
-        .filter_map(|migration| match migration {
+        .map(|migration| match migration {
             PostgresMigrationDescriptor::Plugin {
                 plugin_id,
                 migration_id,
                 description,
                 checksum,
-            } => Some((
+            } => (
                 (plugin_id.as_str(), migration_id.as_str()),
                 (description, checksum),
-            )),
-            PostgresMigrationDescriptor::Core { .. } => None,
+            ),
         })
         .collect()
 }

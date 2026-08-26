@@ -1,12 +1,12 @@
 use super::{
-    PostgresAgentAuthStore, is_unique_violation, lock_creation, query,
-    rows::{APPROVAL_FIELDS, ApprovalRow},
-    storage_error,
+    PostgresAgentAuthStore, is_unique_violation, lock_creation, query, rows, storage_error,
 };
 use crate::{
     AuthError,
-    agent_auth::{AgentApprovalRequest, AgentStoreCreateOutcome, schema::AgentAuthModel},
+    agent_auth::{AgentApprovalRequest, AgentStoreCreateOutcome},
 };
+use serde_json::{Value, json};
+use sqlx::QueryBuilder;
 use uuid::Uuid;
 
 pub(super) async fn create(
@@ -15,48 +15,43 @@ pub(super) async fn create(
 ) -> Result<AgentStoreCreateOutcome<AgentApprovalRequest>, AuthError> {
     let mut transaction = store.pool().begin().await.map_err(storage_error)?;
     lock_creation(&mut transaction, "approvalRequest").await?;
-    let model = store.schema.model(AgentAuthModel::ApprovalRequest);
-    let conflict = sqlx::query_scalar::<_, bool>(&format!(
-        "SELECT EXISTS(SELECT 1 FROM {} WHERE \"id\"=$1 OR ($2::TEXT IS NOT NULL AND {}=$2))",
-        model.table(),
-        model.column("userCodeHash"),
-    ))
-    .bind(&approval.id)
-    .bind(&approval.user_code_hash)
-    .fetch_one(&mut *transaction)
-    .await
-    .map_err(storage_error)?;
-    if conflict {
+    let model = store.model("approvalRequest")?;
+    let mut conflict = QueryBuilder::new("SELECT EXISTS(SELECT 1 FROM ");
+    conflict.push(model.quoted_table()).push(" WHERE \"id\" = ");
+    model
+        .encode("id", json!(approval.id))?
+        .push_bind(&mut conflict);
+    conflict.push(" OR (");
+    model
+        .encode(
+            "userCodeHash",
+            optional_string(approval.user_code_hash.clone()),
+        )?
+        .push_bind(&mut conflict);
+    conflict
+        .push(" IS NOT NULL AND ")
+        .push(model.quoted_column("userCodeHash")?)
+        .push(" = ");
+    model
+        .encode(
+            "userCodeHash",
+            optional_string(approval.user_code_hash.clone()),
+        )?
+        .push_bind(&mut conflict);
+    conflict.push("))");
+    if conflict
+        .build_query_scalar::<bool>()
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage_error)?
+    {
         return Ok(AgentStoreCreateOutcome::UniqueConflict);
     }
-    let result = sqlx::query_as::<_, ApprovalRow>(&query::insert(
-        &store.schema,
-        AgentAuthModel::ApprovalRequest,
-        APPROVAL_FIELDS,
-    ))
-    .bind(&approval.id)
-    .bind(approval.method.as_str())
-    .bind(&approval.agent_id)
-    .bind(&approval.host_id)
-    .bind(approval.user_id)
-    .bind(&approval.capabilities)
-    .bind(approval.status.as_str())
-    .bind(&approval.user_code_hash)
-    .bind(&approval.login_hint)
-    .bind(&approval.binding_message)
-    .bind(&approval.client_notification_token)
-    .bind(&approval.client_notification_endpoint)
-    .bind(&approval.delivery_mode)
-    .bind(approval.interval)
-    .bind(approval.last_polled_at)
-    .bind(approval.expires_at)
-    .bind(approval.created_at)
-    .bind(approval.updated_at)
-    .fetch_one(&mut *transaction)
-    .await;
-    match result {
+    let mut insert = query::insert(&model, rows::approval_writes(&model, &approval)?);
+    insert.push(" RETURNING ").push(model.all_projection());
+    match insert.build().fetch_one(&mut *transaction).await {
         Ok(row) => {
-            let approval = row.try_into()?;
+            let approval = rows::decode_approval(&model, &row)?;
             transaction.commit().await.map_err(storage_error)?;
             Ok(AgentStoreCreateOutcome::Created(approval))
         }
@@ -67,124 +62,99 @@ pub(super) async fn create(
 
 pub(super) async fn find(
     store: &PostgresAgentAuthStore,
-    field: &str,
+    field: &'static str,
     value: &str,
 ) -> Result<Option<AgentApprovalRequest>, AuthError> {
-    convert(
-        sqlx::query_as::<_, ApprovalRow>(&query::select(
-            &store.schema,
-            AgentAuthModel::ApprovalRequest,
-            APPROVAL_FIELDS,
-            &[field],
-            " LIMIT 1",
-        ))
-        .bind(value)
+    let model = store.model("approvalRequest")?;
+    let mut query = query::filter(&model, [(field, Value::String(value.to_owned()))])?;
+    query.push(" ORDER BY \"id\" LIMIT 1");
+    query
+        .build()
         .fetch_optional(store.pool())
         .await
-        .map_err(storage_error)?,
-    )
+        .map_err(storage_error)?
+        .as_ref()
+        .map(|row| rows::decode_approval(&model, row))
+        .transpose()
 }
 
 pub(super) async fn list_pending_for_user(
     store: &PostgresAgentAuthStore,
     user_id: Uuid,
 ) -> Result<Vec<AgentApprovalRequest>, AuthError> {
-    let model = store.schema.model(AgentAuthModel::ApprovalRequest);
-    let order = format!(" ORDER BY {}, \"id\"", model.column("createdAt"));
-    sqlx::query_as::<_, ApprovalRow>(&query::select(
-        &store.schema,
-        AgentAuthModel::ApprovalRequest,
-        APPROVAL_FIELDS,
-        &["userId", "status"],
-        &order,
-    ))
-    .bind(user_id)
-    .bind("pending")
-    .fetch_all(store.pool())
+    list_by(
+        store,
+        [
+            ("userId", json!(user_id.to_string())),
+            ("status", json!("pending")),
+        ],
+        true,
+    )
     .await
-    .map_err(storage_error)?
-    .into_iter()
-    .map(TryInto::try_into)
-    .collect()
 }
 
 pub(super) async fn list_pending_for_agent(
     store: &PostgresAgentAuthStore,
     agent_id: &str,
 ) -> Result<Vec<AgentApprovalRequest>, AuthError> {
-    let model = store.schema.model(AgentAuthModel::ApprovalRequest);
-    let order = format!(" ORDER BY {}, \"id\"", model.column("createdAt"));
-    sqlx::query_as::<_, ApprovalRow>(&query::select(
-        &store.schema,
-        AgentAuthModel::ApprovalRequest,
-        APPROVAL_FIELDS,
-        &["agentId", "status"],
-        &order,
-    ))
-    .bind(agent_id)
-    .bind("pending")
-    .fetch_all(store.pool())
+    list_by(
+        store,
+        [("agentId", json!(agent_id)), ("status", json!("pending"))],
+        true,
+    )
     .await
-    .map_err(storage_error)?
-    .into_iter()
-    .map(TryInto::try_into)
-    .collect()
 }
 
 pub(super) async fn list_for_agent(
     store: &PostgresAgentAuthStore,
     agent_id: &str,
 ) -> Result<Vec<AgentApprovalRequest>, AuthError> {
-    sqlx::query_as::<_, ApprovalRow>(&query::select(
-        &store.schema,
-        AgentAuthModel::ApprovalRequest,
-        APPROVAL_FIELDS,
-        &["agentId"],
-        " ORDER BY \"id\"",
-    ))
-    .bind(agent_id)
-    .fetch_all(store.pool())
-    .await
-    .map_err(storage_error)?
-    .into_iter()
-    .map(TryInto::try_into)
-    .collect()
+    list_by(store, [("agentId", json!(agent_id))], false).await
+}
+
+async fn list_by<const N: usize>(
+    store: &PostgresAgentAuthStore,
+    predicates: [(&'static str, Value); N],
+    chronological: bool,
+) -> Result<Vec<AgentApprovalRequest>, AuthError> {
+    let model = store.model("approvalRequest")?;
+    let mut query = query::filter(&model, predicates)?;
+    query.push(" ORDER BY ");
+    if chronological {
+        query.push(model.quoted_column("createdAt")?).push(", ");
+    }
+    query.push("\"id\"");
+    query
+        .build()
+        .fetch_all(store.pool())
+        .await
+        .map_err(storage_error)?
+        .iter()
+        .map(|row| rows::decode_approval(&model, row))
+        .collect()
 }
 
 pub(super) async fn update(
     store: &PostgresAgentAuthStore,
     approval: AgentApprovalRequest,
 ) -> Result<Option<AgentApprovalRequest>, AuthError> {
-    convert(
-        sqlx::query_as::<_, ApprovalRow>(&query::update(
-            &store.schema,
-            AgentAuthModel::ApprovalRequest,
-            APPROVAL_FIELDS,
-        ))
-        .bind(&approval.id)
-        .bind(approval.method.as_str())
-        .bind(&approval.agent_id)
-        .bind(&approval.host_id)
-        .bind(approval.user_id)
-        .bind(&approval.capabilities)
-        .bind(approval.status.as_str())
-        .bind(&approval.user_code_hash)
-        .bind(&approval.login_hint)
-        .bind(&approval.binding_message)
-        .bind(&approval.client_notification_token)
-        .bind(&approval.client_notification_endpoint)
-        .bind(&approval.delivery_mode)
-        .bind(approval.interval)
-        .bind(approval.last_polled_at)
-        .bind(approval.expires_at)
-        .bind(approval.created_at)
-        .bind(approval.updated_at)
+    let model = store.model("approvalRequest")?;
+    let mut query = query::update(
+        &model,
+        rows::approval_writes(&model, &approval)?,
+        &approval.id,
+    )?;
+    query.push(" RETURNING ").push(model.all_projection());
+    query
+        .build()
         .fetch_optional(store.pool())
         .await
-        .map_err(storage_error)?,
-    )
+        .map_err(storage_error)?
+        .as_ref()
+        .map(|row| rows::decode_approval(&model, row))
+        .transpose()
 }
 
-fn convert(row: Option<ApprovalRow>) -> Result<Option<AgentApprovalRequest>, AuthError> {
-    row.map(TryInto::try_into).transpose()
+fn optional_string(value: Option<String>) -> Value {
+    value.map_or(Value::Null, Value::String)
 }

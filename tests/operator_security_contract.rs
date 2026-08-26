@@ -6,7 +6,6 @@ use lucid_auth::{
     OperatorSecurityPlugin, OwnerPolicyPlugin, StepUpPolicyPlugin, StepUpStore, StoredPasskey,
     TwoFactorConfig, TwoFactorPlugin, TwoFactorRecord, TwoFactorStore,
 };
-use serde_json::json;
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -233,9 +232,7 @@ async fn seed_recovery_state(
             backed_up: false,
             transports: None,
             aaguid: None,
-            credential: json!({}),
             created_at: now,
-            updated_at: now,
         })
         .await
         .unwrap();
@@ -243,14 +240,16 @@ async fn seed_recovery_state(
         .upsert_two_factor(TwoFactorRecord {
             id: Uuid::new_v4(),
             user_id: owner.id,
-            enabled: true,
-            encrypted_secret: Some("secret".into()),
-            encrypted_backup_codes: None,
+            encrypted_secret: "secret".into(),
+            encrypted_backup_codes: "codes".into(),
             verified: true,
             failed_verification_count: 0,
             locked_until: None,
-            last_totp_counter: None,
         })
+        .await
+        .unwrap();
+    factors
+        .set_two_factor_enabled(owner.id, true)
         .await
         .unwrap();
 }

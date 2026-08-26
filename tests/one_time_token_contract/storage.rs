@@ -84,12 +84,12 @@ async fn defaults_use_better_auth_random_alphabet_plain_storage_and_three_minute
     );
     let record = fixture
         .service
-        .find_verification_value("one-time-token", &token)
+        .find_verification_value(&format!("one-time-token:{token}"))
         .await
         .unwrap()
         .unwrap();
     assert_eq!(record.identifier, format!("one-time-token:{token}"));
-    assert_eq!(record.payload, serde_json::json!(source.token));
+    assert_eq!(record.value, source.token);
     assert_eq!(record.expires_at - record.created_at, Duration::minutes(3));
 }
 
@@ -103,12 +103,12 @@ async fn hashed_and_custom_storage_transform_only_the_persisted_identifier() {
     let digest = URL_SAFE_NO_PAD.encode(Sha256::digest(public.as_bytes()));
     let record = hashed
         .service
-        .find_verification_value("one-time-token", &digest)
+        .find_verification_value(&format!("one-time-token:{digest}"))
         .await
         .unwrap()
         .unwrap();
     assert_eq!(record.identifier, format!("one-time-token:{digest}"));
-    assert_eq!(record.payload, serde_json::json!(source.token));
+    assert_eq!(record.value, source.token);
     assert_eq!(
         hashed
             .service
@@ -130,7 +130,7 @@ async fn hashed_and_custom_storage_transform_only_the_persisted_identifier() {
     assert!(
         custom
             .service
-            .find_verification_value("one-time-token", &format!("stored:{public}"))
+            .find_verification_value(&format!("one-time-token:stored:{public}"))
             .await
             .unwrap()
             .is_some()
@@ -254,7 +254,7 @@ async fn empty_generator_hash_and_nonpositive_expirations_are_accepted() {
         assert!(
             fixture
                 .service
-                .find_verification_value("one-time-token", "")
+                .find_verification_value("one-time-token:")
                 .await
                 .unwrap()
                 .is_some()
@@ -272,7 +272,7 @@ async fn empty_generator_hash_and_nonpositive_expirations_are_accepted() {
     assert!(
         fixture
             .service
-            .find_verification_value("one-time-token", "")
+            .find_verification_value("one-time-token:")
             .await
             .unwrap()
             .is_some()
@@ -305,7 +305,7 @@ async fn plugin_storage_composes_with_global_hashing_and_secondary_storage() {
     assert!(
         fixture
             .service
-            .find_verification_value("one-time-token", &plugin_identifier)
+            .find_verification_value(&format!("one-time-token:{plugin_identifier}"))
             .await
             .unwrap()
             .is_some()
@@ -323,7 +323,7 @@ async fn plugin_storage_composes_with_global_hashing_and_secondary_storage() {
     assert!(
         fixture
             .service
-            .find_verification_value("one-time-token", &plugin_identifier)
+            .find_verification_value(&format!("one-time-token:{plugin_identifier}"))
             .await
             .unwrap()
             .is_none()

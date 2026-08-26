@@ -52,7 +52,7 @@ fn descriptor_matches_the_published_autumn_adapter_without_client_metadata() {
 #[test]
 fn plugin_owns_no_database_or_lifecycle_surface() {
     let plugin = AutumnPlugin::default();
-    assert!(plugin.schema_fields().is_empty());
+    assert!(plugin.schema().is_empty());
     assert!(plugin.migrations().is_empty());
     assert!(plugin.database_hooks().is_none());
 

@@ -37,6 +37,7 @@ pub struct UsernameValidationOrder {
 /// Runtime options matching Better Auth's `username()` plugin.
 #[derive(Clone)]
 pub struct UsernameConfig {
+    pub schema: crate::DatabaseModelSchema,
     pub min_username_length: usize,
     pub max_username_length: usize,
     pub username_validator: Option<Arc<dyn UsernameValidator>>,
@@ -53,6 +54,7 @@ pub struct UsernameConfig {
 impl Default for UsernameConfig {
     fn default() -> Self {
         Self {
+            schema: crate::DatabaseModelSchema::default(),
             min_username_length: 3,
             max_username_length: 30,
             username_validator: None,

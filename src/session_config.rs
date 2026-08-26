@@ -58,6 +58,8 @@ pub enum SessionStorageMode {
 /// Better Auth-compatible session behavior.
 #[derive(Debug, Clone)]
 pub struct SessionConfig {
+    pub model_name: Option<String>,
+    pub fields: crate::SessionFieldMappings,
     pub additional_fields: AdditionalFieldSet,
     /// How long a database-backed session may remain unchanged before its
     /// expiry is extended. Better Auth defaults this to one day.
@@ -75,6 +77,8 @@ pub struct SessionConfig {
 impl Default for SessionConfig {
     fn default() -> Self {
         Self {
+            model_name: None,
+            fields: crate::SessionFieldMappings::default(),
             additional_fields: AdditionalFieldSet::new(),
             update_age: Duration::days(1),
             disable_session_refresh: false,

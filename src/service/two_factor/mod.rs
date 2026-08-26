@@ -98,11 +98,7 @@ impl AuthService {
         let Some(plugin) = self.plugins.find::<TwoFactorPlugin>() else {
             return Ok(false);
         };
-        Ok(plugin
-            .store
-            .find_two_factor(user_id)
-            .await?
-            .is_some_and(|record| record.enabled))
+        plugin.store.two_factor_enabled(user_id).await
     }
 
     #[cfg(feature = "axum")]

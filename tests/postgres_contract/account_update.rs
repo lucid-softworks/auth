@@ -10,8 +10,8 @@ pub(super) async fn assert_persistence(
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM information_schema.columns \
-             WHERE table_schema = current_schema() AND table_name = 'lucid_auth_sessions' \
-             AND column_name = 'additional_fields'",
+             WHERE table_schema = current_schema() AND table_name = 'session' \
+             AND column_name = 'theme'",
         )
         .fetch_one(pool)
         .await?,

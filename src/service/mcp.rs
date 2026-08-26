@@ -17,14 +17,11 @@ impl AuthService {
         replay_key: &str,
         expires_at: DateTime<Utc>,
     ) -> Result<bool, AuthError> {
-        self.reserve_verification_value(VerificationValue {
-            purpose: String::new(),
-            identifier: format!("dpop-proof:{replay_key}"),
-            payload: serde_json::Value::String(replay_key.into()),
-            additional_fields: serde_json::Map::new(),
+        self.reserve_verification_value(VerificationValue::new(
+            format!("dpop-proof:{replay_key}"),
+            replay_key,
             expires_at,
-            created_at: Utc::now(),
-        })
+        ))
         .await
     }
 }

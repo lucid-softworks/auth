@@ -12,8 +12,6 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
-const STATE_PURPOSE: &str = "oauth-state";
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SocialSignInInput {
@@ -195,14 +193,11 @@ impl AuthService {
             ));
         }
         let now = Utc::now();
-        self.create_verification_record(VerificationValue {
-            purpose: STATE_PURPOSE.into(),
-            identifier: state.into(),
-            payload: serde_json::to_value(value).map_err(|_| AuthError::OAuthStateMismatch)?,
-            additional_fields: serde_json::Map::new(),
-            expires_at: now + Duration::minutes(10),
-            created_at: now,
-        })
+        self.create_verification_record(VerificationValue::new(
+            state,
+            serde_json::to_string(value).map_err(|_| AuthError::OAuthStateMismatch)?,
+            now + Duration::minutes(10),
+        ))
         .await
         .map_err(|_| AuthError::OAuthStateGenerationFailed)?;
         Ok(("state", self.signed_cookie_value(state), 300))
@@ -228,10 +223,10 @@ impl AuthService {
             return Ok(state_data);
         }
         let value = self
-            .find_verification_value(STATE_PURPOSE, state)
+            .find_verification_value(state)
             .await?
             .ok_or(AuthError::OAuthStateMismatch)?;
-        let state_data: OAuthState = serde_json::from_value(value.payload)
+        let state_data: OAuthState = serde_json::from_str(&value.value)
             .map_err(|_| AuthError::Storage("OAuth state payload is invalid".into()))?;
         Ok(state_data)
     }
@@ -241,7 +236,7 @@ impl AuthService {
         if self.config.account.store_state_strategy == crate::OAuthStateStrategy::Cookie {
             return Ok(());
         }
-        self.consume_verification_record(STATE_PURPOSE, state, Utc::now())
+        self.consume_verification_record(state, Utc::now())
             .await?
             .ok_or(AuthError::OAuthStateMismatch)
             .map(|_| ())

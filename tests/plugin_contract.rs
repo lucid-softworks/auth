@@ -156,19 +156,31 @@ async fn passkey_routes_and_metadata_exist_only_when_the_plugin_is_enabled() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
+    let mut passkey = PasskeyConfig::default();
+    passkey.schema.model_name = Some("authenticators".into());
+    passkey
+        .schema
+        .fields
+        .insert("credentialID".into(), "credentialKey".into());
     let mut config = AuthConfig::new([97_u8; 32]).unwrap();
-    config
-        .add_plugin(PasskeyPlugin::new(PasskeyConfig::default()))
-        .unwrap();
+    config.add_plugin(PasskeyPlugin::new(passkey)).unwrap();
     let with = Arc::new(AuthService::try_new(Arc::new(MemoryStore::default()), config).unwrap());
     let descriptor = &with.plugin_metadata()[0];
     assert_eq!(descriptor.id, "passkey");
     assert_eq!(descriptor.endpoints.len(), 7);
     assert_eq!(descriptor.client.unwrap().package, "@better-auth/passkey");
+    assert!(with.plugin_migrations().is_empty());
+    let logical_passkey = with.database_schema().table("passkey").unwrap();
+    assert_eq!(logical_passkey.model_name, "authenticators");
     assert_eq!(
-        with.plugin_migrations()[0].migration.id,
-        "better-auth-passkey-schema"
+        logical_passkey.fields["credentialID"].field_name.as_deref(),
+        Some("credentialKey")
     );
+    let generic = with.generic_database_schema();
+    let authenticators = generic.table("authenticators").unwrap();
+    assert!(authenticators.fields.contains_key("credentialKey"));
+    assert!(!authenticators.fields.contains_key("credentialID"));
+    assert!(generic.table("passkey").is_none());
     let response = lucid_auth::axum::router(with)
         .oneshot(
             HttpRequest::get("/api/auth/passkey/list-user-passkeys")

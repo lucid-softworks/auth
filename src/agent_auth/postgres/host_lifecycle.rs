@@ -1,17 +1,13 @@
-use super::{
-    PostgresAgentAuthStore, is_unique_violation, query,
-    rows::{AGENT_FIELDS, AgentRow, HOST_FIELDS, HostRow, encode_json},
-    storage_error,
-};
+use super::{PostgresAgentAuthStore, is_unique_violation, query, rows, storage_error};
 use crate::{
     AuthError,
     agent_auth::{
         AgentClaimedAutonomousAgent, AgentHost, AgentHostRotationOutcome, AgentHostStatus,
-        AgentHostSwitchOutcome, AgentStatus, schema::AgentAuthModel,
+        AgentHostSwitchOutcome, AgentStatus,
     },
 };
 use chrono::{DateTime, Utc};
-use sqlx::{Postgres, Transaction};
+use sqlx::{Postgres, Row, Transaction};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
@@ -103,12 +99,15 @@ pub(super) async fn rotate_key(
         Err(error) => return Err(storage_error(error)),
     }
     move_host_references(&mut transaction, store, old_id, new_id, now).await?;
-    let model = store.schema.model(AgentAuthModel::AgentHost);
-    sqlx::query(&format!("DELETE FROM {} WHERE \"id\"=$1", model.table()))
-        .bind(old_id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage_error)?;
+    let model = store.model("agentHost")?;
+    sqlx::query(&format!(
+        "DELETE FROM {} WHERE \"id\"=$1",
+        model.quoted_table()
+    ))
+    .bind(old_id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(storage_error)?;
     transaction.commit().await.map_err(storage_error)?;
     Ok(AgentHostRotationOutcome::Rotated(Box::new(host)))
 }
@@ -116,22 +115,20 @@ pub(super) async fn rotate_key(
 pub(super) async fn lock_host(
     transaction: &mut Transaction<'_, Postgres>,
     store: &PostgresAgentAuthStore,
-    field: &str,
+    field: &'static str,
     value: &str,
 ) -> Result<Option<AgentHost>, AuthError> {
-    sqlx::query_as::<_, HostRow>(&query::select(
-        &store.schema,
-        AgentAuthModel::AgentHost,
-        HOST_FIELDS,
-        &[field],
-        " FOR UPDATE LIMIT 1",
-    ))
-    .bind(value)
-    .fetch_optional(&mut **transaction)
-    .await
-    .map_err(storage_error)?
-    .map(TryInto::try_into)
-    .transpose()
+    let model = store.model("agentHost")?;
+    let mut query = query::filter(&model, [(field, serde_json::json!(value))])?;
+    query.push(" FOR UPDATE LIMIT 1");
+    query
+        .build()
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(storage_error)?
+        .as_ref()
+        .map(|row| rows::decode_host(&model, row))
+        .transpose()
 }
 
 pub(super) async fn lock_other_public_key(
@@ -140,20 +137,21 @@ pub(super) async fn lock_other_public_key(
     public_key: &str,
     excluded_id: &str,
 ) -> Result<Option<AgentHost>, AuthError> {
-    let model = store.schema.model(AgentAuthModel::AgentHost);
+    let model = store.model("agentHost")?;
     let sql = format!(
         "SELECT {} FROM {} WHERE {}=$1 AND \"id\"<>$2 FOR UPDATE LIMIT 1",
-        model.projection(HOST_FIELDS),
-        model.table(),
-        model.column("publicKey"),
+        model.all_projection(),
+        model.quoted_table(),
+        model.quoted_column("publicKey")?,
     );
-    sqlx::query_as::<_, HostRow>(&sql)
+    sqlx::query(&sql)
         .bind(public_key)
         .bind(excluded_id)
         .fetch_optional(&mut **transaction)
         .await
         .map_err(storage_error)?
-        .map(TryInto::try_into)
+        .as_ref()
+        .map(|row| rows::decode_host(&model, row))
         .transpose()
 }
 
@@ -162,31 +160,15 @@ pub(super) async fn write_host(
     store: &PostgresAgentAuthStore,
     host: &AgentHost,
 ) -> Result<AgentHost, AuthError> {
-    let capabilities = encode_json(&host.default_capabilities)?;
-    sqlx::query_as::<_, HostRow>(&query::update(
-        &store.schema,
-        AgentAuthModel::AgentHost,
-        HOST_FIELDS,
-    ))
-    .bind(&host.id)
-    .bind(&host.name)
-    .bind(host.user_id)
-    .bind(capabilities)
-    .bind(&host.public_key)
-    .bind(&host.kid)
-    .bind(&host.jwks_url)
-    .bind(&host.enrollment_token_hash)
-    .bind(host.enrollment_token_expires_at)
-    .bind(host.status.as_str())
-    .bind(host.activated_at)
-    .bind(host.expires_at)
-    .bind(host.last_used_at)
-    .bind(host.created_at)
-    .bind(host.updated_at)
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(storage_error)?
-    .try_into()
+    let model = store.model("agentHost")?;
+    let mut query = query::update(&model, rows::host_writes(&model, host)?, &host.id)?;
+    query.push(" RETURNING ").push(model.all_projection());
+    let row = query
+        .build()
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(storage_error)?;
+    rows::decode_host(&model, &row)
 }
 
 async fn insert_host(
@@ -194,30 +176,15 @@ async fn insert_host(
     store: &PostgresAgentAuthStore,
     host: &AgentHost,
 ) -> Result<(), sqlx::Error> {
-    let capabilities = serde_json::to_string(&host.default_capabilities)
-        .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
-    sqlx::query(&query::insert(
-        &store.schema,
-        AgentAuthModel::AgentHost,
-        HOST_FIELDS,
-    ))
-    .bind(&host.id)
-    .bind(&host.name)
-    .bind(host.user_id)
-    .bind(capabilities)
-    .bind(&host.public_key)
-    .bind(&host.kid)
-    .bind(&host.jwks_url)
-    .bind(&host.enrollment_token_hash)
-    .bind(host.enrollment_token_expires_at)
-    .bind(host.status.as_str())
-    .bind(host.activated_at)
-    .bind(host.expires_at)
-    .bind(host.last_used_at)
-    .bind(host.created_at)
-    .bind(host.updated_at)
-    .execute(&mut **transaction)
-    .await?;
+    let model = store
+        .model("agentHost")
+        .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+    let writes = rows::host_writes(&model, host)
+        .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+    query::insert(&model, writes)
+        .build()
+        .execute(&mut **transaction)
+        .await?;
     Ok(())
 }
 
@@ -227,16 +194,16 @@ async fn revoke_agents(
     host_id: &str,
     now: DateTime<Utc>,
 ) -> Result<Vec<String>, AuthError> {
-    let model = store.schema.model(AgentAuthModel::Agent);
+    let model = store.model("agent")?;
     sqlx::query_scalar::<_, String>(&format!(
         "UPDATE {} SET {}='revoked', {}='', {}=NULL, {}=NULL, {}=$2 WHERE {}=$1 RETURNING \"id\"",
-        model.table(),
-        model.column("status"),
-        model.column("publicKey"),
-        model.column("kid"),
-        model.column("jwksUrl"),
-        model.column("updatedAt"),
-        model.column("hostId"),
+        model.quoted_table(),
+        model.quoted_column("status")?,
+        model.quoted_column("publicKey")?,
+        model.quoted_column("kid")?,
+        model.quoted_column("jwksUrl")?,
+        model.quoted_column("updatedAt")?,
+        model.quoted_column("hostId")?,
     ))
     .bind(host_id)
     .bind(now)
@@ -252,17 +219,17 @@ async fn switch_agents(
     user_id: Uuid,
     now: DateTime<Utc>,
 ) -> Result<(Vec<AgentClaimedAutonomousAgent>, Vec<String>), AuthError> {
-    let model = store.schema.model(AgentAuthModel::Agent);
+    let model = store.model("agent")?;
     let mut claimed_agents = lock_claimable_agents(transaction, store, host_id).await?;
     sqlx::query(&format!(
         "UPDATE {} SET {}='claimed', {}=$2, {}=$3 WHERE {}=$1 AND {}='autonomous' AND {}='active'",
-        model.table(),
-        model.column("status"),
-        model.column("userId"),
-        model.column("updatedAt"),
-        model.column("hostId"),
-        model.column("mode"),
-        model.column("status"),
+        model.quoted_table(),
+        model.quoted_column("status")?,
+        model.quoted_column("userId")?,
+        model.quoted_column("updatedAt")?,
+        model.quoted_column("hostId")?,
+        model.quoted_column("mode")?,
+        model.quoted_column("status")?,
     ))
     .bind(host_id)
     .bind(user_id)
@@ -277,8 +244,8 @@ async fn switch_agents(
     }
     let revoked = sqlx::query_scalar::<_, String>(&format!(
         "UPDATE {} SET {}='revoked', {}='', {}=NULL, {}=NULL, {}=$2 WHERE {}=$1 AND {} NOT IN ('revoked','rejected','claimed') RETURNING \"id\"",
-        model.table(), model.column("status"), model.column("publicKey"), model.column("kid"),
-        model.column("jwksUrl"), model.column("updatedAt"), model.column("hostId"), model.column("status"),
+        model.quoted_table(), model.quoted_column("status")?, model.quoted_column("publicKey")?, model.quoted_column("kid")?,
+        model.quoted_column("jwksUrl")?, model.quoted_column("updatedAt")?, model.quoted_column("hostId")?, model.quoted_column("status")?,
     ))
     .bind(host_id)
     .bind(now)
@@ -293,23 +260,23 @@ async fn lock_claimable_agents(
     store: &PostgresAgentAuthStore,
     host_id: &str,
 ) -> Result<Vec<AgentClaimedAutonomousAgent>, AuthError> {
-    let agents = store.schema.model(AgentAuthModel::Agent);
-    let rows = sqlx::query_as::<_, AgentRow>(&format!(
+    let agents = store.model("agent")?;
+    let rows = sqlx::query(&format!(
         "SELECT {} FROM {} WHERE {}=$1 AND {}='autonomous' AND {}='active' ORDER BY {},\"id\" FOR UPDATE",
-        agents.projection(AGENT_FIELDS),
-        agents.table(),
-        agents.column("hostId"),
-        agents.column("mode"),
-        agents.column("status"),
-        agents.column("createdAt"),
+        agents.all_projection(),
+        agents.quoted_table(),
+        agents.quoted_column("hostId")?,
+        agents.quoted_column("mode")?,
+        agents.quoted_column("status")?,
+        agents.quoted_column("createdAt")?,
     ))
     .bind(host_id)
     .fetch_all(&mut **transaction)
     .await
     .map_err(storage_error)?;
     let identities = rows
-        .into_iter()
-        .map(TryInto::try_into)
+        .iter()
+        .map(|row| rows::decode_agent(&agents, row))
         .collect::<Result<Vec<_>, _>>()?;
     let ids = identities
         .iter()
@@ -317,21 +284,25 @@ async fn lock_claimable_agents(
         .collect::<Vec<_>>();
     let mut capabilities = BTreeMap::<String, Vec<String>>::new();
     if !ids.is_empty() {
-        let grants = store.schema.model(AgentAuthModel::AgentCapabilityGrant);
-        for (agent_id, capability) in sqlx::query_as::<_, (String, String)>(&format!(
-            "SELECT {},{} FROM {} WHERE {}=ANY($1) AND {}='active' ORDER BY {},\"id\"",
-            grants.column("agentId"),
-            grants.column("capability"),
-            grants.table(),
-            grants.column("agentId"),
-            grants.column("status"),
-            grants.column("createdAt"),
+        let grants = store.model("agentCapabilityGrant")?;
+        for row in sqlx::query(&format!(
+            "SELECT {} AS \"agentId\",{} AS \"capability\" FROM {} WHERE {}=ANY($1) AND {}='active' ORDER BY {},\"id\"",
+            grants.quoted_column("agentId")?,
+            grants.quoted_column("capability")?,
+            grants.quoted_table(),
+            grants.quoted_column("agentId")?,
+            grants.quoted_column("status")?,
+            grants.quoted_column("createdAt")?,
         ))
         .bind(&ids)
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage_error)?
         {
+            let agent_id = row.try_get::<String, _>("agentId").map_err(storage_error)?;
+            let capability = row
+                .try_get::<String, _>("capability")
+                .map_err(storage_error)?;
             capabilities.entry(agent_id).or_default().push(capability);
         }
     }
@@ -353,13 +324,13 @@ async fn revoke_grants(
     if agent_ids.is_empty() {
         return Ok(());
     }
-    let model = store.schema.model(AgentAuthModel::AgentCapabilityGrant);
+    let model = store.model("agentCapabilityGrant")?;
     sqlx::query(&format!(
         "UPDATE {} SET {}='revoked', {}=$2 WHERE {}=ANY($1)",
-        model.table(),
-        model.column("status"),
-        model.column("updatedAt"),
-        model.column("agentId"),
+        model.quoted_table(),
+        model.quoted_column("status")?,
+        model.quoted_column("updatedAt")?,
+        model.quoted_column("agentId")?,
     ))
     .bind(agent_ids)
     .bind(now)
@@ -376,13 +347,13 @@ async fn move_host_references(
     new_id: &str,
     now: DateTime<Utc>,
 ) -> Result<(), AuthError> {
-    let model = store.schema.model(AgentAuthModel::Agent);
+    let model = store.model("agent")?;
     sqlx::query(&format!(
         "UPDATE {} SET {}=$2, {}=$3 WHERE {}=$1",
-        model.table(),
-        model.column("hostId"),
-        model.column("updatedAt"),
-        model.column("hostId"),
+        model.quoted_table(),
+        model.quoted_column("hostId")?,
+        model.quoted_column("updatedAt")?,
+        model.quoted_column("hostId")?,
     ))
     .bind(old_id)
     .bind(new_id)
@@ -390,13 +361,13 @@ async fn move_host_references(
     .execute(&mut **transaction)
     .await
     .map_err(storage_error)?;
-    let approvals = store.schema.model(AgentAuthModel::ApprovalRequest);
+    let approvals = store.model("approvalRequest")?;
     sqlx::query(&format!(
         "UPDATE {} SET {}=$2, {}=$3 WHERE {}=$1",
-        approvals.table(),
-        approvals.column("hostId"),
-        approvals.column("updatedAt"),
-        approvals.column("hostId"),
+        approvals.quoted_table(),
+        approvals.quoted_column("hostId")?,
+        approvals.quoted_column("updatedAt")?,
+        approvals.quoted_column("hostId")?,
     ))
     .bind(old_id)
     .bind(new_id)

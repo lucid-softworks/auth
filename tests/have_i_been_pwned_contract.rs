@@ -120,7 +120,7 @@ fn descriptor_is_the_exact_server_only_plugin_surface() {
     assert!(descriptor.middleware.is_empty());
     assert!(descriptor.client.is_none());
     assert!(plugin.migrations().is_empty());
-    assert!(plugin.schema_fields().is_empty());
+    assert!(plugin.schema().is_empty());
     assert!(plugin.rate_limits().is_empty());
     assert!(plugin.open_api_endpoints().is_empty());
     assert!(plugin.database_hooks().is_none());

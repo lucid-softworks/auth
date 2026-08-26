@@ -61,8 +61,8 @@ pub(super) async fn assert_durable_dpop_replay(
     assert!(replay.json_rpc_body().contains("jti has already been used"));
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_verifications \
-             WHERE purpose = '' AND identifier LIKE 'dpop-proof:%'",
+            "SELECT COUNT(*) FROM \"verification\" \
+             WHERE \"identifier\" LIKE 'dpop-proof:%'",
         )
         .fetch_one(pool)
         .await?,

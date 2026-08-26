@@ -1,6 +1,8 @@
 /// Better Auth 1.7 account configuration.
 #[derive(Debug, Clone, Default)]
 pub struct AccountConfig {
+    pub model_name: Option<String>,
+    pub fields: crate::AccountFieldMappings,
     pub account_linking: AccountLinkingConfig,
     pub additional_fields: crate::AdditionalFieldSet,
     /// Stores the selected provider account in Better Auth's encrypted

@@ -314,24 +314,21 @@ async fn capture_each_prefix(service: &AuthService) {
         let identifier = format!("{prefix}user-{index}");
         let now = chrono::Utc::now();
         service
-            .create_verification_value(VerificationValue {
-                purpose: String::new(),
-                identifier: identifier.clone(),
-                payload: json!(format!("otp-{index}:stored-tail")),
-                additional_fields: serde_json::Map::new(),
-                expires_at: now + chrono::Duration::minutes(5),
-                created_at: now,
-            })
+            .create_verification_value(VerificationValue::new(
+                identifier.clone(),
+                format!("otp-{index}:stored-tail"),
+                now + chrono::Duration::minutes(5),
+            ))
             .await
             .unwrap();
         assert_eq!(
             service
-                .find_verification_value("", &identifier)
+                .find_verification_value(&identifier)
                 .await
                 .unwrap()
                 .unwrap()
-                .payload,
-            json!(format!("otp-{index}:stored-tail"))
+                .value,
+            format!("otp-{index}:stored-tail")
         );
         assert_eq!(
             service
@@ -348,26 +345,11 @@ async fn capture_each_prefix(service: &AuthService) {
 async fn replace_capture(service: &AuthService) {
     let now = chrono::Utc::now();
     service
-        .create_verification_value(VerificationValue {
-            purpose: String::new(),
-            identifier: "sign-in-otp-user-1".into(),
-            payload: json!("replacement:tail"),
-            additional_fields: serde_json::Map::new(),
-            expires_at: now + chrono::Duration::minutes(5),
-            created_at: now,
-        })
-        .await
-        .unwrap_err();
-    // A replacement hook is exercised through a distinct stored purpose.
-    service
-        .create_verification_value(VerificationValue {
-            purpose: "replacement".into(),
-            identifier: "sign-in-otp-user-1".into(),
-            payload: json!("replacement:tail"),
-            additional_fields: serde_json::Map::new(),
-            expires_at: now + chrono::Duration::minutes(5),
-            created_at: now,
-        })
+        .create_verification_value(VerificationValue::new(
+            "sign-in-otp-user-1",
+            "replacement:tail",
+            now + chrono::Duration::minutes(5),
+        ))
         .await
         .unwrap();
     assert_eq!(

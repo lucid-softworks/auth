@@ -157,7 +157,6 @@ async fn sync_missed_cancellation(
             cancel_at_period_end: Some(stripe.cancel_at_period_end),
             cancel_at: Some(timestamp(stripe.cancel_at)),
             canceled_at: Some(timestamp(stripe.canceled_at)),
-            updated_at: Some(Utc::now()),
             ..SubscriptionPatch::default()
         };
         let _ = plugin

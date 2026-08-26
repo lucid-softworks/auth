@@ -5,9 +5,8 @@ mod store;
 pub use store::{PhoneNumberStore, PhoneNumberWriteOutcome};
 
 use crate::{
-    AdditionalField, AdditionalFieldType, AuthError, AuthPlugin, AuthUser, DatabaseModel,
-    PluginClientMetadata, PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginMigration,
-    PluginRateLimit, PluginSchemaField,
+    AdditionalField, AdditionalFieldType, AuthError, AuthPlugin, AuthUser, PluginClientMetadata,
+    PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginRateLimit, PluginSchemaTable,
 };
 use async_trait::async_trait;
 use chrono::Duration;
@@ -31,12 +30,6 @@ const RATE_LIMITS: &[PluginRateLimit] = &[
     rate_limit("/phone-number/request-password-reset"),
     rate_limit("/phone-number/reset-password"),
 ];
-
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
-    "better-auth-phone-number-schema",
-    "Better Auth 1.7.1 phone-number schema",
-    include_str!("../../migrations/phone_number_plugin.sql"),
-)];
 
 const fn endpoint(path: &'static str, client_method: &'static str) -> PluginEndpoint {
     PluginEndpoint {
@@ -139,6 +132,7 @@ pub struct PhoneNumberConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PhoneNumberSchema {
+    pub model_name: Option<String>,
     pub phone_number_field_name: Option<String>,
     pub phone_number_verified_field_name: Option<String>,
 }
@@ -260,32 +254,45 @@ impl AuthPlugin for PhoneNumberPlugin {
         }
     }
 
-    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
-        std::borrow::Cow::Borrowed(MIGRATIONS)
-    }
-
-    fn schema_fields(&self) -> Vec<PluginSchemaField> {
+    fn schema(&self) -> Vec<PluginSchemaTable> {
         let mut phone_number = AdditionalField::new(AdditionalFieldType::String)
             .optional()
             .unique(true)
             .sortable(true);
-        if let Some(field_name) = &self.config.schema.phone_number_field_name {
+        if let Some(field_name) = self
+            .config
+            .schema
+            .phone_number_field_name
+            .as_ref()
+            .filter(|name| !name.is_empty())
+        {
             phone_number = phone_number.field_name(field_name.clone());
         }
         let mut phone_number_verified = AdditionalField::new(AdditionalFieldType::Boolean)
             .optional()
             .input(false);
-        if let Some(field_name) = &self.config.schema.phone_number_verified_field_name {
+        if let Some(field_name) = self
+            .config
+            .schema
+            .phone_number_verified_field_name
+            .as_ref()
+            .filter(|name| !name.is_empty())
+        {
             phone_number_verified = phone_number_verified.field_name(field_name.clone());
         }
-        vec![
-            PluginSchemaField::new(DatabaseModel::User, "phoneNumber", phone_number),
-            PluginSchemaField::new(
-                DatabaseModel::User,
-                "phoneNumberVerified",
-                phone_number_verified,
-            ),
-        ]
+        let table = PluginSchemaTable::new("user")
+            .field("phoneNumber", phone_number)
+            .field("phoneNumberVerified", phone_number_verified);
+        vec![match self
+            .config
+            .schema
+            .model_name
+            .as_deref()
+            .filter(|name| !name.is_empty())
+        {
+            Some(name) => table.model_name(name),
+            None => table,
+        }]
     }
 
     #[cfg(feature = "axum")]

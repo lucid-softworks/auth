@@ -105,8 +105,7 @@ impl AuthService {
         )
         .await?;
         if self.store.find_user_by_email(&email).await?.is_none() {
-            self.delete_verification_value(token::PURPOSE, &identifier)
-                .await?;
+            self.delete_verification_value(&identifier).await?;
             return Ok(());
         }
         config
@@ -205,8 +204,7 @@ impl AuthService {
         let otp = token::generate(config, &new_email, EmailOtpType::ChangeEmail).await?;
         token::store_new(self, config, &identifier, &otp).await?;
         if self.store.find_user_by_email(&new_email).await?.is_some() {
-            self.delete_verification_value(token::PURPOSE, &identifier)
-                .await?;
+            self.delete_verification_value(&identifier).await?;
             return Ok(());
         }
         config

@@ -2,7 +2,7 @@ use super::{PostgresStore, storage_error};
 use crate::{AuthError, GuestCapabilityStore, GuestGrant};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use sqlx::FromRow;
+use sqlx::{FromRow, QueryBuilder};
 use uuid::Uuid;
 
 const GRANT_COLUMNS: &str = "id, label, token_hash, permissions, resource_scopes, valid_from, \
@@ -168,15 +168,19 @@ impl GuestCapabilityStore for PostgresStore {
         if result.rows_affected() == 0 {
             return Err(AuthError::NotFound);
         }
-        sqlx::query(
-            "DELETE FROM lucid_auth_sessions WHERE id IN (\
-               SELECT session_id FROM lucid_auth_guest_grant_sessions WHERE grant_id = $1\
-             )",
-        )
-        .bind(grant_id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage_error)?;
+        let session = self.physical_model("session")?;
+        let mut delete_sessions = QueryBuilder::new("DELETE FROM ");
+        delete_sessions
+            .push(session.quoted_table())
+            .push(" WHERE \"id\" IN (SELECT session_id FROM lucid_auth_guest_grant_sessions ")
+            .push("WHERE grant_id = ")
+            .push_bind(grant_id)
+            .push(")");
+        delete_sessions
+            .build()
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage_error)?;
         transaction.commit().await.map_err(storage_error)
     }
 }

@@ -92,8 +92,6 @@ pub(crate) fn local_subscription(reference_id: String) -> Subscription {
         seats: Some(1.0),
         billing_interval: Some(BillingInterval::Month),
         stripe_schedule_id: None,
-        created_at: now,
-        updated_at: now,
     }
 }
 

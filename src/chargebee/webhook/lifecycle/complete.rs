@@ -50,7 +50,6 @@ async fn handle_inner(
         chargebee_subscription_id: Some(Some(provider.id.clone())),
         chargebee_customer_id: Some(Some(customer.id.clone())),
         status: Some(mapping::status(&provider.status)),
-        updated_at: Some(now),
         period_start: Some(Some(
             mapping::timestamp(provider.current_term_start)?.unwrap_or(now),
         )),
@@ -135,7 +134,7 @@ mod tests {
 
     #[test]
     fn missing_update_and_refetch_never_fall_back_to_stale_local_state() {
-        let stale = ChargebeeSubscription::future("user", Utc::now());
+        let stale = ChargebeeSubscription::future("user");
 
         assert!(resolved_update(None, None).is_none());
         assert_eq!(resolved_update(None, Some(stale.clone())), Some(stale));

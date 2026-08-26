@@ -7,6 +7,17 @@ use chrono::{Duration, Utc};
 use uuid::Uuid;
 
 impl AuthService {
+    pub(crate) async fn is_guest_capability_session(&self, session_id: Uuid) -> bool {
+        let Some(plugin) = self.plugins.find::<GuestCapabilityPlugin>() else {
+            return false;
+        };
+        plugin
+            .store
+            .find_guest_grant_for_session(session_id)
+            .await
+            .is_ok_and(|grant| grant.is_some())
+    }
+
     pub async fn issue_guest_grant(
         &self,
         actor: &crate::SessionWithUser,

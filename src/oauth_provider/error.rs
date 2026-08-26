@@ -21,19 +21,6 @@ pub enum OAuthProviderConfigError {
         "encryption method not recommended, please use hashed secret storage with the JWT plugin"
     )]
     EncryptedSecretWithJwt,
-    #[error("unknown Better Auth OAuth Provider field `{field}` on model `{model}`")]
-    UnknownSchemaField { model: String, field: String },
-    #[error("invalid {kind} identifier `{identifier}`: {reason}")]
-    InvalidSchemaIdentifier {
-        kind: &'static str,
-        identifier: String,
-        reason: &'static str,
-    },
-    #[error("duplicate {kind} identifier `{identifier}` in the OAuth Provider schema")]
-    DuplicateSchemaIdentifier {
-        kind: &'static str,
-        identifier: String,
-    },
     #[error("invalid OAuth Provider extension: {0}")]
     InvalidExtension(String),
 }

@@ -59,6 +59,8 @@ impl fmt::Debug for DeleteUserConfig {
 
 #[derive(Clone, Default)]
 pub struct UserConfig {
+    pub model_name: Option<String>,
+    pub fields: crate::UserFieldMappings,
     pub additional_fields: AdditionalFieldSet,
     pub change_email: ChangeEmailConfig,
     pub delete_user: DeleteUserConfig,
@@ -105,6 +107,8 @@ impl fmt::Debug for UserConfig {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("UserConfig")
+            .field("model_name", &self.model_name)
+            .field("fields", &self.fields)
             .field("additional_fields", &self.additional_fields)
             .field("change_email", &self.change_email)
             .field("delete_user", &self.delete_user)

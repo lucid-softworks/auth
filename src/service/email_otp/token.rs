@@ -7,13 +7,8 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use rand::RngExt;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 use sha2::{Digest, Sha256};
 
-pub(super) const PURPOSE: &str = "email-otp";
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 struct OtpRecord {
     otp: String,
     attempts: u32,
@@ -70,25 +65,13 @@ pub(super) async fn store_new(
 ) -> Result<(), AuthError> {
     let stored = store_otp(service, config, otp).await?;
     let now = Utc::now();
-    let value = VerificationValue {
-        purpose: PURPOSE.into(),
-        identifier: identifier.into(),
-        payload: json!(OtpRecord {
-            otp: stored,
-            attempts: 0,
-        }),
-        additional_fields: serde_json::Map::new(),
-        expires_at: now + config.expires_in,
-        created_at: now,
-    };
+    let value = VerificationValue::new(identifier, format!("{stored}:0"), now + config.expires_in);
     if service
         .create_verification_value(value.clone())
         .await
         .is_err()
     {
-        service
-            .delete_verification_value(PURPOSE, identifier)
-            .await?;
+        service.delete_verification_value(identifier).await?;
         service.create_verification_value(value).await?;
     }
     Ok(())
@@ -99,10 +82,10 @@ pub(super) async fn retrieve(
     config: &EmailOtpConfig,
     identifier: &str,
 ) -> Result<Option<String>, AuthError> {
-    let Some(value) = service.find_verification_value(PURPOSE, identifier).await? else {
+    let Some(value) = service.find_verification_value(identifier).await? else {
         return Ok(None);
     };
-    if value.expires_at <= Utc::now() {
+    if value.expires_at < Utc::now() {
         return Ok(None);
     }
     let record = record(&value)?;
@@ -115,29 +98,29 @@ pub(super) async fn check(
     identifier: &str,
     provided: &str,
 ) -> Result<(), AuthError> {
-    let Some(mut value) = service.find_verification_value(PURPOSE, identifier).await? else {
+    let Some(value) = service.find_verification_value(identifier).await? else {
         return Err(EmailOtpError::InvalidOtp.into());
     };
-    if value.expires_at <= Utc::now() {
-        service
-            .delete_verification_value(PURPOSE, identifier)
-            .await?;
+    if value.expires_at < Utc::now() {
+        service.delete_verification_value(identifier).await?;
         return Err(EmailOtpError::OtpExpired.into());
     }
     let mut record = record(&value)?;
     if record.attempts >= config.allowed_attempts {
-        service
-            .delete_verification_value(PURPOSE, identifier)
-            .await?;
+        service.delete_verification_value(identifier).await?;
         return Err(EmailOtpError::TooManyAttempts.into());
     }
     if verify_otp(service, config, &record.otp, provided).await? {
         return Ok(());
     }
     record.attempts += 1;
-    value.payload = json!(record);
-    value.identifier = identifier.into();
-    service.update_verification_value(value).await?;
+    service
+        .update_verification_value(
+            identifier,
+            format!("{}:{}", record.otp, record.attempts),
+            None,
+        )
+        .await?;
     Err(EmailOtpError::InvalidOtp.into())
 }
 
@@ -147,18 +130,16 @@ pub(super) async fn consume(
     identifier: &str,
     provided: &str,
 ) -> Result<(), AuthError> {
-    let existing = service.find_verification_value(PURPOSE, identifier).await?;
+    let existing = service.find_verification_value(identifier).await?;
     if existing
         .as_ref()
-        .is_some_and(|value| value.expires_at <= Utc::now())
+        .is_some_and(|value| value.expires_at < Utc::now())
     {
-        service
-            .delete_verification_value(PURPOSE, identifier)
-            .await?;
+        service.delete_verification_value(identifier).await?;
         return Err(EmailOtpError::OtpExpired.into());
     }
     let Some(value) = service
-        .consume_verification_value(PURPOSE, identifier, Utc::now())
+        .consume_verification_value(identifier, Utc::now())
         .await?
     else {
         return Err(EmailOtpError::InvalidOtp.into());
@@ -172,14 +153,11 @@ pub(super) async fn consume(
     }
     record.attempts += 1;
     service
-        .create_verification_value(VerificationValue {
-            purpose: PURPOSE.into(),
-            identifier: identifier.into(),
-            payload: json!(record),
-            additional_fields: value.additional_fields,
-            expires_at: value.expires_at,
-            created_at: value.created_at,
-        })
+        .create_verification_value(VerificationValue::new(
+            identifier,
+            format!("{}:{}", record.otp, record.attempts),
+            value.expires_at,
+        ))
         .await?;
     Err(EmailOtpError::InvalidOtp.into())
 }
@@ -189,10 +167,10 @@ async fn reusable(
     config: &EmailOtpConfig,
     identifier: &str,
 ) -> Result<Option<String>, AuthError> {
-    let Some(mut value) = service.find_verification_value(PURPOSE, identifier).await? else {
+    let Some(value) = service.find_verification_value(identifier).await? else {
         return Ok(None);
     };
-    if value.expires_at <= Utc::now() {
+    if value.expires_at < Utc::now() {
         return Ok(None);
     }
     let record = record(&value)?;
@@ -204,15 +182,28 @@ async fn reusable(
         Err(AuthError::EmailOtp(EmailOtpError::HashedOtpUnavailable)) => return Ok(None),
         Err(error) => return Err(error),
     };
-    value.expires_at = Utc::now() + config.expires_in;
-    value.identifier = identifier.into();
-    service.update_verification_value(value).await?;
+    service
+        .update_verification_value(
+            identifier,
+            value.value.clone(),
+            Some(Utc::now() + config.expires_in),
+        )
+        .await?;
     Ok(Some(otp))
 }
 
 fn record(value: &VerificationValue) -> Result<OtpRecord, AuthError> {
-    serde_json::from_value(value.payload.clone())
-        .map_err(|_| AuthError::Storage("email-OTP verification payload is invalid".into()))
+    let (otp, attempts) = value
+        .value
+        .rsplit_once(':')
+        .ok_or_else(|| AuthError::Storage("email-OTP verification value is invalid".into()))?;
+    let attempts = attempts
+        .parse()
+        .map_err(|_| AuthError::Storage("email-OTP verification value is invalid".into()))?;
+    Ok(OtpRecord {
+        otp: otp.into(),
+        attempts,
+    })
 }
 
 async fn store_otp(

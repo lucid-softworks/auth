@@ -44,9 +44,7 @@ pub use model::{
 pub use plugin::StripePlugin;
 #[cfg(feature = "postgres")]
 pub use postgres::PostgresStripeStore;
-pub use schema::{
-    StripeModelSchema, StripeSchema, StripeSchemaError, migration, user_schema_field,
-};
+pub use schema::{StripeModelSchema, StripeSchema, StripeSchemaError, schema_tables};
 pub use store::{StripeStore, StripeStoreError, SubscriptionPatch};
 pub use transport::{
     StripeBillingPortalSession, StripeCheckoutSession, StripeClient, StripeCustomer, StripeEvent,

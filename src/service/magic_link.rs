@@ -10,7 +10,6 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-const PURPOSE: &str = "magic-link";
 const TOKEN_ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 pub(crate) struct MagicLinkRequest {
@@ -61,14 +60,12 @@ impl AuthService {
         }
         let identifier = magic_link_identifier(&config.token_storage, &token).await?;
         let now = Utc::now();
-        self.create_verification_record(VerificationValue {
-            purpose: PURPOSE.into(),
+        self.create_verification_record(VerificationValue::new(
             identifier,
-            payload: json!({ "email": email, "name": request.name }),
-            additional_fields: serde_json::Map::new(),
-            expires_at: now + config.expires_in,
-            created_at: now,
-        })
+            serde_json::to_string(&json!({ "email": email, "name": request.name }))
+                .map_err(|error| AuthError::Storage(error.to_string()))?,
+            now + config.expires_in,
+        ))
         .await?;
         let message = MagicLinkEmail {
             email,
@@ -93,17 +90,18 @@ impl AuthService {
     ) -> Result<MagicLinkVerified, MagicLinkVerificationError> {
         let identifier = magic_link_identifier(&config.token_storage, token).await?;
         let Some(value) = self
-            .consume_verification_record(PURPOSE, &identifier, Utc::now())
+            .consume_verification_record(&identifier, Utc::now())
             .await?
         else {
             return redirect_error("INVALID_TOKEN", None);
         };
-        let email = value
-            .payload
+        let payload: Value = serde_json::from_str(&value.value)
+            .map_err(|_| AuthError::Storage("magic-link value is invalid".into()))?;
+        let email = payload
             .get("email")
             .and_then(Value::as_str)
             .ok_or_else(|| AuthError::Storage("magic-link payload is invalid".into()))?;
-        let name = value.payload.get("name").and_then(Value::as_str);
+        let name = payload.get("name").and_then(Value::as_str);
         let (mut user, is_new_user) = self.magic_link_user(config, email, name).await?;
         if !user.email_verified {
             let Some(promoted) = self.store.promote_email_owner(user.id, Utc::now()).await? else {

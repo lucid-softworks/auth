@@ -1,48 +1,25 @@
-use super::{PostgresStore, UserRow, storage_error};
+use super::{PostgresModel, PostgresStore, storage_error};
 use crate::{
-    AuthError, AuthUser, SiweIdentityWrite, SiweIdentityWriteOutcome, SiweSchema, SiweStore,
-    WalletAddress, WalletAddressOwner,
+    AuthError, SiweIdentityWrite, SiweIdentityWriteOutcome, SiweSchema, SiweStore, WalletAddress,
+    WalletAddressOwner,
 };
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
-use sqlx::{FromRow, Postgres, Transaction};
-use uuid::Uuid;
+use sqlx::{Postgres, QueryBuilder, Transaction};
 
-const USER_COLUMNS: &str = "id, username, display_username, name, email, email_verified, image, \
-    additional_fields, role, is_anonymous, banned, ban_reason, ban_expires, created_at, updated_at";
+mod query;
 
-#[derive(FromRow)]
-struct WalletRow {
-    id: Uuid,
-    user_id: Uuid,
-    address: String,
-    chain_id: f64,
-    is_primary: bool,
-    created_at: DateTime<Utc>,
-}
-
-impl From<WalletRow> for WalletAddress {
-    fn from(row: WalletRow) -> Self {
-        Self {
-            id: row.id,
-            user_id: row.user_id,
-            address: row.address,
-            chain_id: row.chain_id,
-            is_primary: row.is_primary,
-            created_at: row.created_at,
-        }
-    }
-}
+use query::{find_owner_tx, find_wallet_pool, insert_wallet_and_account};
 
 #[async_trait]
 impl SiweStore for PostgresStore {
     async fn find_wallet_owner(
         &self,
-        schema: &SiweSchema,
+        _schema: &SiweSchema,
         address: &str,
         chain_id: Option<f64>,
     ) -> Result<Option<WalletAddressOwner>, AuthError> {
-        let wallet = find_wallet_pool(&self.pool, schema, address, chain_id).await?;
+        let wallet_model = self.physical_model("walletAddress")?;
+        let wallet = find_wallet_pool(&self.pool, &wallet_model, address, chain_id).await?;
         let Some(wallet) = wallet else {
             return Ok(None);
         };
@@ -55,9 +32,14 @@ impl SiweStore for PostgresStore {
 
     async fn write_wallet_identity(
         &self,
-        schema: &SiweSchema,
+        _schema: &SiweSchema,
         write: SiweIdentityWrite,
     ) -> Result<SiweIdentityWriteOutcome, AuthError> {
+        let models = IdentityWriteModels {
+            wallet: self.physical_model("walletAddress")?,
+            user: self.user_model()?,
+            account: self.physical_model("account")?,
+        };
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
         let (wallet, account) = match &write {
             SiweIdentityWrite::Create {
@@ -67,14 +49,16 @@ impl SiweStore for PostgresStore {
                 wallet, account, ..
             } => (wallet.clone(), account.as_ref().clone()),
         };
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended(lower($1), 0))")
-            .bind(&wallet.address)
+        let mut lock = QueryBuilder::new("SELECT pg_advisory_xact_lock(hashtextextended(lower(");
+        lock.push_bind(wallet.address.clone()).push("), 0))");
+        lock.build()
             .execute(&mut *transaction)
             .await
             .map_err(storage_error)?;
         if let Some(owner) = find_owner_tx(
             &mut transaction,
-            schema,
+            &models.wallet,
+            &models.user,
             &wallet.address,
             Some(wallet.chain_id),
         )
@@ -83,10 +67,17 @@ impl SiweStore for PostgresStore {
             transaction.commit().await.map_err(storage_error)?;
             return Ok(SiweIdentityWriteOutcome::Existing(owner));
         }
-        let address_owner = find_owner_tx(&mut transaction, schema, &wallet.address, None).await?;
+        let address_owner = find_owner_tx(
+            &mut transaction,
+            &models.wallet,
+            &models.user,
+            &wallet.address,
+            None,
+        )
+        .await?;
         let outcome = perform_identity_write(
             &mut transaction,
-            schema,
+            &models,
             write,
             wallet,
             account,
@@ -98,9 +89,26 @@ impl SiweStore for PostgresStore {
     }
 }
 
+struct IdentityWriteModels<'a> {
+    wallet: PostgresModel<'a>,
+    user: PostgresModel<'a>,
+    account: PostgresModel<'a>,
+}
+
+impl IdentityWriteModels<'_> {
+    async fn insert(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        wallet: &WalletAddress,
+        account: &crate::OAuthAccount,
+    ) -> Result<(), AuthError> {
+        insert_wallet_and_account(transaction, &self.wallet, &self.account, wallet, account).await
+    }
+}
+
 async fn perform_identity_write(
     transaction: &mut Transaction<'_, Postgres>,
-    schema: &SiweSchema,
+    models: &IdentityWriteModels<'_>,
     write: SiweIdentityWrite,
     mut wallet: WalletAddress,
     mut account: crate::OAuthAccount,
@@ -112,7 +120,7 @@ async fn perform_identity_write(
                 wallet.user_id = owner.user.id;
                 wallet.is_primary = false;
                 account.user_id = owner.user.id;
-                insert_wallet_and_account(transaction, schema, &wallet, &account).await?;
+                models.insert(transaction, &wallet, &account).await?;
                 return Ok(SiweIdentityWriteOutcome::AddedChain {
                     user: owner.user,
                     wallet,
@@ -120,14 +128,15 @@ async fn perform_identity_write(
                 });
             }
             user.email = user.email.to_lowercase();
-            if email_exists(transaction, &user.email).await? {
+            if super::user::email_exists_transaction(transaction, &models.user, &user.email).await?
+            {
                 return Ok(SiweIdentityWriteOutcome::EmailTaken);
             }
             wallet.user_id = user.id;
             wallet.is_primary = true;
             account.user_id = user.id;
-            let user = super::oauth::insert_user(transaction, *user).await?;
-            insert_wallet_and_account(transaction, schema, &wallet, &account).await?;
+            let user = super::user::insert_transaction(transaction, &models.user, *user).await?;
+            models.insert(transaction, &wallet, &account).await?;
             Ok(SiweIdentityWriteOutcome::Created {
                 user,
                 wallet,
@@ -148,7 +157,7 @@ async fn perform_identity_write(
             wallet.user_id = owner.user.id;
             wallet.is_primary = false;
             account.user_id = owner.user.id;
-            insert_wallet_and_account(transaction, schema, &wallet, &account).await?;
+            models.insert(transaction, &wallet, &account).await?;
             Ok(SiweIdentityWriteOutcome::AddedChain {
                 user: owner.user,
                 wallet,
@@ -156,157 +165,4 @@ async fn perform_identity_write(
             })
         }
     }
-}
-
-async fn find_wallet_pool(
-    pool: &sqlx::PgPool,
-    schema: &SiweSchema,
-    address: &str,
-    chain_id: Option<f64>,
-) -> Result<Option<WalletAddress>, AuthError> {
-    let sql = WalletSql::new(schema);
-    let row = match chain_id {
-        Some(chain_id) => {
-            sqlx::query_as::<_, WalletRow>(&sql.exact_query())
-                .bind(address)
-                .bind(chain_id)
-                .fetch_optional(pool)
-                .await
-        }
-        None => {
-            sqlx::query_as::<_, WalletRow>(&sql.any_query())
-                .bind(address)
-                .fetch_optional(pool)
-                .await
-        }
-    }
-    .map_err(storage_error)?;
-    Ok(row.map(WalletAddress::from))
-}
-
-async fn find_owner_tx(
-    transaction: &mut Transaction<'_, Postgres>,
-    schema: &SiweSchema,
-    address: &str,
-    chain_id: Option<f64>,
-) -> Result<Option<WalletAddressOwner>, AuthError> {
-    let sql = WalletSql::new(schema);
-    let wallet = match chain_id {
-        Some(chain_id) => {
-            sqlx::query_as::<_, WalletRow>(&sql.exact_query())
-                .bind(address)
-                .bind(chain_id)
-                .fetch_optional(&mut **transaction)
-                .await
-        }
-        None => {
-            sqlx::query_as::<_, WalletRow>(&sql.any_query())
-                .bind(address)
-                .fetch_optional(&mut **transaction)
-                .await
-        }
-    }
-    .map_err(storage_error)?
-    .map(WalletAddress::from);
-    let Some(wallet) = wallet else {
-        return Ok(None);
-    };
-    let user = sqlx::query_as::<_, UserRow>(&format!(
-        "SELECT {USER_COLUMNS} FROM lucid_auth_users WHERE id = $1"
-    ))
-    .bind(wallet.user_id)
-    .fetch_one(&mut **transaction)
-    .await
-    .map(AuthUser::from)
-    .map_err(storage_error)?;
-    Ok(Some(WalletAddressOwner { wallet, user }))
-}
-
-struct WalletSql {
-    table: String,
-    user_id: String,
-    address: String,
-    chain_id: String,
-    is_primary: String,
-    created_at: String,
-}
-
-impl WalletSql {
-    fn new(schema: &SiweSchema) -> Self {
-        Self {
-            table: crate::siwe::quote_identifier(schema.table()),
-            user_id: crate::siwe::quote_identifier(schema.user_id()),
-            address: crate::siwe::quote_identifier(schema.address()),
-            chain_id: crate::siwe::quote_identifier(schema.chain_id()),
-            is_primary: crate::siwe::quote_identifier(schema.is_primary()),
-            created_at: crate::siwe::quote_identifier(schema.created_at()),
-        }
-    }
-
-    fn columns(&self) -> String {
-        format!(
-            "id, {} AS user_id, {} AS address, {} AS chain_id, \
-             {} AS is_primary, {} AS created_at",
-            self.user_id, self.address, self.chain_id, self.is_primary, self.created_at
-        )
-    }
-
-    fn exact_query(&self) -> String {
-        format!(
-            "SELECT {} FROM {} WHERE lower({}) = lower($1) AND {} = $2 LIMIT 1",
-            self.columns(),
-            self.table,
-            self.address,
-            self.chain_id
-        )
-    }
-
-    fn any_query(&self) -> String {
-        format!(
-            "SELECT {} FROM {} WHERE lower({}) = lower($1) \
-             ORDER BY {}, id LIMIT 1",
-            self.columns(),
-            self.table,
-            self.address,
-            self.created_at
-        )
-    }
-}
-
-async fn email_exists(
-    transaction: &mut Transaction<'_, Postgres>,
-    email: &str,
-) -> Result<bool, AuthError> {
-    sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM lucid_auth_users WHERE email = lower($1))",
-    )
-    .bind(email)
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(storage_error)
-}
-
-async fn insert_wallet_and_account(
-    transaction: &mut Transaction<'_, Postgres>,
-    schema: &SiweSchema,
-    wallet: &WalletAddress,
-    account: &crate::OAuthAccount,
-) -> Result<(), AuthError> {
-    let sql = WalletSql::new(schema);
-    let query = format!(
-        "INSERT INTO {} (id, {}, {}, {}, {}, {}) VALUES ($1, $2, $3, $4, $5, $6)",
-        sql.table, sql.user_id, sql.address, sql.chain_id, sql.is_primary, sql.created_at
-    );
-    sqlx::query(&query)
-        .bind(wallet.id)
-        .bind(wallet.user_id)
-        .bind(&wallet.address)
-        .bind(wallet.chain_id)
-        .bind(wallet.is_primary)
-        .bind(wallet.created_at)
-        .execute(&mut **transaction)
-        .await
-        .map_err(storage_error)?;
-    super::oauth::insert_account(transaction, account.clone()).await?;
-    Ok(())
 }

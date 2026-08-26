@@ -108,7 +108,7 @@ async fn invalid_expired_and_replayed_verification_values_share_the_exact_error(
     let token = generated_token(generate(&fixture.app, Some(&source.cookie)).await).await;
     let mut record = fixture
         .service
-        .find_verification_value("one-time-token", &token)
+        .find_verification_value(&format!("one-time-token:{token}"))
         .await
         .unwrap()
         .unwrap();

@@ -4,7 +4,6 @@ use crate::{
     PasskeyRegistrationUserResolver,
 };
 use chrono::{DateTime, Duration};
-use serde_json::json;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -39,9 +38,7 @@ async fn an_account_can_rename_and_delete_its_own_passkey() {
             backed_up: false,
             transports: None,
             aaguid: None,
-            credential: json!({}),
             created_at: now,
-            updated_at: now,
         })
         .await
         .unwrap();
@@ -136,18 +133,13 @@ async fn passkey_ceremonies_cross_service_instances_and_consume_once() {
         .await
         .unwrap();
 
-    let ceremony = second
-        .consume_passkey_ceremony(REGISTRATION_PURPOSE, &token)
-        .await
-        .unwrap();
+    let ceremony = second.consume_passkey_ceremony(&token).await.unwrap();
     assert!(matches!(
         ceremony,
         PasskeyCeremony::Registration { user_id, .. } if user_id == session.user.id
     ));
     assert!(matches!(
-        first
-            .consume_passkey_ceremony(REGISTRATION_PURPOSE, &token)
-            .await,
+        first.consume_passkey_ceremony(&token).await,
         Err(AuthError::PasskeyChallengeExpired)
     ));
 }
@@ -252,7 +244,7 @@ async fn passkey_first_registration_resolves_the_context_user_without_a_session(
     assert_eq!(options.public_key.user.display_name, "Resolved User");
     assert!(matches!(
         service
-            .consume_passkey_ceremony(REGISTRATION_PURPOSE, &token)
+            .consume_passkey_ceremony(&token)
             .await
             .unwrap(),
         PasskeyCeremony::Registration {
@@ -275,8 +267,6 @@ fn test_passkey(user_id: Uuid, credential_id: &str, now: DateTime<Utc>) -> Store
         backed_up: false,
         transports: None,
         aaguid: None,
-        credential: json!({}),
         created_at: now,
-        updated_at: now,
     }
 }

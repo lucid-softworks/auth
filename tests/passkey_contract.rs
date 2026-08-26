@@ -54,9 +54,7 @@ async fn application() -> (Router, Arc<AuthService>, Arc<MemoryStore>) {
             backed_up: true,
             transports: Some("internal,hybrid".into()),
             aaguid: Some("00000000-0000-0000-0000-000000000000".into()),
-            credential: json!({}),
             created_at: now,
-            updated_at: now,
         })
         .await
         .unwrap();
@@ -214,7 +212,7 @@ async fn stale_registration_does_not_consume_the_challenge() {
         user_id: user.id,
         token: token.clone(),
         actor_user_id: None,
-        authentication_method: AuthenticationMethod::Password,
+        authentication_method: Some(AuthenticationMethod::Password),
         expires_at: now + Duration::hours(1),
         created_at: now,
         updated_at: now,
@@ -310,7 +308,7 @@ async fn persisted_session_cookie(
             user_id,
             token: token.clone(),
             actor_user_id: None,
-            authentication_method: AuthenticationMethod::Password,
+            authentication_method: Some(AuthenticationMethod::Password),
             expires_at: now + Duration::hours(1),
             created_at: now,
             updated_at: now,

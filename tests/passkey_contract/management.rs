@@ -45,9 +45,7 @@ async fn matches_official_cross_account_ownership_errors() {
             backed_up: false,
             transports: None,
             aaguid: None,
-            credential: json!({}),
             created_at: now,
-            updated_at: now,
         })
         .await
         .unwrap();

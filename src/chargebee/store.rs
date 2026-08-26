@@ -34,7 +34,6 @@ pub struct ChargebeeSubscriptionPatch {
     pub canceled_at: Option<Option<DateTime<Utc>>>,
     pub seats: Option<Option<f64>>,
     pub metadata: Option<Option<String>>,
-    pub updated_at: Option<DateTime<Utc>>,
 }
 
 impl ChargebeeSubscriptionPatch {
@@ -60,9 +59,6 @@ impl ChargebeeSubscriptionPatch {
         apply_nullable(self.canceled_at, &mut subscription.canceled_at);
         apply_nullable(self.seats, &mut subscription.seats);
         apply_nullable(self.metadata, &mut subscription.metadata);
-        if let Some(value) = self.updated_at {
-            subscription.updated_at = value;
-        }
     }
 }
 
@@ -162,8 +158,7 @@ mod tests {
 
     #[test]
     fn patches_preserve_omitted_values_and_clear_explicit_nulls() {
-        let now = Utc::now();
-        let mut subscription = ChargebeeSubscription::future("owner", now);
+        let mut subscription = ChargebeeSubscription::future("owner");
         subscription.chargebee_customer_id = Some("customer".into());
         subscription.metadata = Some("metadata".into());
         ChargebeeSubscriptionPatch {

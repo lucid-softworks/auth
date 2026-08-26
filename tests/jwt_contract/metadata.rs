@@ -48,7 +48,8 @@ async fn descriptor_routes_and_client_metadata_are_optional_and_exact() {
             .collect::<Vec<_>>(),
         vec![("/jwks", "jwks"), ("/token", "token")]
     );
-    assert_eq!(baseline.plugin_migrations().len(), 1);
+    assert!(baseline.plugin_migrations().is_empty());
+    assert!(baseline.generic_database_schema().table("jwks").is_some());
 
     let core = AuthService::new(
         Arc::new(MemoryStore::default()),
@@ -115,10 +116,10 @@ fn schema_remapping_is_complete_empty_safe_and_instance_local() {
     let mut auth = AuthConfig::new([165_u8; 32]).unwrap();
     auth.add_plugin(custom).unwrap();
     let custom_service = AuthService::new(Arc::new(MemoryStore::default()), auth);
-    let custom_migrations = custom_service.plugin_migrations();
-    let sql = &custom_migrations[0].migration.sql;
+    assert!(custom_service.plugin_migrations().is_empty());
+    let custom_schema = custom_service.generic_database_schema();
+    let custom_table = custom_schema.table("custom_keys").unwrap();
     for identifier in [
-        "custom_keys",
         "public_material",
         "private_material",
         "created_on",
@@ -126,7 +127,7 @@ fn schema_remapping_is_complete_empty_safe_and_instance_local() {
         "algorithm",
         "curve",
     ] {
-        assert!(sql.contains(&format!("\"{identifier}\"")));
+        assert!(custom_table.fields.contains_key(identifier));
     }
 
     let default = service_result(JwtConfig {
@@ -138,10 +139,11 @@ fn schema_remapping_is_complete_empty_safe_and_instance_local() {
         ..JwtConfig::default()
     })
     .unwrap();
-    let default_migrations = default.plugin_migrations();
-    let sql = &default_migrations[0].migration.sql;
-    assert!(sql.contains("\"lucid_auth_jwks\"") && sql.contains("\"public_key\""));
-    assert!(!sql.contains("custom_keys"));
+    assert!(default.plugin_migrations().is_empty());
+    let default_schema = default.generic_database_schema();
+    let default_table = default_schema.table("jwks").unwrap();
+    assert!(default_table.fields.contains_key("publicKey"));
+    assert!(default_schema.table("custom_keys").is_none());
 }
 
 #[tokio::test]

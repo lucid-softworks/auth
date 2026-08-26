@@ -27,7 +27,7 @@ pub use store::{DeviceAuthorizationStore, DeviceCodeCreateOutcome};
 
 use crate::{
     AuthConfig, AuthError, AuthPlugin, PluginClientMetadata, PluginDescriptor, PluginEndpoint,
-    PluginHttpMethod, PluginMigration, PluginRateLimit,
+    PluginHttpMethod, PluginRateLimit,
 };
 use async_trait::async_trait;
 use std::{borrow::Cow, fmt, sync::Arc};
@@ -64,7 +64,6 @@ const ENDPOINTS: &[PluginEndpoint] = &[
 pub struct DeviceAuthorizationPlugin {
     config: Arc<DeviceAuthorizationConfig>,
     store: Arc<dyn DeviceAuthorizationStore>,
-    migrations: Vec<PluginMigration>,
 }
 
 impl DeviceAuthorizationPlugin {
@@ -89,13 +88,9 @@ impl DeviceAuthorizationPlugin {
         mode: DeviceAuthorizationMode,
     ) -> Self {
         config.mode = mode;
-        let migrations = schema::migration(&config.schema, config.includes_oauth_fields())
-            .into_iter()
-            .collect();
         Self {
             config: Arc::new(config),
             store,
-            migrations,
         }
     }
 
@@ -107,10 +102,9 @@ impl DeviceAuthorizationPlugin {
     pub fn postgres(
         config: DeviceAuthorizationConfig,
         store: crate::postgres::PostgresStore,
-    ) -> Result<Self, DeviceAuthorizationConfigError> {
-        let device_store =
-            crate::postgres::PostgresDeviceAuthorizationStore::new(store, &config.schema, false)?;
-        Ok(Self::new(config, device_store))
+    ) -> Self {
+        let device_store = crate::postgres::PostgresDeviceAuthorizationStore::new(store);
+        Self::new(config, device_store)
     }
 
     pub fn config(&self) -> &DeviceAuthorizationConfig {
@@ -171,10 +165,9 @@ impl OAuthDeviceAuthorizationPlugin {
     pub fn postgres(
         config: DeviceAuthorizationConfig,
         store: crate::postgres::PostgresStore,
-    ) -> Result<Self, DeviceAuthorizationConfigError> {
-        let device_store =
-            crate::postgres::PostgresDeviceAuthorizationStore::new(store, &config.schema, true)?;
-        Ok(Self::new(config, device_store))
+    ) -> Self {
+        let device_store = crate::postgres::PostgresDeviceAuthorizationStore::new(store);
+        Self::new(config, device_store)
     }
 
     pub fn config(&self) -> &DeviceAuthorizationConfig {
@@ -281,12 +274,12 @@ macro_rules! impl_device_plugin {
                     .map_err(|error| AuthError::InvalidConfiguration(error.to_string()))
             }
 
-            fn migrations(&self) -> Cow<'_, [PluginMigration]> {
-                Cow::Borrowed(&self.inner().migrations)
-            }
-
             fn rate_limits(&self) -> Vec<PluginRateLimit> {
                 rate_limits(&self.inner().config)
+            }
+
+            fn schema(&self) -> Vec<crate::PluginSchemaTable> {
+                vec![schema::catalog(&self.inner().config.schema, $oauth)]
             }
 
             fn oauth_provider_extensions(&self) -> Vec<Arc<dyn crate::OAuthProviderExtension>> {

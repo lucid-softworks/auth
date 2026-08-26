@@ -8,7 +8,7 @@ use chrono::Utc;
 use rand::RngExt;
 use sha2::{Digest, Sha256};
 
-const PURPOSE: &str = "one-time-token";
+const IDENTIFIER_PREFIX: &str = "one-time-token:";
 const TOKEN_ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-_";
 
 impl AuthService {
@@ -57,14 +57,11 @@ impl AuthService {
         };
         let identifier = stored_token(&config.token_storage, &token).await?;
         let now = Utc::now();
-        self.replace_verification_with_create_hooks(VerificationValue {
-            purpose: PURPOSE.into(),
-            identifier,
-            payload: serde_json::Value::String(session.session.token.clone()),
-            additional_fields: serde_json::Map::new(),
-            expires_at: now + config.expires_in,
-            created_at: now,
-        })
+        self.replace_verification_with_create_hooks(VerificationValue::new(
+            format!("{IDENTIFIER_PREFIX}{identifier}"),
+            session.session.token.clone(),
+            now + config.expires_in,
+        ))
         .await?;
         Ok(token)
     }
@@ -76,15 +73,12 @@ impl AuthService {
     ) -> Result<SessionWithUser, AuthError> {
         let identifier = stored_token(&config.token_storage, token).await?;
         let Some(value) = self
-            .consume_verification_record(PURPOSE, &identifier, Utc::now())
+            .consume_verification_record(&format!("{IDENTIFIER_PREFIX}{identifier}"), Utc::now())
             .await?
         else {
             return Err(OneTimeTokenError::InvalidToken.into());
         };
-        let Some(session_token) = value.payload.as_str() else {
-            return Err(OneTimeTokenError::SessionNotFound.into());
-        };
-        self.find_stored_session(session_token)
+        self.find_stored_session(&value.value)
             .await?
             .ok_or_else(|| OneTimeTokenError::SessionNotFound.into())
     }

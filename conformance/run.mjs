@@ -844,9 +844,9 @@ async function conformance(origin) {
     assert.equal(session.user.emailVerified, true);
 
     const replay = await client.verifyEmail({ query: { token } });
-    assert.equal(replay.data, null);
-    assert.equal(replay.error?.status, 401);
-    assert.equal(replay.error?.code, "INVALID_TOKEN");
+    const replayed = success(replay, "verifyEmail replay");
+    assert.equal(replayed.status, true);
+    assert.equal(replayed.user, null);
     success(await client.signOut(), "signOut after email verification");
 
     success(

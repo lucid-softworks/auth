@@ -50,7 +50,6 @@ pub(crate) fn lifecycle_patch(
     item: &StripeSubscriptionItem,
     plan: Option<&StripePlan>,
     seats: Option<f64>,
-    now: DateTime<Utc>,
 ) -> SubscriptionPatch {
     SubscriptionPatch {
         plan: plan.map(StripePlan::persisted_name),
@@ -69,7 +68,6 @@ pub(crate) fn lifecycle_patch(
         seats: Some(seats),
         billing_interval: Some(item.price.recurring.as_ref().map(|value| value.interval)),
         stripe_schedule_id: Some(subscription.schedule_id().map(ToOwned::to_owned)),
-        updated_at: Some(now),
         ..SubscriptionPatch::default()
     }
 }
@@ -80,18 +78,14 @@ pub(crate) fn checkout_patch(
     plan: &StripePlan,
     checkout_subscription_id: String,
     seats: f64,
-    now: DateTime<Utc>,
 ) -> SubscriptionPatch {
-    let mut patch = lifecycle_patch(subscription, item, Some(plan), Some(seats), now);
+    let mut patch = lifecycle_patch(subscription, item, Some(plan), Some(seats));
     patch.stripe_subscription_id = Some(Some(checkout_subscription_id));
     patch.stripe_schedule_id = None;
     patch
 }
 
-pub(super) fn deletion_patch(
-    subscription: &StripeSubscription,
-    now: DateTime<Utc>,
-) -> SubscriptionPatch {
+pub(super) fn deletion_patch(subscription: &StripeSubscription) -> SubscriptionPatch {
     SubscriptionPatch {
         status: Some(crate::stripe::SubscriptionStatus::Canceled),
         trial_start: trial_timestamp(subscription.trial_start, subscription.trial_end)
@@ -103,7 +97,6 @@ pub(super) fn deletion_patch(
         canceled_at: Some(truthy_timestamp(subscription.canceled_at)),
         ended_at: Some(truthy_timestamp(subscription.ended_at)),
         stripe_schedule_id: Some(None),
-        updated_at: Some(now),
         ..SubscriptionPatch::default()
     }
 }
@@ -183,8 +176,7 @@ mod tests {
         provider.trial_start = Some(100);
         provider.trial_end = Some(0);
         provider.cancel_at = Some(0);
-        let now = DateTime::from_timestamp(500, 0).unwrap();
-        let patch = lifecycle_patch(&provider, &provider.items.data[0], None, Some(2.0), now);
+        let patch = lifecycle_patch(&provider, &provider.items.data[0], None, Some(2.0));
         assert_eq!(patch.trial_start, None);
         assert_eq!(patch.trial_end, None);
         assert_eq!(patch.cancel_at, Some(None));

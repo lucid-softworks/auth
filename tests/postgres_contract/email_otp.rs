@@ -45,7 +45,7 @@ pub(super) async fn assert_redemption_is_atomic(
         1
     );
     assert_eq!(
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM lucid_auth_users WHERE email = $1")
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM \"user\" WHERE \"email\" = $1")
             .bind(email)
             .fetch_one(pool)
             .await?,

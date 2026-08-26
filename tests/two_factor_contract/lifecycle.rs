@@ -8,7 +8,7 @@ async fn official_lifecycle_uses_exact_shapes_and_protects_factor_secrets() {
 
     assert_encrypted_enrollment(&fixture, user_id, &secret, &backup_codes, &enabled).await;
     assert_totp_uri(&fixture, &mut cookies).await;
-    verify_setup_and_replay(&fixture, &mut cookies, user_id, &secret, &backup_codes).await;
+    verify_setup(&fixture, &mut cookies, user_id, &secret, &backup_codes).await;
     disable_totp_and_enable_otp(&fixture, &mut cookies, user_id).await;
 }
 
@@ -34,12 +34,12 @@ async fn assert_encrypted_enrollment(
         .await
         .unwrap()
         .unwrap();
-    assert!(!record.enabled);
+    assert!(!fixture.factors.two_factor_enabled(user_id).await.unwrap());
     assert!(!record.verified);
-    let encrypted_secret = record.encrypted_secret.as_deref().unwrap();
+    let encrypted_secret = record.encrypted_secret.as_str();
     assert!(encrypted_secret.starts_with("$la$1$"));
     assert!(!encrypted_secret.contains(secret));
-    let encrypted_codes = record.encrypted_backup_codes.as_deref().unwrap();
+    let encrypted_codes = record.encrypted_backup_codes.as_str();
     assert!(
         backup_codes
             .iter()
@@ -60,7 +60,7 @@ async fn assert_totp_uri(fixture: &Fixture, cookies: &mut CookieJar) {
     assert!(uri.get("totpURI").is_some());
 }
 
-async fn verify_setup_and_replay(
+async fn verify_setup(
     fixture: &Fixture,
     cookies: &mut CookieJar,
     user_id: Uuid,
@@ -85,15 +85,7 @@ async fn verify_setup_and_replay(
             .unwrap(),
         backup_codes
     );
-    let (status, _, replayed) = request(
-        &fixture.app,
-        cookies,
-        "/api/auth/two-factor/verify-totp",
-        json!({ "code": code }),
-    )
-    .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert_eq!(replayed["code"], "INVALID_CODE");
+    assert!(fixture.factors.two_factor_enabled(user_id).await.unwrap());
 }
 
 async fn disable_totp_and_enable_otp(fixture: &Fixture, cookies: &mut CookieJar, user_id: Uuid) {

@@ -11,7 +11,6 @@ use axum::{
     response::Response,
     routing::{MethodRouter, post},
 };
-use chrono::Utc;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -226,7 +225,6 @@ async fn reuse_or_create_future(
     quantity: f64,
     existing: &[ChargebeeSubscription],
 ) -> Result<ChargebeeSubscription, Response> {
-    let now = Utc::now();
     if let Some(future) = existing
         .iter()
         .find(|subscription| subscription.status == ChargebeeSubscriptionStatus::Future)
@@ -237,7 +235,6 @@ async fn reuse_or_create_future(
                 future.id,
                 ChargebeeSubscriptionPatch {
                     seats: Some(Some(quantity)),
-                    updated_at: Some(now),
                     ..ChargebeeSubscriptionPatch::default()
                 },
             )
@@ -245,7 +242,7 @@ async fn reuse_or_create_future(
             .map_err(support::internal_error)
             .map(|updated| updated.unwrap_or_else(|| future.clone()));
     }
-    let mut subscription = ChargebeeSubscription::future(reference_id, now);
+    let mut subscription = ChargebeeSubscription::future(reference_id);
     subscription.chargebee_customer_id = Some(customer_id.to_owned());
     subscription.seats = Some(quantity);
     state

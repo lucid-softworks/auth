@@ -1,13 +1,12 @@
-use super::{AuthService, hash_token, password::verify_password};
+use super::{AuthService, password::verify_password};
 use crate::{
     AfterAuthEvent, AuthError, BeforeAuthEvent, DeleteAccountVerification, SessionWithUser,
     VerificationValue,
 };
 use chrono::Utc;
 use rand::RngExt;
-use serde_json::json;
 
-const PURPOSE: &str = "delete-account";
+const IDENTIFIER_PREFIX: &str = "delete-account-";
 const TOKEN_ALPHABET: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,14 +98,11 @@ impl AuthService {
             .ok_or(AuthError::NotFound)?;
         let token = delete_token();
         let now = Utc::now();
-        self.create_verification_record(VerificationValue {
-            purpose: PURPOSE.into(),
-            identifier: hash_token(&token),
-            payload: json!({ "userId": session.user.id }),
-            additional_fields: serde_json::Map::new(),
-            expires_at: now + config.delete_token_expires_in,
-            created_at: now,
-        })
+        self.create_verification_record(VerificationValue::new(
+            format!("{IDENTIFIER_PREFIX}{token}"),
+            session.user.id.to_string(),
+            now + config.delete_token_expires_in,
+        ))
         .await?;
         let mut url = self.config.base_url.clone().ok_or_else(|| {
             AuthError::InvalidConfiguration(
@@ -136,11 +132,11 @@ impl AuthService {
         token: &str,
     ) -> Result<(), AuthError> {
         let value = self
-            .consume_verification_record(PURPOSE, &hash_token(token), Utc::now())
+            .consume_verification_record(&format!("{IDENTIFIER_PREFIX}{token}"), Utc::now())
             .await?
             .ok_or(AuthError::InvalidDeleteUserToken)?;
         let user_id = session.user.id.to_string();
-        if value.payload.get("userId").and_then(|value| value.as_str()) != Some(user_id.as_str()) {
+        if value.value != user_id {
             return Err(AuthError::InvalidDeleteUserToken);
         }
         Ok(())

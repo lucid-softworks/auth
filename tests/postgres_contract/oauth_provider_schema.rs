@@ -16,8 +16,7 @@ mod round_trip;
 
 #[tokio::test]
 #[ignore = "requires a PostgreSQL server in DATABASE_URL"]
-async fn custom_schema_migration_and_queries_round_trip() -> Result<(), Box<dyn std::error::Error>>
-{
+async fn bound_schema_and_queries_round_trip() -> Result<(), Box<dyn std::error::Error>> {
     let database_url = std::env::var("DATABASE_URL")?;
     let admin = PgPoolOptions::new()
         .max_connections(1)
@@ -40,8 +39,7 @@ async fn custom_schema_migration_and_queries_round_trip() -> Result<(), Box<dyn 
         })
         .connect(&database_url)
         .await?;
-    let store = Arc::new(PostgresStore::new(pool.clone()));
-    store.migrate().await?;
+    let store = Arc::new(PostgresStore::new(pool.clone(), Default::default()));
 
     let provider_config = mapped_config();
     let provider = OAuthProviderPlugin::postgres(provider_config.clone(), (*store).clone())?;
@@ -49,12 +47,11 @@ async fn custom_schema_migration_and_queries_round_trip() -> Result<(), Box<dyn 
     auth_config.add_plugin(provider)?;
     let service = AuthService::try_new(store.clone(), auth_config)?;
     let migrations = service.plugin_migrations();
-    assert_eq!(migrations.len(), 1);
-    assert_eq!(migrations[0].plugin_id, "oauth-provider");
-    store.migrate_plugins(&migrations).await?;
-    store.migrate_plugins(&migrations).await?;
+    assert!(migrations.is_empty());
+    store.migrate_all(&migrations).await?;
+    store.migrate_all(&migrations).await?;
 
-    let mapped = PostgresOAuthProviderStore::new((*store).clone(), &provider_config.schema)?;
+    let mapped = PostgresOAuthProviderStore::new((*store).clone());
     round_trip::all_seven_models(&service, &mapped).await?;
     atomic::one_time_operations(&service, &mapped).await?;
 

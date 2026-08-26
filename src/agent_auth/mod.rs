@@ -33,7 +33,7 @@ pub use plugin::AgentAuthPlugin;
 #[cfg(feature = "postgres")]
 pub use postgres::PostgresAgentAuthStore;
 pub use request::{AgentRequestVerifier, AgentRequestVerifierError, verify_agent_request};
-pub use schema::{AgentAuthModelSchema, AgentAuthSchema, AgentAuthSchemaError};
+pub use schema::{AgentAuthModelSchema, AgentAuthSchema};
 pub use store::{
     AgentAuthStore, AgentClaimedAutonomousAgent, AgentCleanupOutcome, AgentHostEnrollment,
     AgentHostEnrollmentOutcome, AgentHostRotationOutcome, AgentHostSwitchOutcome,

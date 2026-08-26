@@ -11,7 +11,6 @@ use axum::{
     response::{IntoResponse, Response},
     routing::post,
 };
-use chrono::Utc;
 use serde_json::json;
 
 pub(super) fn route(plugin: StripePlugin) -> AxumPluginRoute {
@@ -128,7 +127,6 @@ async fn release_schedule(
             subscription.id,
             SubscriptionPatch {
                 stripe_schedule_id: Some(None),
-                updated_at: Some(Utc::now()),
                 ..SubscriptionPatch::default()
             },
         )
@@ -186,7 +184,6 @@ async fn clear_cancellation(
                 cancel_at_period_end: Some(false),
                 cancel_at: Some(None),
                 canceled_at: Some(None),
-                updated_at: Some(Utc::now()),
                 ..SubscriptionPatch::default()
             },
         )

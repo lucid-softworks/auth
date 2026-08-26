@@ -1,78 +1,134 @@
-use super::{
-    PostgresChargebeeStore, rows::ChargebeeSubscriptionItemRow, storage_error,
-    subscriptions_disabled,
+use super::{PostgresChargebeeStore, item_error, rows, schema_error, subscriptions_disabled};
+use crate::{
+    chargebee::{ChargebeeStoreError, ChargebeeSubscriptionItem},
+    postgres::{PostgresModel, PostgresWrite},
 };
-use crate::chargebee::{ChargebeeStoreError, ChargebeeSubscriptionItem};
+use serde_json::json;
+use sqlx::{Postgres, QueryBuilder};
 use uuid::Uuid;
-
-const TABLE: &str = "lucid_auth_chargebee_subscription_items";
-const FIELDS: &str = "id, subscription_id, item_price_id, item_type, quantity, unit_price, amount";
 
 pub(super) async fn create(
     store: &PostgresChargebeeStore,
     item: ChargebeeSubscriptionItem,
 ) -> Result<ChargebeeSubscriptionItem, ChargebeeStoreError> {
-    require_enabled(store)?;
-    sqlx::query_as::<_, ChargebeeSubscriptionItemRow>(&format!(
-        "INSERT INTO {TABLE} ({FIELDS}) VALUES ($1, $2, $3, $4, $5, $6, $7) \
-         RETURNING {FIELDS}"
-    ))
-    .bind(item.id)
-    .bind(item.subscription_id)
-    .bind(item.item_price_id)
-    .bind(item.item_type.as_str())
-    .bind(item.quantity)
-    .bind(item.unit_price)
-    .bind(item.amount)
-    .fetch_one(store.pool())
-    .await
-    .map_err(storage_error)?
-    .try_into()
+    let model = store
+        .model_if_present("subscriptionItem")?
+        .ok_or_else(subscriptions_disabled)?;
+    let mut query = insert_query(&model, rows::item_writes(&model, &item)?);
+    query.push(" RETURNING ").push(model.all_projection());
+    rows::decode_item(
+        &model,
+        &query
+            .build()
+            .fetch_one(store.pool())
+            .await
+            .map_err(item_error)?,
+    )
 }
-
 pub(super) async fn list(
     store: &PostgresChargebeeStore,
-    subscription_id: Uuid,
+    id: Uuid,
 ) -> Result<Vec<ChargebeeSubscriptionItem>, ChargebeeStoreError> {
-    if !store.subscriptions_enabled {
+    let Some(model) = store.model_if_present("subscriptionItem")? else {
         return Ok(Vec::new());
-    }
-    sqlx::query_as::<_, ChargebeeSubscriptionItemRow>(&format!(
-        "SELECT {FIELDS} FROM {TABLE} WHERE subscription_id = $1 ORDER BY position"
-    ))
-    .bind(subscription_id)
-    .fetch_all(store.pool())
-    .await
-    .map_err(storage_error)?
-    .into_iter()
-    .map(TryInto::try_into)
-    .collect()
+    };
+    let mut query = filter_query(&model, id, false)?;
+    query
+        .build()
+        .fetch_all(store.pool())
+        .await
+        .map_err(item_error)?
+        .iter()
+        .map(|row| rows::decode_item(&model, row))
+        .collect()
 }
-
 pub(super) async fn delete(
     store: &PostgresChargebeeStore,
-    subscription_id: Uuid,
+    id: Uuid,
 ) -> Result<Vec<ChargebeeSubscriptionItem>, ChargebeeStoreError> {
-    if !store.subscriptions_enabled {
+    let Some(model) = store.model_if_present("subscriptionItem")? else {
         return Ok(Vec::new());
+    };
+    let mut query = filter_query(&model, id, true)?;
+    query
+        .build()
+        .fetch_all(store.pool())
+        .await
+        .map_err(item_error)?
+        .iter()
+        .map(|row| rows::decode_item(&model, row))
+        .collect()
+}
+fn filter_query(
+    model: &PostgresModel<'_>,
+    id: Uuid,
+    delete: bool,
+) -> Result<QueryBuilder<'static, Postgres>, ChargebeeStoreError> {
+    let mut query = QueryBuilder::new(if delete { "DELETE FROM " } else { "SELECT " });
+    if delete {
+        query.push(model.quoted_table());
+    } else {
+        query
+            .push(model.all_projection())
+            .push(" FROM ")
+            .push(model.quoted_table());
     }
-    sqlx::query_as::<_, ChargebeeSubscriptionItemRow>(&format!(
-        "WITH deleted AS (DELETE FROM {TABLE} WHERE subscription_id = $1 \
-         RETURNING {FIELDS}, position) SELECT {FIELDS} FROM deleted ORDER BY position"
-    ))
-    .bind(subscription_id)
-    .fetch_all(store.pool())
-    .await
-    .map_err(storage_error)?
-    .into_iter()
-    .map(TryInto::try_into)
-    .collect()
+    query
+        .push(" WHERE ")
+        .push(
+            model
+                .quoted_column("subscriptionId")
+                .map_err(schema_error)?,
+        )
+        .push(" = ");
+    model
+        .encode("subscriptionId", json!(id.to_string()))
+        .map_err(schema_error)?
+        .push_bind(&mut query);
+    if delete {
+        query.push(" RETURNING ").push(model.all_projection());
+    } else {
+        query.push(" ORDER BY \"id\"");
+    }
+    Ok(query)
+}
+fn insert_query(
+    model: &PostgresModel<'_>,
+    writes: Vec<PostgresWrite<'_>>,
+) -> QueryBuilder<'static, Postgres> {
+    let mut query = QueryBuilder::new("INSERT INTO ");
+    query.push(model.quoted_table()).push(" (");
+    for (i, w) in writes.iter().enumerate() {
+        if i > 0 {
+            query.push(", ");
+        }
+        query.push(w.quoted_column());
+    }
+    query.push(") VALUES (");
+    for (i, w) in writes.into_iter().enumerate() {
+        if i > 0 {
+            query.push(", ");
+        }
+        w.push_bind(&mut query);
+    }
+    query.push(")");
+    query
 }
 
-fn require_enabled(store: &PostgresChargebeeStore) -> Result<(), ChargebeeStoreError> {
-    if store.subscriptions_enabled {
-        Ok(())
-    } else {
-        Err(subscriptions_disabled())
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn item_queries_use_exact_fields_and_never_position() {
+        let store = super::super::test_support::store();
+        let model = store.model("subscriptionItem").unwrap();
+        let list = filter_query(&model, Uuid::nil(), false).unwrap();
+        assert!(
+            list.sql()
+                .contains("FROM \"chargebee\"\"subscriptionItems\"")
+        );
+        assert!(list.sql().contains("\"physical subscriptionId\" = $1"));
+        assert!(!list.sql().contains("position"));
     }
 }

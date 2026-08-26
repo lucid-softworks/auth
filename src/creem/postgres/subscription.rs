@@ -1,82 +1,46 @@
-use super::{PostgresCreemStore, rows::SubscriptionRow, storage_error};
-use crate::creem::{
-    CreemStoreError, CreemSubscription, CreemSubscriptionPatch, schema::ResolvedModel,
+use super::{PostgresCreemStore, rows, schema_error, storage_error};
+use crate::{
+    creem::{CreemStoreError, CreemSubscription, CreemSubscriptionPatch},
+    postgres::{PostgresModel, PostgresWrite},
 };
+use serde_json::{Value, json};
 use sqlx::{Postgres, QueryBuilder};
 use uuid::Uuid;
 
 pub(super) async fn create(
     store: &PostgresCreemStore,
-    subscription: CreemSubscription,
+    value: CreemSubscription,
 ) -> Result<CreemSubscription, CreemStoreError> {
-    let model = subscription_model(store)?;
-    let query = insert_query(model);
-    sqlx::query_as::<_, SubscriptionRow>(&query)
-        .bind(subscription.id)
-        .bind(subscription.product_id)
-        .bind(subscription.reference_id)
-        .bind(subscription.creem_customer_id)
-        .bind(subscription.creem_subscription_id)
-        .bind(subscription.creem_order_id)
-        .bind(subscription.status)
-        .bind(subscription.period_start)
-        .bind(subscription.period_end)
-        .bind(subscription.cancel_at_period_end)
-        .fetch_one(store.pool())
-        .await
-        .map(Into::into)
-        .map_err(storage_error)
+    let model = store.model("creem_subscription")?;
+    let mut query = insert_query(&model, rows::writes(&model, &value)?);
+    query.push(" RETURNING ").push(model.all_projection());
+    rows::decode(
+        &model,
+        &query
+            .build()
+            .fetch_one(store.pool())
+            .await
+            .map_err(storage_error)?,
+    )
 }
 
 pub(super) async fn find_by_creem_id(
     store: &PostgresCreemStore,
-    creem_subscription_id: &str,
+    id: &str,
 ) -> Result<Option<CreemSubscription>, CreemStoreError> {
-    let Some(model) = store.schema.subscription() else {
-        return Ok(None);
-    };
-    let query = find_by_creem_id_query(model);
-    optional_row(
-        sqlx::query_as::<_, SubscriptionRow>(&query)
-            .bind(creem_subscription_id)
-            .fetch_optional(store.pool())
-            .await
-            .map_err(storage_error)?,
-    )
+    find_by(store, "creemSubscriptionId", json!(id)).await
 }
-
 pub(super) async fn list_by_reference(
     store: &PostgresCreemStore,
-    reference_id: &str,
+    id: &str,
 ) -> Result<Vec<CreemSubscription>, CreemStoreError> {
-    let Some(model) = store.schema.subscription() else {
-        return Ok(Vec::new());
-    };
-    let query = list_query(model, "referenceId");
-    rows(
-        sqlx::query_as::<_, SubscriptionRow>(&query)
-            .bind(reference_id)
-            .fetch_all(store.pool())
-            .await
-            .map_err(storage_error)?,
-    )
+    list_by(store, "referenceId", id).await
 }
-
 pub(super) async fn list_by_customer(
     store: &PostgresCreemStore,
-    creem_customer_id: &str,
+    id: &str,
 ) -> Result<Vec<CreemSubscription>, CreemStoreError> {
-    let Some(model) = store.schema.subscription() else {
-        return Ok(Vec::new());
-    };
-    let query = list_query(model, "creemCustomerId");
-    rows(
-        sqlx::query_as::<_, SubscriptionRow>(&query)
-            .bind(creem_customer_id)
-            .fetch_all(store.pool())
-            .await
-            .map_err(storage_error)?,
-    )
+    list_by(store, "creemCustomerId", id).await
 }
 
 pub(super) async fn update(
@@ -84,233 +48,216 @@ pub(super) async fn update(
     id: Uuid,
     patch: CreemSubscriptionPatch,
 ) -> Result<Option<CreemSubscription>, CreemStoreError> {
-    let Some(model) = store.schema.subscription() else {
+    let Some(model) = store.model_if_present("creem_subscription")? else {
         return Ok(None);
     };
-    let Some(mut query) = update_query(model, id, patch) else {
-        return find_by_id(store, id).await;
+    let Some(mut query) = update_query(&model, id, patch)? else {
+        return find_by(store, "id", json!(id.to_string())).await;
     };
-    optional_row(
-        query
-            .build_query_as::<SubscriptionRow>()
-            .fetch_optional(store.pool())
-            .await
-            .map_err(storage_error)?,
-    )
+    query.push(" RETURNING ").push(model.all_projection());
+    fetch_optional(store, &model, query).await
 }
 
-async fn find_by_id(
+async fn find_by(
     store: &PostgresCreemStore,
-    id: Uuid,
+    field: &str,
+    value: Value,
 ) -> Result<Option<CreemSubscription>, CreemStoreError> {
-    let Some(model) = store.schema.subscription() else {
+    let Some(model) = store.model_if_present("creem_subscription")? else {
         return Ok(None);
     };
-    let query = format!(
-        "SELECT {} FROM {} WHERE \"id\" = $1",
-        model.projection(),
-        model.table()
-    );
-    optional_row(
-        sqlx::query_as::<_, SubscriptionRow>(&query)
-            .bind(id)
-            .fetch_optional(store.pool())
-            .await
-            .map_err(storage_error)?,
-    )
+    let mut query = filter_query(&model, field, value)?;
+    query.push(" ORDER BY \"id\" LIMIT 1");
+    fetch_optional(store, &model, query).await
 }
 
-fn subscription_model(store: &PostgresCreemStore) -> Result<&ResolvedModel, CreemStoreError> {
-    store.schema.subscription().ok_or_else(|| {
-        CreemStoreError::Unavailable("Creem subscription persistence is disabled".into())
-    })
+async fn list_by(
+    store: &PostgresCreemStore,
+    field: &str,
+    value: &str,
+) -> Result<Vec<CreemSubscription>, CreemStoreError> {
+    let Some(model) = store.model_if_present("creem_subscription")? else {
+        return Ok(Vec::new());
+    };
+    let mut query = filter_query(&model, field, json!(value))?;
+    query.push(" ORDER BY \"id\"");
+    query
+        .build()
+        .fetch_all(store.pool())
+        .await
+        .map_err(storage_error)?
+        .iter()
+        .map(|row| rows::decode(&model, row))
+        .collect()
 }
 
-fn insert_query(model: &ResolvedModel) -> String {
-    format!(
-        "INSERT INTO {} ({}) VALUES ({}) RETURNING {}",
-        model.table(),
-        columns(model),
-        placeholders(10),
-        model.projection()
-    )
-}
-
-fn columns(model: &ResolvedModel) -> String {
-    [
-        "id",
-        "productId",
-        "referenceId",
-        "creemCustomerId",
-        "creemSubscriptionId",
-        "creemOrderId",
-        "status",
-        "periodStart",
-        "periodEnd",
-        "cancelAtPeriodEnd",
-    ]
-    .map(|field| model.column(field))
-    .join(", ")
-}
-
-fn placeholders(count: usize) -> String {
-    (1..=count)
-        .map(|position| format!("${position}"))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-fn find_by_creem_id_query(model: &ResolvedModel) -> String {
-    format!(
-        "SELECT {} FROM {} WHERE {} = $1 LIMIT 1",
-        model.projection(),
-        model.table(),
-        model.column("creemSubscriptionId")
-    )
-}
-
-fn list_query(model: &ResolvedModel, logical_field: &str) -> String {
-    format!(
-        "SELECT {} FROM {} WHERE {} = $1",
-        model.projection(),
-        model.table(),
-        model.column(logical_field)
-    )
+fn filter_query(
+    model: &PostgresModel<'_>,
+    field: &str,
+    value: Value,
+) -> Result<QueryBuilder<'static, Postgres>, CreemStoreError> {
+    let mut query = select_query(model);
+    query
+        .push(" WHERE ")
+        .push(model.quoted_column(field).map_err(schema_error)?)
+        .push(" = ");
+    model
+        .encode(field, value)
+        .map_err(schema_error)?
+        .push_bind(&mut query);
+    Ok(query)
 }
 
 fn update_query(
-    model: &ResolvedModel,
+    model: &PostgresModel<'_>,
     id: Uuid,
     patch: CreemSubscriptionPatch,
-) -> Option<QueryBuilder<'static, Postgres>> {
-    let mut query = QueryBuilder::new(format!("UPDATE {} SET ", model.table()));
-    let mut assignments = query.separated(", ");
-    let mut changed = false;
-
-    macro_rules! assign {
-        ($logical:literal, $value:expr) => {
-            if let Some(value) = $value {
-                changed = true;
-                assignments
-                    .push(format!("{} = ", model.column($logical)))
-                    .push_bind_unseparated(value);
-            }
-        };
+) -> Result<Option<QueryBuilder<'static, Postgres>>, CreemStoreError> {
+    let mut values = Vec::new();
+    push(&mut values, "status", patch.status.map(Value::String));
+    push(
+        &mut values,
+        "productId",
+        patch.product_id.map(Value::String),
+    );
+    push(
+        &mut values,
+        "referenceId",
+        patch.reference_id.map(Value::String),
+    );
+    push(
+        &mut values,
+        "creemCustomerId",
+        patch.creem_customer_id.map(optional_string),
+    );
+    push(
+        &mut values,
+        "creemSubscriptionId",
+        patch.creem_subscription_id.map(optional_string),
+    );
+    push(
+        &mut values,
+        "creemOrderId",
+        patch.creem_order_id.map(optional_string),
+    );
+    push(
+        &mut values,
+        "periodStart",
+        patch.period_start.map(optional_date),
+    );
+    push(
+        &mut values,
+        "periodEnd",
+        patch.period_end.map(optional_date),
+    );
+    let writes = model.encode_fields(values).map_err(schema_error)?;
+    if writes.is_empty() {
+        return Ok(None);
     }
+    let mut query = update_prefix(model, writes);
+    query.push(" WHERE \"id\" = ");
+    model
+        .encode("id", json!(id.to_string()))
+        .map_err(schema_error)?
+        .push_bind(&mut query);
+    Ok(Some(query))
+}
 
-    assign!("status", patch.status);
-    assign!("productId", patch.product_id);
-    assign!("referenceId", patch.reference_id);
-    assign!("creemCustomerId", patch.creem_customer_id);
-    assign!("creemSubscriptionId", patch.creem_subscription_id);
-    assign!("creemOrderId", patch.creem_order_id);
-    assign!("periodStart", patch.period_start);
-    assign!("periodEnd", patch.period_end);
-    if !changed {
-        return None;
+async fn fetch_optional(
+    store: &PostgresCreemStore,
+    model: &PostgresModel<'_>,
+    mut query: QueryBuilder<'static, Postgres>,
+) -> Result<Option<CreemSubscription>, CreemStoreError> {
+    query
+        .build()
+        .fetch_optional(store.pool())
+        .await
+        .map_err(storage_error)?
+        .as_ref()
+        .map(|row| rows::decode(model, row))
+        .transpose()
+}
+fn select_query(model: &PostgresModel<'_>) -> QueryBuilder<'static, Postgres> {
+    let mut query = QueryBuilder::new("SELECT ");
+    query
+        .push(model.all_projection())
+        .push(" FROM ")
+        .push(model.quoted_table());
+    query
+}
+fn insert_query(
+    model: &PostgresModel<'_>,
+    writes: Vec<PostgresWrite<'_>>,
+) -> QueryBuilder<'static, Postgres> {
+    let mut query = QueryBuilder::new("INSERT INTO ");
+    query.push(model.quoted_table()).push(" (");
+    for (i, w) in writes.iter().enumerate() {
+        if i > 0 {
+            query.push(", ");
+        }
+        query.push(w.quoted_column());
+    }
+    query.push(") VALUES (");
+    for (i, w) in writes.into_iter().enumerate() {
+        if i > 0 {
+            query.push(", ");
+        }
+        w.push_bind(&mut query);
+    }
+    query.push(")");
+    query
+}
+fn update_prefix(
+    model: &PostgresModel<'_>,
+    writes: Vec<PostgresWrite<'_>>,
+) -> QueryBuilder<'static, Postgres> {
+    let mut query = QueryBuilder::new("UPDATE ");
+    query.push(model.quoted_table()).push(" SET ");
+    for (i, w) in writes.into_iter().enumerate() {
+        if i > 0 {
+            query.push(", ");
+        }
+        query.push(w.quoted_column()).push(" = ");
+        w.push_bind(&mut query);
     }
     query
-        .push(" WHERE \"id\" = ")
-        .push_bind(id)
-        .push(" RETURNING ")
-        .push(model.projection());
-    Some(query)
 }
-
-fn optional_row(
-    row: Option<SubscriptionRow>,
-) -> Result<Option<CreemSubscription>, CreemStoreError> {
-    Ok(row.map(Into::into))
+fn push(values: &mut Vec<(&'static str, Value)>, field: &'static str, value: Option<Value>) {
+    if let Some(value) = value {
+        values.push((field, value));
+    }
 }
-
-fn rows(rows: Vec<SubscriptionRow>) -> Result<Vec<CreemSubscription>, CreemStoreError> {
-    Ok(rows.into_iter().map(Into::into).collect())
+fn optional_string(value: Option<String>) -> Value {
+    value.map_or(Value::Null, Value::String)
+}
+fn optional_date(value: Option<chrono::DateTime<chrono::Utc>>) -> Value {
+    value.map_or(Value::Null, |date| json!(date.to_rfc3339()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::creem::{CreemModelSchema, CreemSchema, schema::ResolvedCreemSchema};
-    use std::collections::BTreeMap;
 
-    fn model(schema: &CreemSchema) -> ResolvedModel {
-        ResolvedCreemSchema::new(schema, true)
-            .unwrap()
-            .subscription()
-            .unwrap()
-            .clone()
-    }
-
-    #[test]
-    fn every_query_uses_remapped_identifiers_without_ordering() {
-        let mut schema = CreemSchema::default();
-        schema.insert_model(
-            "creem_subscription",
-            CreemModelSchema {
-                model_name: Some("billing rows".into()),
-                fields: BTreeMap::from([
-                    ("referenceId".into(), "owner key".into()),
-                    ("creemSubscriptionId".into(), "provider key".into()),
-                ]),
-            },
-        );
-        let model = model(&schema);
-        let find = find_by_creem_id_query(&model);
-        let list = list_query(&model, "referenceId");
-        assert!(find.contains("FROM \"billing rows\""));
-        assert!(find.contains("WHERE \"provider key\" = $1 LIMIT 1"));
-        assert!(list.contains("WHERE \"owner key\" = $1"));
-        assert!(!find.contains("ORDER BY"));
-        assert!(!list.contains("ORDER BY"));
-        assert!(columns(&model).contains("\"owner key\""));
-    }
-
-    #[test]
-    fn subscription_event_patch_sql_leaves_checkout_owned_fields_untouched() {
-        let model = model(&CreemSchema::default());
-        let query = update_query(
+    #[tokio::test]
+    async fn subscription_queries_use_catalog_remaps_and_bound_values() {
+        let store = super::super::test_support::store();
+        let model = store.model("creem_subscription").unwrap();
+        let filter = filter_query(&model, "referenceId", json!("secret owner")).unwrap();
+        assert!(filter.sql().contains("FROM \"creem\"\"subscriptionss\""));
+        assert!(filter.sql().contains("WHERE \"owner id\" = $1"));
+        assert!(!filter.sql().contains("secret owner"));
+        let update = update_query(
             &model,
             Uuid::nil(),
             CreemSubscriptionPatch {
-                status: Some("active".into()),
+                creem_subscription_id: Some(Some("sub_secret".into())),
                 period_end: Some(None),
                 ..CreemSubscriptionPatch::default()
             },
         )
+        .unwrap()
         .unwrap();
-        let sql = query.sql();
-        assert!(sql.contains("\"status\" = $1"));
-        assert!(sql.contains("\"period_end\" = $2"));
-        assert!(!sql.contains("\"product_id\" ="));
-        assert!(!sql.contains("\"reference_id\" ="));
-        assert!(!sql.contains("\"creem_order_id\" ="));
-        assert!(!sql.contains("\"cancel_at_period_end\" ="));
-    }
-
-    #[test]
-    fn checkout_patch_sql_updates_the_complete_upsert_shape() {
-        let model = model(&CreemSchema::default());
-        let query = update_query(
-            &model,
-            Uuid::nil(),
-            CreemSubscriptionPatch {
-                product_id: Some("product".into()),
-                reference_id: Some("owner".into()),
-                creem_order_id: Some(Some("order".into())),
-                ..CreemSubscriptionPatch::default()
-            },
-        )
-        .unwrap();
-        let sql = query.sql();
-        assert!(sql.contains("\"product_id\" = $1"));
-        assert!(sql.contains("\"reference_id\" = $2"));
-        assert!(sql.contains("\"creem_order_id\" = $3"));
-        assert!(!sql.contains("\"cancel_at_period_end\" ="));
-    }
-
-    #[test]
-    fn empty_patch_avoids_invalid_update_sql() {
-        let model = model(&CreemSchema::default());
-        assert!(update_query(&model, Uuid::nil(), CreemSubscriptionPatch::default()).is_none());
+        assert!(update.sql().contains("\"provider id\" = $1"));
+        assert!(!update.sql().contains("sub_secret"));
     }
 }

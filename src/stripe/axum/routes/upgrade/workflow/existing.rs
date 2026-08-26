@@ -4,7 +4,6 @@ use crate::{
     StripeSubscriptionItem, Subscription, SubscriptionPatch, UpgradeSubscriptionInput,
     UrlRedirectResponse,
 };
-use chrono::Utc;
 use serde_json::{Map, Value, json};
 
 pub(super) struct ExistingArguments<'a> {
@@ -78,7 +77,6 @@ async fn reconcile_stored_subscription(
                 local.id,
                 SubscriptionPatch {
                     stripe_subscription_id: Some(Some(arguments.active.id.clone())),
-                    updated_at: Some(Utc::now()),
                     ..SubscriptionPatch::default()
                 },
             )
@@ -137,7 +135,6 @@ async fn scheduled_change(
                 stored.id,
                 SubscriptionPatch {
                     stripe_schedule_id: Some(Some(schedule.id)),
-                    updated_at: Some(Utc::now()),
                     ..SubscriptionPatch::default()
                 },
             )
@@ -205,7 +202,6 @@ async fn direct_change(
                     plan: Some(arguments.plan.persisted_name()),
                     // Exact upstream quirk: this is zero for user subscriptions.
                     seats: Some(Some(arguments.member_count)),
-                    updated_at: Some(Utc::now()),
                     ..SubscriptionPatch::default()
                 },
             )
@@ -290,7 +286,6 @@ async fn release_owned_schedule(
                     stored.id,
                     SubscriptionPatch {
                         stripe_schedule_id: Some(None),
-                        updated_at: Some(Utc::now()),
                         ..SubscriptionPatch::default()
                     },
                 )

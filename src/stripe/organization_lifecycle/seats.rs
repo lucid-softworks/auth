@@ -169,7 +169,7 @@ mod tests {
             .await
             .unwrap();
         let now = Utc::now();
-        let local = local_subscription(organization.id, now);
+        let local = local_subscription(organization.id);
         stripe_store
             .create_subscription(local.clone())
             .await
@@ -212,7 +212,7 @@ mod tests {
         );
     }
 
-    fn local_subscription(organization_id: Uuid, now: chrono::DateTime<Utc>) -> Subscription {
+    fn local_subscription(organization_id: Uuid) -> Subscription {
         Subscription {
             id: Uuid::new_v4(),
             plan: "team".into(),
@@ -231,8 +231,6 @@ mod tests {
             seats: Some(1.0),
             billing_interval: None,
             stripe_schedule_id: None,
-            created_at: now,
-            updated_at: now,
         }
     }
 }

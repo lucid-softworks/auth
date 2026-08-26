@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn duplicate_trial_scan_and_zero_request_follow_javascript_truthiness() {
-        let mut prior = ChargebeeSubscription::future("user", Utc::now());
+        let mut prior = ChargebeeSubscription::future("user");
         prior.trial_start = Some(Utc::now());
         assert!(trial_end(&input(), true, Some(&plan()), &[prior]).is_none());
         assert!(trial_end(&input(), false, Some(&plan()), &[]).is_some());

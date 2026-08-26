@@ -105,9 +105,9 @@ proxy trust.
 - Apply `store.migrate_all(&service.plugin_migrations())` and require its schema
   report to be compatible before traffic reaches a new version. Use the
   read-only `diagnose_schema` API for readiness checks and drift inspection.
-- Back up and test restore procedures before upgrades. Core and plugin
-  migrations are idempotent, transactional, and serialized with an advisory
-  lock, but they are not a substitute for database backups.
+- Back up and test restore procedures before upgrades. Bound-schema evolution
+  and Lucid extension operations are idempotent, transactional, and serialized
+  with an advisory lock, but they are not a substitute for database backups.
 - Configure enough SQL connections for authentication and plugin workloads;
   bound the pool rather than allowing unbounded connections per instance.
 - Use database rate-limit storage when more than one service instance accepts
@@ -136,8 +136,9 @@ proxy trust.
 - Pure `SessionStorageMode::Stateless` deployments cannot centrally revoke one
   issued cache. Keep `cookie_cache.max_age` short and rotate
   `cookie_cache.version` for deterministic fleet-wide invalidation.
-- Migration `0019` invalidates the previous incompatible hashed session rows;
-  plan for users to sign in again after deployment.
+- Treat incompatible pre-schema-bound session layouts as an application-managed
+  data migration; lucid-auth does not retain compatibility columns or fallback
+  readers for shapes Better Auth does not support.
 
 ## Runtime defaults to review
 

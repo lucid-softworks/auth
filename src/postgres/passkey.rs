@@ -1,175 +1,180 @@
-use super::{rows::PasskeyRow, storage_error};
-use crate::{
-    AuthError, PasskeyDeleteOutcome, StoredPasskey, passkey::public_key_from_credential_value,
-};
-use serde_json::Value;
-use sqlx::PgPool;
-use sqlx::{Postgres, Transaction};
+mod codec;
+
+use super::{PostgresModel, PostgresStore, storage_error};
+use crate::{AuthError, PasskeyDeleteOutcome, StoredPasskey};
+use serde_json::json;
+use sqlx::{Postgres, QueryBuilder};
 use uuid::Uuid;
 
-const FIELDS: &str = "id, user_id, name, credential_id, public_key, counter, device_type, \
-    backed_up, transports, aaguid, credential, created_at, updated_at";
+use codec::{decode_passkey, passkey_writes};
+
+impl PostgresStore {
+    fn passkey_model(&self) -> Result<PostgresModel<'_>, AuthError> {
+        self.physical_model("passkey")
+    }
+}
 
 pub(super) async fn save(
-    pool: &PgPool,
+    store: &PostgresStore,
     passkey: StoredPasskey,
 ) -> Result<StoredPasskey, AuthError> {
-    sqlx::query_as::<_, PasskeyRow>(&format!(
-        "INSERT INTO lucid_auth_passkeys \
-         ({FIELDS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) \
-         RETURNING {FIELDS}"
-    ))
-    .bind(passkey.id)
-    .bind(passkey.user_id)
-    .bind(&passkey.name)
-    .bind(&passkey.credential_id)
-    .bind(&passkey.public_key)
-    .bind(i64::from(passkey.counter))
-    .bind(&passkey.device_type)
-    .bind(passkey.backed_up)
-    .bind(&passkey.transports)
-    .bind(&passkey.aaguid)
-    .bind(&passkey.credential)
-    .bind(passkey.created_at)
-    .bind(passkey.updated_at)
-    .fetch_one(pool)
-    .await
-    .map(StoredPasskey::from)
-    .map_err(|error| {
-        if error
-            .as_database_error()
-            .is_some_and(|database| database.is_unique_violation())
-        {
-            AuthError::CredentialAlreadyRegistered
-        } else {
-            storage_error(error)
-        }
-    })
+    let model = store.passkey_model()?;
+    let writes = passkey_writes(&model, &passkey)?;
+    let mut query = super::rows::insert_query(&model, writes);
+    query
+        .build()
+        .fetch_one(&store.pool)
+        .await
+        .map_err(|error| {
+            if super::user::is_unique_violation(&error) {
+                AuthError::CredentialAlreadyRegistered
+            } else {
+                storage_error(error)
+            }
+        })
+        .and_then(|row| decode_passkey(&model, &row))
 }
 
 pub(super) async fn list_for_user(
-    pool: &PgPool,
+    store: &PostgresStore,
     user_id: Uuid,
 ) -> Result<Vec<StoredPasskey>, AuthError> {
-    sqlx::query_as::<_, PasskeyRow>(&format!(
-        "SELECT {FIELDS} FROM lucid_auth_passkeys WHERE user_id = $1 ORDER BY created_at"
-    ))
-    .bind(user_id)
-    .fetch_all(pool)
-    .await
-    .map(|rows| rows.into_iter().map(StoredPasskey::from).collect())
-    .map_err(storage_error)
+    let model = store.passkey_model()?;
+    let mut query = select_query(&model);
+    push_user_predicate(&mut query, &model, user_id)?;
+    query
+        .push(" ORDER BY ")
+        .push(model.quoted_column("createdAt")?);
+    let rows = query
+        .build()
+        .fetch_all(&store.pool)
+        .await
+        .map_err(storage_error)?;
+    rows.iter().map(|row| decode_passkey(&model, row)).collect()
 }
 
 pub(super) async fn find_by_credential_id(
-    pool: &PgPool,
+    store: &PostgresStore,
     credential_id: &str,
 ) -> Result<Option<StoredPasskey>, AuthError> {
-    sqlx::query_as::<_, PasskeyRow>(&format!(
-        "SELECT {FIELDS} FROM lucid_auth_passkeys WHERE credential_id = $1"
-    ))
-    .bind(credential_id)
-    .fetch_optional(pool)
-    .await
-    .map(|row| row.map(StoredPasskey::from))
-    .map_err(storage_error)
+    find_by(store, "credentialID", json!(credential_id)).await
 }
 
 pub(super) async fn find_by_id(
-    pool: &PgPool,
+    store: &PostgresStore,
     passkey_id: Uuid,
 ) -> Result<Option<StoredPasskey>, AuthError> {
-    sqlx::query_as::<_, PasskeyRow>(&format!(
-        "SELECT {FIELDS} FROM lucid_auth_passkeys WHERE id = $1"
-    ))
-    .bind(passkey_id)
-    .fetch_optional(pool)
-    .await
-    .map(|row| row.map(StoredPasskey::from))
-    .map_err(storage_error)
+    find_by(store, "id", json!(passkey_id.to_string())).await
 }
 
 pub(super) async fn compare_and_swap(
-    pool: &PgPool,
+    store: &PostgresStore,
     passkey: StoredPasskey,
     expected_counter: u32,
 ) -> Result<bool, AuthError> {
-    sqlx::query(
-        "UPDATE lucid_auth_passkeys SET name = $2, public_key = $3, counter = $4, \
-           device_type = $5, backed_up = $6, transports = $7, aaguid = $8, \
-           credential = $9, updated_at = $10 WHERE id = $1 AND counter = $11",
-    )
-    .bind(passkey.id)
-    .bind(&passkey.name)
-    .bind(&passkey.public_key)
-    .bind(i64::from(passkey.counter))
-    .bind(&passkey.device_type)
-    .bind(passkey.backed_up)
-    .bind(&passkey.transports)
-    .bind(&passkey.aaguid)
-    .bind(&passkey.credential)
-    .bind(passkey.updated_at)
-    .bind(i64::from(expected_counter))
-    .execute(pool)
-    .await
-    .map(|result| result.rows_affected() == 1)
-    .map_err(storage_error)
+    let model = store.passkey_model()?;
+    let writes = model.encode_fields([
+        ("name", optional_string(passkey.name)),
+        ("publicKey", json!(passkey.public_key)),
+        ("counter", json!(passkey.counter)),
+        ("deviceType", json!(passkey.device_type)),
+        ("backedUp", json!(passkey.backed_up)),
+        ("transports", optional_string(passkey.transports)),
+        ("aaguid", optional_string(passkey.aaguid)),
+    ])?;
+    let mut query = super::rows::update_query(&model, writes);
+    query
+        .push(" WHERE \"id\" = ")
+        .push_bind(passkey.id)
+        .push(" AND ")
+        .push(model.quoted_column("counter")?)
+        .push(" = ");
+    model
+        .encode("counter", json!(expected_counter))?
+        .push_bind(&mut query);
+    query
+        .build()
+        .execute(&store.pool)
+        .await
+        .map(|result| result.rows_affected() == 1)
+        .map_err(storage_error)
 }
 
 pub(super) async fn rename(
-    pool: &PgPool,
+    store: &PostgresStore,
     user_id: Uuid,
     passkey_id: Uuid,
     name: String,
 ) -> Result<Option<StoredPasskey>, AuthError> {
-    sqlx::query_as::<_, PasskeyRow>(&format!(
-        "UPDATE lucid_auth_passkeys SET name = $3, updated_at = NOW() \
-         WHERE id = $1 AND user_id = $2 RETURNING {FIELDS}"
-    ))
-    .bind(passkey_id)
-    .bind(user_id)
-    .bind(name)
-    .fetch_optional(pool)
-    .await
-    .map(|row| row.map(StoredPasskey::from))
-    .map_err(storage_error)
+    let model = store.passkey_model()?;
+    let writes = model.encode_fields([("name", json!(name))])?;
+    let mut query = super::rows::update_query(&model, writes);
+    query
+        .push(" WHERE \"id\" = ")
+        .push_bind(passkey_id)
+        .push(" AND ")
+        .push(model.quoted_column("userId")?)
+        .push(" = ");
+    model
+        .encode("userId", json!(user_id.to_string()))?
+        .push_bind(&mut query);
+    query.push(" RETURNING ").push(model.all_projection());
+    decode_optional(&model, query, &store.pool).await
 }
 
 pub(super) async fn delete(
-    pool: &PgPool,
+    store: &PostgresStore,
     user_id: Uuid,
     passkey_id: Uuid,
     minimum_remaining: usize,
 ) -> Result<PasskeyDeleteOutcome, AuthError> {
-    let mut transaction = pool.begin().await.map_err(storage_error)?;
-    sqlx::query("SELECT id FROM lucid_auth_users WHERE id = $1 FOR UPDATE")
-        .bind(user_id)
+    let user_model = store.user_model()?;
+    let model = store.passkey_model()?;
+    let mut transaction = store.pool.begin().await.map_err(storage_error)?;
+    let mut lock = QueryBuilder::<Postgres>::new("SELECT \"id\" FROM ");
+    lock.push(user_model.quoted_table())
+        .push(" WHERE \"id\" = ")
+        .push_bind(user_id)
+        .push(" FOR UPDATE");
+    lock.build()
         .execute(&mut *transaction)
         .await
         .map_err(storage_error)?;
-    let owned = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM lucid_auth_passkeys WHERE id = $1 AND user_id = $2)",
-    )
-    .bind(passkey_id)
-    .bind(user_id)
-    .fetch_one(&mut *transaction)
-    .await
-    .map_err(storage_error)?;
-    if !owned {
+
+    let mut owned = QueryBuilder::<Postgres>::new("SELECT EXISTS(SELECT 1 FROM ");
+    owned
+        .push(model.quoted_table())
+        .push(" WHERE \"id\" = ")
+        .push_bind(passkey_id);
+    push_user_predicate_suffix(&mut owned, &model, user_id)?;
+    owned.push(")");
+    if !owned
+        .build_query_scalar::<bool>()
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage_error)?
+    {
         return Ok(PasskeyDeleteOutcome::NotFound);
     }
-    let count =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM lucid_auth_passkeys WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(storage_error)?;
+    let mut count = QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM ");
+    count.push(model.quoted_table());
+    push_user_predicate(&mut count, &model, user_id)?;
+    let count = count
+        .build_query_scalar::<i64>()
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage_error)?;
     if count <= i64::try_from(minimum_remaining).unwrap_or(i64::MAX) {
         return Ok(PasskeyDeleteOutcome::MinimumRequired);
     }
-    sqlx::query("DELETE FROM lucid_auth_passkeys WHERE id = $1 AND user_id = $2")
-        .bind(passkey_id)
-        .bind(user_id)
+    let mut delete = QueryBuilder::<Postgres>::new("DELETE FROM ");
+    delete
+        .push(model.quoted_table())
+        .push(" WHERE \"id\" = ")
+        .push_bind(passkey_id);
+    push_user_predicate_suffix(&mut delete, &model, user_id)?;
+    delete
+        .build()
         .execute(&mut *transaction)
         .await
         .map_err(storage_error)?;
@@ -179,36 +184,88 @@ pub(super) async fn delete(
     })
 }
 
-pub(super) async fn delete_for_user(pool: &PgPool, user_id: Uuid) -> Result<(), AuthError> {
-    sqlx::query("DELETE FROM lucid_auth_passkeys WHERE user_id = $1")
-        .bind(user_id)
-        .execute(pool)
+pub(super) async fn delete_for_user(store: &PostgresStore, user_id: Uuid) -> Result<(), AuthError> {
+    let model = store.passkey_model()?;
+    let mut query = QueryBuilder::<Postgres>::new("DELETE FROM ");
+    query.push(model.quoted_table());
+    push_user_predicate(&mut query, &model, user_id)?;
+    query
+        .build()
+        .execute(&store.pool)
         .await
         .map(|_| ())
         .map_err(storage_error)
 }
 
-pub(super) async fn backfill_public_keys(
-    transaction: &mut Transaction<'_, Postgres>,
+fn select_query(model: &PostgresModel<'_>) -> QueryBuilder<'static, Postgres> {
+    let mut query = QueryBuilder::new("SELECT ");
+    query
+        .push(model.all_projection())
+        .push(" FROM ")
+        .push(model.quoted_table());
+    query
+}
+
+async fn find_by(
+    store: &PostgresStore,
+    logical: &str,
+    value: serde_json::Value,
+) -> Result<Option<StoredPasskey>, AuthError> {
+    let model = store.passkey_model()?;
+    let mut query = select_query(&model);
+    query
+        .push(" WHERE ")
+        .push(model.quoted_column(logical)?)
+        .push(" = ");
+    model.encode(logical, value)?.push_bind(&mut query);
+    decode_optional(&model, query, &store.pool).await
+}
+
+async fn decode_optional(
+    model: &PostgresModel<'_>,
+    mut query: QueryBuilder<'static, Postgres>,
+    pool: &sqlx::PgPool,
+) -> Result<Option<StoredPasskey>, AuthError> {
+    query
+        .build()
+        .fetch_optional(pool)
+        .await
+        .map_err(storage_error)?
+        .as_ref()
+        .map(|row| decode_passkey(model, row))
+        .transpose()
+}
+
+fn push_user_predicate(
+    query: &mut QueryBuilder<'static, Postgres>,
+    model: &PostgresModel<'_>,
+    user_id: Uuid,
 ) -> Result<(), AuthError> {
-    let credentials = sqlx::query_as::<_, (Uuid, Value)>(
-        "SELECT id, credential FROM lucid_auth_passkeys WHERE public_key = ''",
-    )
-    .fetch_all(&mut **transaction)
-    .await
-    .map_err(storage_error)?;
-    for (id, credential) in credentials {
-        let public_key = public_key_from_credential_value(&credential).map_err(|error| {
-            AuthError::Storage(format!(
-                "could not migrate passkey {id} public key: {error}"
-            ))
-        })?;
-        sqlx::query("UPDATE lucid_auth_passkeys SET public_key = $1 WHERE id = $2")
-            .bind(public_key)
-            .bind(id)
-            .execute(&mut **transaction)
-            .await
-            .map_err(storage_error)?;
-    }
+    query.push(" WHERE ");
+    push_user_comparison(query, model, user_id)
+}
+
+fn push_user_predicate_suffix(
+    query: &mut QueryBuilder<'static, Postgres>,
+    model: &PostgresModel<'_>,
+    user_id: Uuid,
+) -> Result<(), AuthError> {
+    query.push(" AND ");
+    push_user_comparison(query, model, user_id)
+}
+
+fn push_user_comparison(
+    query: &mut QueryBuilder<'static, Postgres>,
+    model: &PostgresModel<'_>,
+    user_id: Uuid,
+) -> Result<(), AuthError> {
+    query.push(model.quoted_column("userId")?).push(" = ");
+    model
+        .encode("userId", json!(user_id.to_string()))?
+        .push_bind(query);
     Ok(())
+}
+
+fn optional_string(value: Option<String>) -> serde_json::Value {
+    value.map_or(serde_json::Value::Null, serde_json::Value::String)
 }

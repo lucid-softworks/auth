@@ -7,6 +7,7 @@ use crate::{
 };
 #[cfg(feature = "axum")]
 use chrono::Duration;
+#[cfg(any(feature = "axum", test))]
 use chrono::Utc;
 use uuid::Uuid;
 use webauthn_rs::prelude::{PublicKeyCredential, RequestChallengeResponse};
@@ -19,7 +20,7 @@ mod metadata;
 mod registration;
 mod webauthn;
 
-use ceremony::{AUTHENTICATION_PURPOSE, PasskeyCeremony, REGISTRATION_PURPOSE};
+use ceremony::PasskeyCeremony;
 use metadata::registration_metadata;
 pub use registration::{
     PasskeyRegistrationRequest, PasskeyRegistrationResult, PasskeyRegistrationVerification,
@@ -119,7 +120,6 @@ impl AuthService {
             .map_err(|_| AuthError::PasskeyVerificationFailed)?;
         let token = random_token();
         self.store_passkey_ceremony(
-            AUTHENTICATION_PURPOSE,
             &token,
             PasskeyCeremony::Authentication {
                 passkeys: stored,
@@ -151,15 +151,12 @@ impl AuthService {
             .generate_challenge_authenticate(builder)
             .map_err(|_| AuthError::PasskeyVerificationFailed)?;
         let now = Utc::now();
-        self.replace_verification_with_create_hooks(VerificationValue {
-            purpose: AGENT_PRESENCE_PURPOSE.into(),
-            identifier: presence_identifier(user_id, agent_id),
-            payload: serde_json::to_value(PasskeyCeremony::Authentication { passkeys, state })
+        self.replace_verification_with_create_hooks(VerificationValue::new(
+            presence_identifier(user_id, agent_id),
+            serde_json::to_string(&PasskeyCeremony::Authentication { passkeys, state })
                 .map_err(|error| AuthError::Storage(error.to_string()))?,
-            additional_fields: serde_json::Map::new(),
-            expires_at: now + Duration::seconds(120),
-            created_at: now,
-        })
+            now + Duration::seconds(120),
+        ))
         .await?;
         Ok(options)
     }
@@ -173,18 +170,13 @@ impl AuthService {
         response: PublicKeyCredential,
     ) -> Result<(), AuthError> {
         let value = self
-            .consume_verification_record(
-                AGENT_PRESENCE_PURPOSE,
-                &presence_identifier(user_id, agent_id),
-                Utc::now(),
-            )
+            .consume_verification_record(&presence_identifier(user_id, agent_id), Utc::now())
             .await?
             .ok_or(AuthError::PasskeyChallengeExpired)?;
         let PasskeyCeremony::Authentication {
             passkeys,
             mut state,
-        } = serde_json::from_value(value.payload)
-            .map_err(|_| AuthError::PasskeyChallengeExpired)?
+        } = serde_json::from_str(&value.value).map_err(|_| AuthError::PasskeyChallengeExpired)?
         else {
             return Err(AuthError::PasskeyChallengeExpired);
         };
@@ -198,8 +190,7 @@ impl AuthService {
         let result = webauthn::verification(self, config, None)?
             .authenticate_credential(&response, &state)
             .map_err(|_| AuthError::PasskeyVerificationFailed)?;
-        self.persist_authentication_result(stored, credential, &result)
-            .await?;
+        self.persist_authentication_result(stored, &result).await?;
         Ok(())
     }
 
@@ -215,9 +206,7 @@ impl AuthService {
         let PasskeyCeremony::Authentication {
             passkeys,
             mut state,
-        } = self
-            .consume_passkey_ceremony(AUTHENTICATION_PURPOSE, token)
-            .await?
+        } = self.consume_passkey_ceremony(token).await?
         else {
             return Err(AuthError::PasskeyChallengeExpired);
         };
@@ -240,9 +229,7 @@ impl AuthService {
             .map_err(|_| AuthError::PasskeyVerificationFailed)?;
         self.run_authentication_callback(config, &stored, &response, &result)
             .await?;
-        stored = self
-            .persist_authentication_result(stored, credential, &result)
-            .await?;
+        stored = self.persist_authentication_result(stored, &result).await?;
         let user = self
             .store
             .find_user_by_id(stored.user_id)
@@ -283,13 +270,9 @@ impl AuthService {
     async fn persist_authentication_result(
         &self,
         mut stored: StoredPasskey,
-        mut credential: Credential,
         result: &AuthenticationResult,
     ) -> Result<StoredPasskey, AuthError> {
         let expected_counter = stored.counter;
-        credential.counter = credential.counter.max(result.counter());
-        credential.backup_state = result.backup_state();
-        credential.backup_eligible |= result.backup_eligible();
         stored.counter = result.counter();
         stored.backed_up = result.backup_state();
         stored.device_type = if result.backup_eligible() {
@@ -297,9 +280,6 @@ impl AuthService {
         } else {
             "singleDevice".into()
         };
-        stored.credential = serde_json::to_value(credential)
-            .map_err(|error| AuthError::Storage(error.to_string()))?;
-        stored.updated_at = Utc::now();
         if !self
             .store
             .update_passkey_after_authentication(stored.clone(), expected_counter)
@@ -310,9 +290,6 @@ impl AuthService {
         Ok(stored)
     }
 }
-
-#[cfg(feature = "axum")]
-const AGENT_PRESENCE_PURPOSE: &str = "agent-auth-presence";
 
 #[cfg(feature = "axum")]
 fn presence_identifier(user_id: Uuid, agent_id: &str) -> String {
@@ -331,16 +308,8 @@ fn deserialize_credentials(stored: &[StoredPasskey]) -> Result<Vec<Credential>, 
 }
 
 fn deserialize_credential(stored: &StoredPasskey) -> Result<Credential, AuthError> {
-    let value = if stored.credential.get("cred_id").is_some() {
-        stored.credential.clone()
-    } else {
-        stored
-            .credential
-            .get("cred")
-            .cloned()
-            .unwrap_or_else(|| stored.credential.clone())
-    };
-    serde_json::from_value(value).map_err(|error| AuthError::Storage(error.to_string()))
+    crate::passkey::credential_from_official_fields(stored)
+        .map_err(|error| AuthError::Storage(format!("invalid persisted passkey: {error}")))
 }
 
 fn credential_response_id(response: &PublicKeyCredential) -> Result<String, AuthError> {

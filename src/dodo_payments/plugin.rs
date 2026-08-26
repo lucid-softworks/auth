@@ -1,7 +1,7 @@
 use super::{DODO_PAYMENTS_ADAPTER_VERSION, DodoPaymentsOptions, metadata::descriptor_endpoints};
 use crate::{
     AuthConfig, AuthError, AuthPlugin, AuthStore, DatabaseHooks, PluginClientMetadata,
-    PluginDescriptor, PluginMigration, PluginSchemaField,
+    PluginDescriptor, PluginSchemaTable,
 };
 use std::{borrow::Cow, fmt, sync::Arc};
 
@@ -69,12 +69,8 @@ impl AuthPlugin for DodoPaymentsPlugin {
         Ok(())
     }
 
-    fn migrations(&self) -> Cow<'_, [PluginMigration]> {
-        super::schema::dodo_payments_migrations()
-    }
-
-    fn schema_fields(&self) -> Vec<PluginSchemaField> {
-        vec![super::schema::dodo_user_schema_field()]
+    fn schema(&self) -> Vec<PluginSchemaTable> {
+        vec![super::schema::dodo_schema_table()]
     }
 
     fn database_hooks(&self) -> Option<&dyn DatabaseHooks> {
@@ -134,7 +130,7 @@ mod tests {
         assert_eq!(client.import_path, "@dodopayments/better-auth/client");
         assert_eq!(client.factory, "dodopaymentsClient");
         assert_eq!(client.client_id, Some("dodopayments-client"));
-        assert_eq!(plugin.schema_fields().len(), 1);
+        assert_eq!(plugin.schema().len(), 1);
         assert!(plugin.migrations().is_empty());
     }
 

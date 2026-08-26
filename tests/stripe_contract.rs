@@ -1,9 +1,8 @@
-use chrono::Utc;
 use lucid_auth::{
     AuthPlugin, CustomerType, MemoryStripeStore, PluginHttpMethod, StaticPlans, StripeErrorCode,
     StripeHttpClient, StripeModelSchema, StripeOptions, StripePlan, StripePlugin, StripeSchema,
     StripeStore, Subscription, SubscriptionConfiguration, SubscriptionOptions, SubscriptionStatus,
-    SubscriptionSuccessQuery, UpgradeSubscriptionInput, endpoint_metadata, migration,
+    SubscriptionSuccessQuery, UpgradeSubscriptionInput, endpoint_metadata, schema_tables,
 };
 use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc};
@@ -155,7 +154,7 @@ fn request_defaults_and_success_query_accept_only_upstream_casing() {
 }
 
 #[test]
-fn conditional_schema_is_remappable_idempotent_and_never_persists_plan_configuration() {
+fn conditional_schema_is_remappable_and_never_persists_plan_configuration() {
     let disabled_remap = StripeSchema {
         subscription: StripeModelSchema {
             model_name: Some("ignored_subscription".into()),
@@ -163,9 +162,9 @@ fn conditional_schema_is_remappable_idempotent_and_never_persists_plan_configura
         },
         ..StripeSchema::default()
     };
-    let disabled =
-        migration(&disabled_remap, false, false).expect("disabled subscription remaps are ignored");
-    assert!(disabled.sql.is_empty());
+    let disabled = schema_tables(&disabled_remap, false, false);
+    assert_eq!(disabled.len(), 1);
+    assert_eq!(disabled[0].logical_name, "user");
 
     let schema = StripeSchema {
         organization: StripeModelSchema {
@@ -178,23 +177,33 @@ fn conditional_schema_is_remappable_idempotent_and_never_persists_plan_configura
         },
         ..StripeSchema::default()
     };
-    let first = migration(&schema, true, true).expect("valid remapped schema");
-    let second = migration(&schema, true, true).expect("same schema remains valid");
-    assert_eq!(first, second);
-    assert!(
-        first
-            .sql
-            .contains("CREATE TABLE IF NOT EXISTS \"billing_subscriptions\"")
+    let tables = schema_tables(&schema, true, true);
+    assert_eq!(
+        tables
+            .iter()
+            .map(|table| table.logical_name.as_str())
+            .collect::<Vec<_>>(),
+        ["subscription", "user", "organization"]
     );
-    assert!(
-        first
-            .sql
-            .contains("ALTER TABLE IF EXISTS \"billing_organizations\"")
+    assert_eq!(
+        tables[0].model_name.as_deref(),
+        Some("billing_subscriptions")
     );
-    assert!(first.sql.contains("\"owner_reference\" TEXT NOT NULL"));
-    assert!(!first.sql.contains("limits"));
-    assert!(!first.sql.contains("payment_method"));
-    assert!(!first.sql.contains("webhook_event"));
+    assert_eq!(
+        tables[0].fields["referenceId"].field_name.as_deref(),
+        Some("owner_reference")
+    );
+    assert_eq!(
+        tables[2].model_name.as_deref(),
+        Some("billing_organizations")
+    );
+    assert_eq!(
+        tables[2].fields["stripeCustomerId"].field_name.as_deref(),
+        Some("billing_customer_id")
+    );
+    assert!(!tables[0].fields.contains_key("limits"));
+    assert!(!tables[0].fields.contains_key("paymentMethod"));
+    assert!(!tables[0].fields.contains_key("webhookEvent"));
 }
 
 #[tokio::test]
@@ -303,7 +312,6 @@ fn plan(name: &str) -> StripePlan {
 }
 
 fn subscription(reference_id: &str, customer_id: &str, status: SubscriptionStatus) -> Subscription {
-    let now = Utc::now();
     Subscription {
         id: Uuid::new_v4(),
         plan: "pro".into(),
@@ -322,7 +330,5 @@ fn subscription(reference_id: &str, customer_id: &str, status: SubscriptionStatu
         seats: None,
         billing_interval: None,
         stripe_schedule_id: None,
-        created_at: now,
-        updated_at: now,
     }
 }

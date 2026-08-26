@@ -1,7 +1,4 @@
-use super::{
-    PasskeyCeremony, REGISTRATION_PURPOSE, deserialize_credentials, metadata,
-    registration_metadata, webauthn,
-};
+use super::{PasskeyCeremony, deserialize_credentials, metadata, registration_metadata, webauthn};
 use crate::service::{AuthService, SignInResult, random_token};
 use crate::{
     AuthError, AuthenticationMethod, PasskeyConfig, PasskeyRegistrationUser,
@@ -102,7 +99,6 @@ impl AuthService {
         }
         let token = random_token();
         self.store_passkey_ceremony(
-            REGISTRATION_PURPOSE,
             &token,
             PasskeyCeremony::Registration {
                 user_id: user.id,
@@ -129,9 +125,7 @@ impl AuthService {
             user_display_name,
             state,
             context,
-        } = self
-            .consume_passkey_ceremony(REGISTRATION_PURPOSE, &verification.token)
-            .await?
+        } = self.consume_passkey_ceremony(&verification.token).await?
         else {
             return Err(AuthError::PasskeyChallengeExpired);
         };
@@ -197,10 +191,7 @@ impl AuthService {
                 backed_up: metadata.backed_up,
                 transports: metadata.transports,
                 aaguid: metadata.aaguid,
-                credential: serde_json::to_value(credential)
-                    .map_err(|error| AuthError::Storage(error.to_string()))?,
                 created_at: now,
-                updated_at: now,
             })
             .await
     }

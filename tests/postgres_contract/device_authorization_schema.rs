@@ -1,11 +1,15 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{
-    AuthPlugin, DeviceAuthorizationConfig, DeviceAuthorizationModelSchema,
+    AuthConfig, AuthService, DeviceAuthorizationConfig, DeviceAuthorizationModelSchema,
     DeviceAuthorizationSchema, DeviceAuthorizationStore, DeviceCode, DeviceCodeCreateOutcome,
-    DeviceCodeOwner, DeviceCodeStatus, OAuthDeviceAuthorizationPlugin, PluginMigrationContribution,
-    postgres::{PostgresDeviceAuthorizationStore, PostgresStore},
+    DeviceCodeOwner, DeviceCodeStatus, OAuthDeviceAuthorizationPlugin,
+    postgres::{
+        PostgresAdapterConfig, PostgresDeviceAuthorizationStore, PostgresSchemaObject,
+        PostgresStore,
+    },
 };
 use sqlx::postgres::PgPoolOptions;
+use std::sync::Arc;
 use uuid::Uuid;
 
 #[path = "device_authorization_schema/atomic.rs"]
@@ -41,35 +45,35 @@ async fn remapped_schema_migrates_idempotently_and_preserves_atomic_ownership()
         })
         .connect(&database_url)
         .await?;
-    let postgres = PostgresStore::new(pool.clone());
-    postgres.migrate().await?;
-
+    let postgres = PostgresStore::new(pool.clone(), PostgresAdapterConfig { use_plural: true });
     let schema = mapped_schema();
-    let device_codes = PostgresDeviceAuthorizationStore::new(postgres.clone(), &schema, true)?;
-    let migration_sql = device_codes.migration_sql();
-    assert!(migration_sql.contains("CREATE TABLE IF NOT EXISTS \"Device Code Records\""));
-    assert!(migration_sql.contains("\"device value\" TEXT NOT NULL UNIQUE"));
-    assert!(migration_sql.contains("\"user\"\"value\" TEXT NOT NULL UNIQUE"));
-    assert!(migration_sql.contains("\"poll milliseconds\" DOUBLE PRECISION"));
-    assert!(migration_sql.contains("\"resources\" TEXT[]"));
-    assert!(migration_sql.contains("\"oauth_client_id\" TEXT"));
-    assert!(!migration_sql.contains("REFERENCES"));
-    assert!(!migration_sql.contains("created_at"));
-    assert!(!migration_sql.contains("updated_at"));
     let mut config = DeviceAuthorizationConfig::default();
     config.schema = schema;
-    let plugin = OAuthDeviceAuthorizationPlugin::postgres(config, postgres.clone())?;
-    let migrations = plugin
-        .migrations()
-        .iter()
-        .cloned()
-        .map(|migration| PluginMigrationContribution {
-            plugin_id: "device-authorization",
-            migration,
-        })
-        .collect::<Vec<_>>();
-    postgres.migrate_plugins(&migrations).await?;
-    postgres.migrate_plugins(&migrations).await?;
+    let plugin = OAuthDeviceAuthorizationPlugin::postgres(config, postgres.clone());
+    let mut auth = AuthConfig::new([52; 32])?;
+    auth.add_plugin(plugin)?;
+    let _service = AuthService::new(Arc::new(postgres.clone()), auth);
+    let plan = postgres.migration_plan(&[])?;
+    let table = "Device Code Recordss";
+    for name in [
+        "device value",
+        "user\"value",
+        "poll milliseconds",
+        "resources",
+        "oauthClientId",
+    ] {
+        assert!(plan.schema.iter().any(|object| matches!(
+            object,
+            PostgresSchemaObject::Column { table: actual_table, name: actual_name, .. }
+                if actual_table == table && actual_name == name
+        )));
+    }
+    assert!(!format!("{:?}", plan.schema).contains("lucid_auth_device_codes"));
+    assert!(!format!("{:?}", plan.schema).contains("created_at"));
+    assert!(!format!("{:?}", plan.schema).contains("updated_at"));
+    postgres.migrate().await?;
+    postgres.migrate().await?;
+    let device_codes = PostgresDeviceAuthorizationStore::new(postgres.clone());
 
     round_trip::all_fields_and_unique_codes(&device_codes).await?;
     atomic::claim_and_consume_are_single_winner(&device_codes).await?;

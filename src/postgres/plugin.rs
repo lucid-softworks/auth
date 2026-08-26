@@ -2,6 +2,10 @@ use super::{PostgresStore, schema::migration_checksum, storage_error};
 use crate::{AuthError, PluginMigrationContribution};
 use std::collections::{BTreeSet, HashSet};
 
+const USER_TABLE_PLACEHOLDER: &str = "\x7b\x7blucid-auth:user-table\x7d\x7d";
+const SESSION_TABLE_PLACEHOLDER: &str = "\x7b\x7blucid-auth:session-table\x7d\x7d";
+const PLACEHOLDER_PREFIX: &str = "\x7b\x7blucid-auth:";
+
 impl PostgresStore {
     /// Applies validated plugin migrations under the same advisory lock used
     /// by core migrations. Each `(plugin_id, migration_id)` runs once.
@@ -9,11 +13,12 @@ impl PostgresStore {
         &self,
         migrations: &[PluginMigrationContribution],
     ) -> Result<(), AuthError> {
+        let schema = self.resolved_schema()?;
         validate_migrations(migrations)?;
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
         prepare_table(&mut transaction).await?;
         for contribution in migrations {
-            apply_migration(&mut transaction, contribution).await?;
+            apply_migration(&mut transaction, contribution, schema).await?;
         }
         reject_unknown_enabled_migrations(&mut transaction, migrations).await?;
         transaction.commit().await.map_err(storage_error)
@@ -53,6 +58,7 @@ async fn prepare_table(
 async fn apply_migration(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     contribution: &PluginMigrationContribution,
+    schema: &crate::ResolvedAdapterSchema,
 ) -> Result<(), AuthError> {
     let applied = sqlx::query_as::<_, (String, Option<String>)>(
         "SELECT description, checksum FROM lucid_auth_plugin_migrations \
@@ -63,19 +69,15 @@ async fn apply_migration(
     .fetch_optional(&mut **transaction)
     .await
     .map_err(storage_error)?;
-    let checksum = migration_checksum(contribution.migration.sql.as_ref());
+    let sql = resolve_catalog_placeholders(contribution.migration.sql.as_ref(), schema)?;
+    let checksum = migration_checksum(&sql);
     if let Some(applied) = applied {
         return validate_applied(transaction, contribution, applied, &checksum).await;
     }
-    sqlx::raw_sql(contribution.migration.sql.as_ref())
+    sqlx::raw_sql(&sql)
         .execute(&mut **transaction)
         .await
         .map_err(storage_error)?;
-    if contribution.plugin_id == "passkey"
-        && contribution.migration.id == "better-auth-passkey-schema"
-    {
-        super::passkey::backfill_public_keys(transaction).await?;
-    }
     sqlx::query(
         "INSERT INTO lucid_auth_plugin_migrations \
          (plugin_id, migration_id, description, checksum) VALUES ($1, $2, $3, $4)",
@@ -88,6 +90,35 @@ async fn apply_migration(
     .await
     .map_err(storage_error)?;
     Ok(())
+}
+
+pub(super) fn resolve_catalog_placeholders(
+    sql: &str,
+    schema: &crate::ResolvedAdapterSchema,
+) -> Result<String, AuthError> {
+    let mut resolved = sql.to_owned();
+    for (placeholder, logical) in [
+        (USER_TABLE_PLACEHOLDER, "user"),
+        (SESSION_TABLE_PLACEHOLDER, "session"),
+    ] {
+        if !resolved.contains(placeholder) {
+            continue;
+        }
+        let table = schema
+            .model_name(logical)
+            .map_err(|error| AuthError::InvalidConfiguration(error.to_string()))?;
+        resolved = resolved.replace(placeholder, &quote_identifier(&table));
+    }
+    if resolved.contains(PLACEHOLDER_PREFIX) {
+        return Err(AuthError::InvalidConfiguration(
+            "plugin migration contains an unknown lucid-auth schema placeholder".into(),
+        ));
+    }
+    Ok(resolved)
+}
+
+fn quote_identifier(identifier: &str) -> String {
+    format!("\"{}\"", identifier.replace('"', "\"\""))
 }
 
 async fn validate_applied(
@@ -179,4 +210,31 @@ async fn reject_unknown_enabled_migrations(
 
 fn invalid(message: String) -> AuthError {
     AuthError::InvalidConfiguration(message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AdapterSchemaOptions, AuthConfig, AuthSchemaCatalog, ResolvedAdapterSchema};
+    use std::sync::Arc;
+
+    #[test]
+    fn lucid_extension_placeholders_use_quoted_bound_plural_tables() {
+        let mut config = AuthConfig::new([19; 32]).unwrap();
+        config.user.model_name = Some("people \"raw".into());
+        config.session.model_name = Some("login rows".into());
+        let schema = ResolvedAdapterSchema::new(
+            Arc::new(AuthSchemaCatalog::build(&config, []).unwrap()),
+            AdapterSchemaOptions { use_plural: true },
+        )
+        .unwrap();
+        let source = format!(
+            "REFERENCES {USER_TABLE_PLACEHOLDER}(id); REFERENCES {SESSION_TABLE_PLACEHOLDER}(id)"
+        );
+        let sql = resolve_catalog_placeholders(&source, &schema).unwrap();
+        assert_eq!(
+            sql,
+            "REFERENCES \"people \"\"raws\"(id); REFERENCES \"login rowss\"(id)"
+        );
+    }
 }

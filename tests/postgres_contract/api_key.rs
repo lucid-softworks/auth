@@ -4,9 +4,18 @@ use lucid_auth::{
 };
 use std::sync::Arc;
 
-pub(crate) async fn assert_table_absent(
+pub(crate) async fn assert_exact_schema(
     pool: &sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        sqlx::query_scalar::<_, Option<String>>("SELECT to_regclass('apikey')::TEXT")
+            .fetch_one(pool)
+            .await?,
+        Some("apikey".into())
+    );
+    sqlx::query("SELECT \"referenceId\", \"rateLimitTimeWindow\" FROM \"apikey\" LIMIT 0")
+        .execute(pool)
+        .await?;
     assert_eq!(
         sqlx::query_scalar::<_, Option<String>>("SELECT to_regclass('lucid_auth_api_keys')::TEXT")
             .fetch_one(pool)

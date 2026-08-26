@@ -238,8 +238,6 @@ mod tests {
             seats: Some(1.0),
             billing_interval: None,
             stripe_schedule_id: None,
-            created_at: now,
-            updated_at: now,
         }
     }
 }

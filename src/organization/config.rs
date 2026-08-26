@@ -50,6 +50,7 @@ pub struct OrganizationDynamicAccessControlConfig {
 
 #[derive(Clone)]
 pub struct OrganizationPluginConfig {
+    pub schema: OrganizationSchema,
     pub allow_user_to_create_organization: bool,
     pub creation_policy: Option<Arc<dyn OrganizationCreationPolicy>>,
     pub organization_limit: Option<usize>,
@@ -67,9 +68,21 @@ pub struct OrganizationPluginConfig {
     pub hooks: Option<Arc<dyn super::OrganizationLifecycleHooks>>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct OrganizationSchema {
+    pub organization: crate::DatabaseModelSchema,
+    pub member: crate::DatabaseModelSchema,
+    pub invitation: crate::DatabaseModelSchema,
+    pub team: crate::DatabaseModelSchema,
+    pub team_member: crate::DatabaseModelSchema,
+    pub organization_role: crate::DatabaseModelSchema,
+    pub session: crate::DatabaseModelSchema,
+}
+
 impl Default for OrganizationPluginConfig {
     fn default() -> Self {
         Self {
+            schema: OrganizationSchema::default(),
             allow_user_to_create_organization: true,
             creation_policy: None,
             organization_limit: None,

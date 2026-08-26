@@ -24,7 +24,7 @@ pub(super) async fn email_is_case_insensitive(
     assert!(matches!(error, AuthError::UserAlreadyExistsEmail));
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_users WHERE LOWER(email) = 'case.variant@example.com'",
+            "SELECT COUNT(*) FROM \"user\" WHERE LOWER(\"email\") = 'case.variant@example.com'",
         )
         .fetch_one(pool)
         .await?,
@@ -68,7 +68,7 @@ pub(super) async fn username_is_atomic(
     ));
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_users WHERE username = 'postgres_user'",
+            "SELECT COUNT(*) FROM \"user\" WHERE \"username\" = 'postgres_user'",
         )
         .fetch_one(pool)
         .await?,

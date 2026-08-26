@@ -22,8 +22,7 @@ impl AuthService {
         let otp = token::resolve(self, config, &identifier, &email, kind).await?;
         let can_create = kind == EmailOtpType::SignIn && !config.disable_sign_up;
         if self.store.find_user_by_email(&email).await?.is_none() && !can_create {
-            self.delete_verification_value(token::PURPOSE, &identifier)
-                .await?;
+            self.delete_verification_value(&identifier).await?;
             return Ok(());
         }
         config

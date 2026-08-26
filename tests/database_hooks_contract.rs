@@ -9,7 +9,7 @@ use http_body_util::BodyExt;
 use lucid_auth::{
     AdditionalField, AdditionalFieldTransform, AdditionalFieldType, AuthConfig, AuthError,
     AuthPlugin, AuthService, BeforeDatabaseHook, DatabaseHookContext, DatabaseHooks, DatabaseModel,
-    DatabaseRecord, MemoryStore, PluginDescriptor, PluginSchemaField,
+    DatabaseRecord, MemoryStore, PluginDescriptor, PluginSchemaTable,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -120,15 +120,13 @@ impl AuthPlugin for SchemaPlugin {
         }
     }
 
-    fn schema_fields(&self) -> Vec<PluginSchemaField> {
+    fn schema(&self) -> Vec<PluginSchemaTable> {
         vec![
-            PluginSchemaField::new(
-                DatabaseModel::User,
+            PluginSchemaTable::new("user").field(
                 "tier",
                 AdditionalField::new(AdditionalFieldType::String).default_value(json!("free")),
             ),
-            PluginSchemaField::new(
-                DatabaseModel::Account,
+            PluginSchemaTable::new("account").field(
                 "credentialTag",
                 AdditionalField::new(AdditionalFieldType::String).default_value(json!("local")),
             ),

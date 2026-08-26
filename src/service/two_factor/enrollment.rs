@@ -42,17 +42,21 @@ impl AuthService {
             .upsert_two_factor(TwoFactorRecord {
                 id: existing
                     .as_ref()
-                    .map_or_else(Uuid::new_v4, |record| record.id),
+                    .map_or_else(uuid::Uuid::new_v4, |record| record.id),
                 user_id: session.user.id,
-                enabled: existing.as_ref().is_some_and(|record| record.enabled) || verified,
-                encrypted_secret: Some(encrypted_secret),
-                encrypted_backup_codes: Some(encrypted_backup_codes),
+                encrypted_secret,
+                encrypted_backup_codes,
                 verified,
                 failed_verification_count: 0,
                 locked_until: None,
-                last_totp_counter: None,
             })
             .await?;
+        if verified {
+            plugin
+                .store
+                .set_two_factor_enabled(session.user.id, true)
+                .await?;
+        }
         let replacement_session = if verified {
             Some(self.rotate_active_session(session, token).await?)
         } else {
@@ -89,20 +93,10 @@ impl AuthService {
         if plugin.config.otp.is_none() {
             return Err(TwoFactorError::OtpNotConfigured.into());
         }
-        let existing = plugin.store.find_two_factor(session.user.id).await?;
-        let mut record = existing.unwrap_or_else(|| TwoFactorRecord {
-            id: Uuid::new_v4(),
-            user_id: session.user.id,
-            enabled: true,
-            encrypted_secret: None,
-            encrypted_backup_codes: None,
-            verified: true,
-            failed_verification_count: 0,
-            locked_until: None,
-            last_totp_counter: None,
-        });
-        record.enabled = true;
-        plugin.store.upsert_two_factor(record).await?;
+        plugin
+            .store
+            .set_two_factor_enabled(session.user.id, true)
+            .await?;
         let replacement = self.rotate_active_session(session, token).await?;
         Ok(TwoFactorEnableResult {
             method: "otp",
@@ -150,9 +144,7 @@ impl AuthService {
             .find_two_factor(session.user.id)
             .await?
             .ok_or(TwoFactorError::TotpNotEnabled)?;
-        let encrypted = record
-            .encrypted_secret
-            .ok_or(TwoFactorError::TotpNotEnabled)?;
+        let encrypted = record.encrypted_secret;
         self.require_two_factor_password(session.user.id, password)
             .await?;
         let secret = String::from_utf8(crate::two_factor::crypto::decrypt(
@@ -188,7 +180,7 @@ impl AuthService {
             .find_two_factor(session.user.id)
             .await?
             .ok_or(TwoFactorError::NotEnabled)?;
-        if !record.enabled || record.encrypted_backup_codes.is_none() {
+        if !plugin.store.two_factor_enabled(session.user.id).await? {
             return Err(TwoFactorError::NotEnabled.into());
         }
         let codes = generate_backup_codes(
@@ -197,10 +189,8 @@ impl AuthService {
         );
         let encoded =
             serde_json::to_vec(&codes).map_err(|error| AuthError::Storage(error.to_string()))?;
-        record.encrypted_backup_codes = Some(crate::two_factor::crypto::encrypt(
-            &self.config.secret,
-            &encoded,
-        )?);
+        record.encrypted_backup_codes =
+            crate::two_factor::crypto::encrypt(&self.config.secret, &encoded)?;
         plugin.store.upsert_two_factor(record).await?;
         Ok(codes)
     }
@@ -215,9 +205,7 @@ impl AuthService {
             .find_two_factor(user_id)
             .await?
             .ok_or(TwoFactorError::BackupCodesNotEnabled)?;
-        let encrypted = record
-            .encrypted_backup_codes
-            .ok_or(TwoFactorError::BackupCodesNotEnabled)?;
+        let encrypted = record.encrypted_backup_codes;
         serde_json::from_slice(&crate::two_factor::crypto::decrypt(
             &self.config.secret,
             &encrypted,

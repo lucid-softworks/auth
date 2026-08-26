@@ -5,14 +5,7 @@ use std::collections::BTreeMap;
 pub(super) struct Catalog {
     pub(super) columns: BTreeMap<(String, String), String>,
     pub(super) indexes: BTreeMap<(String, String), bool>,
-    pub(super) core_migrations: Vec<AppliedCoreMigration>,
     pub(super) plugin_migrations: Vec<AppliedPluginMigration>,
-}
-
-pub(super) struct AppliedCoreMigration {
-    pub(super) version: i64,
-    pub(super) description: String,
-    pub(super) checksum: Option<String>,
 }
 
 pub(super) struct AppliedPluginMigration {
@@ -26,12 +19,10 @@ impl PostgresStore {
     pub(super) async fn load_schema_catalog(&self) -> Result<Catalog, AuthError> {
         let columns = load_columns(&self.pool).await?;
         let indexes = load_indexes(&self.pool).await?;
-        let core_migrations = load_core_migrations(&self.pool, &columns).await?;
         let plugin_migrations = load_plugin_migrations(&self.pool, &columns).await?;
         Ok(Catalog {
             columns,
             indexes,
-            core_migrations,
             plugin_migrations,
         })
     }
@@ -74,34 +65,6 @@ async fn load_indexes(pool: &sqlx::PgPool) -> Result<BTreeMap<(String, String), 
     })
 }
 
-async fn load_core_migrations(
-    pool: &sqlx::PgPool,
-    columns: &BTreeMap<(String, String), String>,
-) -> Result<Vec<AppliedCoreMigration>, AuthError> {
-    if !table_exists(pool, "lucid_auth_migrations").await? {
-        return Ok(Vec::new());
-    }
-    let has_checksum = columns.contains_key(&("lucid_auth_migrations".into(), "checksum".into()));
-    let sql = if has_checksum {
-        "SELECT version, description, checksum FROM lucid_auth_migrations ORDER BY version"
-    } else {
-        "SELECT version, description, NULL::TEXT FROM lucid_auth_migrations ORDER BY version"
-    };
-    sqlx::query_as::<_, (i64, String, Option<String>)>(sql)
-        .fetch_all(pool)
-        .await
-        .map_err(storage_error)
-        .map(|rows| {
-            rows.into_iter()
-                .map(|(version, description, checksum)| AppliedCoreMigration {
-                    version,
-                    description,
-                    checksum,
-                })
-                .collect()
-        })
-}
-
 async fn load_plugin_migrations(
     pool: &sqlx::PgPool,
     columns: &BTreeMap<(String, String), String>,
@@ -140,7 +103,8 @@ async fn table_exists(pool: &sqlx::PgPool, table: &str) -> Result<bool, AuthErro
     sqlx::query_scalar::<_, bool>(
         "SELECT EXISTS (\
            SELECT 1 FROM information_schema.tables \
-           WHERE table_schema = current_schema() AND table_name = $1\
+           WHERE table_schema = current_schema() AND table_name = $1 \
+             AND table_type = 'BASE TABLE'\
          )",
     )
     .bind(table)

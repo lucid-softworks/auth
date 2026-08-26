@@ -1,8 +1,7 @@
 #[cfg(feature = "axum")]
 use crate::AuthService;
 use crate::{
-    AdditionalField, AuthConfig, AuthError, AuthUser, AuthenticationMethod, DatabaseHooks,
-    DatabaseModel, SessionWithUser,
+    AuthConfig, AuthError, AuthUser, AuthenticationMethod, DatabaseHooks, SessionWithUser,
 };
 use async_trait::async_trait;
 use std::borrow::Cow;
@@ -77,24 +76,6 @@ pub struct PluginMigrationContribution {
     pub migration: PluginMigration,
 }
 
-/// Additional Better Auth database field contributed by a native plugin.
-#[derive(Debug, Clone)]
-pub struct PluginSchemaField {
-    pub model: DatabaseModel,
-    pub name: String,
-    pub field: AdditionalField,
-}
-
-impl PluginSchemaField {
-    pub fn new(model: DatabaseModel, name: impl Into<String>, field: AdditionalField) -> Self {
-        Self {
-            model,
-            name: name.into(),
-            field,
-        }
-    }
-}
-
 /// Erased Axum route contributed without constraining the host router's state.
 #[cfg(feature = "axum")]
 #[derive(Clone)]
@@ -130,7 +111,7 @@ impl AxumPluginRoute {
 pub enum BeforeAuthEvent {
     SessionCreate {
         user: AuthUser,
-        authentication_method: AuthenticationMethod,
+        authentication_method: Option<AuthenticationMethod>,
         actor_user_id: Option<Uuid>,
     },
     UserDelete {
@@ -214,7 +195,7 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
         self.descriptor().rate_limits.to_vec()
     }
 
-    fn schema_fields(&self) -> Vec<PluginSchemaField> {
+    fn schema(&self) -> Vec<crate::PluginSchemaTable> {
         Vec::new()
     }
 

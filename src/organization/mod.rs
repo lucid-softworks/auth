@@ -1,8 +1,6 @@
 #[cfg(feature = "axum")]
 use crate::AuthService;
-use crate::{
-    AuthConfig, AuthError, AuthPlugin, PluginClientMetadata, PluginDescriptor, PluginMigration,
-};
+use crate::{AuthConfig, AuthError, AuthPlugin, PluginClientMetadata, PluginDescriptor};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -14,12 +12,13 @@ mod error;
 mod hooks;
 mod memory;
 mod model;
+mod schema_catalog;
 mod store;
 
 pub use config::{
     OrganizationCreationPolicy, OrganizationDynamicAccessControlConfig,
     OrganizationInvitationEmail, OrganizationInvitationEmailSender, OrganizationPluginConfig,
-    OrganizationTeamsConfig,
+    OrganizationSchema, OrganizationTeamsConfig,
 };
 pub use error::{OrganizationError, OrganizationErrorStatus};
 pub use hooks::OrganizationLifecycleHooks;
@@ -36,12 +35,6 @@ pub use store::{
     OrganizationInvitationWriteOutcome, OrganizationMemberStore, OrganizationMemberWriteOutcome,
     OrganizationRoleStore, OrganizationStore, OrganizationTeamStore, OrganizationTeamWriteOutcome,
 };
-
-const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
-    "better-auth-organization-schema",
-    "Better Auth 1.7.1 organization schema",
-    include_str!("../../migrations/organization_plugin.sql"),
-)];
 
 #[derive(Clone)]
 pub struct OrganizationPlugin {
@@ -108,8 +101,8 @@ impl AuthPlugin for OrganizationPlugin {
         Ok(())
     }
 
-    fn migrations(&self) -> std::borrow::Cow<'_, [PluginMigration]> {
-        std::borrow::Cow::Borrowed(MIGRATIONS)
+    fn schema(&self) -> Vec<crate::PluginSchemaTable> {
+        schema_catalog::tables(&self.config)
     }
 
     #[cfg(feature = "axum")]

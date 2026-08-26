@@ -40,7 +40,7 @@ pub(super) async fn assert_promotion_is_atomic(
             user_id: user.id,
             token: "unproven-magic-session".into(),
             actor_user_id: None,
-            authentication_method: AuthenticationMethod::Password,
+            authentication_method: Some(AuthenticationMethod::Password),
             expires_at: now + Duration::hours(1),
             created_at: now,
             updated_at: now,
@@ -50,18 +50,15 @@ pub(super) async fn assert_promotion_is_atomic(
         })
         .await?;
     store
-        .create_verification(VerificationValue {
-            purpose: "magic-link".into(),
-            identifier: "postgres-magic-token".into(),
-            payload: json!({ "email": user.email }),
-            additional_fields: serde_json::Map::new(),
-            expires_at: now + Duration::minutes(1),
-            created_at: now,
-        })
+        .create_verification(VerificationValue::new(
+            "postgres-magic-token",
+            json!({ "email": user.email }).to_string(),
+            now + Duration::minutes(1),
+        ))
         .await?;
     let (left, right) = tokio::join!(
-        store.consume_verification("magic-link", "postgres-magic-token", now),
-        store.consume_verification("magic-link", "postgres-magic-token", now)
+        store.consume_verification("postgres-magic-token"),
+        store.consume_verification("postgres-magic-token")
     );
     assert_eq!(
         usize::from(left?.is_some()) + usize::from(right?.is_some()),
@@ -71,12 +68,10 @@ pub(super) async fn assert_promotion_is_atomic(
     assert!(promoted.email_verified);
     assert!(store.find_password_hash(user.id).await?.is_none());
     assert_eq!(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_sessions WHERE user_id = $1",
-        )
-        .bind(user.id)
-        .fetch_one(pool)
-        .await?,
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM \"session\" WHERE \"userId\" = $1",)
+            .bind(user.id)
+            .fetch_one(pool)
+            .await?,
         0
     );
     Ok(())

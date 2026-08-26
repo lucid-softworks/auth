@@ -33,8 +33,8 @@ pub use provider::{
     CreemCustomField, CreemCustomFieldType, CreemMetadata, CreemPortal, CreemPortalRequest,
     CreemProviderSubscription, CreemTextFieldConfig, CreemTransactionPage, CreemTransactionSearch,
 };
+pub use schema::schema_tables as creem_schema_tables;
 pub use schema::{CreemModelSchema, CreemSchema, CreemSchemaError};
-pub use schema::{migration as creem_migration, user_schema_fields as creem_user_schema_fields};
 pub use server::{
     CreemActiveSubscription, CreemCancellation, CreemRedirect, CreemServerAccess,
     CreemServerCheckoutInput, CreemServerConfig, cancel_creem_subscription,

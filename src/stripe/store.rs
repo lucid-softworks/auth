@@ -32,7 +32,6 @@ pub struct SubscriptionPatch {
     pub seats: Option<Option<f64>>,
     pub billing_interval: Option<Option<BillingInterval>>,
     pub stripe_schedule_id: Option<Option<String>>,
-    pub updated_at: Option<DateTime<Utc>>,
 }
 
 impl SubscriptionPatch {
@@ -67,9 +66,6 @@ impl SubscriptionPatch {
             self.stripe_schedule_id,
             &mut subscription.stripe_schedule_id,
         );
-        if let Some(value) = self.updated_at {
-            subscription.updated_at = value;
-        }
     }
 }
 

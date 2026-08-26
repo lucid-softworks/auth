@@ -14,8 +14,7 @@ pub(crate) fn validate_field_names(
                 field_name.trim().is_empty() || field_name.chars().any(char::is_control)
             })
             || field
-                .default_value
-                .as_ref()
+                .static_default_value()
                 .is_some_and(|value| !field.accepts(value))
     }) {
         return Err(AuthError::InvalidConfiguration(format!(

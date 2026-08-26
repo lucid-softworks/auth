@@ -1,7 +1,5 @@
 use super::PostgresStore;
-use crate::oauth_provider::{
-    OAuthProviderConfigError, OAuthProviderSchema, schema::ResolvedOAuthProviderSchema,
-};
+use crate::{AuthError, postgres::PostgresModel};
 use sqlx::PgPool;
 
 mod assertion;
@@ -11,31 +9,19 @@ mod resource;
 mod rows;
 mod token;
 
-/// PostgreSQL persistence for one OAuth Provider plugin schema mapping.
+/// PostgreSQL persistence through the schema bound to the parent auth service.
 #[derive(Clone)]
 pub struct PostgresOAuthProviderStore {
     store: PostgresStore,
-    schema: ResolvedOAuthProviderSchema,
-    migration_sql: String,
 }
 
 impl PostgresOAuthProviderStore {
-    pub fn new(
-        store: PostgresStore,
-        schema: &OAuthProviderSchema,
-    ) -> Result<Self, OAuthProviderConfigError> {
-        let schema = ResolvedOAuthProviderSchema::new(schema)?;
-        let migration_sql = schema.migration_sql();
-        Ok(Self {
-            store,
-            schema,
-            migration_sql,
-        })
+    pub fn new(store: PostgresStore) -> Self {
+        Self { store }
     }
 
-    /// SQL that creates the tables, constraints, and indexes for this mapping.
-    pub fn migration_sql(&self) -> &str {
-        &self.migration_sql
+    fn model(&self, logical: &str) -> Result<PostgresModel<'_>, AuthError> {
+        self.store.physical_model(logical)
     }
 
     fn pool(&self) -> &PgPool {

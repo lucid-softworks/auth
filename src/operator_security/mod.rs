@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 const PLUGIN_ID: &str = "lucid-operator-security";
 const MIGRATIONS: &[PluginMigration] = &[PluginMigration::borrowed(
-    "extract-managed-password-policy",
+    "lucid-operator-security-schema",
     "Lucid operator temporary-password state",
     include_str!("../../migrations/operator_security_plugin.sql"),
 )];

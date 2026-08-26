@@ -2,8 +2,11 @@ use crate::oauth_provider::{
     OAuthProviderAccessToken, OAuthProviderClient, OAuthProviderClientResource,
     OAuthProviderConsent, OAuthProviderRefreshToken, OAuthProviderResource,
 };
+use crate::postgres::{PostgresModel, PostgresWrite};
 use chrono::{DateTime, Utc};
-use sqlx::FromRow;
+use serde::Serialize;
+use serde_json::Value;
+use sqlx::{FromRow, types::Json};
 use uuid::Uuid;
 
 pub(super) const CLIENT_FIELDS: &[(&str, &str)] = &[
@@ -20,7 +23,6 @@ pub(super) const CLIENT_FIELDS: &[(&str, &str)] = &[
     ("userId", "user_id"),
     ("createdAt", "created_at"),
     ("updatedAt", "updated_at"),
-    ("__clientExpiresAt", "expires_at"),
     ("name", "name"),
     ("uri", "uri"),
     ("icon", "icon"),
@@ -124,6 +126,30 @@ pub(super) const CONSENT_FIELDS: &[(&str, &str)] = &[
     ("updatedAt", "updated_at"),
 ];
 
+pub(super) fn writes<'a, T: Serialize>(
+    model: &'a PostgresModel<'_>,
+    record: &T,
+    extras: impl IntoIterator<Item = (&'static str, Value)>,
+) -> Result<Vec<PostgresWrite<'a>>, crate::AuthError> {
+    let mut values = serde_json::to_value(record)
+        .map_err(|error| crate::AuthError::Storage(error.to_string()))?
+        .as_object()
+        .cloned()
+        .ok_or_else(|| {
+            crate::AuthError::Storage("OAuth Provider record is not an object".into())
+        })?;
+    values.extend(
+        extras
+            .into_iter()
+            .map(|(logical, value)| (logical.to_owned(), value)),
+    );
+    model.encode_fields(
+        values
+            .iter()
+            .map(|(logical, value)| (logical.as_str(), value.clone())),
+    )
+}
+
 #[derive(FromRow)]
 pub(super) struct ClientRow {
     id: Uuid,
@@ -134,31 +160,30 @@ pub(super) struct ClientRow {
     skip_consent: Option<bool>,
     enable_end_session: Option<bool>,
     subject_type: Option<String>,
-    scopes: Option<Vec<String>>,
-    client_credentials_scopes: Vec<String>,
+    scopes: Option<Json<Vec<String>>>,
+    client_credentials_scopes: Json<Vec<String>>,
     user_id: Option<Uuid>,
     created_at: Option<DateTime<Utc>>,
     updated_at: Option<DateTime<Utc>>,
-    expires_at: Option<DateTime<Utc>>,
     name: Option<String>,
     uri: Option<String>,
     icon: Option<String>,
-    contacts: Option<Vec<String>>,
+    contacts: Option<Json<Vec<String>>>,
     tos: Option<String>,
     policy: Option<String>,
     software_id: Option<String>,
     software_version: Option<String>,
     software_statement: Option<String>,
-    redirect_uris: Vec<String>,
-    post_logout_redirect_uris: Option<Vec<String>>,
+    redirect_uris: Json<Vec<String>>,
+    post_logout_redirect_uris: Option<Json<Vec<String>>>,
     backchannel_logout_uri: Option<String>,
     backchannel_logout_session_required: Option<bool>,
     token_endpoint_auth_method: Option<String>,
     application_type: Option<String>,
     jwks: Option<String>,
     jwks_uri: Option<String>,
-    grant_types: Option<Vec<String>>,
-    response_types: Option<Vec<String>>,
+    grant_types: Option<Json<Vec<String>>>,
+    response_types: Option<Json<Vec<String>>>,
     require_pkce: Option<bool>,
     dpop_bound_access_tokens: bool,
     reference_id: Option<String>,
@@ -176,31 +201,31 @@ impl From<ClientRow> for OAuthProviderClient {
             skip_consent: row.skip_consent,
             enable_end_session: row.enable_end_session,
             subject_type: row.subject_type,
-            scopes: row.scopes,
-            client_credentials_scopes: row.client_credentials_scopes,
+            scopes: row.scopes.map(|value| value.0),
+            client_credentials_scopes: row.client_credentials_scopes.0,
             user_id: row.user_id,
             created_at: row.created_at,
             updated_at: row.updated_at,
-            expires_at: row.expires_at,
+            expires_at: None,
             name: row.name,
             uri: row.uri,
             icon: row.icon,
-            contacts: row.contacts,
+            contacts: row.contacts.map(|value| value.0),
             tos: row.tos,
             policy: row.policy,
             software_id: row.software_id,
             software_version: row.software_version,
             software_statement: row.software_statement,
-            redirect_uris: row.redirect_uris,
-            post_logout_redirect_uris: row.post_logout_redirect_uris,
+            redirect_uris: row.redirect_uris.0,
+            post_logout_redirect_uris: row.post_logout_redirect_uris.map(|value| value.0),
             backchannel_logout_uri: row.backchannel_logout_uri,
             backchannel_logout_session_required: row.backchannel_logout_session_required,
             token_endpoint_auth_method: row.token_endpoint_auth_method,
             application_type: row.application_type,
             jwks: row.jwks,
             jwks_uri: row.jwks_uri,
-            grant_types: row.grant_types,
-            response_types: row.response_types,
+            grant_types: row.grant_types.map(|value| value.0),
+            response_types: row.response_types.map(|value| value.0),
             require_pkce: row.require_pkce,
             dpop_bound_access_tokens: row.dpop_bound_access_tokens,
             reference_id: row.reference_id,
@@ -214,17 +239,17 @@ pub(super) struct ResourceRow {
     id: Uuid,
     identifier: String,
     name: String,
-    access_token_ttl: Option<i64>,
-    refresh_token_ttl: Option<i64>,
+    access_token_ttl: Option<i32>,
+    refresh_token_ttl: Option<i32>,
     signing_algorithm: Option<String>,
     signing_key_id: Option<String>,
-    allowed_scopes: Option<Vec<String>>,
+    allowed_scopes: Option<Json<Vec<String>>>,
     custom_claims: Option<serde_json::Value>,
     dpop_bound_access_tokens_required: bool,
     disabled: bool,
     created_at: Option<DateTime<Utc>>,
     updated_at: Option<DateTime<Utc>>,
-    policy_version: i64,
+    policy_version: i32,
     metadata: Option<serde_json::Value>,
 }
 
@@ -234,17 +259,17 @@ impl From<ResourceRow> for OAuthProviderResource {
             id: row.id,
             identifier: row.identifier,
             name: row.name,
-            access_token_ttl: row.access_token_ttl,
-            refresh_token_ttl: row.refresh_token_ttl,
+            access_token_ttl: row.access_token_ttl.map(i64::from),
+            refresh_token_ttl: row.refresh_token_ttl.map(i64::from),
             signing_algorithm: row.signing_algorithm,
             signing_key_id: row.signing_key_id,
-            allowed_scopes: row.allowed_scopes,
+            allowed_scopes: row.allowed_scopes.map(|value| value.0),
             custom_claims: row.custom_claims,
             dpop_bound_access_tokens_required: row.dpop_bound_access_tokens_required,
             disabled: row.disabled,
             created_at: row.created_at,
             updated_at: row.updated_at,
-            policy_version: row.policy_version,
+            policy_version: i64::from(row.policy_version),
             metadata: row.metadata,
         }
     }
@@ -280,8 +305,8 @@ pub(super) struct RefreshRow {
     user_id: Uuid,
     reference_id: Option<String>,
     authorization_code_id: Option<String>,
-    resources: Option<Vec<String>>,
-    requested_user_info_claims: Option<Vec<String>>,
+    resources: Option<Json<Vec<String>>>,
+    requested_user_info_claims: Option<Json<Vec<String>>>,
     expires_at: DateTime<Utc>,
     created_at: DateTime<Utc>,
     revoked: Option<DateTime<Utc>>,
@@ -290,7 +315,7 @@ pub(super) struct RefreshRow {
     rotation_replay_expires_at: Option<DateTime<Utc>>,
     auth_time: Option<DateTime<Utc>>,
     confirmation: Option<serde_json::Value>,
-    scopes: Vec<String>,
+    scopes: Json<Vec<String>>,
 }
 
 impl From<RefreshRow> for OAuthProviderRefreshToken {
@@ -303,8 +328,8 @@ impl From<RefreshRow> for OAuthProviderRefreshToken {
             user_id: row.user_id,
             reference_id: row.reference_id,
             authorization_code_id: row.authorization_code_id,
-            resources: row.resources,
-            requested_user_info_claims: row.requested_user_info_claims,
+            resources: row.resources.map(|value| value.0),
+            requested_user_info_claims: row.requested_user_info_claims.map(|value| value.0),
             expires_at: row.expires_at,
             created_at: row.created_at,
             revoked: row.revoked,
@@ -313,7 +338,7 @@ impl From<RefreshRow> for OAuthProviderRefreshToken {
             rotation_replay_expires_at: row.rotation_replay_expires_at,
             auth_time: row.auth_time,
             confirmation: row.confirmation,
-            scopes: row.scopes,
+            scopes: row.scopes.0,
         }
     }
 }
@@ -327,14 +352,14 @@ pub(super) struct AccessRow {
     user_id: Option<Uuid>,
     reference_id: Option<String>,
     authorization_code_id: Option<String>,
-    resources: Option<Vec<String>>,
-    requested_user_info_claims: Option<Vec<String>>,
+    resources: Option<Json<Vec<String>>>,
+    requested_user_info_claims: Option<Json<Vec<String>>>,
     refresh_id: Option<Uuid>,
     expires_at: DateTime<Utc>,
     created_at: DateTime<Utc>,
     revoked: Option<DateTime<Utc>>,
     confirmation: Option<serde_json::Value>,
-    scopes: Vec<String>,
+    scopes: Json<Vec<String>>,
 }
 
 impl From<AccessRow> for OAuthProviderAccessToken {
@@ -347,14 +372,14 @@ impl From<AccessRow> for OAuthProviderAccessToken {
             user_id: row.user_id,
             reference_id: row.reference_id,
             authorization_code_id: row.authorization_code_id,
-            resources: row.resources,
-            requested_user_info_claims: row.requested_user_info_claims,
+            resources: row.resources.map(|value| value.0),
+            requested_user_info_claims: row.requested_user_info_claims.map(|value| value.0),
             refresh_id: row.refresh_id,
             expires_at: row.expires_at,
             created_at: row.created_at,
             revoked: row.revoked,
             confirmation: row.confirmation,
-            scopes: row.scopes,
+            scopes: row.scopes.0,
         }
     }
 }
@@ -365,9 +390,9 @@ pub(super) struct ConsentRow {
     client_id: String,
     user_id: Option<Uuid>,
     reference_id: Option<String>,
-    resources: Option<Vec<String>>,
-    requested_user_info_claims: Option<Vec<String>>,
-    scopes: Vec<String>,
+    resources: Option<Json<Vec<String>>>,
+    requested_user_info_claims: Option<Json<Vec<String>>>,
+    scopes: Json<Vec<String>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -379,9 +404,9 @@ impl From<ConsentRow> for OAuthProviderConsent {
             client_id: row.client_id,
             user_id: row.user_id,
             reference_id: row.reference_id,
-            resources: row.resources,
-            requested_user_info_claims: row.requested_user_info_claims,
-            scopes: row.scopes,
+            resources: row.resources.map(|value| value.0),
+            requested_user_info_claims: row.requested_user_info_claims.map(|value| value.0),
+            scopes: row.scopes.0,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }

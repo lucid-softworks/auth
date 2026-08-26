@@ -3,7 +3,7 @@ use super::{
 };
 use crate::{
     AuthConfig, AuthError, AuthPlugin, AuthStore, PluginClientMetadata, PluginDescriptor,
-    PluginMigration, PluginSchemaField,
+    PluginSchemaTable,
 };
 use std::{borrow::Cow, fmt, sync::Arc};
 
@@ -80,24 +80,13 @@ impl AuthPlugin for CreemPlugin {
     }
 
     fn validate(&self, _config: &AuthConfig) -> Result<(), AuthError> {
-        super::schema::migration(&self.options.schema, self.options.persist_subscriptions)
+        super::schema::schema_tables(&self.options.schema, self.options.persist_subscriptions)
             .map(|_| ())
             .map_err(|error| AuthError::InvalidConfiguration(error.to_string()))
     }
 
-    fn migrations(&self) -> Cow<'_, [PluginMigration]> {
-        let migration =
-            super::schema::migration(&self.options.schema, self.options.persist_subscriptions)
-                .expect("Creem schema was validated during plugin registry construction");
-        if migration.sql.is_empty() {
-            Cow::Borrowed(&[])
-        } else {
-            Cow::Owned(vec![migration])
-        }
-    }
-
-    fn schema_fields(&self) -> Vec<PluginSchemaField> {
-        super::schema::user_schema_fields(&self.options.schema, self.options.persist_subscriptions)
+    fn schema(&self) -> Vec<PluginSchemaTable> {
+        super::schema::schema_tables(&self.options.schema, self.options.persist_subscriptions)
             .expect("Creem schema was validated during plugin registry construction")
     }
 
@@ -167,13 +156,13 @@ mod tests {
     #[test]
     fn persistence_controls_schema_and_rejects_disabled_remapping() {
         let enabled = plugin(CreemOptions::new("key"));
-        assert_eq!(enabled.schema_fields().len(), 2);
-        assert_eq!(enabled.migrations().len(), 1);
+        assert_eq!(enabled.schema().len(), 2);
+        assert!(enabled.migrations().is_empty());
 
         let mut options = CreemOptions::new("key");
         options.persist_subscriptions = false;
         let disabled = plugin(options.clone());
-        assert!(disabled.schema_fields().is_empty());
+        assert!(disabled.schema().is_empty());
         assert!(disabled.migrations().is_empty());
 
         options.schema.model_mut("user");

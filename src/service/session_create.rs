@@ -10,7 +10,7 @@ impl AuthService {
     pub(super) async fn create_session(
         &self,
         user: AuthUser,
-        authentication_method: AuthenticationMethod,
+        authentication_method: impl Into<Option<AuthenticationMethod>>,
         actor_user_id: Option<Uuid>,
         ip_address: Option<String>,
         user_agent: Option<String>,
@@ -30,7 +30,7 @@ impl AuthService {
     pub(super) async fn create_session_expiring_at(
         &self,
         user: AuthUser,
-        authentication_method: AuthenticationMethod,
+        authentication_method: impl Into<Option<AuthenticationMethod>>,
         actor_user_id: Option<Uuid>,
         expires_at: DateTime<Utc>,
         ip_address: Option<String>,
@@ -52,7 +52,7 @@ impl AuthService {
     pub(super) async fn create_session_until(
         &self,
         user: AuthUser,
-        authentication_method: AuthenticationMethod,
+        authentication_method: impl Into<Option<AuthenticationMethod>>,
         actor_user_id: Option<Uuid>,
         expires_at: Option<DateTime<Utc>>,
         ip_address: Option<String>,
@@ -74,13 +74,14 @@ impl AuthService {
     async fn create_session_with_expiry(
         &self,
         user: AuthUser,
-        authentication_method: AuthenticationMethod,
+        authentication_method: impl Into<Option<AuthenticationMethod>>,
         actor_user_id: Option<Uuid>,
         expires_at: Option<DateTime<Utc>>,
         cap_to_session_ttl: bool,
         ip_address: Option<String>,
         user_agent: Option<String>,
     ) -> Result<SignInResult, AuthError> {
+        let authentication_method = authentication_method.into();
         let user = self.admin_session_user(user).await?;
         self.plugins
             .before(&BeforeAuthEvent::SessionCreate {

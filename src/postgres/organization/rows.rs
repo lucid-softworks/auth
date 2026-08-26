@@ -1,160 +1,326 @@
+use super::super::{PostgresModel, PostgresWrite};
 use crate::{
     AuthError, Organization, OrganizationInvitation, OrganizationInvitationStatus,
     OrganizationMember, OrganizationRole, OrganizationTeam, OrganizationTeamMember,
 };
-use chrono::{DateTime, Utc};
-use serde_json::Value;
-use sqlx::FromRow;
-use uuid::Uuid;
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
+use sqlx::postgres::PgRow;
 
-#[derive(FromRow)]
-pub(super) struct OrganizationRow {
-    pub id: Uuid,
-    pub name: String,
-    pub slug: String,
-    pub logo: Option<String>,
-    pub metadata: Option<Value>,
-    pub created_at: DateTime<Utc>,
+pub(super) fn organization_writes<'a>(
+    model: &'a PostgresModel<'_>,
+    organization: &Organization,
+) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
+    model.encode_fields([
+        ("id", uuid_value(organization.id)),
+        ("name", json!(organization.name)),
+        ("slug", json!(organization.slug)),
+        ("logo", optional_string(organization.logo.clone())),
+        ("metadata", optional_json(organization.metadata.as_ref())?),
+        ("createdAt", date_value(organization.created_at)),
+    ])
 }
 
-impl From<OrganizationRow> for Organization {
-    fn from(row: OrganizationRow) -> Self {
-        Self {
-            id: row.id,
-            name: row.name,
-            slug: row.slug,
-            logo: row.logo,
-            metadata: row.metadata,
-            created_at: row.created_at,
-        }
+pub(super) fn decode_organization(
+    model: &PostgresModel<'_>,
+    row: &PgRow,
+) -> Result<Organization, AuthError> {
+    let mut values = model.decode_all(row)?;
+    Ok(Organization {
+        id: required_uuid(&mut values, "id")?,
+        name: required_string(&mut values, "name")?,
+        slug: required_string(&mut values, "slug")?,
+        logo: optional_string_value(&mut values, "logo")?,
+        metadata: optional_json_value(&mut values, "metadata")?,
+        created_at: required_date(&mut values, "createdAt")?,
+    })
+}
+
+pub(super) fn member_writes<'a>(
+    model: &'a PostgresModel<'_>,
+    member: &OrganizationMember,
+) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
+    model.encode_fields([
+        ("id", uuid_value(member.id)),
+        ("organizationId", uuid_value(member.organization_id)),
+        ("userId", uuid_value(member.user_id)),
+        ("role", json!(member.role)),
+        ("createdAt", date_value(member.created_at)),
+    ])
+}
+
+pub(super) fn decode_member(
+    model: &PostgresModel<'_>,
+    row: &PgRow,
+) -> Result<OrganizationMember, AuthError> {
+    let mut values = model.decode_all(row)?;
+    Ok(OrganizationMember {
+        id: required_uuid(&mut values, "id")?,
+        organization_id: required_uuid(&mut values, "organizationId")?,
+        user_id: required_uuid(&mut values, "userId")?,
+        role: required_string(&mut values, "role")?,
+        created_at: required_date(&mut values, "createdAt")?,
+    })
+}
+
+pub(super) fn invitation_writes<'a>(
+    model: &'a PostgresModel<'_>,
+    invitation: &OrganizationInvitation,
+) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
+    let mut values = vec![
+        ("id", uuid_value(invitation.id)),
+        ("organizationId", uuid_value(invitation.organization_id)),
+        ("email", json!(invitation.email.to_lowercase())),
+        ("role", json!(invitation.role)),
+        ("status", json!(status_name(invitation.status))),
+        ("inviterId", uuid_value(invitation.inviter_id)),
+        ("expiresAt", date_value(invitation.expires_at)),
+        ("createdAt", date_value(invitation.created_at)),
+    ];
+    if model.has_field("teamId") {
+        values.push(("teamId", optional_string(invitation.team_id.clone())));
+    } else if invitation.team_id.is_some() {
+        return Err(AuthError::InvalidConfiguration(
+            "organization invitation teamId requires Better Auth team support".into(),
+        ));
+    }
+    model.encode_fields(values)
+}
+
+pub(super) fn decode_invitation(
+    model: &PostgresModel<'_>,
+    row: &PgRow,
+) -> Result<OrganizationInvitation, AuthError> {
+    let mut values = model.decode_all(row)?;
+    Ok(OrganizationInvitation {
+        id: required_uuid(&mut values, "id")?,
+        organization_id: required_uuid(&mut values, "organizationId")?,
+        email: required_string(&mut values, "email")?,
+        role: required_string(&mut values, "role")?,
+        status: invitation_status(&required_string(&mut values, "status")?)?,
+        team_id: if model.has_field("teamId") {
+            optional_string_value(&mut values, "teamId")?
+        } else {
+            None
+        },
+        inviter_id: required_uuid(&mut values, "inviterId")?,
+        expires_at: required_date(&mut values, "expiresAt")?,
+        created_at: required_date(&mut values, "createdAt")?,
+    })
+}
+
+pub(super) fn team_writes<'a>(
+    model: &'a PostgresModel<'_>,
+    team: &OrganizationTeam,
+) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
+    let mut values = vec![
+        ("id", uuid_value(team.id)),
+        ("name", json!(team.name)),
+        ("organizationId", uuid_value(team.organization_id)),
+        ("createdAt", date_value(team.created_at)),
+        ("updatedAt", optional_date(team.updated_at)),
+    ];
+    if model.has_field("memberCount") {
+        values.push(("memberCount", json!(0)));
+    }
+    model.encode_fields(values)
+}
+
+pub(super) fn decode_team(
+    model: &PostgresModel<'_>,
+    row: &PgRow,
+) -> Result<OrganizationTeam, AuthError> {
+    let mut values = model.decode_all(row)?;
+    Ok(OrganizationTeam {
+        id: required_uuid(&mut values, "id")?,
+        name: required_string(&mut values, "name")?,
+        organization_id: required_uuid(&mut values, "organizationId")?,
+        created_at: required_date(&mut values, "createdAt")?,
+        updated_at: optional_date_value(&mut values, "updatedAt")?,
+    })
+}
+
+pub(super) fn team_member_writes<'a>(
+    model: &'a PostgresModel<'_>,
+    member: &OrganizationTeamMember,
+) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
+    let mut values = vec![
+        ("id", uuid_value(member.id)),
+        ("teamId", uuid_value(member.team_id)),
+        ("userId", uuid_value(member.user_id)),
+        ("createdAt", date_value(member.created_at)),
+    ];
+    if model.has_field("membershipKey") {
+        values.push((
+            "membershipKey",
+            json!(membership_key(member.team_id, member.user_id)),
+        ));
+    }
+    model.encode_fields(values)
+}
+
+pub(super) fn decode_team_member(
+    model: &PostgresModel<'_>,
+    row: &PgRow,
+) -> Result<OrganizationTeamMember, AuthError> {
+    let mut values = model.decode_all(row)?;
+    Ok(OrganizationTeamMember {
+        id: required_uuid(&mut values, "id")?,
+        team_id: required_uuid(&mut values, "teamId")?,
+        user_id: required_uuid(&mut values, "userId")?,
+        created_at: required_date(&mut values, "createdAt")?,
+    })
+}
+
+pub(super) fn role_writes<'a>(
+    model: &'a PostgresModel<'_>,
+    role: &OrganizationRole,
+) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
+    model.encode_fields([
+        ("id", uuid_value(role.id)),
+        ("organizationId", uuid_value(role.organization_id)),
+        ("role", json!(role.role)),
+        (
+            "permission",
+            json!(serde_json::to_string(&role.permission).map_err(storage_error)?),
+        ),
+        ("createdAt", date_value(role.created_at)),
+        ("updatedAt", optional_date(role.updated_at)),
+    ])
+}
+
+pub(super) fn decode_role(
+    model: &PostgresModel<'_>,
+    row: &PgRow,
+) -> Result<OrganizationRole, AuthError> {
+    let mut values = model.decode_all(row)?;
+    let permission = required_string(&mut values, "permission")?;
+    Ok(OrganizationRole {
+        id: required_uuid(&mut values, "id")?,
+        organization_id: required_uuid(&mut values, "organizationId")?,
+        role: required_string(&mut values, "role")?,
+        permission: serde_json::from_str(&permission).map_err(storage_error)?,
+        created_at: required_date(&mut values, "createdAt")?,
+        updated_at: optional_date_value(&mut values, "updatedAt")?,
+    })
+}
+
+pub(super) fn status_name(status: OrganizationInvitationStatus) -> &'static str {
+    match status {
+        OrganizationInvitationStatus::Pending => "pending",
+        OrganizationInvitationStatus::Accepted => "accepted",
+        OrganizationInvitationStatus::Rejected => "rejected",
+        OrganizationInvitationStatus::Canceled => "canceled",
     }
 }
 
-#[derive(FromRow)]
-pub(super) struct MemberRow {
-    pub id: Uuid,
-    pub organization_id: Uuid,
-    pub user_id: Uuid,
-    pub role: String,
-    pub created_at: DateTime<Utc>,
-}
-
-impl From<MemberRow> for OrganizationMember {
-    fn from(row: MemberRow) -> Self {
-        Self {
-            id: row.id,
-            organization_id: row.organization_id,
-            user_id: row.user_id,
-            role: row.role,
-            created_at: row.created_at,
-        }
+fn invitation_status(value: &str) -> Result<OrganizationInvitationStatus, AuthError> {
+    match value {
+        "pending" => Ok(OrganizationInvitationStatus::Pending),
+        "accepted" => Ok(OrganizationInvitationStatus::Accepted),
+        "rejected" => Ok(OrganizationInvitationStatus::Rejected),
+        "canceled" => Ok(OrganizationInvitationStatus::Canceled),
+        value => Err(AuthError::Storage(format!(
+            "invalid organization invitation status: {value}"
+        ))),
     }
 }
 
-#[derive(FromRow)]
-pub(super) struct InvitationRow {
-    pub id: Uuid,
-    pub organization_id: Uuid,
-    pub email: String,
-    pub role: String,
-    pub status: String,
-    pub team_id: Option<String>,
-    pub inviter_id: Uuid,
-    pub expires_at: DateTime<Utc>,
-    pub created_at: DateTime<Utc>,
+fn membership_key(team_id: uuid::Uuid, user_id: uuid::Uuid) -> String {
+    let input = serde_json::to_vec(&[team_id.to_string(), user_id.to_string()])
+        .expect("UUID strings always serialize");
+    URL_SAFE_NO_PAD.encode(Sha256::digest(input))
 }
 
-impl TryFrom<InvitationRow> for OrganizationInvitation {
-    type Error = AuthError;
+fn optional_json(value: Option<&Value>) -> Result<Value, AuthError> {
+    value
+        .map(|value| serde_json::to_string(value).map(Value::String))
+        .transpose()
+        .map(|value| value.unwrap_or(Value::Null))
+        .map_err(storage_error)
+}
 
-    fn try_from(row: InvitationRow) -> Result<Self, Self::Error> {
-        let status = match row.status.as_str() {
-            "pending" => OrganizationInvitationStatus::Pending,
-            "accepted" => OrganizationInvitationStatus::Accepted,
-            "rejected" => OrganizationInvitationStatus::Rejected,
-            "canceled" => OrganizationInvitationStatus::Canceled,
-            value => {
-                return Err(AuthError::Storage(format!(
-                    "invalid organization invitation status: {value}"
-                )));
-            }
-        };
-        Ok(Self {
-            id: row.id,
-            organization_id: row.organization_id,
-            email: row.email,
-            role: row.role,
-            status,
-            team_id: row.team_id,
-            inviter_id: row.inviter_id,
-            expires_at: row.expires_at,
-            created_at: row.created_at,
-        })
+fn optional_json_value(
+    values: &mut Map<String, Value>,
+    field: &str,
+) -> Result<Option<Value>, AuthError> {
+    optional_string_value(values, field)?
+        .map(|value| serde_json::from_str(&value).map_err(storage_error))
+        .transpose()
+}
+
+fn uuid_value(value: uuid::Uuid) -> Value {
+    Value::String(value.to_string())
+}
+
+fn date_value(value: chrono::DateTime<chrono::Utc>) -> Value {
+    Value::String(value.to_rfc3339())
+}
+
+fn optional_string(value: Option<String>) -> Value {
+    value.map_or(Value::Null, Value::String)
+}
+
+fn optional_date(value: Option<chrono::DateTime<chrono::Utc>>) -> Value {
+    value.map_or(Value::Null, date_value)
+}
+
+fn required_uuid(values: &mut Map<String, Value>, field: &str) -> Result<uuid::Uuid, AuthError> {
+    super::super::rows::required_uuid(values, field)
+}
+
+fn required_string(values: &mut Map<String, Value>, field: &str) -> Result<String, AuthError> {
+    super::super::rows::required_string(values, field)
+}
+
+fn optional_string_value(
+    values: &mut Map<String, Value>,
+    field: &str,
+) -> Result<Option<String>, AuthError> {
+    super::super::rows::optional_string_value(values, field)
+}
+
+fn required_date(
+    values: &mut Map<String, Value>,
+    field: &str,
+) -> Result<chrono::DateTime<chrono::Utc>, AuthError> {
+    super::super::rows::required_date(values, field)
+}
+
+fn optional_date_value(
+    values: &mut Map<String, Value>,
+    field: &str,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, AuthError> {
+    super::super::rows::optional_date_value(values, field)
+}
+
+fn storage_error(error: impl std::fmt::Display) -> AuthError {
+    AuthError::Storage(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn membership_keys_match_better_auth_sha256_base64url() {
+        let team = uuid::Uuid::nil();
+        let user = uuid::Uuid::from_u128(1);
+        let expected = URL_SAFE_NO_PAD.encode(Sha256::digest(
+            br#"["00000000-0000-0000-0000-000000000000","00000000-0000-0000-0000-000000000001"]"#,
+        ));
+        assert_eq!(membership_key(team, user), expected);
     }
-}
 
-#[derive(FromRow)]
-pub(super) struct TeamRow {
-    pub id: Uuid,
-    pub name: String,
-    pub organization_id: Uuid,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: Option<DateTime<Utc>>,
-}
-
-impl From<TeamRow> for OrganizationTeam {
-    fn from(row: TeamRow) -> Self {
-        Self {
-            id: row.id,
-            name: row.name,
-            organization_id: row.organization_id,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        }
-    }
-}
-
-#[derive(FromRow)]
-pub(super) struct TeamMemberRow {
-    pub id: Uuid,
-    pub team_id: Uuid,
-    pub user_id: Uuid,
-    pub created_at: DateTime<Utc>,
-}
-
-impl From<TeamMemberRow> for OrganizationTeamMember {
-    fn from(row: TeamMemberRow) -> Self {
-        Self {
-            id: row.id,
-            team_id: row.team_id,
-            user_id: row.user_id,
-            created_at: row.created_at,
-        }
-    }
-}
-
-#[derive(FromRow)]
-pub(super) struct RoleRow {
-    pub id: Uuid,
-    pub organization_id: Uuid,
-    pub role: String,
-    pub permission: Value,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: Option<DateTime<Utc>>,
-}
-
-impl TryFrom<RoleRow> for OrganizationRole {
-    type Error = AuthError;
-
-    fn try_from(row: RoleRow) -> Result<Self, Self::Error> {
-        Ok(Self {
-            id: row.id,
-            organization_id: row.organization_id,
-            role: row.role,
-            permission: serde_json::from_value(row.permission)
-                .map_err(|error| AuthError::Storage(error.to_string()))?,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        })
+    #[test]
+    fn metadata_round_trips_through_better_auth_string_storage() {
+        let value = json!({"plan": "pro"});
+        let encoded = optional_json(Some(&value)).unwrap();
+        let mut values = Map::from_iter([("metadata".into(), encoded)]);
+        assert_eq!(
+            optional_json_value(&mut values, "metadata").unwrap(),
+            Some(value)
+        );
     }
 }

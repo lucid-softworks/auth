@@ -3,9 +3,24 @@ use lucid_auth::{TwoFactorRecord, TwoFactorStore, postgres::PostgresStore};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-pub(super) async fn assert_table_absent(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+pub(super) async fn assert_exact_schema(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(
+        sqlx::query_scalar::<_, Option<String>>("SELECT to_regclass('\"twoFactor\"')::TEXT")
+            .fetch_one(pool)
+            .await?,
+        Some("\"twoFactor\"".into())
+    );
+    sqlx::query(
+        "SELECT \"secret\", \"backupCodes\", \"userId\", \"verified\", \
+         \"failedVerificationCount\", \"lockedUntil\" FROM \"twoFactor\" LIMIT 0",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("SELECT \"twoFactorEnabled\" FROM \"user\" LIMIT 0")
+        .execute(pool)
+        .await?;
     assert!(
-        !sqlx::query_scalar::<_, bool>("SELECT to_regclass('lucid_auth_two_factors') IS NOT NULL",)
+        !sqlx::query_scalar::<_, bool>("SELECT to_regclass('lucid_auth_two_factors') IS NOT NULL")
             .fetch_one(pool)
             .await?
     );
@@ -21,24 +36,19 @@ pub(super) async fn assert_atomic(
         .upsert_two_factor(TwoFactorRecord {
             id: Uuid::new_v4(),
             user_id,
-            enabled: true,
-            encrypted_secret: Some("encrypted-secret".into()),
-            encrypted_backup_codes: Some("encrypted-backup-codes".into()),
+            encrypted_secret: "encrypted-secret".into(),
+            encrypted_backup_codes: "encrypted-backup-codes".into(),
             verified: true,
             failed_verification_count: 0,
             locked_until: None,
-            last_totp_counter: None,
         })
         .await?;
     assert_eq!(record.user_id, user_id);
 
-    let (left, right) = tokio::join!(
-        store.accept_totp_counter(user_id, 42, false),
-        store.accept_totp_counter(user_id, 42, false)
-    );
-    assert_eq!(usize::from(left?) + usize::from(right?), 1);
+    store.set_two_factor_enabled(user_id, true).await?;
+    assert!(store.two_factor_enabled(user_id).await?);
 
-    let expected = record.encrypted_backup_codes.as_deref().unwrap();
+    let expected = record.encrypted_backup_codes.as_str();
     let (left, right) = tokio::join!(
         store.replace_backup_codes(user_id, expected, "replacement-left".into()),
         store.replace_backup_codes(user_id, expected, "replacement-right".into())
@@ -59,12 +69,10 @@ pub(super) async fn assert_atomic(
     );
 
     assert_eq!(
-        sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM lucid_auth_two_factors WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_one(pool)
-        .await?,
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM \"twoFactor\" WHERE \"userId\" = $1",)
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?,
         1
     );
     Ok(())

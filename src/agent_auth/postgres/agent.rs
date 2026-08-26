@@ -1,12 +1,12 @@
 use super::{
-    PostgresAgentAuthStore, is_unique_violation, lock_creation, query,
-    rows::{AGENT_FIELDS, AgentRow, encode_optional_json},
-    storage_error,
+    PostgresAgentAuthStore, is_unique_violation, lock_creation, query, rows, storage_error,
 };
 use crate::{
     AuthError,
-    agent_auth::{AgentIdentity, AgentStoreCreateOutcome, schema::AgentAuthModel},
+    agent_auth::{AgentIdentity, AgentStoreCreateOutcome},
 };
+use serde_json::{Value, json};
+use sqlx::{Postgres, QueryBuilder};
 use uuid::Uuid;
 
 pub(super) async fn create(
@@ -15,48 +15,16 @@ pub(super) async fn create(
 ) -> Result<AgentStoreCreateOutcome<AgentIdentity>, AuthError> {
     let mut transaction = store.pool().begin().await.map_err(storage_error)?;
     lock_creation(&mut transaction, "agent").await?;
-    let model = store.schema.model(AgentAuthModel::Agent);
-    let conflict = sqlx::query_scalar::<_, bool>(&format!(
-        "SELECT EXISTS(SELECT 1 FROM {} WHERE \"id\"=$1 OR ($2::TEXT IS NOT NULL AND {}=$2) OR {}=$3)",
-        model.table(),
-        model.column("kid"),
-        model.column("publicKey"),
-    ))
-    .bind(&agent.id)
-    .bind(&agent.kid)
-    .bind(&agent.public_key)
-    .fetch_one(&mut *transaction)
-    .await
-    .map_err(storage_error)?;
-    if conflict {
+    let model = store.model("agent")?;
+    if conflicts(&model, &agent, &mut transaction).await? {
         return Ok(AgentStoreCreateOutcome::UniqueConflict);
     }
-    let metadata = encode_optional_json(&agent.metadata)?;
-    let result = sqlx::query_as::<_, AgentRow>(&query::insert(
-        &store.schema,
-        AgentAuthModel::Agent,
-        AGENT_FIELDS,
-    ))
-    .bind(&agent.id)
-    .bind(&agent.name)
-    .bind(agent.user_id)
-    .bind(&agent.host_id)
-    .bind(agent.status.as_str())
-    .bind(agent.mode.as_str())
-    .bind(&agent.public_key)
-    .bind(&agent.kid)
-    .bind(&agent.jwks_url)
-    .bind(agent.last_used_at)
-    .bind(agent.activated_at)
-    .bind(agent.expires_at)
-    .bind(metadata)
-    .bind(agent.created_at)
-    .bind(agent.updated_at)
-    .fetch_one(&mut *transaction)
-    .await;
+    let mut insert = query::insert(&model, rows::agent_writes(&model, &agent)?);
+    insert.push(" RETURNING ").push(model.all_projection());
+    let result = insert.build().fetch_one(&mut *transaction).await;
     match result {
         Ok(row) => {
-            let agent = row.try_into()?;
+            let agent = rows::decode_agent(&model, &row)?;
             transaction.commit().await.map_err(storage_error)?;
             Ok(AgentStoreCreateOutcome::Created(agent))
         }
@@ -65,104 +33,111 @@ pub(super) async fn create(
     }
 }
 
+async fn conflicts(
+    model: &crate::postgres::PostgresModel<'_>,
+    agent: &AgentIdentity,
+    transaction: &mut sqlx::Transaction<'_, Postgres>,
+) -> Result<bool, AuthError> {
+    let mut query = QueryBuilder::new("SELECT EXISTS(SELECT 1 FROM ");
+    query.push(model.quoted_table()).push(" WHERE \"id\" = ");
+    model.encode("id", json!(agent.id))?.push_bind(&mut query);
+    query.push(" OR (");
+    model
+        .encode("kid", optional_string(agent.kid.clone()))?
+        .push_bind(&mut query);
+    query
+        .push(" IS NOT NULL AND ")
+        .push(model.quoted_column("kid")?)
+        .push(" = ");
+    model
+        .encode("kid", optional_string(agent.kid.clone()))?
+        .push_bind(&mut query);
+    query
+        .push(") OR ")
+        .push(model.quoted_column("publicKey")?)
+        .push(" = ");
+    model
+        .encode("publicKey", json!(agent.public_key))?
+        .push_bind(&mut query);
+    query.push(")");
+    query
+        .build_query_scalar()
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(storage_error)
+}
+
 pub(super) async fn find(
     store: &PostgresAgentAuthStore,
-    field: &str,
+    field: &'static str,
     value: &str,
 ) -> Result<Option<AgentIdentity>, AuthError> {
-    convert(
-        sqlx::query_as::<_, AgentRow>(&query::select(
-            &store.schema,
-            AgentAuthModel::Agent,
-            AGENT_FIELDS,
-            &[field],
-            " LIMIT 1",
-        ))
-        .bind(value)
-        .fetch_optional(store.pool())
-        .await
-        .map_err(storage_error)?,
-    )
+    let model = store.model("agent")?;
+    let mut query = query::filter(&model, [(field, Value::String(value.to_owned()))])?;
+    query.push(" ORDER BY \"id\" LIMIT 1");
+    fetch_optional(store, &model, query).await
 }
 
 pub(super) async fn list_for_user(
     store: &PostgresAgentAuthStore,
     user_id: Uuid,
 ) -> Result<Vec<AgentIdentity>, AuthError> {
-    let model = store.schema.model(AgentAuthModel::Agent);
-    let order = format!(" ORDER BY {}, \"id\"", model.column("createdAt"));
-    convert_many(
-        sqlx::query_as::<_, AgentRow>(&query::select(
-            &store.schema,
-            AgentAuthModel::Agent,
-            AGENT_FIELDS,
-            &["userId"],
-            &order,
-        ))
-        .bind(user_id)
-        .fetch_all(store.pool())
-        .await
-        .map_err(storage_error)?,
-    )
+    list_by(store, "userId", json!(user_id.to_string())).await
 }
 
 pub(super) async fn list_for_host(
     store: &PostgresAgentAuthStore,
     host_id: &str,
 ) -> Result<Vec<AgentIdentity>, AuthError> {
-    let model = store.schema.model(AgentAuthModel::Agent);
-    let order = format!(" ORDER BY {}, \"id\"", model.column("createdAt"));
-    convert_many(
-        sqlx::query_as::<_, AgentRow>(&query::select(
-            &store.schema,
-            AgentAuthModel::Agent,
-            AGENT_FIELDS,
-            &["hostId"],
-            &order,
-        ))
-        .bind(host_id)
+    list_by(store, "hostId", json!(host_id)).await
+}
+
+async fn list_by(
+    store: &PostgresAgentAuthStore,
+    field: &'static str,
+    value: Value,
+) -> Result<Vec<AgentIdentity>, AuthError> {
+    let model = store.model("agent")?;
+    let mut query = query::filter(&model, [(field, value)])?;
+    query
+        .push(" ORDER BY ")
+        .push(model.quoted_column("createdAt")?)
+        .push(", \"id\"");
+    query
+        .build()
         .fetch_all(store.pool())
         .await
-        .map_err(storage_error)?,
-    )
+        .map_err(storage_error)?
+        .iter()
+        .map(|row| rows::decode_agent(&model, row))
+        .collect()
 }
 
 pub(super) async fn update(
     store: &PostgresAgentAuthStore,
     agent: AgentIdentity,
 ) -> Result<Option<AgentIdentity>, AuthError> {
-    let metadata = encode_optional_json(&agent.metadata)?;
-    convert(
-        sqlx::query_as::<_, AgentRow>(&query::update(
-            &store.schema,
-            AgentAuthModel::Agent,
-            AGENT_FIELDS,
-        ))
-        .bind(&agent.id)
-        .bind(&agent.name)
-        .bind(agent.user_id)
-        .bind(&agent.host_id)
-        .bind(agent.status.as_str())
-        .bind(agent.mode.as_str())
-        .bind(&agent.public_key)
-        .bind(&agent.kid)
-        .bind(&agent.jwks_url)
-        .bind(agent.last_used_at)
-        .bind(agent.activated_at)
-        .bind(agent.expires_at)
-        .bind(metadata)
-        .bind(agent.created_at)
-        .bind(agent.updated_at)
+    let model = store.model("agent")?;
+    let mut query = query::update(&model, rows::agent_writes(&model, &agent)?, &agent.id)?;
+    query.push(" RETURNING ").push(model.all_projection());
+    fetch_optional(store, &model, query).await
+}
+
+async fn fetch_optional(
+    store: &PostgresAgentAuthStore,
+    model: &crate::postgres::PostgresModel<'_>,
+    mut query: QueryBuilder<'static, Postgres>,
+) -> Result<Option<AgentIdentity>, AuthError> {
+    query
+        .build()
         .fetch_optional(store.pool())
         .await
-        .map_err(storage_error)?,
-    )
+        .map_err(storage_error)?
+        .as_ref()
+        .map(|row| rows::decode_agent(model, row))
+        .transpose()
 }
 
-fn convert(row: Option<AgentRow>) -> Result<Option<AgentIdentity>, AuthError> {
-    row.map(TryInto::try_into).transpose()
-}
-
-fn convert_many(rows: Vec<AgentRow>) -> Result<Vec<AgentIdentity>, AuthError> {
-    rows.into_iter().map(TryInto::try_into).collect()
+fn optional_string(value: Option<String>) -> Value {
+    value.map_or(Value::Null, Value::String)
 }

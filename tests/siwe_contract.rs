@@ -103,13 +103,17 @@ async fn descriptor_schema_and_both_nonce_routes_match_better_auth() {
         .unwrap();
     assert_eq!(descriptor.client.unwrap().factory, "siweClient");
     assert_eq!(descriptor.endpoints.len(), 3);
-    let migrations = service.plugin_migrations();
-    assert_eq!(migrations.len(), 1);
+    assert!(service.plugin_migrations().is_empty());
+    let default_wallet = service.database_schema().table("walletAddress").unwrap();
+    assert_eq!(default_wallet.model_name, "walletAddress");
+    assert!(default_wallet.fields.contains_key("address"));
     assert!(
-        migrations[0]
-            .migration
-            .sql
-            .contains("lucid_auth_wallet_addresses")
+        service
+            .generic_database_schema()
+            .table("walletAddress")
+            .unwrap()
+            .fields
+            .contains_key("address")
     );
 
     let store = Arc::new(MemoryStore::default());
@@ -124,9 +128,19 @@ async fn descriptor_schema_and_both_nonce_routes_match_better_auth() {
     config
         .add_plugin(SiwePlugin::new(store.clone(), custom))
         .unwrap();
-    let custom = AuthService::new(store, config).plugin_migrations();
-    assert!(custom[0].migration.sql.contains("\"custom\"\"wallets\""));
-    assert!(custom[0].migration.sql.contains("\"wallet\"\"address\""));
+    let custom = AuthService::new(store, config);
+    assert!(custom.plugin_migrations().is_empty());
+    let logical_wallet = custom.database_schema().table("walletAddress").unwrap();
+    assert_eq!(logical_wallet.model_name, "custom\"wallets");
+    assert_eq!(
+        logical_wallet.fields["address"].field_name.as_deref(),
+        Some("wallet\"address")
+    );
+    let generic = custom.generic_database_schema();
+    let physical_wallet = generic.table("custom\"wallets").unwrap();
+    assert!(physical_wallet.fields.contains_key("wallet\"address"));
+    assert!(!physical_wallet.fields.contains_key("address"));
+    assert!(generic.table("walletAddress").is_none());
 
     let response = app
         .oneshot(

@@ -121,7 +121,7 @@ mod tests {
         assert!(descriptor.cookies.is_empty());
         assert!(descriptor.middleware.is_empty());
         assert!(descriptor.rate_limits.is_empty());
-        assert!(plugin.schema_fields().is_empty());
+        assert!(plugin.schema().is_empty());
         assert!(plugin.migrations().is_empty());
     }
 
