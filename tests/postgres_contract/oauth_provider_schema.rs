@@ -1,6 +1,6 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{
-    AuthConfig, AuthService, NewPasswordUser, OAuthProviderPlugin, OAuthProviderPluginConfig,
+    AuthConfig, AuthService, EmailSignUpInput, OAuthProviderPlugin, OAuthProviderPluginConfig,
     postgres::{PostgresOAuthProviderStore, PostgresStore},
 };
 use sqlx::postgres::PgPoolOptions;
@@ -44,6 +44,7 @@ async fn bound_schema_and_queries_round_trip() -> Result<(), Box<dyn std::error:
     let provider_config = mapped_config();
     let provider = OAuthProviderPlugin::postgres(provider_config.clone(), (*store).clone())?;
     let mut auth_config = AuthConfig::new([193_u8; 32])?;
+    auth_config.email_and_password.enabled = true;
     auth_config.add_plugin(provider)?;
     let service = AuthService::try_new(store.clone(), auth_config)?;
     let migrations = service.plugin_migrations();
@@ -118,20 +119,24 @@ fn map_model(
 }
 
 async fn provision_user(service: &AuthService) -> Result<Uuid, lucid_auth::AuthError> {
-    let suffix = Uuid::new_v4().simple().to_string();
     service
-        .provision_password_user(NewPasswordUser {
-            username: format!("oauth_storage_{}", &suffix[..12]),
-            name: "OAuth storage owner".into(),
-            email: Some(format!(
-                "oauth-storage-{}@example.com",
-                Uuid::new_v4().simple()
-            )),
-            password: "correct horse battery staple".into(),
-            role: "user".into(),
-        })
+        .sign_up_email(
+            EmailSignUpInput {
+                name: "OAuth storage owner".into(),
+                email: format!("oauth-storage-{}@example.com", Uuid::new_v4().simple()),
+                password: "correct horse battery staple".into(),
+                image: None,
+                callback_url: None,
+                remember_me: None,
+                username: None,
+                display_username: None,
+                additional_fields: serde_json::Map::new(),
+            },
+            None,
+            None,
+        )
         .await
-        .map(|user| user.id)
+        .map(|result| result.user.id)
 }
 
 fn now() -> chrono::DateTime<Utc> {

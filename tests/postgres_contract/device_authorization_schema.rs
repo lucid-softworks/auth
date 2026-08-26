@@ -2,7 +2,8 @@ use chrono::{Duration, Utc};
 use lucid_auth::{
     AuthConfig, AuthService, DeviceAuthorizationConfig, DeviceAuthorizationModelSchema,
     DeviceAuthorizationSchema, DeviceAuthorizationStore, DeviceCode, DeviceCodeCreateOutcome,
-    DeviceCodeOwner, DeviceCodeStatus, OAuthDeviceAuthorizationPlugin,
+    DeviceCodeOwner, DeviceCodeStatus, OAuthDeviceAuthorizationPlugin, OAuthProviderPlugin,
+    OAuthProviderPluginConfig,
     postgres::{
         PostgresAdapterConfig, PostgresDeviceAuthorizationStore, PostgresSchemaObject,
         PostgresStore,
@@ -51,6 +52,12 @@ async fn remapped_schema_migrates_idempotently_and_preserves_atomic_ownership()
     config.schema = schema;
     let plugin = OAuthDeviceAuthorizationPlugin::postgres(config, postgres.clone());
     let mut auth = AuthConfig::new([52; 32])?;
+    let mut provider_config = OAuthProviderPluginConfig::new("/login", "/consent");
+    provider_config.disable_jwt_plugin = true;
+    auth.add_plugin(OAuthProviderPlugin::postgres(
+        provider_config,
+        postgres.clone(),
+    )?)?;
     auth.add_plugin(plugin)?;
     let _service = AuthService::new(Arc::new(postgres.clone()), auth);
     let plan = postgres.migration_plan(&[])?;

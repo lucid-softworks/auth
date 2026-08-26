@@ -68,16 +68,16 @@ async fn indexes(pool: &sqlx::PgPool) -> Result<Vec<String>, sqlx::Error> {
 async fn references(pool: &sqlx::PgPool) -> Result<Vec<String>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT source.relname, source_column.attname, target.relname, target_column.attname, \
-                constraint.confdeltype::text \
-         FROM pg_constraint constraint \
-         JOIN pg_class source ON source.oid = constraint.conrelid \
-         JOIN pg_class target ON target.oid = constraint.confrelid \
+                fk_constraint.confdeltype::text \
+         FROM pg_constraint fk_constraint \
+         JOIN pg_class source ON source.oid = fk_constraint.conrelid \
+         JOIN pg_class target ON target.oid = fk_constraint.confrelid \
          JOIN pg_namespace namespace ON namespace.oid = source.relnamespace \
          JOIN pg_attribute source_column ON source_column.attrelid = source.oid \
-              AND source_column.attnum = constraint.conkey[1] \
+              AND source_column.attnum = fk_constraint.conkey[1] \
          JOIN pg_attribute target_column ON target_column.attrelid = target.oid \
-              AND target_column.attnum = constraint.confkey[1] \
-         WHERE namespace.nspname = current_schema() AND constraint.contype = 'f' \
+              AND target_column.attnum = fk_constraint.confkey[1] \
+         WHERE namespace.nspname = current_schema() AND fk_constraint.contype = 'f' \
          ORDER BY source.relname, source_column.attname",
     )
     .fetch_all(pool)
