@@ -31,7 +31,7 @@ The currently supported surface covers:
 
 - `getSession` and `useSession`
 - core email/password signup, signin, and current-password verification
-- durable email verification with a native async delivery callback
+- stateless HS256 email verification with a native async delivery callback
 - enumeration-resistant password-reset email and single-use reset redemption
 - the complete official `emailOTPClient` surface as an optional native plugin
 - the complete official `phoneNumberClient` surface as an optional native plugin
@@ -1561,8 +1561,10 @@ sends normal verification when a sender is configured. For verified accounts,
 the default sends verification to the new address. Configure
 `send_change_email_confirmation` to require approval from the current address
 before the new-address verification is sent. Email normalization, uniqueness,
-single-use tokens, callback URLs, and session-cookie refresh are enforced in
-every mode.
+stateless signed tokens, callback URLs, and session-cookie refresh are enforced
+in every mode. The two current phases use the exact
+`change-email-confirmation` and `change-email-verification` claims; the Better
+Auth 1.7.1 legacy token branch remains distinct.
 
 Better Auth anonymous users are an optional plugin and their routes and
 `isAnonymous` user field are absent until it is registered:
@@ -1752,23 +1754,29 @@ exact `callbackURL` spelling only.
 Email delivery is supplied in-process by implementing
 `VerificationEmailSender` and assigning it to
 `config.email_verification.sender`. The callback receives a typed
-`VerificationEmail` containing the user, verification URL, and one-time token.
+`VerificationEmail` containing the user, verification URL, and signed token.
 Configure `AuthConfig::set_base_url` as well so delivered links use the public
 authentication origin and base path.
 `send_on_sign_up`, `send_on_sign_in`, `auto_sign_in_after_verification`, and
-`expires_in` mirror Better Auth's verification lifecycle. Only a SHA-256 token
-identifier is persisted; verification consumes it and updates `emailVerified`
-atomically, so replay and concurrent redemption fail.
+`expires_in` mirror Better Auth's verification lifecycle. Core email links are
+stateless HS256 JWTs signed with the current configured secret. Newly issued
+tokens contain lowercase email, numeric `iat`/`exp`, and only the
+`{"alg":"HS256"}` protected header; they create no verification record.
+Expiry has no clock leeway, while the shipped 1.7.1 verifier accepts a validly
+signed token with absent temporal claims and validates them when present.
 
 Password reset delivery is supplied by implementing `PasswordResetEmailSender`
 and assigning it to `config.email_and_password.send_reset_password`. The sender
 receives the user, reset URL, and one-time token. The default expiry is one hour;
 `reset_password_token_expires_in`, `revoke_sessions_on_password_reset`, and the
 native async `on_password_reset` callback mirror Better Auth's lifecycle options.
-Reset requests accept Better Auth's exact `redirectTo` field, while the emailed
+Reset requests use a 24-character `a-zA-Z0-9` token and accept Better Auth's
+exact `redirectTo` field, while the emailed
 callback endpoint accepts exact `callbackURL`; incorrectly cased aliases are not
-supported. Only a SHA-256 token identifier is stored, and password replacement,
-single-use token consumption, and optional session revocation are atomic.
+supported. The complete `reset-password:<token>` identifier is processed once
+through the configured plain/hashed/custom verification storage. Password
+replacement and single-use token consumption are atomic; `on_password_reset`
+runs before optional session revocation.
 
 Current-user deletion is disabled by default. Enable it with
 `config.user.delete_user.enabled = true`. Better Auth's password and fresh-session
@@ -1778,6 +1786,13 @@ token instead. `before_delete` and `after_delete` callbacks compose with plugin
 user-deletion hooks, and successful deletion clears the session cookie and all
 adapter-owned account data. Deletion links and requests accept only the exact
 `callbackURL` spelling.
+
+Core session credentials are always 32 characters from `a-zA-Z0-9`, independent
+of session database IDs. Deletion verification uses 32 lowercase-alphanumeric
+characters and the complete `delete-account-<token>` identifier, consuming the
+record before checking its user binding. Upgrading from the earlier native token
+formats intentionally invalidates existing sessions, reset links, persisted
+email links, and deletion links; no legacy lookup aliases are retained.
 
 Magic Link is an optional native plugin. Implement `MagicLinkSender`, construct
 `MagicLinkConfig`, and register `MagicLinkPlugin` with `AuthConfig::add_plugin`.

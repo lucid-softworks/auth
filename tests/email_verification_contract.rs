@@ -4,6 +4,7 @@ use axum::{
     body::Body,
     http::{Request, StatusCode, header},
 };
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::Duration;
 use http_body_util::BodyExt;
 use lucid_auth::{
@@ -74,7 +75,7 @@ async fn signup(app: &Router, email: &str) {
 }
 
 #[tokio::test]
-async fn signup_delivery_and_verification_are_single_use_and_auto_sign_in() {
+async fn signup_delivery_is_a_stateless_hs256_jwt_and_auto_signs_in() {
     let (app, service, sender) = application(|config| {
         config.email_and_password.require_email_verification = true;
         config.email_verification.auto_sign_in_after_verification = true;
@@ -83,6 +84,24 @@ async fn signup_delivery_and_verification_are_single_use_and_auto_sign_in() {
     let email = sender.sent.lock().await[0].clone();
     assert_eq!(email.user.email, "verify.me@example.com");
     assert!(email.url.contains("callbackURL=%2Fverified"));
+    let segments = email.token.split('.').collect::<Vec<_>>();
+    let header: Value =
+        serde_json::from_slice(&URL_SAFE_NO_PAD.decode(segments[0]).unwrap()).unwrap();
+    let payload: Value =
+        serde_json::from_slice(&URL_SAFE_NO_PAD.decode(segments[1]).unwrap()).unwrap();
+    assert_eq!(header, json!({ "alg": "HS256" }));
+    assert_eq!(payload["email"], "verify.me@example.com");
+    assert_eq!(
+        payload["exp"].as_i64().unwrap() - payload["iat"].as_i64().unwrap(),
+        3_600
+    );
+    assert!(
+        service
+            .find_verification_value(&email.token)
+            .await
+            .unwrap()
+            .is_none()
+    );
 
     let response = app
         .clone()
@@ -117,11 +136,11 @@ async fn signup_delivery_and_verification_are_single_use_and_auto_sign_in() {
         )
         .await
         .unwrap();
-    assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(replay.status(), StatusCode::OK);
 }
 
 #[tokio::test]
-async fn concurrent_verification_allows_exactly_one_consumer() {
+async fn concurrent_verification_is_stateless_and_idempotent() {
     let (app, service, sender) = application(|config| {
         config.email_and_password.require_email_verification = true;
     });
@@ -131,13 +150,12 @@ async fn concurrent_verification_allows_exactly_one_consumer() {
         service.verify_email_token(&token, None),
         service.verify_email_token(&token, None),
     );
-    assert_eq!(usize::from(left.is_ok()) + usize::from(right.is_ok()), 1);
-    let error = left.err().or_else(|| right.err()).unwrap();
-    assert!(matches!(error, AuthError::InvalidToken));
+    assert!(left.is_ok());
+    assert!(right.is_ok());
 }
 
 #[tokio::test]
-async fn expired_tokens_are_consumed_and_reported_as_expired() {
+async fn expired_tokens_remain_expired_without_persistence_or_leeway() {
     let (app, service, sender) = application(|config| {
         config.email_and_password.require_email_verification = true;
         config.email_verification.expires_in = Duration::milliseconds(1);
@@ -151,7 +169,7 @@ async fn expired_tokens_are_consumed_and_reported_as_expired() {
     ));
     assert!(matches!(
         service.verify_email_token(&token, None).await,
-        Err(AuthError::InvalidToken)
+        Err(AuthError::TokenExpired)
     ));
 }
 

@@ -125,6 +125,17 @@ mod tests {
     use crate::{AuthConfig, MemoryStore, NewPasswordUser};
     use std::sync::Arc;
 
+    #[test]
+    fn non_core_callers_keep_the_existing_url_safe_random_token() {
+        let token = random_token();
+        assert_eq!(token.len(), 43);
+        assert!(
+            token
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        );
+    }
+
     #[tokio::test]
     async fn revokes_every_session_except_the_current_one() {
         let service = AuthService::new(

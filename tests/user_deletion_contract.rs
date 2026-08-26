@@ -7,8 +7,7 @@ use axum::{
 use http_body_util::BodyExt;
 use lucid_auth::{
     AfterAuthEvent, AuthConfig, AuthError, AuthPlugin, AuthService, AuthStore, BeforeAuthEvent,
-    DeleteAccountVerification, DeleteAccountVerificationSender, DeleteUserConfig, EmailSignUpInput,
-    MemoryStore, PluginDescriptor, UserDeletionCallback,
+    DeleteUserConfig, EmailSignUpInput, MemoryStore, PluginDescriptor, UserDeletionCallback,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -23,10 +22,19 @@ struct Fixture {
 }
 
 async fn fixture(delete_user: DeleteUserConfig, observer: Option<DeletionObserver>) -> Fixture {
+    fixture_with_config(delete_user, observer, |_| {}).await
+}
+
+async fn fixture_with_config(
+    delete_user: DeleteUserConfig,
+    observer: Option<DeletionObserver>,
+    configure: impl FnOnce(&mut AuthConfig),
+) -> Fixture {
     let mut config = AuthConfig::new([127_u8; 32]).unwrap();
     config.email_and_password.enabled = true;
     config.set_base_url("http://localhost").unwrap();
     config.user.delete_user = delete_user;
+    configure(&mut config);
     if let Some(observer) = observer {
         config.add_plugin(observer).unwrap();
     }
@@ -205,96 +213,6 @@ async fn password_deletion_clears_the_account_and_runs_callbacks_in_order() {
     );
 }
 
-#[derive(Clone, Default)]
-struct CapturingSender {
-    sent: Arc<Mutex<Vec<DeleteAccountVerification>>>,
-}
-
-#[async_trait]
-impl DeleteAccountVerificationSender for CapturingSender {
-    async fn send(&self, verification: DeleteAccountVerification) -> Result<(), AuthError> {
-        self.sent.lock().await.push(verification);
-        Ok(())
-    }
-}
-
-#[tokio::test]
-async fn verification_tokens_are_purpose_bound_single_use_and_redirect_safely() {
-    let sender = CapturingSender::default();
-    let fixture = fixture(
-        DeleteUserConfig {
-            enabled: true,
-            send_delete_account_verification: Some(Arc::new(sender.clone())),
-            ..DeleteUserConfig::default()
-        },
-        None,
-    )
-    .await;
-    let (cookie, user) = account(&fixture, "token-delete@example.com").await;
-    let requested = fixture
-        .app
-        .clone()
-        .oneshot(delete_request(
-            &cookie,
-            json!({ "callbackURL": "/goodbye" }),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(requested.status(), StatusCode::OK);
-    assert_eq!(
-        response_json(requested).await["message"],
-        "Verification email sent"
-    );
-    assert!(
-        fixture
-            .store
-            .find_user_by_id(user.id)
-            .await
-            .unwrap()
-            .is_some()
-    );
-    let sent = sender.sent.lock().await;
-    let message = sent.last().unwrap();
-    assert_eq!(message.user.id, user.id);
-    assert!(message.url.contains("callbackURL=%2Fgoodbye"));
-    assert_eq!(message.token.len(), 32);
-    let token = message.token.clone();
-    drop(sent);
-
-    let invalid = fixture
-        .app
-        .clone()
-        .oneshot(delete_request(&cookie, json!({ "token": "invalid" })))
-        .await
-        .unwrap();
-    assert_eq!(invalid.status(), StatusCode::NOT_FOUND);
-    assert_eq!(response_json(invalid).await["code"], "INVALID_TOKEN");
-
-    let callback = fixture
-        .app
-        .clone()
-        .oneshot(
-            Request::get(format!(
-                "/api/auth/delete-user/callback?token={token}&callbackURL=%2Fgoodbye"
-            ))
-            .header(header::COOKIE, &cookie)
-            .body(Body::empty())
-            .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(callback.status(), StatusCode::FOUND);
-    assert_eq!(callback.headers()[header::LOCATION], "/goodbye");
-    assert!(
-        fixture
-            .store
-            .find_user_by_id(user.id)
-            .await
-            .unwrap()
-            .is_none()
-    );
-}
-
 #[tokio::test]
 async fn disabled_and_stale_deletion_match_official_errors() {
     let disabled = fixture(DeleteUserConfig::default(), None).await;
@@ -368,3 +286,6 @@ async fn disabled_and_stale_deletion_match_official_errors() {
             .is_none()
     );
 }
+
+#[path = "user_deletion_contract/token.rs"]
+mod token;

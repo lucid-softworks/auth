@@ -8,56 +8,33 @@ impl AuthService {
         identifier: &str,
         now: DateTime<Utc>,
     ) -> Result<Option<VerificationValue>, AuthError> {
-        let identifiers = self.verification_identifiers(identifier).await?;
+        let stored_identifier = self.process_identifier(identifier).await?;
         if let Some(secondary) = &self.config.secondary_storage
             && !self.config.verification.store_in_database
         {
-            for stored_identifier in &identifiers {
-                let Some(raw) = secondary
-                    .get_and_delete(&verification_key(stored_identifier))
-                    .await?
-                else {
-                    continue;
-                };
-                let Ok(value) = serde_json::from_str::<VerificationValue>(&raw) else {
-                    continue;
-                };
-                for alternate in identifiers
-                    .iter()
-                    .filter(|value| *value != stored_identifier)
-                {
-                    secondary.delete(&verification_key(alternate)).await?;
-                }
-                return Ok((value.expires_at >= now).then_some(value));
-            }
-            return Ok(None);
+            let Some(raw) = secondary
+                .get_and_delete(&verification_key(&stored_identifier))
+                .await?
+            else {
+                return Ok(None);
+            };
+            let Ok(value) = serde_json::from_str::<VerificationValue>(&raw) else {
+                return Ok(None);
+            };
+            return Ok((value.expires_at >= now).then_some(value));
         }
-        let mut current = None;
-        for stored_identifier in &identifiers {
-            if let Some(value) = self.store.find_verification(stored_identifier).await? {
-                current = Some(value);
-                break;
-            }
-        }
+        let current = self.store.find_verification(&stored_identifier).await?;
         if let Some(candidate) = &current {
             self.before_database_delete(&DatabaseRecord::Verification(candidate.clone()))
                 .await?;
         }
-        let mut consumed = None;
-        for stored_identifier in &identifiers {
-            if let Some(value) = self.store.consume_verification(stored_identifier).await? {
-                consumed = Some(value);
-                break;
-            }
-        }
+        let consumed = self.store.consume_verification(&stored_identifier).await?;
         if consumed.is_some()
             && let Some(secondary) = &self.config.secondary_storage
         {
-            for stored_identifier in &identifiers {
-                secondary
-                    .delete(&verification_key(stored_identifier))
-                    .await?;
-            }
+            secondary
+                .delete(&verification_key(&stored_identifier))
+                .await?;
         }
         if let Some(value) = &consumed {
             self.after_database_delete(&DatabaseRecord::Verification(value.clone()))
@@ -89,7 +66,7 @@ mod tests {
     use std::sync::Arc;
 
     #[tokio::test]
-    async fn non_plain_lookup_and_consume_fall_back_to_plain() {
+    async fn non_plain_lookup_and_consume_never_read_the_plain_alias() {
         let store = Arc::new(MemoryStore::default());
         let mut config = AuthConfig::new([21; 32]).unwrap();
         config.verification.store_identifier.default = VerificationIdentifierStorage::Hashed;
@@ -99,27 +76,25 @@ mod tests {
             .create_verification(VerificationValue::new("plain", "value", expires_at))
             .await
             .unwrap();
-        assert_eq!(
+        assert!(
             service
                 .find_verification_value("plain")
                 .await
                 .unwrap()
-                .unwrap()
-                .value,
-            "value"
+                .is_none()
         );
         assert!(
             service
                 .consume_verification_value("plain", Utc::now())
                 .await
                 .unwrap()
-                .is_some()
+                .is_none()
         );
-        assert!(store.find_verification("plain").await.unwrap().is_none());
+        assert!(store.find_verification("plain").await.unwrap().is_some());
     }
 
     #[tokio::test]
-    async fn expired_processed_winner_leaves_live_plain_fallback() {
+    async fn processed_identifier_is_the_only_database_candidate() {
         let store = Arc::new(MemoryStore::default());
         let mut config = AuthConfig::new([24; 32]).unwrap();
         config.verification.store_identifier.default = VerificationIdentifierStorage::Hashed;
@@ -129,55 +104,66 @@ mod tests {
         store
             .create_verification(VerificationValue::new(
                 processed.clone(),
-                "expired",
-                now - Duration::seconds(1),
+                "processed",
+                now + Duration::minutes(1),
             ))
             .await
             .unwrap();
         store
             .create_verification(VerificationValue::new(
                 "plain",
-                "live",
+                "alias",
                 now + Duration::minutes(1),
             ))
             .await
             .unwrap();
-        assert!(
+        assert_eq!(
             service
                 .consume_verification_value("plain", now)
                 .await
                 .unwrap()
-                .is_none()
+                .unwrap()
+                .value,
+            "processed"
         );
         assert!(store.find_verification(&processed).await.unwrap().is_none());
         assert!(store.find_verification("plain").await.unwrap().is_some());
     }
 
     #[tokio::test]
-    async fn secondary_fallback_invalidates_both_cache_keys() {
+    async fn secondary_only_consumes_only_the_processed_key() {
         let secondary = Arc::new(MemorySecondaryStorage::default());
         let mut config = AuthConfig::new([22; 32]).unwrap();
         config.secondary_storage = Some(secondary.clone());
         config.verification.store_identifier.default = VerificationIdentifierStorage::Hashed;
+        config.verification.store_in_database = false;
         let service = AuthService::new(Arc::new(MemoryStore::default()), config);
         let value = VerificationValue::new("plain", "value", Utc::now() + Duration::minutes(1));
         let processed = URL_SAFE_NO_PAD.encode(Sha256::digest(b"plain"));
+        service.create_verification_value(value).await.unwrap();
         secondary
             .set(
                 "verification:plain",
-                serde_json::to_string(&value).unwrap(),
+                serde_json::to_string(&VerificationValue::new(
+                    "plain",
+                    "alias",
+                    Utc::now() + Duration::minutes(1),
+                ))
+                .unwrap(),
                 Some(60),
             )
             .await
             .unwrap();
-        assert!(
+        assert_eq!(
             service
                 .consume_verification_value("plain", Utc::now())
                 .await
                 .unwrap()
-                .is_some()
+                .unwrap()
+                .value,
+            "value"
         );
-        assert!(secondary.get("verification:plain").await.unwrap().is_none());
+        assert!(secondary.get("verification:plain").await.unwrap().is_some());
         assert!(
             secondary
                 .get(&format!("verification:{processed}"))
@@ -188,13 +174,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn malformed_secondary_processed_value_falls_back_to_live_plain() {
+    async fn malformed_secondary_processed_value_does_not_read_plain() {
         let secondary = Arc::new(MemorySecondaryStorage::default());
         let mut config = AuthConfig::new([25; 32]).unwrap();
         config.secondary_storage = Some(secondary.clone());
         config.verification.store_identifier.default = VerificationIdentifierStorage::Hashed;
+        config.verification.store_in_database = false;
         let service = AuthService::new(Arc::new(MemoryStore::default()), config);
-        let value = VerificationValue::new("plain", "live", Utc::now() + Duration::minutes(1));
+        let value = VerificationValue::new("plain", "alias", Utc::now() + Duration::minutes(1));
         let processed = URL_SAFE_NO_PAD.encode(Sha256::digest(b"plain"));
         secondary
             .set(
@@ -212,14 +199,13 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(
+        assert!(
             service
                 .consume_verification_value("plain", Utc::now())
                 .await
                 .unwrap()
-                .unwrap()
-                .value,
-            "live"
+                .is_none()
         );
+        assert!(secondary.get("verification:plain").await.unwrap().is_some());
     }
 }

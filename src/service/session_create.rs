@@ -1,10 +1,14 @@
-use super::{AuthService, SignInResult, random_token};
+use super::{AuthService, SignInResult};
 use crate::{
     AfterAuthEvent, AuthError, AuthSession, AuthUser, AuthenticationMethod, BeforeAuthEvent,
     DatabaseModel, DatabaseRecord, SessionWithUser,
 };
 use chrono::{DateTime, Utc};
+use rand::RngExt;
 use uuid::Uuid;
+
+const SESSION_TOKEN_ALPHABET: &[u8] =
+    b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 impl AuthService {
     pub(super) async fn create_session(
@@ -90,7 +94,7 @@ impl AuthService {
                 actor_user_id,
             })
             .await?;
-        let token = random_token();
+        let token = session_token();
         let now = Utc::now();
         let session = AuthSession {
             id: self.generate_id("session"),
@@ -141,5 +145,29 @@ impl AuthService {
             })
             .await;
         Ok(result)
+    }
+}
+
+fn session_token() -> String {
+    let mut rng = rand::rng();
+    (0..32)
+        .map(|_| SESSION_TOKEN_ALPHABET[rng.random_range(0..SESSION_TOKEN_ALPHABET.len())] as char)
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_credentials_match_better_auth_generate_id_32() {
+        let tokens = (0..128).map(|_| session_token()).collect::<Vec<_>>();
+        assert!(tokens.iter().all(|token| token.len() == 32));
+        assert!(tokens.iter().all(|token| {
+            token
+                .bytes()
+                .all(|byte| SESSION_TOKEN_ALPHABET.contains(&byte))
+        }));
+        assert!(tokens.windows(2).any(|pair| pair[0] != pair[1]));
     }
 }

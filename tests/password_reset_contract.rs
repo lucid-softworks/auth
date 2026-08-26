@@ -118,6 +118,13 @@ async fn request_and_callback_match_exact_better_auth_fields() {
     );
 
     let message = fixture.sent.lock().await[0].clone();
+    assert_eq!(message.token.len(), 24);
+    assert!(
+        message
+            .token
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric())
+    );
     assert!(message.url.contains("/api/auth/reset-password/"));
     assert!(
         message
@@ -372,3 +379,6 @@ async fn disabled_reset_returns_the_better_auth_error() {
     assert_eq!(error["code"], "RESET_PASSWORD_DISABLED");
     assert_eq!(error["message"], "Reset password isn't enabled");
 }
+
+#[path = "password_reset_contract/lifecycle.rs"]
+mod lifecycle;

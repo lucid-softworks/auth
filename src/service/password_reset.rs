@@ -27,6 +27,7 @@ impl AuthService {
             let _ = self
                 .find_verification_value("dummy-verification-token")
                 .await?;
+            tracing::warn!("Reset Password: User not found");
             return Ok(());
         };
         let token = reset_token();
@@ -76,6 +77,9 @@ impl AuthService {
             .update_user_profile(user_id, crate::UserProfileUpdate::default())
             .await?
             .ok_or_else(|| AuthError::Storage("password reset user disappeared".into()))?;
+        if let Some(callback) = &self.config.email_and_password.on_password_reset {
+            callback.on_password_reset(user.clone()).await?;
+        }
         if self
             .config
             .email_and_password
@@ -90,9 +94,6 @@ impl AuthService {
                 source: PasswordCredentialSource::PasswordReset,
             })
             .await?;
-        if let Some(callback) = &self.config.email_and_password.on_password_reset {
-            callback.on_password_reset(user).await?;
-        }
         Ok(())
     }
 

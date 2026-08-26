@@ -289,7 +289,7 @@ struct HttpResult {
 }
 
 async fn sign_up(app: &Router, email: &str) -> HttpResult {
-    request(
+    let result = request(
         app,
         Request::builder()
             .method("POST")
@@ -305,11 +305,13 @@ async fn sign_up(app: &Router, email: &str) -> HttpResult {
             ))
             .unwrap(),
     )
-    .await
+    .await;
+    assert_core_session_token(&result.body);
+    result
 }
 
 async fn sign_in(app: &Router, email: &str) -> HttpResult {
-    request(
+    let result = request(
         app,
         Request::builder()
             .method("POST")
@@ -324,7 +326,15 @@ async fn sign_in(app: &Router, email: &str) -> HttpResult {
             ))
             .unwrap(),
     )
-    .await
+    .await;
+    assert_core_session_token(&result.body);
+    result
+}
+
+fn assert_core_session_token(body: &Value) {
+    let token = body["token"].as_str().expect("session token");
+    assert_eq!(token.len(), 32);
+    assert!(token.bytes().all(|byte| byte.is_ascii_alphanumeric()));
 }
 
 async fn get_session(app: &Router, cookies: &BTreeMap<String, String>, query: &str) -> HttpResult {

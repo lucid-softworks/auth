@@ -1,8 +1,11 @@
 use super::AuthService;
 use crate::{AuthError, AuthUser, AuthenticationMethod, SessionWithUser, VerificationEmail};
-use chrono::Utc;
-use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation};
-use serde::{Deserialize, Serialize};
+use chrono::{Duration, Utc};
+
+mod token;
+use token::{
+    EmailVerificationClaims, decode_email_verification_token, encode_email_verification_token,
+};
 
 #[derive(Debug, Clone)]
 pub struct EmailVerificationResult {
@@ -134,7 +137,7 @@ impl AuthService {
             .auto_sign_in_after_verification
         {
             if let Some((_session, token)) =
-                current.filter(|(session, _)| session.user.id == user.id)
+                current.filter(|(session, _)| session.user.email == claims.email)
             {
                 Some(token.to_owned())
             } else {
@@ -175,40 +178,80 @@ impl AuthService {
         if current.is_some_and(|(session, _)| session.user.email != claims.email) {
             return Err(AuthError::InvalidUser);
         }
-        if claims.request_type.as_deref() == Some("change-email-confirmation") {
-            self.deliver_change_verification(&user, &new_email, callback_url)
-                .await?;
-            return Ok(EmailVerificationResult {
-                user,
-                session_token: None,
-                user_in_response: false,
-            });
+        match claims.request_type.as_deref() {
+            Some("change-email-confirmation") => {
+                self.deliver_change_verification(&user, &new_email, callback_url)
+                    .await?;
+                Ok(EmailVerificationResult {
+                    user,
+                    session_token: None,
+                    user_in_response: false,
+                })
+            }
+            Some("change-email-verification") => {
+                let session_token = self.change_email_session_token(&user, current).await?;
+                let updated = self
+                    .store
+                    .update_user_email(user.id, &claims.email, &new_email, true)
+                    .await?
+                    .ok_or(AuthError::VerificationUserNotFound)?;
+                self.refresh_secondary_user_sessions(&updated).await?;
+                Ok(EmailVerificationResult {
+                    user: updated,
+                    session_token: Some(session_token),
+                    user_in_response: true,
+                })
+            }
+            _ => {
+                let session_token = self.change_email_session_token(&user, current).await?;
+                let updated = self
+                    .store
+                    .update_user_email(user.id, &claims.email, &new_email, false)
+                    .await?
+                    .ok_or(AuthError::VerificationUserNotFound)?;
+                let token = self.create_email_verification_token_for_duration(
+                    &new_email,
+                    None,
+                    None,
+                    Duration::hours(1),
+                )?;
+                if let Some(sender) = &self.config.email_verification.sender {
+                    sender
+                        .send(VerificationEmail {
+                            user: updated.clone(),
+                            url: self.verification_url(&token, callback_url)?,
+                            token,
+                        })
+                        .await?;
+                }
+                self.refresh_secondary_user_sessions(&updated).await?;
+                Ok(EmailVerificationResult {
+                    user: updated,
+                    session_token: Some(session_token),
+                    user_in_response: true,
+                })
+            }
         }
-        let updated = self
-            .store
-            .update_user_email(user.id, &claims.email, &new_email, true)
-            .await?
-            .ok_or(AuthError::VerificationUserNotFound)?;
-        self.refresh_secondary_user_sessions(&updated).await?;
-        let session_token = match current {
-            Some((_, token)) => Some(token.to_owned()),
-            None => Some(
-                self.create_session(
-                    updated.clone(),
+    }
+
+    async fn change_email_session_token(
+        &self,
+        user: &AuthUser,
+        current: Option<(&SessionWithUser, &str)>,
+    ) -> Result<String, AuthError> {
+        match current {
+            Some((_, token)) => Ok(token.to_owned()),
+            None => Ok(self
+                .create_session(
+                    user.clone(),
                     AuthenticationMethod::EmailVerified,
                     None,
                     None,
                     None,
                 )
                 .await?
-                .token,
-            ),
-        };
-        Ok(EmailVerificationResult {
-            user: updated,
-            session_token,
-            user_in_response: true,
-        })
+                .token),
+        }
     }
 
     pub(super) async fn deliver_verification_email(
@@ -257,46 +300,35 @@ impl AuthService {
         update_to: Option<&str>,
         request_type: Option<&str>,
     ) -> Result<String, AuthError> {
-        let claims = EmailVerificationClaims {
-            email: email.to_lowercase(),
-            update_to: update_to.map(str::to_lowercase),
-            request_type: request_type.map(str::to_owned),
-            exp: (Utc::now() + self.config.email_verification.expires_in).timestamp() as usize,
-        };
-        jsonwebtoken::encode(
-            &Header::new(Algorithm::HS256),
-            &claims,
-            &EncodingKey::from_secret(&self.config.secret),
+        self.create_email_verification_token_for_duration(
+            email,
+            update_to,
+            request_type,
+            self.config.email_verification.expires_in,
         )
-        .map_err(|_| AuthError::Worker)
+    }
+
+    fn create_email_verification_token_for_duration(
+        &self,
+        email: &str,
+        update_to: Option<&str>,
+        request_type: Option<&str>,
+        expires_in: Duration,
+    ) -> Result<String, AuthError> {
+        encode_email_verification_token(
+            &self.config.secret,
+            email,
+            update_to,
+            request_type,
+            Utc::now(),
+            expires_in,
+        )
     }
 
     fn decode_email_verification_token(
         &self,
         token: &str,
     ) -> Result<EmailVerificationClaims, AuthError> {
-        let mut validation = Validation::new(Algorithm::HS256);
-        validation.validate_exp = true;
-        jsonwebtoken::decode::<EmailVerificationClaims>(
-            token,
-            &DecodingKey::from_secret(&self.config.secret),
-            &validation,
-        )
-        .map(|decoded| decoded.claims)
-        .map_err(|error| match error.kind() {
-            jsonwebtoken::errors::ErrorKind::ExpiredSignature => AuthError::TokenExpired,
-            _ => AuthError::InvalidToken,
-        })
+        decode_email_verification_token(&self.config.secret, token, Utc::now())
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct EmailVerificationClaims {
-    email: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    update_to: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    request_type: Option<String>,
-    exp: usize,
 }

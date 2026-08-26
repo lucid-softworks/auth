@@ -39,18 +39,6 @@ impl AuthService {
             VerificationIdentifierStorage::Custom(hasher) => hasher.hash(identifier).await,
         }
     }
-
-    pub(super) async fn verification_identifiers(
-        &self,
-        identifier: &str,
-    ) -> Result<Vec<String>, AuthError> {
-        let processed = self.process_identifier(identifier).await?;
-        if processed == identifier {
-            Ok(vec![processed])
-        } else {
-            Ok(vec![processed, identifier.to_owned()])
-        }
-    }
 }
 
 fn reservation_id(identifier: &str) -> uuid::Uuid {

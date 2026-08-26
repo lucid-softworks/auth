@@ -137,6 +137,57 @@ async fn verified_change_email_can_require_current_address_confirmation() {
 }
 
 #[tokio::test]
+async fn legacy_update_to_token_updates_unverified_then_sends_an_ordinary_token() {
+    let fixture = fixture(|config, _| {
+        config.user.change_email.enabled = true;
+    });
+    let (cookie, _) = signup(&fixture, "legacy-current@example.com").await;
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+    header.typ = None;
+    let now = chrono::Utc::now().timestamp();
+    let token = jsonwebtoken::encode(
+        &header,
+        &json!({
+            "email": "legacy-current@example.com",
+            "updateTo": "legacy-new@example.com",
+            "iat": now,
+            "exp": now + 3_600
+        }),
+        &jsonwebtoken::EncodingKey::from_secret(&[47_u8; 32]),
+    )
+    .unwrap();
+
+    let (status, body) = get(
+        &fixture.app,
+        &format!("/api/auth/verify-email?token={token}"),
+        &cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["user"]["email"], "legacy-new@example.com");
+    assert_eq!(body["user"]["emailVerified"], false);
+
+    let follow_up = fixture
+        .mailbox
+        .verification
+        .lock()
+        .await
+        .last()
+        .unwrap()
+        .clone();
+    assert_eq!(follow_up.user.email, "legacy-new@example.com");
+    let payload = jsonwebtoken::dangerous::insecure_decode::<Value>(&follow_up.token)
+        .unwrap()
+        .claims;
+    assert_eq!(payload["email"], "legacy-new@example.com");
+    assert!(payload.get("updateTo").is_none());
+    assert_eq!(
+        payload["exp"].as_i64().unwrap() - payload["iat"].as_i64().unwrap(),
+        3_600
+    );
+}
+
+#[tokio::test]
 async fn change_email_without_a_sender_matches_the_message_only_error() {
     let fixture = fixture(|config, _| {
         config.user.change_email.enabled = true;

@@ -77,26 +77,18 @@ impl AuthService {
         identifier: &str,
         cleanup: bool,
     ) -> Result<Option<VerificationValue>, AuthError> {
-        let identifiers = self.verification_identifiers(identifier).await?;
+        let stored_identifier = self.process_identifier(identifier).await?;
         if let Some(secondary) = &self.config.secondary_storage {
-            for stored_identifier in &identifiers {
-                if let Some(raw) = secondary.get(&verification_key(stored_identifier)).await?
-                    && let Ok(value) = serde_json::from_str(&raw)
-                {
-                    return Ok(Some(value));
-                }
+            if let Some(raw) = secondary.get(&verification_key(&stored_identifier)).await?
+                && let Ok(value) = serde_json::from_str(&raw)
+            {
+                return Ok(Some(value));
             }
             if !self.config.verification.store_in_database {
                 return Ok(None);
             }
         }
-        let mut found = None;
-        for stored_identifier in identifiers {
-            if let Some(value) = self.store.find_verification(&stored_identifier).await? {
-                found = Some(value);
-                break;
-            }
-        }
+        let found = self.store.find_verification(&stored_identifier).await?;
         if cleanup && !self.config.verification.disable_cleanup {
             self.store.delete_expired_verifications(Utc::now()).await?;
         }

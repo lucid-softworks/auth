@@ -124,7 +124,7 @@ async fn secondary_consumption_has_one_concurrent_winner_and_no_resurrection() {
 }
 
 #[tokio::test]
-async fn hashed_identifiers_use_better_auth_sha256_base64url_and_plain_fallback() {
+async fn hashed_identifiers_use_better_auth_sha256_base64url_without_plain_fallback() {
     use base64::Engine;
     let store = Arc::new(MemoryStore::default());
     let secondary = Arc::new(MemorySecondaryStorage::default());
@@ -165,14 +165,14 @@ async fn hashed_identifiers_use_better_auth_sha256_base64url_and_plain_fallback(
             .consume_verification_value("hashed:legacy", now)
             .await
             .unwrap()
-            .is_some()
+            .is_none()
     );
     assert!(
         secondary
             .get("verification:hashed:legacy")
             .await
             .unwrap()
-            .is_none()
+            .is_some()
     );
 }
 
