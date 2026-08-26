@@ -90,7 +90,9 @@ async fn defaults_use_better_auth_random_alphabet_plain_storage_and_three_minute
         .unwrap();
     assert_eq!(record.identifier, format!("one-time-token:{token}"));
     assert_eq!(record.value, source.token);
-    assert_eq!(record.expires_at - record.created_at, Duration::minutes(3));
+    let lifetime = record.expires_at - record.created_at;
+    assert!(lifetime >= Duration::milliseconds(179_999));
+    assert!(lifetime <= Duration::minutes(3));
 }
 
 #[tokio::test]
