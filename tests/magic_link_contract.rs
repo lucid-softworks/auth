@@ -289,7 +289,6 @@ async fn disabled_signup_expiry_rate_limits_and_redirect_security_match() {
     let (app, _, sender) = application(|config, magic| {
         config.rate_limit.enabled = true;
         magic.disable_sign_up = true;
-        magic.expires_in = Duration::milliseconds(1);
         magic.rate_limit_max = 5;
     });
     request_link(&app, json!({ "email": "disabled@example.com" })).await;
@@ -311,10 +310,13 @@ async fn disabled_signup_expiry_rate_limits_and_redirect_security_match() {
         "http://localhost/retry?error=new_user_signup_disabled"
     );
 
-    request_link(&app, json!({ "email": "expired@example.com" })).await;
-    let token = sender.messages.lock().await[1].0.token.clone();
+    let (expiry_app, _, expiry_sender) = application(|_, magic| {
+        magic.expires_in = Duration::milliseconds(1);
+    });
+    request_link(&expiry_app, json!({ "email": "expired@example.com" })).await;
+    let token = expiry_sender.messages.lock().await[0].0.token.clone();
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    let expired = app
+    let expired = expiry_app
         .clone()
         .oneshot(
             Request::get(format!(
@@ -331,7 +333,7 @@ async fn disabled_signup_expiry_rate_limits_and_redirect_security_match() {
         "http://localhost/retry?error=INVALID_TOKEN"
     );
 
-    for index in 0..3 {
+    for index in 0..4 {
         let (status, _) = request_link(
             &app,
             json!({ "email": format!("rate-{index}@example.com") }),
