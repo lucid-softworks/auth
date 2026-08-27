@@ -97,6 +97,7 @@ mod tests {
                     .unwrap_or_default(),
             }),
             creation_method: None,
+            transaction: None,
         }
     }
 

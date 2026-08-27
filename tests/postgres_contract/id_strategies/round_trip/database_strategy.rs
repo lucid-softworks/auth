@@ -52,6 +52,11 @@ async fn prepare_database_defaults(
     )
     .execute(&database.pool)
     .await?;
+    sqlx::query(
+        r#"ALTER TABLE "verification" ALTER COLUMN id SET DEFAULT 'database-verification-id'"#,
+    )
+    .execute(&database.pool)
+    .await?;
     Ok(())
 }
 

@@ -234,21 +234,9 @@ impl AuthService {
             created_at: now,
             updated_at: now,
         };
-        let user = self
-            .prepare_user_create_with_prepared_fields(user)
-            .await
-            .map_err(|_| AuthError::OAuthUnableToCreateUser)?;
         account.user_id.clear();
-        let account = self.oauth_account_create(account);
         let owner = self
-            .store
-            .create_oauth_user(user, &account)
-            .await
-            .map_err(|_| AuthError::OAuthUnableToCreateUser)?;
-        self.after_database_create(&DatabaseRecord::User(owner.user.clone()))
-            .await
-            .map_err(|_| AuthError::OAuthUnableToCreateUser)?;
-        self.finish_account_create(&owner.account)
+            .create_user_and_oauth_account(user, account)
             .await
             .map_err(|_| AuthError::OAuthUnableToCreateUser)?;
         Ok((owner.user, true))

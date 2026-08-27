@@ -13,7 +13,10 @@ use lucid_auth::{
     PluginDescriptor, PluginSchemaTable,
 };
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use tokio::sync::Mutex;
 use tower::ServiceExt;
 
@@ -21,7 +24,7 @@ use tower::ServiceExt;
 struct RecordingHooks {
     label: &'static str,
     events: Arc<Mutex<Vec<String>>>,
-    cancel: bool,
+    cancel: Arc<AtomicBool>,
     fail_after: bool,
 }
 
@@ -42,7 +45,7 @@ impl DatabaseHooks for RecordingHooks {
             self.label,
             record.model().as_str()
         ));
-        if self.cancel {
+        if self.cancel.load(Ordering::SeqCst) {
             return Ok(BeforeDatabaseCreateHook::Cancel);
         }
         if record.model() != DatabaseModel::User {
@@ -88,7 +91,7 @@ impl DatabaseHooks for RecordingHooks {
             self.label,
             record.model().as_str()
         ));
-        Ok(!self.cancel)
+        Ok(!self.cancel.load(Ordering::SeqCst))
     }
 
     async fn after_delete(
@@ -196,7 +199,7 @@ fn configured_hooks(events: Arc<Mutex<Vec<String>>>) -> AuthConfig {
             hooks: RecordingHooks {
                 label: "-plugin",
                 events: events.clone(),
-                cancel: false,
+                cancel: Arc::new(AtomicBool::new(false)),
                 fail_after: false,
             },
         })
@@ -204,7 +207,7 @@ fn configured_hooks(events: Arc<Mutex<Vec<String>>>) -> AuthConfig {
     config.database_hooks = Some(Arc::new(RecordingHooks {
         label: "-host",
         events,
-        cancel: false,
+        cancel: Arc::new(AtomicBool::new(false)),
         fail_after: false,
     }));
     config
@@ -270,7 +273,7 @@ async fn a_cancelled_before_hook_leaves_no_user_behind() {
     config.database_hooks = Some(Arc::new(RecordingHooks {
         label: "-host",
         events,
-        cancel: true,
+        cancel: Arc::new(AtomicBool::new(true)),
         fail_after: false,
     }));
     let store = Arc::new(MemoryStore::default());
@@ -295,7 +298,7 @@ async fn after_hook_errors_do_not_roll_back_a_committed_write() {
     config.database_hooks = Some(Arc::new(RecordingHooks {
         label: "-host",
         events: Arc::new(Mutex::new(Vec::new())),
-        cancel: false,
+        cancel: Arc::new(AtomicBool::new(false)),
         fail_after: true,
     }));
     let store = Arc::new(MemoryStore::default());
@@ -315,13 +318,14 @@ async fn after_hook_errors_do_not_roll_back_a_committed_write() {
 #[tokio::test]
 async fn session_create_and_delete_hooks_cover_sign_in_and_sign_out() {
     let events = Arc::new(Mutex::new(Vec::new()));
+    let cancel = Arc::new(AtomicBool::new(false));
     let mut config = AuthConfig::new([64_u8; 32]).unwrap();
     config.email_and_password.enabled = true;
     config.trust_origin("http://localhost").unwrap();
     config.database_hooks = Some(Arc::new(RecordingHooks {
         label: "-host",
         events: events.clone(),
-        cancel: false,
+        cancel: cancel.clone(),
         fail_after: false,
     }));
     let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
@@ -330,6 +334,15 @@ async fn session_create_and_delete_hooks_cover_sign_in_and_sign_out() {
     assert_eq!(status, StatusCode::OK);
     let token = response["token"].as_str().unwrap();
     let signed_token = service.signed_cookie_value(token);
+    events.lock().await.clear();
+    cancel.store(true, Ordering::SeqCst);
+    let error = service.sign_out(token).await.unwrap_err();
+    assert!(matches!(error, AuthError::DatabaseHookCancelled { .. }));
+    assert!(service.session(token).await.unwrap().is_some());
+    assert_eq!(*events.lock().await, ["-host:before-delete:session:native"]);
+
+    events.lock().await.clear();
+    cancel.store(false, Ordering::SeqCst);
     let response = app
         .oneshot(
             Request::post("/api/auth/sign-out")
@@ -345,21 +358,13 @@ async fn session_create_and_delete_hooks_cover_sign_in_and_sign_out() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+    assert!(service.session(token).await.unwrap().is_none());
     let events = events.lock().await;
-    assert!(
-        events
-            .iter()
-            .any(|event| event == "-host:before:session:/sign-up/email")
-    );
-    assert!(events.iter().any(|event| event == "-host:after:session"));
-    assert!(
-        events
-            .iter()
-            .any(|event| event == "-host:before-delete:session:/sign-out")
-    );
-    assert!(
-        events
-            .iter()
-            .any(|event| event == "-host:after-delete:session")
+    assert_eq!(
+        *events,
+        [
+            "-host:before-delete:session:/sign-out",
+            "-host:after-delete:session"
+        ]
     );
 }

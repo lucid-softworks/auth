@@ -1,6 +1,7 @@
 use super::DatabaseModel;
 use crate::store::DatabaseIdInput;
 use serde_json::{Map, Value};
+use std::collections::BTreeSet;
 
 /// ID-less data passed through Better Auth before-create hooks.
 ///
@@ -13,6 +14,8 @@ pub struct DatabaseCreateRecord {
     id: DatabaseIdInput,
     id_present: bool,
     fields: Map<String, Value>,
+    undefined: BTreeSet<String>,
+    patched: BTreeSet<String>,
 }
 
 impl DatabaseCreateRecord {
@@ -24,6 +27,8 @@ impl DatabaseCreateRecord {
             id: DatabaseIdInput::Absent,
             id_present: false,
             fields,
+            undefined: BTreeSet::new(),
+            patched: BTreeSet::new(),
         }
     }
 
@@ -35,6 +40,8 @@ impl DatabaseCreateRecord {
             id,
             id_present: true,
             fields,
+            undefined: BTreeSet::new(),
+            patched: BTreeSet::new(),
         }
     }
 
@@ -58,22 +65,57 @@ impl DatabaseCreateRecord {
         self.fields.get(field)
     }
 
+    pub fn contains_field(&self, field: &str) -> bool {
+        self.fields.contains_key(field) || self.undefined.contains(field)
+    }
+
+    pub fn is_undefined(&self, field: &str) -> bool {
+        self.undefined.contains(field)
+    }
+
     /// Applies Better Auth's top-level object-spread semantics.
     ///
     /// An omitted patch ID preserves the current ID. An explicit ID value,
     /// including `Absent` or `Null`, replaces it. Field objects are not merged
     /// recursively.
     pub fn merge(&mut self, patch: DatabaseCreatePatch) {
-        let (id, fields) = patch.into_parts();
+        let (id, fields, undefined) = patch.into_parts();
         if let Some(id) = id {
             self.id = id;
             self.id_present = true;
         }
-        self.fields.extend(fields);
+        for field in undefined {
+            self.fields.remove(&field);
+            self.undefined.insert(field.clone());
+            self.patched.insert(field);
+        }
+        for (field, value) in fields {
+            self.undefined.remove(&field);
+            self.patched.insert(field.clone());
+            self.fields.insert(field, value);
+        }
     }
 
     pub fn into_parts(self) -> (DatabaseModel, DatabaseIdInput, bool, Map<String, Value>) {
         (self.model, self.id, self.id_present, self.fields)
+    }
+
+    pub(crate) fn into_adapter_parts(
+        self,
+    ) -> (
+        DatabaseModel,
+        DatabaseIdInput,
+        bool,
+        Map<String, Value>,
+        BTreeSet<String>,
+    ) {
+        (
+            self.model,
+            self.id,
+            self.id_present,
+            self.fields,
+            self.undefined,
+        )
     }
 }
 
@@ -85,6 +127,7 @@ impl DatabaseCreateRecord {
 pub struct DatabaseCreatePatch {
     id: Option<DatabaseIdInput>,
     fields: Map<String, Value>,
+    undefined: BTreeSet<String>,
 }
 
 impl DatabaseCreatePatch {
@@ -94,7 +137,11 @@ impl DatabaseCreatePatch {
 
     pub fn from_fields(fields: Map<String, Value>) -> Self {
         assert_no_id_field(&fields);
-        Self { id: None, fields }
+        Self {
+            id: None,
+            fields,
+            undefined: BTreeSet::new(),
+        }
     }
 
     pub fn with_id(mut self, id: DatabaseIdInput) -> Self {
@@ -108,7 +155,19 @@ impl DatabaseCreatePatch {
             name, "id",
             "`id` is reserved; use DatabaseCreatePatch::with_id"
         );
+        self.undefined.remove(&name);
         self.fields.insert(name, value);
+        self
+    }
+
+    pub fn with_undefined_field(mut self, name: impl Into<String>) -> Self {
+        let name = name.into();
+        assert_ne!(
+            name, "id",
+            "`id` is reserved; use DatabaseCreatePatch::with_id"
+        );
+        self.fields.remove(&name);
+        self.undefined.insert(name);
         self
     }
 
@@ -120,8 +179,18 @@ impl DatabaseCreatePatch {
         &self.fields
     }
 
-    pub fn into_parts(self) -> (Option<DatabaseIdInput>, Map<String, Value>) {
-        (self.id, self.fields)
+    pub fn is_undefined(&self, field: &str) -> bool {
+        self.undefined.contains(field)
+    }
+
+    fn into_parts(
+        self,
+    ) -> (
+        Option<DatabaseIdInput>,
+        Map<String, Value>,
+        BTreeSet<String>,
+    ) {
+        (self.id, self.fields, self.undefined)
     }
 }
 
@@ -193,6 +262,22 @@ mod tests {
 
         assert_eq!(record.get("name"), Some(&json!("patched")));
         assert_eq!(record.get("metadata"), Some(&json!({ "left": false })));
+    }
+
+    #[test]
+    fn explicit_undefined_overwrites_and_remains_observable() {
+        let mut record = DatabaseCreateRecord::new(
+            DatabaseModel::User,
+            Map::from_iter([("name".into(), json!("initial"))]),
+        );
+        record.merge(DatabaseCreatePatch::new().with_undefined_field("name"));
+        assert!(record.contains_field("name"));
+        assert!(record.is_undefined("name"));
+        assert_eq!(record.get("name"), None);
+
+        record.merge(DatabaseCreatePatch::new().with_field("name", json!("restored")));
+        assert!(!record.is_undefined("name"));
+        assert_eq!(record.get("name"), Some(&json!("restored")));
     }
 
     #[test]

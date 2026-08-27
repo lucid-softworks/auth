@@ -1,8 +1,8 @@
 use super::PluginRegistry;
 use crate::{
-    AfterAuthEvent, AuthError, BeforeAuthEvent, BeforeDatabaseHook, DatabaseHookContext,
-    DatabaseRecord, PasswordCredentialChanged, SensitiveOperation, SessionWithUser,
-    UserManagementDecision, UserManagementOperation,
+    AfterAuthEvent, AuthError, BeforeAuthEvent, BeforeDatabaseUpdateHook, DatabaseHookContext,
+    DatabaseRecord, DatabaseUpdateRecord, PasswordCredentialChanged, SensitiveOperation,
+    SessionWithUser, UserManagementDecision, UserManagementOperation,
 };
 
 mod create;
@@ -27,19 +27,15 @@ impl PluginRegistry {
 
     pub(crate) async fn before_database_update(
         &self,
-        mut record: DatabaseRecord,
+        mut record: DatabaseUpdateRecord,
         context: &DatabaseHookContext,
-    ) -> Result<DatabaseRecord, AuthError> {
+    ) -> Result<DatabaseUpdateRecord, AuthError> {
         for hooks in self
             .plugins
             .iter()
             .filter_map(|plugin| plugin.database_hooks())
         {
-            record = apply_update_before(
-                hooks.before_update(&record, context).await?,
-                record,
-                "update",
-            )?;
+            apply_update_before(hooks.before_update(&record, context).await?, &mut record)?;
         }
         Ok(record)
     }
@@ -214,19 +210,16 @@ impl PluginRegistry {
 }
 
 fn apply_update_before(
-    result: BeforeDatabaseHook,
-    current: DatabaseRecord,
-    operation: &'static str,
-) -> Result<DatabaseRecord, AuthError> {
+    result: BeforeDatabaseUpdateHook,
+    current: &mut DatabaseUpdateRecord,
+) -> Result<(), AuthError> {
     match result {
-        BeforeDatabaseHook::Continue => Ok(current),
-        BeforeDatabaseHook::Replace(replacement) if replacement.model() == current.model() => {
-            Ok(*replacement)
+        BeforeDatabaseUpdateHook::Continue => Ok(()),
+        BeforeDatabaseUpdateHook::Merge(patch) => {
+            current.merge(patch);
+            Ok(())
         }
-        BeforeDatabaseHook::Replace(_) => Err(AuthError::InvalidConfiguration(
-            "a database hook replaced a record with a different model".into(),
-        )),
-        BeforeDatabaseHook::Cancel => Err(cancelled(current.model(), operation)),
+        BeforeDatabaseUpdateHook::Cancel => Err(cancelled(current.model(), "update")),
     }
 }
 

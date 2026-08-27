@@ -10,14 +10,6 @@ impl AuthService {
             .await
     }
 
-    pub(in crate::service) async fn prepare_user_create_with_prepared_fields(
-        &self,
-        user: crate::AuthUser,
-    ) -> Result<DatabaseCreate<crate::AuthUser>, AuthError> {
-        self.prepare_user_create_record(user, None, serde_json::Map::new())
-            .await
-    }
-
     pub(in crate::service) async fn prepare_user_create_with_internal_fields(
         &self,
         user: crate::AuthUser,
@@ -59,8 +51,9 @@ impl AuthService {
         if let Some(id) = supplied_id {
             draft.merge(crate::DatabaseCreatePatch::new().with_id(id));
         }
-        let (record, id, id_present) =
+        let (mut record, id, id_present) =
             decode_create_hook_record(self.before_database_create(draft).await?, None)?;
+        self.transform_create_record(&mut record)?;
         match record {
             DatabaseRecord::User(user) => {
                 self.prepare_database_create(DatabaseModel::User.as_str(), id, id_present, user)

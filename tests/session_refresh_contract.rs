@@ -7,8 +7,8 @@ use axum::{
 use chrono::{Duration, Utc};
 use http_body_util::BodyExt;
 use lucid_auth::{
-    AuthConfig, AuthError, AuthService, AuthStore, BeforeDatabaseHook, DatabaseHookContext,
-    DatabaseHooks, DatabaseRecord, MemorySecondaryStorage, MemoryStore, SecondaryStorage,
+    AuthConfig, AuthError, AuthService, AuthStore, BeforeDatabaseUpdateHook, DatabaseHookContext,
+    DatabaseHooks, DatabaseUpdateRecord, MemorySecondaryStorage, MemoryStore, SecondaryStorage,
 };
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
@@ -234,13 +234,15 @@ struct DeleteBeforeRefresh {
 impl DatabaseHooks for DeleteBeforeRefresh {
     async fn before_update(
         &self,
-        record: &DatabaseRecord,
+        record: &DatabaseUpdateRecord,
         _context: &DatabaseHookContext,
-    ) -> Result<BeforeDatabaseHook, AuthError> {
-        if let DatabaseRecord::Session(session) = record {
-            self.store.delete_session(&session.token).await?;
+    ) -> Result<BeforeDatabaseUpdateHook, AuthError> {
+        if record.model() == lucid_auth::DatabaseModel::Session
+            && let Some(token) = record.get("token").and_then(Value::as_str)
+        {
+            self.store.delete_session(token).await?;
         }
-        Ok(BeforeDatabaseHook::Continue)
+        Ok(BeforeDatabaseUpdateHook::Continue)
     }
 }
 

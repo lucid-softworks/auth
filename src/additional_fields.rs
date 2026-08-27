@@ -4,7 +4,15 @@ use crate::{AuthSession, AuthUser};
 use serde_json::{Map, Value};
 use std::{fmt, sync::Arc};
 
+mod input;
 mod validation;
+
+#[cfg(feature = "axum")]
+pub(crate) use input::json_truthy;
+pub(crate) use input::{
+    parse_update_fields, transform_create_fields, transform_update_hook_field,
+    validate_create_fields,
+};
 
 pub(crate) use validation::{reserved_field_names, validate_field_names};
 
@@ -298,94 +306,6 @@ impl AdditionalField {
 /// Ordered Better Auth additional fields. JavaScript object insertion order is
 /// observable during schema merging and reverse physical-name lookup.
 pub type AdditionalFieldSet = indexmap::IndexMap<String, AdditionalField>;
-
-pub(crate) fn parse_update_fields(
-    configured: &AdditionalFieldSet,
-    supplied: Map<String, Value>,
-) -> Result<Map<String, Value>, AuthError> {
-    let mut parsed = Map::new();
-    for (name, field) in configured {
-        let Some(value) = supplied.get(name) else {
-            continue;
-        };
-        if !field.input {
-            if json_truthy(value) {
-                return Err(AuthError::InvalidRequest(format!(
-                    "{name} is not allowed to be set"
-                )));
-            }
-            continue;
-        }
-        parsed.insert(name.clone(), process_input(name, field, value.clone())?);
-    }
-    for (name, field) in configured {
-        if parsed.contains_key(name) || supplied.contains_key(name) {
-            continue;
-        }
-        if let Some(factory) = &field.on_update {
-            parsed.insert(name.clone(), process_input(name, field, factory.value()?)?);
-        }
-    }
-    Ok(parsed)
-}
-
-pub(crate) fn parse_create_fields(
-    configured: &AdditionalFieldSet,
-    supplied: Map<String, Value>,
-) -> Result<Map<String, Value>, AuthError> {
-    let mut parsed = Map::new();
-    for (name, field) in configured {
-        if let Some(value) = supplied.get(name) {
-            if !field.input {
-                if json_truthy(value) {
-                    return Err(AuthError::InvalidRequest(format!(
-                        "{name} is not allowed to be set"
-                    )));
-                }
-            } else {
-                parsed.insert(name.clone(), process_input(name, field, value.clone())?);
-                continue;
-            }
-        }
-        if let Some(value) = field.default()? {
-            parsed.insert(name.clone(), process_input(name, field, value)?);
-        } else if field.required {
-            return Err(AuthError::InvalidRequest(format!("{name} is required")));
-        }
-    }
-    Ok(parsed)
-}
-
-fn process_input(
-    name: &str,
-    field: &AdditionalField,
-    mut value: Value,
-) -> Result<Value, AuthError> {
-    if let Some(validator) = &field.input_validator {
-        validator
-            .validate(&value)
-            .map_err(AuthError::InvalidRequest)?;
-    }
-    if let Some(transform) = &field.input_transform {
-        value = transform.transform(value)?;
-    }
-    if !field.accepts(&value) {
-        return Err(AuthError::InvalidRequest(format!(
-            "{name} has an invalid value"
-        )));
-    }
-    Ok(value)
-}
-
-pub(crate) fn json_truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(value) => *value,
-        Value::Number(value) => value.as_f64().is_none_or(|value| value != 0.0),
-        Value::String(value) => !value.is_empty(),
-        Value::Array(_) | Value::Object(_) => true,
-    }
-}
 
 #[cfg(feature = "axum")]
 pub(crate) fn filter_user_output(configured: &AdditionalFieldSet, user: &mut AuthUser) {

@@ -76,11 +76,11 @@ pub(super) async fn all_application_and_native_strategies() -> Result<(), Box<dy
             "callback/jwks/5",
             "callback/deviceCode/6",
             "callback/passkey/7",
-            "callback/walletAddress/10",
+            "callback/walletAddress/11",
         ]
     );
     assert_eq!(
-        &ledger.snapshot()[..11],
+        &ledger.snapshot()[..12],
         [
             callback("user"),
             callback("account"),
@@ -89,6 +89,7 @@ pub(super) async fn all_application_and_native_strategies() -> Result<(), Box<dy
             callback("jwks"),
             callback("deviceCode"),
             callback("passkey"),
+            callback("verification"),
             callback("user"),
             callback("account"),
             callback("walletAddress"),

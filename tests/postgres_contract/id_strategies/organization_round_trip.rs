@@ -292,11 +292,12 @@ pub(super) async fn persisted_actor(
     database: &StrategyDatabase,
     username: &str,
 ) -> Result<SessionWithUser, Box<dyn std::error::Error>> {
+    let username = username.replace('-', "_");
     database
         .service
         .provision_password_user(NewPasswordUser {
-            username: username.into(),
-            name: username.into(),
+            username: username.clone(),
+            name: username.clone(),
             email: Some(format!("{username}@example.com")),
             password: "correct horse battery staple".into(),
             role: "user".into(),
@@ -304,7 +305,7 @@ pub(super) async fn persisted_actor(
         .await?;
     Ok(database
         .service
-        .sign_in_username(username, "correct horse battery staple".into(), None, None)
+        .sign_in_username(&username, "correct horse battery staple".into(), None, None)
         .await?
         .session)
 }

@@ -200,6 +200,7 @@ pub(super) fn context() -> crate::DatabaseHookContext {
             headers: Default::default(),
         }),
         creation_method: None,
+        transaction: None,
     }
 }
 

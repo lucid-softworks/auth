@@ -357,7 +357,7 @@ fn admin_and_owner_policy_are_optional_validated_plugin_contributions() {
         .add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))
         .unwrap();
     configured.add_plugin(OwnerPolicyPlugin).unwrap();
-    let service = AuthService::try_new(store, configured).unwrap();
+    let service = AuthService::try_new(Arc::new(MemoryStore::default()), configured).unwrap();
     assert_eq!(
         service
             .plugin_metadata()

@@ -159,7 +159,7 @@ pub(super) fn token_writes<'a>(
     )
 }
 
-fn account_writes<'a>(
+pub(in crate::postgres) fn account_writes<'a>(
     model: &'a PostgresModel<'_>,
     account: &OAuthAccount,
     id: &crate::store::PreparedDatabaseId,
@@ -174,7 +174,7 @@ fn account_writes<'a>(
     )
 }
 
-fn account_update_writes<'a>(
+pub(in crate::postgres) fn account_update_writes<'a>(
     model: &'a PostgresModel<'_>,
     account: &OAuthAccount,
 ) -> Result<Vec<PostgresWrite<'a>>, AuthError> {

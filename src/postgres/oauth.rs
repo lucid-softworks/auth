@@ -5,8 +5,8 @@ use crate::{
     AccountDeleteOutcome, AuthError, AuthUser, OAuthAccount, OAuthAccountOwner,
     OAuthTokenUpdateOutcome,
 };
-pub(in crate::postgres) use account::decode_account;
 use account::token_writes;
+pub(in crate::postgres) use account::{account_writes, decode_account};
 pub(in crate::postgres) use account::{
     find_credential_account_transaction, update_account_transaction,
 };

@@ -15,9 +15,13 @@ use std::sync::Arc;
 const RESOURCE: &str = "http://localhost/mcp";
 
 pub(super) async fn assert_durable_dpop_replay(
-    store: &Arc<PostgresStore>,
+    _store: &Arc<PostgresStore>,
     pool: &sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let store = Arc::new(PostgresStore::new(
+        pool.clone(),
+        lucid_auth::postgres::PostgresAdapterConfig::default(),
+    ));
     let (access_private, access_public) = rsa_key("postgres-mcp-access");
     let server = jwks_server(access_public).await?;
     let options = RequireMcpAuthOptions {
@@ -27,8 +31,8 @@ pub(super) async fn assert_durable_dpop_replay(
         required_scopes: Some(vec!["mcp.read".into()]),
         ..Default::default()
     };
-    let first = require_mcp_auth(service(store, &server.origin)?, options.clone())?;
-    let second = require_mcp_auth(service(store, &server.origin)?, options)?;
+    let first = require_mcp_auth(service(&store, &server.origin)?, options.clone())?;
+    let second = require_mcp_auth(service(&store, &server.origin)?, options)?;
 
     let (proof_private, proof_public, thumbprint) = dpop_key();
     let token = access_token(

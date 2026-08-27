@@ -97,11 +97,10 @@ pub use api_key::{
     ApiKeyStorage, ApiKeyValidator,
 };
 pub use database_hooks::{
-    BeforeDatabaseCreateHook, BeforeDatabaseHook, DatabaseCreatePatch, DatabaseCreateRecord,
+    BeforeDatabaseCreateHook, BeforeDatabaseUpdateHook, DatabaseCreatePatch, DatabaseCreateRecord,
     DatabaseHookContext, DatabaseHookRequest, DatabaseHooks, DatabaseModel, DatabaseRecord,
-    DeferredHookResponse,
+    DatabaseUpdatePatch, DatabaseUpdateRecord, DeferredHookResponse,
 };
-pub use database_schema::*;
 pub use email::{
     EmailVerificationConfig, PasswordResetCallback, PasswordResetEmail, PasswordResetEmailSender,
     VerificationEmail, VerificationEmailSender,
@@ -240,11 +239,12 @@ pub use step_up::{
 };
 pub use store::{
     AccessStore, AccountDeleteOutcome, ApiKeyStore, ApiKeyUseOutcome, AuthStore,
-    DatabaseAccountCreate, DatabaseAccountOwnerWrite, DatabaseCreate, DatabaseIdInput,
-    DatabaseIdPlan, DatabaseIdSupplier, DatabaseIdValue, DatabaseWrite, DatabaseWriteOperation,
+    DatabaseAccountCreate, DatabaseAccountOwnerWrite, DatabaseCreate, DatabaseCreateOperation,
+    DatabaseIdInput, DatabaseIdPlan, DatabaseIdSupplier, DatabaseIdValue, DatabaseTransaction,
+    DatabaseTransactionFuture, DatabaseTransactionOperation, DatabaseWrite, DatabaseWriteOperation,
     DependentAccountContext, DependentAccountPreparer, OAuthAccountOwner, OAuthAccountStore,
     OAuthTokenUpdateOutcome, PasskeyDeleteOutcome, PreparedDatabaseId, SecurityStore,
-    UserProfileUpdate, VerificationStore,
+    UserProfileUpdate, VerificationStore, run_database_transaction,
 };
 pub use user_deletion::{
     ChangeEmailConfig, ChangeEmailConfirmation, ChangeEmailConfirmationSender,
