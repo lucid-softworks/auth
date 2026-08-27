@@ -76,7 +76,7 @@ pub(super) async fn all_application_and_native_strategies() -> Result<(), Box<dy
             "callback/jwks/5",
             "callback/deviceCode/6",
             "callback/passkey/7",
-            "callback/walletAddress/9",
+            "callback/walletAddress/10",
         ]
     );
     assert_eq!(
@@ -90,8 +90,8 @@ pub(super) async fn all_application_and_native_strategies() -> Result<(), Box<dy
             callback("deviceCode"),
             callback("passkey"),
             callback("user"),
-            callback("walletAddress"),
             callback("account"),
+            callback("walletAddress"),
             callback("session"),
         ]
     );

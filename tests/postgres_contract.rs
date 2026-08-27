@@ -239,6 +239,10 @@ fn contract_service(
         "theme".into(),
         AdditionalField::new(AdditionalFieldType::String).optional(),
     );
+    config.account.additional_fields.insert(
+        "tenant".into(),
+        AdditionalField::new(AdditionalFieldType::String).optional(),
+    );
     config.add_plugin(AdminPlugin::new(OwnerPolicyPlugin::admin_config()))?;
     config.add_plugin(AnonymousPlugin::default())?;
     let phone_numbers = register_contract_plugins(&mut config, store)?;

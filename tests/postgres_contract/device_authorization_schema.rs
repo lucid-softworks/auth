@@ -4,7 +4,7 @@ use lucid_auth::{
     DeviceAuthorizationConfig, DeviceAuthorizationModelSchema, DeviceAuthorizationSchema,
     DeviceAuthorizationStore, DeviceCode, DeviceCodeCreateOutcome, DeviceCodeOwner,
     DeviceCodeStatus, NewPasswordUser, OAuthDeviceAuthorizationPlugin, OAuthProviderPlugin,
-    OAuthProviderPluginConfig,
+    OAuthProviderPluginConfig, UsernamePlugin,
     postgres::{
         PostgresAdapterConfig, PostgresDeviceAuthorizationStore, PostgresSchemaObject,
         PostgresStore,
@@ -56,6 +56,7 @@ async fn remapped_schema_migrates_idempotently_and_preserves_atomic_ownership()
     auth.database_id_generation = DatabaseIdGeneration::Serial;
     let mut provider_config = OAuthProviderPluginConfig::new("/login", "/consent");
     provider_config.disable_jwt_plugin = true;
+    auth.add_plugin(UsernamePlugin::default())?;
     auth.add_plugin(OAuthProviderPlugin::postgres(
         provider_config,
         postgres.clone(),
