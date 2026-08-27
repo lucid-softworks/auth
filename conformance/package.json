@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "npm run test:schema-oracle && npm run test:id-strategy-oracle && npm run test:lifecycle-tokens && node run.mjs && npm run test:test-utils && npm run test:api-key && npm run test:expo && npm run test:have-i-been-pwned && npm run test:stripe && npm run test:polar && npm run test:autumn && npm run test:creem && npm run test:dodo-payments && npm run test:commet && npm run test:chargebee && npm run test:dub && npm run test:infra-email && npm run test:infra-sms",
+    "test": "npm run test:schema-oracle && npm run test:id-strategy-oracle && npm run test:lifecycle-tokens && node run.mjs && npm run test:test-utils && npm run test:api-key && npm run test:expo && npm run test:have-i-been-pwned && npm run test:stripe && npm run test:polar && npm run test:autumn && npm run test:creem && npm run test:dodo-payments && npm run test:commet && npm run test:chargebee && npm run test:dub && npm run test:infra-email && npm run test:infra-sms && npm run test:infra-dash",
     "test:schema-oracle": "vitest run schema-oracle.test.mjs",
     "test:id-strategy-oracle": "vitest run id-strategy-oracle.test.mjs",
     "test:lifecycle-tokens": "vitest run lifecycle-token.test.mjs",
@@ -17,6 +17,7 @@
     "test:dub": "vitest run dub.test.mjs",
     "test:infra-email": "vitest run infra-email.test.mjs",
     "test:infra-sms": "vitest run infra-sms.test.mjs",
+    "test:infra-dash": "vitest run infra-dash.test.mjs",
     "test:have-i-been-pwned": "vitest run have-i-been-pwned.test.mjs",
     "test:polar": "vitest run polar.test.mjs polar-schema.test.mjs && npm run check:polar-schema",
     "generate:polar-schema": "node generate-polar-schema.mjs",

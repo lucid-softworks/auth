@@ -86,6 +86,8 @@ The currently supported surface covers:
   `@dub/better-auth@0.0.6`
 - the standalone managed email client from `@better-auth/infra@0.4.3`
 - the standalone managed SMS client from `@better-auth/infra@0.4.3`
+- the shared `@better-auth/infra@0.4.3` Dash connection, hosted-JWT, and
+  request-identification substrate
 
 The library keeps authentication protocol details separate from host-product
 authorization. Core principals contain actor, subject, session, and credential
@@ -737,6 +739,35 @@ configuration it reaches an upstream missing-endpoint error and returns an
 empty 500. Lucid-auth reproduces those observable outcomes and does not invent
 a callback route or repaired client contract. See the
 [Dub compatibility details](COMPATIBILITY.md#dub-006).
+
+### Better Auth Infrastructure Dash substrate
+
+The framework-neutral `infra::dash` layer matches the shared connection,
+hosted-JWT, JTI, and request-identification behavior used by
+`@better-auth/infra@0.4.3`'s `dash()` plugin. Endpoint and audit-event families
+are tracked separately; constructing these clients alone adds no route, schema,
+migration, session fallback, or local audit store.
+
+```rust
+use lucid_auth::{DashJwtVerifier, IdentificationService, InfraConnectionOptions};
+
+let options = InfraConnectionOptions {
+    api_key: Some(std::env::var("BETTER_AUTH_API_KEY")?),
+    ..InfraConnectionOptions::default()
+}
+.resolve();
+
+let hosted_jwt = DashJwtVerifier::new(&options);
+let identification = IdentificationService::new(&options);
+```
+
+The API client sends the configured credential to `BETTER_AUTH_API_URL` or
+`https://dash.better-auth.com`; the KV lookup client uses
+`BETTER_AUTH_KV_URL` or `https://kv.better-auth.com`. Hosted authorization also
+sends JWT/JTI data and fetches JWKS. Identification lookups send request IDs and
+can return visitor, IP, location, browser, confidence, incognito, and bot data.
+Keep credentials server-side and configure only origins trusted with that data.
+See the [exact Dash substrate compatibility boundary](COMPATIBILITY.md#dash-substrate-043).
 
 ### Better Auth Infrastructure managed email
 

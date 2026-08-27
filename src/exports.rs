@@ -13,6 +13,14 @@ pub use crate::config::{
     generate_database_id,
 };
 pub use crate::cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite};
+pub use crate::infra::dash::{
+    ApiOptions as DashApiOptions, DashApiClient, DashAuthorizationError, DashClientError,
+    DashClientResponse, DashJwtVerifier, DashKvClient, DashRequest, DashVerifiedClaims,
+    Identification, IdentificationContext, IdentificationCookie, IdentificationCountry,
+    IdentificationGeo, IdentificationIpOptions, IdentificationLocation, IdentificationRequest,
+    IdentificationService, InfraConnectionOptions, KvOptions as DashKvOptions,
+    KvRetryOptions as DashKvRetryOptions, ResolvedConnectionOptions, ResolvedKvRetryOptions,
+};
 pub use crate::infra::email::{
     ApplicationInviteVariables, BulkEmailRecipient, ChangeEmailVariables, DeleteAccountVariables,
     EMAIL_TEMPLATES, EmailApiOptions, EmailConfig, EmailFailure, EmailSender, EmailTemplate,
