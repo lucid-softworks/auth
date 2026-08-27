@@ -1,5 +1,5 @@
 use super::{PostgresModel, PostgresStore, storage_error};
-use crate::{AuthError, JwkStore, JwtSchema, NewJwk, StoredJwk};
+use crate::{AuthError, JwkStore, JwtSchema, NewJwk, PreparedDatabaseId, StoredJwk};
 use async_trait::async_trait;
 use serde_json::{Map, Value, json};
 use sqlx::{Postgres, QueryBuilder, postgres::PgRow};
@@ -19,18 +19,14 @@ impl JwkStore for PostgresStore {
             .collect()
     }
 
-    async fn create_jwk(&self, _schema: &JwtSchema, jwk: NewJwk) -> Result<StoredJwk, AuthError> {
+    async fn create_jwk(
+        &self,
+        _schema: &JwtSchema,
+        jwk: NewJwk,
+        id: PreparedDatabaseId,
+    ) -> Result<StoredJwk, AuthError> {
         let model = self.physical_model("jwks")?;
-        let values = [
-            ("id", json!(uuid::Uuid::new_v4().to_string())),
-            ("publicKey", json!(jwk.public_key)),
-            ("privateKey", json!(jwk.private_key)),
-            ("createdAt", json!(jwk.created_at.to_rfc3339())),
-            ("expiresAt", optional_date(jwk.expires_at)),
-            ("alg", optional_string(jwk.alg)),
-            ("crv", optional_string(jwk.crv)),
-        ];
-        let writes = model.encode_fields(values)?;
+        let writes = jwk_writes(&model, jwk, &id)?;
         let mut query = insert_query(&model, writes)?;
         let row = query
             .build()
@@ -39,6 +35,27 @@ impl JwkStore for PostgresStore {
             .map_err(storage_error)?;
         decode_jwk(&model, &row)
     }
+}
+
+fn jwk_writes<'a>(
+    model: &'a PostgresModel<'a>,
+    jwk: NewJwk,
+    id: &PreparedDatabaseId,
+) -> Result<Vec<super::PostgresWrite<'a>>, AuthError> {
+    let mut values = Map::from_iter([
+        ("publicKey".into(), json!(jwk.public_key)),
+        ("privateKey".into(), json!(jwk.private_key)),
+        ("createdAt".into(), json!(jwk.created_at.to_rfc3339())),
+        ("expiresAt".into(), optional_date(jwk.expires_at)),
+        ("alg".into(), optional_string(jwk.alg)),
+        ("crv".into(), optional_string(jwk.crv)),
+    ]);
+    super::rows::insert_prepared_id(&mut values, id)?;
+    model.encode_fields(
+        values
+            .iter()
+            .map(|(logical, value)| (logical.as_str(), value.clone())),
+    )
 }
 
 fn list_query(model: &PostgresModel<'_>) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
@@ -201,21 +218,39 @@ mod tests {
                 .contains("\"private\"\"material\" AS \"privateKey\"")
         );
 
-        let writes = model
-            .encode_fields([
-                ("id", json!(uuid::Uuid::nil().to_string())),
-                ("publicKey", json!("public")),
-                ("privateKey", json!("[REDACTED]")),
-                ("createdAt", json!(chrono::Utc::now().to_rfc3339())),
-                ("expiresAt", Value::Null),
-                ("alg", Value::Null),
-                ("crv", Value::Null),
-            ])
-            .unwrap();
+        let data = || NewJwk {
+            public_key: "public".into(),
+            private_key: "[REDACTED]".into(),
+            created_at: chrono::Utc::now(),
+            expires_at: None,
+            alg: None,
+            crv: None,
+        };
+        let writes = jwk_writes(
+            &model,
+            data(),
+            &PreparedDatabaseId::Value(crate::DatabaseIdValue::String("explicit-jwk".into())),
+        )
+        .unwrap();
         let insert = insert_query(&model, writes).unwrap();
         assert!(insert.sql().contains("INSERT INTO \"tenant\"\"jwks\""));
         assert!(insert.sql().contains("\"public material\""));
         assert_eq!(insert.sql().matches('$').count(), 7);
         assert!(!insert.sql().contains("[REDACTED]"));
+
+        let deferred = insert_query(
+            &model,
+            jwk_writes(&model, data(), &PreparedDatabaseId::Deferred).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(deferred.sql().matches('$').count(), 6);
+        assert!(
+            !deferred
+                .sql()
+                .split(") VALUES")
+                .next()
+                .unwrap()
+                .contains("\"id\"")
+        );
     }
 }

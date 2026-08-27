@@ -68,7 +68,7 @@ async fn decide(
             false,
         );
     }
-    let Some(owner) = record.user_id else {
+    let Some(owner) = record.user_id.as_deref() else {
         return error::protocol(
             StatusCode::BAD_REQUEST,
             "invalid_request",
@@ -89,7 +89,7 @@ async fn decide(
     }
     if state
         .store
-        .update_device_code_status(record.id, decision.status())
+        .update_device_code_status(&record.id, decision.status())
         .await
         .is_err()
     {

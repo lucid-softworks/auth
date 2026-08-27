@@ -5,10 +5,10 @@ use super::{
         storage_error,
     },
     PostgresOAuthProviderStore,
-    rows::{self, LINK_FIELDS, LinkRow, RESOURCE_FIELDS, ResourceRow},
+    rows::{self, LinkRow, ResourceRow},
 };
 use crate::{
-    AuthError,
+    AuthError, DatabaseIdSupplier,
     oauth_provider::{
         OAuthClientResourceLinkOutcome, OAuthProviderClientResource, OAuthProviderResource,
         OAuthProviderResourceStore,
@@ -27,11 +27,11 @@ fn decode_link(row: LinkRow) -> OAuthProviderClientResource {
 
 fn select_model(
     model: &PostgresModel<'_>,
-    fields: &[(&str, &str)],
+    projection: String,
 ) -> Result<QueryBuilder<'static, sqlx::Postgres>, AuthError> {
     let mut query = QueryBuilder::new("SELECT ");
     query
-        .push(model.projection_as(fields)?)
+        .push(projection)
         .push(" FROM ")
         .push(model.quoted_table());
     Ok(query)
@@ -44,7 +44,7 @@ impl OAuthProviderResourceStore for PostgresOAuthProviderStore {
         identifier: &str,
     ) -> Result<Option<OAuthProviderResource>, AuthError> {
         let model = self.model("oauthResource")?;
-        let mut query = select_model(&model, RESOURCE_FIELDS)?;
+        let mut query = select_model(&model, rows::resource_projection(&model)?)?;
         query
             .push(" WHERE ")
             .push(model.quoted_column("identifier")?)
@@ -60,7 +60,7 @@ impl OAuthProviderResourceStore for PostgresOAuthProviderStore {
 
     async fn list_oauth_resources(&self) -> Result<Vec<OAuthProviderResource>, AuthError> {
         let model = self.model("oauthResource")?;
-        let mut query = select_model(&model, RESOURCE_FIELDS)?;
+        let mut query = select_model(&model, rows::resource_projection(&model)?)?;
         query
             .push(" ORDER BY ")
             .push(model.quoted_column("identifier")?);
@@ -74,22 +74,34 @@ impl OAuthProviderResourceStore for PostgresOAuthProviderStore {
 
     async fn create_oauth_resource(
         &self,
+        id: &dyn DatabaseIdSupplier,
         resource: OAuthProviderResource,
     ) -> Result<Option<OAuthProviderResource>, AuthError> {
         let model = self.model("oauthResource")?;
-        let writes = rows::writes(&model, &resource, [])?;
+        let mut transaction = self.pool().begin().await.map_err(storage_error)?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(&resource.identifier)
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage_error)?;
+        if record_exists(&mut transaction, &model, "identifier", &resource.identifier).await? {
+            return Ok(None);
+        }
+        let prepared_id = id.prepare()?;
+        let writes = rows::insert_writes(&model, &resource, &prepared_id, [])?;
         let mut query = insert_query_prefix(&model, writes);
         query
             .push(" ON CONFLICT (")
             .push(model.quoted_column("identifier")?)
             .push(") DO NOTHING RETURNING ")
-            .push(model.projection_as(RESOURCE_FIELDS)?);
-        query
+            .push(rows::resource_projection(&model)?);
+        let row = query
             .build_query_as::<ResourceRow>()
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *transaction)
             .await
-            .map(|row| row.map(decode_resource))
-            .map_err(storage_error)
+            .map_err(storage_error)?;
+        transaction.commit().await.map_err(storage_error)?;
+        Ok(row.map(decode_resource))
     }
 
     async fn update_oauth_resource(
@@ -102,15 +114,17 @@ impl OAuthProviderResourceStore for PostgresOAuthProviderStore {
             .filter(|write| !matches!(write.logical(), "id" | "identifier"))
             .collect();
         let mut query = update_query(&model, writes);
+        query.push(" WHERE \"id\" = ");
+        model
+            .encode("id", serde_json::json!(resource.id))?
+            .push_bind(&mut query);
         query
-            .push(" WHERE \"id\" = ")
-            .push_bind(resource.id)
             .push(" AND ")
             .push(model.quoted_column("identifier")?)
             .push(" = ")
             .push_bind(resource.identifier)
             .push(" RETURNING ")
-            .push(model.projection_as(RESOURCE_FIELDS)?);
+            .push(rows::resource_projection(&model)?);
         query
             .build_query_as::<ResourceRow>()
             .fetch_optional(self.pool())
@@ -132,7 +146,7 @@ impl OAuthProviderResourceStore for PostgresOAuthProviderStore {
             .push(" = ")
             .push_bind(identifier.to_owned())
             .push(" RETURNING ")
-            .push(model.projection_as(RESOURCE_FIELDS)?);
+            .push(rows::resource_projection(&model)?);
         query
             .build_query_as::<ResourceRow>()
             .fetch_optional(self.pool())
@@ -146,7 +160,7 @@ impl OAuthProviderResourceStore for PostgresOAuthProviderStore {
         client_id: &str,
     ) -> Result<Vec<OAuthProviderClientResource>, AuthError> {
         let model = self.model("oauthClientResource")?;
-        let mut query = select_model(&model, LINK_FIELDS)?;
+        let mut query = select_model(&model, rows::link_projection(&model)?)?;
         query
             .push(" WHERE ")
             .push(model.quoted_column("clientId")?)
@@ -164,6 +178,7 @@ impl OAuthProviderResourceStore for PostgresOAuthProviderStore {
 
     async fn link_oauth_client_resource(
         &self,
+        id: &dyn DatabaseIdSupplier,
         link: OAuthProviderClientResource,
     ) -> Result<OAuthClientResourceLinkOutcome, AuthError> {
         let client = self.model("oauthClient")?;
@@ -181,7 +196,28 @@ impl OAuthProviderResourceStore for PostgresOAuthProviderStore {
         if !record_exists(&mut transaction, &resource, "identifier", &link.resource_id).await? {
             return Ok(OAuthClientResourceLinkOutcome::ResourceNotFound);
         }
-        let writes = rows::writes(&model, &link, [])?;
+        let mut existing = select_model(&model, rows::link_projection(&model)?)?;
+        existing
+            .push(" WHERE ")
+            .push(model.quoted_column("clientId")?)
+            .push(" = ")
+            .push_bind(link.client_id.clone())
+            .push(" AND ")
+            .push(model.quoted_column("resourceId")?)
+            .push(" = ")
+            .push_bind(link.resource_id.clone());
+        if let Some(existing) = existing
+            .build_query_as::<LinkRow>()
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(storage_error)?
+        {
+            return Ok(OAuthClientResourceLinkOutcome::AlreadyLinked(decode_link(
+                existing,
+            )));
+        }
+        let prepared_id = id.prepare()?;
+        let writes = rows::insert_writes(&model, &link, &prepared_id, [])?;
         let mut insert = insert_query_prefix(&model, writes);
         insert
             .push(" ON CONFLICT (")
@@ -189,7 +225,7 @@ impl OAuthProviderResourceStore for PostgresOAuthProviderStore {
             .push(", ")
             .push(model.quoted_column("resourceId")?)
             .push(") DO NOTHING RETURNING ")
-            .push(model.projection_as(LINK_FIELDS)?);
+            .push(rows::link_projection(&model)?);
         let inserted = insert
             .build_query_as::<LinkRow>()
             .fetch_optional(&mut *transaction)
@@ -198,7 +234,7 @@ impl OAuthProviderResourceStore for PostgresOAuthProviderStore {
         let outcome = if let Some(inserted) = inserted {
             OAuthClientResourceLinkOutcome::Linked(decode_link(inserted))
         } else {
-            let mut select = select_model(&model, LINK_FIELDS)?;
+            let mut select = select_model(&model, rows::link_projection(&model)?)?;
             select
                 .push(" WHERE ")
                 .push(model.quoted_column("clientId")?)
@@ -237,7 +273,7 @@ impl OAuthProviderResourceStore for PostgresOAuthProviderStore {
             .push(" = ")
             .push_bind(resource_id.to_owned())
             .push(" RETURNING ")
-            .push(model.projection_as(LINK_FIELDS)?);
+            .push(rows::link_projection(&model)?);
         query
             .build_query_as::<LinkRow>()
             .fetch_optional(self.pool())

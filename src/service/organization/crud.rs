@@ -1,4 +1,4 @@
-use super::AuthService;
+use super::{AuthService, creation_persistence};
 use crate::{
     AuthError, FullOrganization, NewOrganization, Organization, OrganizationCreateOutcome,
     OrganizationCreation, OrganizationError, OrganizationMember, OrganizationMemberWithUser,
@@ -6,7 +6,6 @@ use crate::{
 };
 use chrono::Utc;
 use std::collections::BTreeMap;
-use uuid::Uuid;
 
 impl AuthService {
     pub async fn create_organization(
@@ -26,17 +25,16 @@ impl AuthService {
             ));
         }
         let keep_current = input.keep_current_active_organization;
-        let (organization, member, default_team) = prepare_creation(plugin, session, input).await?;
-        let default_team_id = default_team.as_ref().map(|(team, _)| team.id);
-        match plugin
-            .store
-            .create_organization(
-                organization.clone(),
-                member.clone(),
-                default_team,
-                plugin.config.organization_limit,
-            )
-            .await?
+        let (mut organization, mut member, mut default_team) =
+            prepare_creation(plugin, session, input).await?;
+        match creation_persistence::create(
+            self,
+            plugin,
+            &mut organization,
+            &mut member,
+            &mut default_team,
+        )
+        .await?
         {
             OrganizationCreateOutcome::Created => {}
             OrganizationCreateOutcome::SlugTaken => {
@@ -52,6 +50,7 @@ impl AuthService {
                 ));
             }
         }
+        let default_team_id = default_team.as_ref().map(|(team, _)| team.id.clone());
         if let Some(hooks) = &plugin.config.hooks {
             hooks
                 .after_add_member(&member, &session.user, &organization)
@@ -61,7 +60,7 @@ impl AuthService {
                     .after_organization_member_change(&organization, plugin.store.as_ref())
                     .await;
             }
-            if let Some(team_id) = default_team_id
+            if let Some(ref team_id) = default_team_id
                 && let Some(team) = plugin.store.find_team(team_id).await?
             {
                 hooks
@@ -77,7 +76,7 @@ impl AuthService {
                 .await;
         }
         if !keep_current {
-            self.set_active_organization(session, Some(organization.id))
+            self.set_active_organization(session, Some(organization.id.clone()))
                 .await?;
             if let Some(team_id) = default_team_id {
                 self.set_active_team(session, Some(team_id)).await?;
@@ -92,14 +91,14 @@ impl AuthService {
     pub async fn update_organization(
         &self,
         session: &SessionWithUser,
-        organization_id: Option<Uuid>,
+        organization_id: Option<String>,
         update: OrganizationUpdate,
     ) -> Result<Organization, AuthError> {
         let organization_id = organization_id
             .or_else(|| Self::active_organization_id(session))
             .ok_or_else(organization_not_found)?;
         let plugin = self.organization_plugin()?;
-        let member = require_member(plugin, organization_id, &session.user.id).await?;
+        let member = require_member(plugin, &organization_id, &session.user.id).await?;
         require_permission(
             self,
             &member,
@@ -111,7 +110,7 @@ impl AuthService {
         .await?;
         let mut organization = plugin
             .store
-            .find_organization_by_id(organization_id)
+            .find_organization_by_id(&organization_id)
             .await?
             .ok_or_else(organization_not_found)?;
         if let Some(name) = update.name {
@@ -155,7 +154,7 @@ impl AuthService {
     pub async fn delete_organization(
         &self,
         session: &SessionWithUser,
-        organization_id: Uuid,
+        organization_id: String,
     ) -> Result<Organization, AuthError> {
         let plugin = self.organization_plugin()?;
         if plugin.config.disable_organization_deletion {
@@ -165,7 +164,7 @@ impl AuthService {
             )
             .into());
         }
-        let member = require_member(plugin, organization_id, &session.user.id).await?;
+        let member = require_member(plugin, &organization_id, &session.user.id).await?;
         require_permission(
             self,
             &member,
@@ -177,7 +176,7 @@ impl AuthService {
         .await?;
         let organization = plugin
             .store
-            .find_organization_by_id(organization_id)
+            .find_organization_by_id(&organization_id)
             .await?
             .ok_or_else(organization_not_found)?;
         if let Some(hooks) = &plugin.config.hooks {
@@ -188,7 +187,7 @@ impl AuthService {
         }
         let deleted = plugin
             .store
-            .delete_organization(organization_id)
+            .delete_organization(&organization_id)
             .await?
             .ok_or_else(organization_not_found)?;
         if Self::active_organization_id(session) == Some(organization_id) {
@@ -213,28 +212,28 @@ impl AuthService {
     pub async fn get_organization(
         &self,
         session: &SessionWithUser,
-        organization_id: Option<Uuid>,
+        organization_id: Option<String>,
         slug: Option<&str>,
     ) -> Result<Option<Organization>, AuthError> {
         let plugin = self.organization_plugin()?;
         let organization = match slug {
             Some(slug) => plugin.store.find_organization_by_slug(slug).await?,
             None => match organization_id.or_else(|| Self::active_organization_id(session)) {
-                Some(id) => plugin.store.find_organization_by_id(id).await?,
+                Some(id) => plugin.store.find_organization_by_id(&id).await?,
                 None => return Ok(None),
             },
         };
         let Some(organization) = organization else {
             return Err(organization_not_found());
         };
-        require_member(plugin, organization.id, &session.user.id).await?;
+        require_member(plugin, &organization.id, &session.user.id).await?;
         Ok(Some(organization))
     }
 
     pub async fn get_full_organization(
         &self,
         session: &SessionWithUser,
-        organization_id: Option<Uuid>,
+        organization_id: Option<String>,
         slug: Option<&str>,
         members_limit: Option<usize>,
     ) -> Result<Option<FullOrganization>, AuthError> {
@@ -248,7 +247,7 @@ impl AuthService {
         let mut members = Vec::new();
         for member in plugin
             .store
-            .list_members(organization.id)
+            .list_members(&organization.id)
             .await?
             .into_iter()
             .take(members_limit.unwrap_or(plugin.config.membership_limit))
@@ -258,11 +257,11 @@ impl AuthService {
             }
         }
         let teams = if plugin.config.teams.enabled {
-            Some(plugin.store.list_teams(organization.id).await?)
+            Some(plugin.store.list_teams(&organization.id).await?)
         } else {
             None
         };
-        let invitations = plugin.store.list_invitations(organization.id).await?;
+        let invitations = plugin.store.list_invitations(&organization.id).await?;
         Ok(Some(FullOrganization {
             organization,
             members,
@@ -281,7 +280,7 @@ async fn prepare_creation(
 ) -> Result<(Organization, OrganizationMember, DefaultTeam), AuthError> {
     let now = Utc::now();
     let mut organization = Organization {
-        id: Uuid::new_v4(),
+        id: String::new(),
         name: input.name,
         slug: input.slug,
         logo: input.logo,
@@ -292,8 +291,8 @@ async fn prepare_creation(
         organization = hooks.before_create(organization, &session.user).await?;
     }
     let mut member = OrganizationMember {
-        id: Uuid::new_v4(),
-        organization_id: organization.id,
+        id: String::new(),
+        organization_id: organization.id.clone(),
         user_id: session.user.id.clone(),
         role: plugin.config.creator_role.clone(),
         created_at: now,
@@ -309,7 +308,7 @@ async fn prepare_creation(
         *team = hooks
             .before_create_team(team.clone(), &session.user, &organization)
             .await?;
-        team_member.team_id = team.id;
+        team_member.team_id = team.id.clone();
     }
     Ok((organization, member, team))
 }
@@ -320,15 +319,15 @@ fn default_team(
     now: chrono::DateTime<Utc>,
 ) -> (OrganizationTeam, OrganizationTeamMember) {
     let team = OrganizationTeam {
-        id: Uuid::new_v4(),
+        id: String::new(),
         name: organization.name.clone(),
-        organization_id: organization.id,
+        organization_id: organization.id.clone(),
         created_at: now,
         updated_at: None,
     };
     let member = OrganizationTeamMember {
-        id: Uuid::new_v4(),
-        team_id: team.id,
+        id: String::new(),
+        team_id: team.id.clone(),
         user_id,
         created_at: now,
     };
@@ -337,7 +336,7 @@ fn default_team(
 
 async fn require_member(
     plugin: &crate::OrganizationPlugin,
-    organization_id: Uuid,
+    organization_id: &str,
     user_id: &str,
 ) -> Result<OrganizationMember, AuthError> {
     plugin

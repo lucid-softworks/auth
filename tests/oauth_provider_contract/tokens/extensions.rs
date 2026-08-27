@@ -213,48 +213,56 @@ async fn opaque_fixture() -> (Fixture, String, String) {
 async fn store_opaque_resource_and_token(fixture: &Fixture, client_id: &str, resource_id: &str) {
     fixture
         .oauth
-        .create_oauth_resource(OAuthProviderResource {
-            id: Uuid::new_v4(),
-            identifier: resource_id.into(),
-            name: "Opaque resource".into(),
-            access_token_ttl: None,
-            refresh_token_ttl: None,
-            signing_algorithm: None,
-            signing_key_id: None,
-            allowed_scopes: None,
-            custom_claims: Some(json!({"tenant":"resource","resource_only":true})),
-            dpop_bound_access_tokens_required: false,
-            disabled: true,
-            created_at: Some(Utc::now()),
-            updated_at: Some(Utc::now()),
-            policy_version: 1,
-            metadata: None,
-        })
+        .create_oauth_resource(
+            &oauth_record_id,
+            OAuthProviderResource {
+                id: String::new(),
+                identifier: resource_id.into(),
+                name: "Opaque resource".into(),
+                access_token_ttl: None,
+                refresh_token_ttl: None,
+                signing_algorithm: None,
+                signing_key_id: None,
+                allowed_scopes: None,
+                custom_claims: Some(json!({"tenant":"resource","resource_only":true})),
+                dpop_bound_access_tokens_required: false,
+                disabled: true,
+                created_at: Some(Utc::now()),
+                updated_at: Some(Utc::now()),
+                policy_version: 1,
+                metadata: None,
+            },
+        )
         .await
         .unwrap()
         .unwrap();
     fixture
         .oauth
-        .issue_oauth_tokens(OAuthTokenIssuance {
-            access_token: Some(OAuthProviderAccessToken {
-                id: Uuid::new_v4(),
-                token: URL_SAFE_NO_PAD.encode(Sha256::digest(OPAQUE_CONFIRMED_TOKEN.as_bytes())),
-                client_id: client_id.into(),
-                session_id: None,
-                user_id: None,
-                reference_id: None,
-                authorization_code_id: None,
-                resources: Some(vec![resource_id.into()]),
-                requested_user_info_claims: None,
-                refresh_id: None,
-                expires_at: Utc::now() + Duration::minutes(5),
-                created_at: Utc::now(),
-                revoked: None,
-                confirmation: Some(json!({"jkt":"bound-key"})),
-                scopes: vec!["api.read".into()],
-            }),
-            refresh_token: None,
-        })
+        .issue_oauth_tokens(
+            &oauth_record_id,
+            &oauth_record_id,
+            OAuthTokenIssuance {
+                access_token: Some(OAuthProviderAccessToken {
+                    id: String::new(),
+                    token: URL_SAFE_NO_PAD
+                        .encode(Sha256::digest(OPAQUE_CONFIRMED_TOKEN.as_bytes())),
+                    client_id: client_id.into(),
+                    session_id: None,
+                    user_id: None,
+                    reference_id: None,
+                    authorization_code_id: None,
+                    resources: Some(vec![resource_id.into()]),
+                    requested_user_info_claims: None,
+                    refresh_id: None,
+                    expires_at: Utc::now() + Duration::minutes(5),
+                    created_at: Utc::now(),
+                    revoked: None,
+                    confirmation: Some(json!({"jkt":"bound-key"})),
+                    scopes: vec!["api.read".into()],
+                }),
+                refresh_token: None,
+            },
+        )
         .await
         .unwrap();
 }

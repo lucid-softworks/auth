@@ -1,13 +1,12 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
-use uuid::Uuid;
 
 /// Durable device-authorization request owned by the plugin.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceCode {
-    pub id: Uuid,
+    pub id: String,
     pub device_code: String,
     pub user_code: String,
     pub user_id: Option<String>,

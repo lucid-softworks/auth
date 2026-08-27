@@ -52,9 +52,29 @@ fn rotation_request_fingerprint(
     }).to_string())
 }
 
+#[derive(Clone, Copy)]
+struct DpopContext<'a> {
+    service: &'a AuthService,
+    config: &'a OAuthProviderConfig,
+    store: &'a dyn OAuthProviderStore,
+}
+
+impl<'a> DpopContext<'a> {
+    fn new(
+        service: &'a AuthService,
+        config: &'a OAuthProviderConfig,
+        store: &'a dyn OAuthProviderStore,
+    ) -> Self {
+        Self {
+            service,
+            config,
+            store,
+        }
+    }
+}
+
 async fn dpop_for_token_endpoint(
-    config: &OAuthProviderConfig,
-    store: &dyn OAuthProviderStore,
+    context: DpopContext<'_>,
     client: &OAuthProviderClient,
     policy: &ResourcePolicy,
     expected_jkt: Option<&str>,
@@ -65,7 +85,7 @@ async fn dpop_for_token_endpoint(
     let required =
         client.dpop_bound_access_tokens || policy.dpop_required || expected_jkt.is_some();
     match proof {
-        Some(proof) => verify_dpop(config, store, proof, "POST", endpoint, expected_jkt, None)
+        Some(proof) => verify_dpop(context, proof, "POST", endpoint, expected_jkt, None)
             .await
             .map(Some),
         None if required => Err(OAuthProviderError::InvalidDpopProof(
@@ -76,15 +96,14 @@ async fn dpop_for_token_endpoint(
 }
 
 async fn verify_dpop(
-    config: &OAuthProviderConfig,
-    store: &dyn OAuthProviderStore,
+    context: DpopContext<'_>,
     proof: &str,
     method: &str,
     endpoint: &str,
     expected_jkt: Option<&str>,
     access_token: Option<&str>,
 ) -> Result<String, OAuthProviderError> {
-    let (header, jwk, key) = dpop_verification_material(config, proof)?;
+    let (header, jwk, key) = dpop_verification_material(context.config, proof)?;
     let mut validation = Validation::new(header.alg);
     validation.validate_exp = false;
     validation.validate_nbf = false;
@@ -93,12 +112,19 @@ async fn verify_dpop(
         .ok()
         .and_then(|decoded| decoded.claims.as_object().cloned())
         .ok_or_else(|| OAuthProviderError::InvalidDpopProof("invalid DPoP signature".into()))?;
-    validate_dpop_claims(config, &claims, method, endpoint, access_token)?;
+    validate_dpop_claims(context.config, &claims, method, endpoint, access_token)?;
     let jkt = jwk_thumbprint(&jwk)?;
     if expected_jkt.is_some_and(|expected| expected != jkt) {
         return Err(OAuthProviderError::InvalidDpopProof("DPoP key thumbprint mismatch".into()));
     }
-    reserve_dpop_proof(config, store, &jkt, &claims).await?;
+    reserve_dpop_proof(
+        context.service,
+        context.config,
+        context.store,
+        &jkt,
+        &claims,
+    )
+    .await?;
     Ok(jkt)
 }
 
@@ -208,6 +234,7 @@ fn normalize_dpop_htu(value: &str) -> Result<String, OAuthProviderError> {
 }
 
 async fn reserve_dpop_proof(
+    service: &AuthService,
     config: &OAuthProviderConfig,
     store: &dyn OAuthProviderStore,
     jkt: &str,
@@ -222,10 +249,16 @@ async fn reserve_dpop_proof(
     let expires_at = DateTime::from_timestamp(iat + config.dpop.proof_max_age_seconds as i64, 0)
         .ok_or_else(|| OAuthProviderError::InvalidDpopProof("DPoP iat is invalid".into()))?;
     let reserved = store
-        .reserve_oauth_client_assertion(OAuthProviderClientAssertion {
-            id: replay_id,
-            expires_at,
-        })
+        .reserve_oauth_client_assertion(
+            &|| service.prepare_database_id(&service.database_id_plan(
+                "oauthClientAssertion", crate::DatabaseIdInput::Absent, false,
+            )),
+            OAuthProviderClientAssertion {
+                id: String::new(),
+                jti: replay_id,
+                expires_at,
+            },
+        )
         .await
         .map_err(server)?;
     if !reserved {
@@ -322,9 +355,14 @@ mod dpop_tests {
     async fn proof_jti_is_single_use_and_thumbprints_are_stable() {
         let config = OAuthProviderConfig::new("/login", "/consent");
         let store = crate::MemoryOAuthProviderStore::new();
+        let service = crate::AuthService::try_new(
+            std::sync::Arc::new(crate::MemoryStore::default()),
+            crate::AuthConfig::new([11_u8; 32]).unwrap(),
+        )
+        .unwrap();
         let claims = valid_claims("access-token");
-        assert!(reserve_dpop_proof(&config, &store, "thumbprint", &claims).await.is_ok());
-        assert!(reserve_dpop_proof(&config, &store, "thumbprint", &claims).await.is_err());
+        assert!(reserve_dpop_proof(&service, &config, &store, "thumbprint", &claims).await.is_ok());
+        assert!(reserve_dpop_proof(&service, &config, &store, "thumbprint", &claims).await.is_err());
         let jwk = serde_json::from_value(json!({"kty":"RSA","e":"AQAB","n":"sXch"})).unwrap();
         assert_eq!(jwk_thumbprint(&jwk).unwrap(), jwk_thumbprint(&jwk).unwrap());
     }

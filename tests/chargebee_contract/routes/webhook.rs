@@ -73,7 +73,7 @@ async fn activated_webhook_promotes_pending_without_creating_item_rows() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let reference = fixture.user_id.unwrap().to_string();
+    let reference = fixture.user_id.as_deref().unwrap().to_owned();
     let pending = fixture
         .store
         .list_subscriptions_by_reference(&reference)

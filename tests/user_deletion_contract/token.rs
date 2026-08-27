@@ -135,7 +135,7 @@ async fn verification_tokens_are_purpose_bound_single_use_and_redirect_safely() 
     assert!(
         fixture
             .store
-            .find_user_by_id(user.id)
+            .find_user_by_id(&user.id)
             .await
             .unwrap()
             .is_none()
@@ -204,7 +204,7 @@ async fn deletion_identifier_is_transformed_once_after_the_complete_prefix() {
     assert!(
         fixture
             .store
-            .find_user_by_id(user.id)
+            .find_user_by_id(&user.id)
             .await
             .unwrap()
             .is_none()

@@ -1,8 +1,7 @@
-use super::MemoryOAuthProviderStore;
-use crate::{AuthError, oauth_provider::*};
+use super::{MemoryOAuthProviderStore, create_id};
+use crate::{AuthError, DatabaseIdSupplier, oauth_provider::*};
 use async_trait::async_trait;
 use chrono::Utc;
-use uuid::Uuid;
 
 #[async_trait]
 impl OAuthProviderClientStore for MemoryOAuthProviderStore {
@@ -39,7 +38,9 @@ impl OAuthProviderClientStore for MemoryOAuthProviderStore {
 
     async fn persist_oauth_client_registration(
         &self,
-        write: OAuthClientRegistrationWrite,
+        client_id_supplier: &dyn DatabaseIdSupplier,
+        link_id_supplier: &dyn DatabaseIdSupplier,
+        mut write: OAuthClientRegistrationWrite,
     ) -> Result<OAuthClientRegistrationOutcome, AuthError> {
         let mut state = self.state.write().await;
         if let Some(missing) = write
@@ -53,7 +54,7 @@ impl OAuthProviderClientStore for MemoryOAuthProviderStore {
         }
 
         let existing = state.clients.get(&write.client.client_id).cloned();
-        let outcome = match (&write.mode, existing) {
+        let outcome = match (&write.mode, existing.as_ref()) {
             (OAuthClientRegistrationMode::Create, Some(_)) => {
                 return Ok(OAuthClientRegistrationOutcome::ClientIdTaken);
             }
@@ -67,25 +68,36 @@ impl OAuthProviderClientStore for MemoryOAuthProviderStore {
             {
                 return Ok(OAuthClientRegistrationOutcome::DiscoveryOwnershipChanged);
             }
-            (OAuthClientRegistrationMode::RefreshDiscovered { .. }, Some(_)) => {
+            (OAuthClientRegistrationMode::RefreshDiscovered { .. }, Some(existing)) => {
+                write.client.id = existing.id.clone();
                 OAuthClientRegistrationOutcome::Updated(write.client.clone())
             }
-            (_, None) => OAuthClientRegistrationOutcome::Created(write.client.clone()),
+            (_, None) => {
+                write.client.id = create_id(&mut state, "oauthClient", client_id_supplier)?;
+                OAuthClientRegistrationOutcome::Created(write.client.clone())
+            }
         };
 
         let client_id = write.client.client_id.clone();
-        state.clients.insert(client_id.clone(), write.client);
+        let mut new_links = Vec::new();
         for resource_id in write.resource_ids {
-            state
-                .client_resources
-                .entry((client_id.clone(), resource_id.clone()))
-                .or_insert_with(|| OAuthProviderClientResource {
-                    id: Uuid::new_v4(),
-                    client_id: client_id.clone(),
-                    resource_id,
-                    metadata: None,
-                    created_at: Some(Utc::now()),
-                });
+            let key = (client_id.clone(), resource_id.clone());
+            if !state.client_resources.contains_key(&key) {
+                new_links.push((
+                    key,
+                    OAuthProviderClientResource {
+                        id: create_id(&mut state, "oauthClientResource", link_id_supplier)?,
+                        client_id: client_id.clone(),
+                        resource_id,
+                        metadata: None,
+                        created_at: Some(Utc::now()),
+                    },
+                ));
+            }
+        }
+        state.clients.insert(client_id.clone(), write.client);
+        for (key, link) in new_links {
+            state.client_resources.insert(key, link);
         }
         Ok(outcome)
     }
@@ -145,7 +157,7 @@ mod tests {
 
     fn client(client_id: &str) -> OAuthProviderClient {
         OAuthProviderClient {
-            id: Uuid::new_v4(),
+            id: String::new(),
             client_id: client_id.into(),
             client_secret: None,
             client_discovery_id: None,
@@ -188,12 +200,19 @@ mod tests {
     #[tokio::test]
     async fn registration_does_not_partially_write_missing_resource_links() {
         let store = MemoryOAuthProviderStore::new();
+        let unexpected_id = || -> Result<crate::PreparedDatabaseId, AuthError> {
+            panic!("a rejected registration must not allocate an id")
+        };
         let outcome = store
-            .persist_oauth_client_registration(OAuthClientRegistrationWrite {
-                client: client("client"),
-                resource_ids: vec!["https://missing.example".into()],
-                mode: OAuthClientRegistrationMode::Create,
-            })
+            .persist_oauth_client_registration(
+                &unexpected_id,
+                &unexpected_id,
+                OAuthClientRegistrationWrite {
+                    client: client("client"),
+                    resource_ids: vec!["https://missing.example".into()],
+                    mode: OAuthClientRegistrationMode::Create,
+                },
+            )
             .await
             .unwrap();
         assert!(matches!(

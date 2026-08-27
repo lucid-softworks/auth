@@ -4,7 +4,6 @@ mod member;
 use super::AuthService;
 use crate::{AuthError, OrganizationError, OrganizationMember, OrganizationPermissions};
 use std::collections::BTreeMap;
-use uuid::Uuid;
 
 async fn require_team_permission(
     service: &AuthService,
@@ -45,8 +44,8 @@ async fn require_member_update(
 
 fn active_or(
     session: &crate::SessionWithUser,
-    organization_id: Option<Uuid>,
-) -> Result<Uuid, AuthError> {
+    organization_id: Option<String>,
+) -> Result<String, AuthError> {
     organization_id
         .or_else(|| AuthService::active_organization_id(session))
         .ok_or_else(|| {

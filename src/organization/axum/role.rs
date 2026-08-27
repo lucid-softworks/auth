@@ -1,4 +1,4 @@
-use super::organization::{id, optional_id};
+use super::organization::optional_id;
 use crate::{
     AuthError, AuthService, AxumPluginRoute, OrganizationPermissions, OrganizationRole,
     axum::http::{auth_error, current_session},
@@ -12,7 +12,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use uuid::Uuid;
 
 pub(super) fn routes() -> Vec<AxumPluginRoute> {
     vec![
@@ -213,7 +212,7 @@ async fn update(
     }
 }
 
-fn selector_ids(selector: &RoleSelector) -> Result<(Option<Uuid>, Option<Uuid>), AuthError> {
+fn selector_ids(selector: &RoleSelector) -> Result<(Option<String>, Option<String>), AuthError> {
     if selector.role_id.is_none() && selector.role_name.is_none() {
         return Err(
             crate::OrganizationError::bad_request("ROLE_NOT_FOUND", "Role not found").into(),
@@ -221,7 +220,7 @@ fn selector_ids(selector: &RoleSelector) -> Result<(Option<Uuid>, Option<Uuid>),
     }
     Ok((
         optional_id(selector.organization_id.clone())?,
-        selector.role_id.as_deref().map(id).transpose()?,
+        selector.role_id.clone(),
     ))
 }
 

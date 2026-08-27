@@ -25,7 +25,7 @@ impl TestStripeClient {
 
 pub(super) fn organization() -> Organization {
     Organization {
-        id: Uuid::new_v4(),
+        id: Uuid::new_v4().to_string(),
         name: "New name".into(),
         slug: "new-name".into(),
         logo: None,

@@ -4,62 +4,21 @@ use super::{
     OAuthResourceInput,
     runtime_store::seed::{identifier_allowed, resource_from_input},
 };
-use crate::AuthError;
+use crate::{AuthError, AuthService};
 use chrono::Utc;
 use std::sync::Arc;
-use uuid::Uuid;
 
 mod facade;
 mod input;
+mod validation;
 
 pub use input::OAuthProviderResourceAdminUpdateInput;
-
-const RESOURCE_SIGNING_ALGORITHMS: &[&str] = &["EdDSA", "ES256", "ES512", "PS256", "RS256"];
+use validation::{validate_create_input, validate_update_input};
 
 #[derive(Clone)]
 pub struct OAuthProviderResourceAdmin {
     config: Arc<OAuthProviderConfig>,
     store: Arc<dyn OAuthProviderStore>,
-}
-
-fn validate_create_input(input: &OAuthResourceInput) -> Result<(), AuthError> {
-    if input.access_token_ttl == Some(0) || input.refresh_token_ttl == Some(0) {
-        return Err(AuthError::InvalidRequest(
-            "OAuth resource TTLs must be positive".into(),
-        ));
-    }
-    validate_signing_algorithm(input.signing_algorithm.as_deref())
-}
-
-fn validate_update_input(input: &OAuthProviderResourceAdminUpdateInput) -> Result<(), AuthError> {
-    if input.access_token_ttl == Some(Some(0)) || input.refresh_token_ttl == Some(Some(0)) {
-        return Err(AuthError::InvalidRequest(
-            "OAuth resource TTLs must be positive".into(),
-        ));
-    }
-    if input
-        .access_token_ttl
-        .flatten()
-        .is_some_and(|value| value > i64::MAX as u64)
-        || input
-            .refresh_token_ttl
-            .flatten()
-            .is_some_and(|value| value > i64::MAX as u64)
-    {
-        return Err(AuthError::InvalidRequest(
-            "OAuth resource TTL exceeds i64::MAX".into(),
-        ));
-    }
-    validate_signing_algorithm(input.signing_algorithm.as_ref().and_then(Option::as_deref))
-}
-
-fn validate_signing_algorithm(algorithm: Option<&str>) -> Result<(), AuthError> {
-    if algorithm.is_some_and(|value| !RESOURCE_SIGNING_ALGORITHMS.contains(&value)) {
-        return Err(AuthError::InvalidRequest(
-            "OAuth resource signingAlgorithm is unsupported".into(),
-        ));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -141,7 +100,7 @@ mod tests {
 
     fn client() -> OAuthProviderClient {
         OAuthProviderClient {
-            id: Uuid::new_v4(),
+            id: String::new(),
             client_id: "client".into(),
             client_secret: None,
             client_discovery_id: None,
@@ -195,6 +154,41 @@ mod tests {
         OAuthProviderResourceAdmin::new(config, store)
     }
 
+    fn service() -> AuthService {
+        AuthService::try_new(
+            Arc::new(crate::MemoryStore::default()),
+            crate::AuthConfig::new([12_u8; 32]).unwrap(),
+        )
+        .unwrap()
+    }
+
+    async fn insert_client(service: &AuthService, store: &MemoryOAuthProviderStore) {
+        store
+            .persist_oauth_client_registration(
+                &|| {
+                    service.prepare_database_id(&service.database_id_plan(
+                        "oauthClient",
+                        crate::DatabaseIdInput::Absent,
+                        false,
+                    ))
+                },
+                &|| {
+                    service.prepare_database_id(&service.database_id_plan(
+                        "oauthClientResource",
+                        crate::DatabaseIdInput::Absent,
+                        false,
+                    ))
+                },
+                OAuthClientRegistrationWrite {
+                    client: client(),
+                    resource_ids: Vec::new(),
+                    mode: OAuthClientRegistrationMode::Create,
+                },
+            )
+            .await
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn every_resource_operation_requires_an_authenticated_context() {
         let admin = admin(
@@ -222,14 +216,8 @@ mod tests {
     #[tokio::test]
     async fn facade_applies_identifier_validation_and_every_privilege_action() {
         let inner = Arc::new(MemoryOAuthProviderStore::new());
-        inner
-            .persist_oauth_client_registration(OAuthClientRegistrationWrite {
-                client: client(),
-                resource_ids: Vec::new(),
-                mode: OAuthClientRegistrationMode::Create,
-            })
-            .await
-            .unwrap();
+        let service = service();
+        insert_client(&service, &inner).await;
         let privileges = Arc::new(Privileges(Mutex::new(Vec::new())));
         let validator = Arc::new(IdentifierValidator(AtomicUsize::new(0)));
         let mut config = OAuthProviderConfig::new("/login", "/consent");
@@ -240,11 +228,14 @@ mod tests {
 
         assert!(
             admin
-                .create(input("https://rejected.example"), &context)
+                .create(&service, input("https://rejected.example"), &context)
                 .await
                 .is_err()
         );
-        let resource = admin.create(input("tenant:api"), &context).await.unwrap();
+        let resource = admin
+            .create(&service, input("tenant:api"), &context)
+            .await
+            .unwrap();
         admin.list(&context).await.unwrap();
         admin.get("tenant:api", &context).await.unwrap();
         admin
@@ -259,7 +250,10 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(
-            admin.link("client", "tenant:api", &context).await.unwrap(),
+            admin
+                .link(&service, "client", "tenant:api", &context)
+                .await
+                .unwrap(),
             OAuthClientResourceLinkOutcome::Linked(_)
         ));
         admin
@@ -291,22 +285,23 @@ mod tests {
             Arc::new(MemoryOAuthProviderStore::new()),
         );
         let context = context();
+        let service = service();
         let mut invalid = input("https://api.example.com");
         invalid.access_token_ttl = Some(0);
         assert!(matches!(
-            admin.create(invalid, &context).await,
+            admin.create(&service, invalid, &context).await,
             Err(AuthError::InvalidRequest(_))
         ));
 
         let mut invalid = input("https://api.example.com");
         invalid.signing_algorithm = Some("HS256".into());
         assert!(matches!(
-            admin.create(invalid, &context).await,
+            admin.create(&service, invalid, &context).await,
             Err(AuthError::InvalidRequest(_))
         ));
 
         let created = admin
-            .create(input("https://api.example.com"), &context)
+            .create(&service, input("https://api.example.com"), &context)
             .await
             .unwrap();
         assert!(matches!(
@@ -331,10 +326,11 @@ mod tests {
             Arc::new(MemoryOAuthProviderStore::new()),
         );
         let context = context();
+        let service = service();
         let mut create = input("https://api.example.com");
         create.access_token_ttl = Some(300);
         create.signing_algorithm = Some("RS256".into());
-        let created = admin.create(create, &context).await.unwrap();
+        let created = admin.create(&service, create, &context).await.unwrap();
 
         let updated = admin
             .update(
@@ -367,13 +363,14 @@ mod tests {
             Arc::new(MemoryOAuthProviderStore::new()),
         );
         let context = context();
+        let service = service();
         admin
-            .create(input("https://api.example.com"), &context)
+            .create(&service, input("https://api.example.com"), &context)
             .await
             .unwrap();
         assert!(matches!(
             admin
-                .create(input("https://api.example.com"), &context)
+                .create(&service, input("https://api.example.com"), &context)
                 .await,
             Err(AuthError::InvalidRequest(_))
         ));

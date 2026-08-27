@@ -133,7 +133,7 @@ pub(crate) struct Fixture {
     pub transport: Arc<FakeCreemTransport>,
     pub store: Arc<MemoryCreemStore>,
     pub cookie: Option<String>,
-    pub user_id: Option<uuid::Uuid>,
+    pub user_id: Option<String>,
 }
 
 pub(crate) async fn fixture<F>(api_key: &str, authenticated: bool, configure: F) -> Fixture

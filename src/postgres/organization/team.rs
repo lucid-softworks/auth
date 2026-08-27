@@ -4,7 +4,6 @@ use crate::{
     OrganizationTeamWriteOutcome, postgres::PostgresStore,
 };
 use async_trait::async_trait;
-use uuid::Uuid;
 
 mod invitation;
 mod query;
@@ -16,32 +15,34 @@ use query::*;
 impl OrganizationTeamStore for PostgresStore {
     async fn create_team(
         &self,
-        team: OrganizationTeam,
+        team: &mut OrganizationTeam,
+        id: &dyn crate::DatabaseIdSupplier,
         maximum_teams: Option<usize>,
     ) -> Result<OrganizationTeamWriteOutcome, AuthError> {
         let organization = self.physical_model("organization")?;
         let model = self.physical_model("team")?;
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
-        lock_organization(&mut transaction, &organization, team.organization_id).await?;
-        if team_exists(&mut transaction, &model, team.organization_id, &team.name).await? {
+        lock_organization(&mut transaction, &organization, &team.organization_id).await?;
+        if team_exists(&mut transaction, &model, &team.organization_id, &team.name).await? {
             return Ok(OrganizationTeamWriteOutcome::AlreadyExists);
         }
         if let Some(limit) = maximum_teams
-            && team_count(&mut transaction, &model, team.organization_id).await? >= limit as i64
+            && team_count(&mut transaction, &model, &team.organization_id).await? >= limit as i64
         {
             return Ok(OrganizationTeamWriteOutcome::LimitReached);
         }
-        insert_team(&mut transaction, &model, &team).await?;
+        let prepared = id.prepare()?;
+        *team = insert_team(&mut transaction, &model, team, &prepared).await?;
         transaction.commit().await.map_err(storage_error)?;
         Ok(OrganizationTeamWriteOutcome::Written)
     }
 
-    async fn find_team(&self, id: Uuid) -> Result<Option<OrganizationTeam>, AuthError> {
+    async fn find_team(&self, id: &str) -> Result<Option<OrganizationTeam>, AuthError> {
         let model = self.physical_model("team")?;
         find_team(&self.pool, &model, id).await
     }
 
-    async fn list_teams(&self, organization_id: Uuid) -> Result<Vec<OrganizationTeam>, AuthError> {
+    async fn list_teams(&self, organization_id: &str) -> Result<Vec<OrganizationTeam>, AuthError> {
         let model = self.physical_model("team")?;
         let mut query = list_teams_query(&model, organization_id)?;
         query
@@ -72,7 +73,7 @@ impl OrganizationTeamStore for PostgresStore {
 
     async fn remove_team(
         &self,
-        id: Uuid,
+        id: &str,
         allow_removing_all: bool,
     ) -> Result<OrganizationTeamWriteOutcome, AuthError> {
         let organization = self.physical_model("organization")?;
@@ -82,9 +83,9 @@ impl OrganizationTeamStore for PostgresStore {
         let Some(team) = find_team(&mut *transaction, &team_model, id).await? else {
             return Ok(OrganizationTeamWriteOutcome::NotFound);
         };
-        lock_organization(&mut transaction, &organization, team.organization_id).await?;
+        lock_organization(&mut transaction, &organization, &team.organization_id).await?;
         if !allow_removing_all
-            && team_count(&mut transaction, &team_model, team.organization_id).await? <= 1
+            && team_count(&mut transaction, &team_model, &team.organization_id).await? <= 1
         {
             return Ok(OrganizationTeamWriteOutcome::LastTeam);
         }
@@ -92,7 +93,7 @@ impl OrganizationTeamStore for PostgresStore {
         remove_team_from_invitations(
             &mut transaction,
             &invitation_model,
-            team.organization_id,
+            &team.organization_id,
             id,
         )
         .await?;
@@ -102,29 +103,31 @@ impl OrganizationTeamStore for PostgresStore {
 
     async fn add_team_member(
         &self,
-        member: OrganizationTeamMember,
+        member: &mut OrganizationTeamMember,
+        id: &dyn crate::DatabaseIdSupplier,
         maximum_members: Option<usize>,
     ) -> Result<OrganizationTeamWriteOutcome, AuthError> {
         let team = self.physical_model("team")?;
         let model = self.physical_model("teamMember")?;
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
-        lock_team(&mut transaction, &team, member.team_id).await?;
-        if team_member_exists(&mut transaction, &model, member.team_id, &member.user_id).await? {
+        lock_team(&mut transaction, &team, &member.team_id).await?;
+        if team_member_exists(&mut transaction, &model, &member.team_id, &member.user_id).await? {
             return Ok(OrganizationTeamWriteOutcome::AlreadyExists);
         }
         if let Some(limit) = maximum_members
-            && team_member_count(&mut transaction, &model, member.team_id).await? >= limit as i64
+            && team_member_count(&mut transaction, &model, &member.team_id).await? >= limit as i64
         {
             return Ok(OrganizationTeamWriteOutcome::LimitReached);
         }
-        insert_team_member(&mut transaction, &model, &member).await?;
+        let prepared = id.prepare()?;
+        *member = insert_team_member(&mut transaction, &model, member, &prepared).await?;
         transaction.commit().await.map_err(storage_error)?;
         Ok(OrganizationTeamWriteOutcome::Written)
     }
 
     async fn remove_team_member(
         &self,
-        team_id: Uuid,
+        team_id: &str,
         user_id: &str,
     ) -> Result<OrganizationTeamWriteOutcome, AuthError> {
         let model = self.physical_model("teamMember")?;
@@ -143,7 +146,7 @@ impl OrganizationTeamStore for PostgresStore {
 
     async fn list_team_members(
         &self,
-        team_id: Uuid,
+        team_id: &str,
     ) -> Result<Vec<OrganizationTeamMember>, AuthError> {
         let model = self.physical_model("teamMember")?;
         let mut query = list_team_members_query(&model, team_id)?;

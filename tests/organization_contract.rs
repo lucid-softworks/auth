@@ -40,10 +40,10 @@ fn descriptor_exposes_only_enabled_organization_client_methods() {
 #[tokio::test]
 async fn memory_organization_limits_and_invitation_redemption_are_atomic() {
     let store = Arc::new(MemoryOrganizationStore::default());
-    let owner_id = Uuid::new_v4();
+    let owner_id = Uuid::new_v4().to_string();
     let (left, right) = tokio::join!(
-        create_fixture(store.clone(), owner_id, "atomic-organization"),
-        create_fixture(store.clone(), owner_id, "atomic-organization"),
+        create_fixture(store.clone(), owner_id.clone(), "atomic-organization"),
+        create_fixture(store.clone(), owner_id.clone(), "atomic-organization"),
     );
     let outcomes = [left.unwrap(), right.unwrap()];
     assert_eq!(
@@ -59,27 +59,45 @@ async fn memory_organization_limits_and_invitation_redemption_are_atomic() {
         .unwrap()
         .unwrap();
     let owner = store
-        .find_member(organization.id, owner_id)
+        .find_member(&organization.id, &owner_id)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(
-        store.remove_member(owner.id, "owner").await.unwrap(),
+        store.remove_member(&owner.id, "owner").await.unwrap(),
         OrganizationMemberWriteOutcome::LastOwner
     );
 
-    let invitee_id = Uuid::new_v4();
-    let invitation = invitation(organization.id, owner_id);
+    let invitee_id = Uuid::new_v4().to_string();
+    let mut invitation = invitation(organization.id.clone(), owner_id);
+    let invitation_value = invitation.id.clone();
+    let invitation_id = || Ok(explicit_id(&invitation_value));
     assert_eq!(
         store
-            .create_invitation(invitation.clone(), 100, 100, false)
+            .create_invitation(&mut invitation, &invitation_id, 100, 100, false)
             .await
             .unwrap(),
         OrganizationInvitationWriteOutcome::Written
     );
+    let member_id = || Ok(explicit_id("accepted-member"));
+    let team_member_id = || Ok(explicit_id("accepted-team-member"));
     let (left, right) = tokio::join!(
-        store.accept_invitation(invitation.id, invitee_id, Utc::now(), 100),
-        store.accept_invitation(invitation.id, invitee_id, Utc::now(), 100),
+        store.accept_invitation(
+            &invitation.id,
+            &invitee_id,
+            Utc::now(),
+            100,
+            &member_id,
+            &team_member_id,
+        ),
+        store.accept_invitation(
+            &invitation.id,
+            &invitee_id,
+            Utc::now(),
+            100,
+            &member_id,
+            &team_member_id,
+        ),
     );
     let outcomes = [left.unwrap(), right.unwrap()];
     assert_eq!(
@@ -91,7 +109,7 @@ async fn memory_organization_limits_and_invitation_redemption_are_atomic() {
     );
     assert!(
         store
-            .find_member(organization.id, invitee_id)
+            .find_member(&organization.id, &invitee_id)
             .await
             .unwrap()
             .is_some()
@@ -109,38 +127,50 @@ fn methods(plugin: &OrganizationPlugin) -> Vec<&'static str> {
 
 async fn create_fixture(
     store: Arc<MemoryOrganizationStore>,
-    owner_id: Uuid,
+    owner_id: String,
     slug: &str,
 ) -> Result<OrganizationCreateOutcome, lucid_auth::AuthError> {
     let now = Utc::now();
-    let organization_id = Uuid::new_v4();
+    let organization_id = Uuid::new_v4().to_string();
+    let mut organization = Organization {
+        id: organization_id.clone(),
+        name: "Atomic Organization".into(),
+        slug: slug.into(),
+        logo: None,
+        metadata: None,
+        created_at: now,
+    };
+    let mut owner = OrganizationMember {
+        id: Uuid::new_v4().to_string(),
+        organization_id,
+        user_id: owner_id,
+        role: "owner".into(),
+        created_at: now,
+    };
+    let organization_value = organization.id.clone();
+    let owner_value = owner.id.clone();
+    let organization_id = || Ok(explicit_id(&organization_value));
+    let owner_id = || Ok(explicit_id(&owner_value));
     store
         .create_organization(
-            Organization {
-                id: organization_id,
-                name: "Atomic Organization".into(),
-                slug: slug.into(),
-                logo: None,
-                metadata: None,
-                created_at: now,
-            },
-            OrganizationMember {
-                id: Uuid::new_v4(),
-                organization_id,
-                user_id: owner_id,
-                role: "owner".into(),
-                created_at: now,
-            },
+            &mut organization,
+            &organization_id,
+            &mut owner,
+            &owner_id,
             None,
             Some(1),
         )
         .await
 }
 
-fn invitation(organization_id: Uuid, inviter_id: Uuid) -> OrganizationInvitation {
+fn explicit_id(value: &str) -> lucid_auth::PreparedDatabaseId {
+    lucid_auth::PreparedDatabaseId::Value(lucid_auth::DatabaseIdValue::String(value.into()))
+}
+
+fn invitation(organization_id: String, inviter_id: String) -> OrganizationInvitation {
     let now = Utc::now();
     OrganizationInvitation {
-        id: Uuid::new_v4(),
+        id: Uuid::new_v4().to_string(),
         organization_id,
         email: "atomic-invitee@example.com".into(),
         role: "member".into(),

@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::cmp::max;
 
+use super::context_id::ContextIdFallback;
 use super::session_references::session_id_key;
 
 #[derive(Serialize, Deserialize)]
@@ -59,6 +60,11 @@ impl AuthService {
             || secondary.is_some() && self.config.session.store_session_in_database;
         let session = if store_in_database {
             self.store.create_session(session).await?
+        } else if secondary.is_some() {
+            let mut record = session.record;
+            record.id =
+                self.generate_special_database_id("session", ContextIdFallback::DeferOnly, 32.0)?;
+            record
         } else {
             let mut record = session.record;
             record.id = match session.id.prepare(self.store.as_ref())? {

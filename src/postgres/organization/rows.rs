@@ -11,15 +11,17 @@ use sqlx::postgres::PgRow;
 pub(super) fn organization_writes<'a>(
     model: &'a PostgresModel<'_>,
     organization: &Organization,
+    id: &crate::PreparedDatabaseId,
 ) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
-    model.encode_fields([
-        ("id", uuid_value(organization.id)),
+    let mut values = vec![
         ("name", json!(organization.name)),
         ("slug", json!(organization.slug)),
         ("logo", optional_string(organization.logo.clone())),
         ("metadata", optional_json(organization.metadata.as_ref())?),
         ("createdAt", date_value(organization.created_at)),
-    ])
+    ];
+    push_id(&mut values, id)?;
+    model.encode_fields(values)
 }
 
 pub(super) fn decode_organization(
@@ -28,7 +30,7 @@ pub(super) fn decode_organization(
 ) -> Result<Organization, AuthError> {
     let mut values = model.decode_all(row)?;
     Ok(Organization {
-        id: required_uuid(&mut values, "id")?,
+        id: required_string(&mut values, "id")?,
         name: required_string(&mut values, "name")?,
         slug: required_string(&mut values, "slug")?,
         logo: optional_string_value(&mut values, "logo")?,
@@ -40,14 +42,16 @@ pub(super) fn decode_organization(
 pub(super) fn member_writes<'a>(
     model: &'a PostgresModel<'_>,
     member: &OrganizationMember,
+    id: &crate::PreparedDatabaseId,
 ) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
-    model.encode_fields([
-        ("id", uuid_value(member.id)),
-        ("organizationId", uuid_value(member.organization_id)),
+    let mut values = vec![
+        ("organizationId", json!(member.organization_id)),
         ("userId", json!(member.user_id)),
         ("role", json!(member.role)),
         ("createdAt", date_value(member.created_at)),
-    ])
+    ];
+    push_id(&mut values, id)?;
+    model.encode_fields(values)
 }
 
 pub(super) fn decode_member(
@@ -56,8 +60,8 @@ pub(super) fn decode_member(
 ) -> Result<OrganizationMember, AuthError> {
     let mut values = model.decode_all(row)?;
     Ok(OrganizationMember {
-        id: required_uuid(&mut values, "id")?,
-        organization_id: required_uuid(&mut values, "organizationId")?,
+        id: required_string(&mut values, "id")?,
+        organization_id: required_string(&mut values, "organizationId")?,
         user_id: required_string(&mut values, "userId")?,
         role: required_string(&mut values, "role")?,
         created_at: required_date(&mut values, "createdAt")?,
@@ -67,10 +71,10 @@ pub(super) fn decode_member(
 pub(super) fn invitation_writes<'a>(
     model: &'a PostgresModel<'_>,
     invitation: &OrganizationInvitation,
+    id: &crate::PreparedDatabaseId,
 ) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
     let mut values = vec![
-        ("id", uuid_value(invitation.id)),
-        ("organizationId", uuid_value(invitation.organization_id)),
+        ("organizationId", json!(invitation.organization_id)),
         ("email", json!(invitation.email.to_lowercase())),
         ("role", json!(invitation.role)),
         ("status", json!(status_name(invitation.status))),
@@ -78,6 +82,7 @@ pub(super) fn invitation_writes<'a>(
         ("expiresAt", date_value(invitation.expires_at)),
         ("createdAt", date_value(invitation.created_at)),
     ];
+    push_id(&mut values, id)?;
     if model.has_field("teamId") {
         values.push(("teamId", optional_string(invitation.team_id.clone())));
     } else if invitation.team_id.is_some() {
@@ -94,8 +99,8 @@ pub(super) fn decode_invitation(
 ) -> Result<OrganizationInvitation, AuthError> {
     let mut values = model.decode_all(row)?;
     Ok(OrganizationInvitation {
-        id: required_uuid(&mut values, "id")?,
-        organization_id: required_uuid(&mut values, "organizationId")?,
+        id: required_string(&mut values, "id")?,
+        organization_id: required_string(&mut values, "organizationId")?,
         email: required_string(&mut values, "email")?,
         role: required_string(&mut values, "role")?,
         status: invitation_status(&required_string(&mut values, "status")?)?,
@@ -113,14 +118,15 @@ pub(super) fn decode_invitation(
 pub(super) fn team_writes<'a>(
     model: &'a PostgresModel<'_>,
     team: &OrganizationTeam,
+    id: &crate::PreparedDatabaseId,
 ) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
     let mut values = vec![
-        ("id", uuid_value(team.id)),
         ("name", json!(team.name)),
-        ("organizationId", uuid_value(team.organization_id)),
+        ("organizationId", json!(team.organization_id)),
         ("createdAt", date_value(team.created_at)),
         ("updatedAt", optional_date(team.updated_at)),
     ];
+    push_id(&mut values, id)?;
     if model.has_field("memberCount") {
         values.push(("memberCount", json!(0)));
     }
@@ -133,9 +139,9 @@ pub(super) fn decode_team(
 ) -> Result<OrganizationTeam, AuthError> {
     let mut values = model.decode_all(row)?;
     Ok(OrganizationTeam {
-        id: required_uuid(&mut values, "id")?,
+        id: required_string(&mut values, "id")?,
         name: required_string(&mut values, "name")?,
-        organization_id: required_uuid(&mut values, "organizationId")?,
+        organization_id: required_string(&mut values, "organizationId")?,
         created_at: required_date(&mut values, "createdAt")?,
         updated_at: optional_date_value(&mut values, "updatedAt")?,
     })
@@ -144,17 +150,18 @@ pub(super) fn decode_team(
 pub(super) fn team_member_writes<'a>(
     model: &'a PostgresModel<'_>,
     member: &OrganizationTeamMember,
+    id: &crate::PreparedDatabaseId,
 ) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
     let mut values = vec![
-        ("id", uuid_value(member.id)),
-        ("teamId", uuid_value(member.team_id)),
+        ("teamId", json!(member.team_id)),
         ("userId", json!(member.user_id)),
         ("createdAt", date_value(member.created_at)),
     ];
+    push_id(&mut values, id)?;
     if model.has_field("membershipKey") {
         values.push((
             "membershipKey",
-            json!(membership_key(member.team_id, &member.user_id)),
+            json!(membership_key(&member.team_id, &member.user_id)),
         ));
     }
     model.encode_fields(values)
@@ -166,8 +173,8 @@ pub(super) fn decode_team_member(
 ) -> Result<OrganizationTeamMember, AuthError> {
     let mut values = model.decode_all(row)?;
     Ok(OrganizationTeamMember {
-        id: required_uuid(&mut values, "id")?,
-        team_id: required_uuid(&mut values, "teamId")?,
+        id: required_string(&mut values, "id")?,
+        team_id: required_string(&mut values, "teamId")?,
         user_id: required_string(&mut values, "userId")?,
         created_at: required_date(&mut values, "createdAt")?,
     })
@@ -176,10 +183,10 @@ pub(super) fn decode_team_member(
 pub(super) fn role_writes<'a>(
     model: &'a PostgresModel<'_>,
     role: &OrganizationRole,
+    id: &crate::PreparedDatabaseId,
 ) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
-    model.encode_fields([
-        ("id", uuid_value(role.id)),
-        ("organizationId", uuid_value(role.organization_id)),
+    let mut values = vec![
+        ("organizationId", json!(role.organization_id)),
         ("role", json!(role.role)),
         (
             "permission",
@@ -187,7 +194,9 @@ pub(super) fn role_writes<'a>(
         ),
         ("createdAt", date_value(role.created_at)),
         ("updatedAt", optional_date(role.updated_at)),
-    ])
+    ];
+    push_id(&mut values, id)?;
+    model.encode_fields(values)
 }
 
 pub(super) fn decode_role(
@@ -197,13 +206,23 @@ pub(super) fn decode_role(
     let mut values = model.decode_all(row)?;
     let permission = required_string(&mut values, "permission")?;
     Ok(OrganizationRole {
-        id: required_uuid(&mut values, "id")?,
-        organization_id: required_uuid(&mut values, "organizationId")?,
+        id: required_string(&mut values, "id")?,
+        organization_id: required_string(&mut values, "organizationId")?,
         role: required_string(&mut values, "role")?,
         permission: serde_json::from_str(&permission).map_err(storage_error)?,
         created_at: required_date(&mut values, "createdAt")?,
         updated_at: optional_date_value(&mut values, "updatedAt")?,
     })
+}
+
+fn push_id(
+    values: &mut Vec<(&str, Value)>,
+    id: &crate::PreparedDatabaseId,
+) -> Result<(), AuthError> {
+    if let crate::PreparedDatabaseId::Value(value) = id {
+        values.push(("id", value.to_json()?));
+    }
+    Ok(())
 }
 
 pub(super) fn status_name(status: OrganizationInvitationStatus) -> &'static str {
@@ -227,8 +246,8 @@ fn invitation_status(value: &str) -> Result<OrganizationInvitationStatus, AuthEr
     }
 }
 
-fn membership_key(team_id: uuid::Uuid, user_id: &str) -> String {
-    let input = serde_json::to_vec(&[team_id.to_string(), user_id.to_owned()])
+fn membership_key(team_id: &str, user_id: &str) -> String {
+    let input = serde_json::to_vec(&[team_id.to_owned(), user_id.to_owned()])
         .expect("membership strings always serialize");
     URL_SAFE_NO_PAD.encode(Sha256::digest(input))
 }
@@ -250,10 +269,6 @@ fn optional_json_value(
         .transpose()
 }
 
-fn uuid_value(value: uuid::Uuid) -> Value {
-    Value::String(value.to_string())
-}
-
 fn date_value(value: chrono::DateTime<chrono::Utc>) -> Value {
     Value::String(value.to_rfc3339())
 }
@@ -264,10 +279,6 @@ fn optional_string(value: Option<String>) -> Value {
 
 fn optional_date(value: Option<chrono::DateTime<chrono::Utc>>) -> Value {
     value.map_or(Value::Null, date_value)
-}
-
-fn required_uuid(values: &mut Map<String, Value>, field: &str) -> Result<uuid::Uuid, AuthError> {
-    super::super::rows::required_uuid(values, field)
 }
 
 fn required_string(values: &mut Map<String, Value>, field: &str) -> Result<String, AuthError> {
@@ -310,7 +321,10 @@ mod tests {
         let expected = URL_SAFE_NO_PAD.encode(Sha256::digest(
             br#"["00000000-0000-0000-0000-000000000000","00000000-0000-0000-0000-000000000001"]"#,
         ));
-        assert_eq!(membership_key(team, &user.to_string()), expected);
+        assert_eq!(
+            membership_key(&team.to_string(), &user.to_string()),
+            expected
+        );
     }
 
     #[test]

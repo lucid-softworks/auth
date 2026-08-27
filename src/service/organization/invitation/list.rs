@@ -4,13 +4,12 @@ use crate::{
     AuthError, OrganizationError, OrganizationInvitation, OrganizationInvitationStatus,
     SessionWithUser,
 };
-use uuid::Uuid;
 
 impl AuthService {
     pub async fn list_organization_invitations(
         &self,
         session: &SessionWithUser,
-        organization_id: Option<Uuid>,
+        organization_id: Option<String>,
     ) -> Result<Vec<OrganizationInvitation>, AuthError> {
         let organization_id = organization_id
             .or_else(|| Self::active_organization_id(session))
@@ -18,7 +17,7 @@ impl AuthService {
         let plugin = self.organization_plugin()?;
         if plugin
             .store
-            .find_member(organization_id, &session.user.id)
+            .find_member(&organization_id, &session.user.id)
             .await?
             .is_none()
         {
@@ -28,7 +27,7 @@ impl AuthService {
             )
             .into());
         }
-        plugin.store.list_invitations(organization_id).await
+        plugin.store.list_invitations(&organization_id).await
     }
 
     pub async fn list_current_user_organization_invitations(

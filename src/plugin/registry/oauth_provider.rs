@@ -3,7 +3,6 @@ use crate::AuthError;
 use std::sync::Arc;
 
 impl PluginRegistry {
-    #[cfg(feature = "axum")]
     pub(crate) fn oauth_provider(&self) -> Option<&crate::OAuthProviderPlugin> {
         find(&self.plugins)
     }

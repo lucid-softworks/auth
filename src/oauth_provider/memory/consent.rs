@@ -1,15 +1,14 @@
-use super::MemoryOAuthProviderStore;
-use crate::{AuthError, oauth_provider::*};
+use super::{MemoryOAuthProviderStore, create_id};
+use crate::{AuthError, DatabaseIdSupplier, oauth_provider::*};
 use async_trait::async_trait;
-use uuid::Uuid;
 
 #[async_trait]
 impl OAuthProviderConsentStore for MemoryOAuthProviderStore {
     async fn find_oauth_consent(
         &self,
-        id: Uuid,
+        id: &str,
     ) -> Result<Option<OAuthProviderConsent>, AuthError> {
-        Ok(self.state.read().await.consents.get(&id).cloned())
+        Ok(self.state.read().await.consents.get(id).cloned())
     }
 
     async fn find_oauth_consent_for_grant(
@@ -45,13 +44,14 @@ impl OAuthProviderConsentStore for MemoryOAuthProviderStore {
             .filter(|consent| consent.user_id.as_deref() == Some(user_id))
             .cloned()
             .collect::<Vec<_>>();
-        consents.sort_by_key(|consent| (consent.created_at, consent.id));
+        consents.sort_by_key(|consent| (consent.created_at, consent.id.clone()));
         Ok(consents)
     }
 
     async fn upsert_oauth_consent(
         &self,
-        consent: OAuthProviderConsent,
+        id: &dyn DatabaseIdSupplier,
+        mut consent: OAuthProviderConsent,
     ) -> Result<OAuthProviderConsent, AuthError> {
         let mut state = self.state.write().await;
         let existing_id = state
@@ -62,19 +62,20 @@ impl OAuthProviderConsentStore for MemoryOAuthProviderStore {
                     && existing.user_id == consent.user_id
                     && existing.reference_id == consent.reference_id
             })
-            .map(|existing| existing.id);
-        let mut consent = consent;
+            .map(|existing| existing.id.clone());
         if let Some(existing_id) = existing_id {
             consent.id = existing_id;
+        } else {
+            consent.id = create_id(&mut state, "oauthConsent", id)?;
         }
-        state.consents.insert(consent.id, consent.clone());
+        state.consents.insert(consent.id.clone(), consent.clone());
         Ok(consent)
     }
 
     async fn delete_oauth_consent(
         &self,
-        id: Uuid,
+        id: &str,
     ) -> Result<Option<OAuthProviderConsent>, AuthError> {
-        Ok(self.state.write().await.consents.remove(&id))
+        Ok(self.state.write().await.consents.remove(id))
     }
 }

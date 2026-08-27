@@ -15,7 +15,6 @@ use crate::{
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use std::sync::Arc;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum TwoFactorError {
@@ -100,7 +99,7 @@ const fn rate_limit(path: &'static str) -> PluginRateLimit {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TwoFactorRecord {
-    pub id: Uuid,
+    pub id: String,
     pub user_id: String,
     pub encrypted_secret: String,
     pub encrypted_backup_codes: String,
@@ -119,6 +118,7 @@ pub trait TwoFactorStore: Send + Sync {
 
     async fn upsert_two_factor(
         &self,
+        id: &dyn crate::DatabaseIdSupplier,
         record: TwoFactorRecord,
     ) -> Result<TwoFactorRecord, AuthError>;
 

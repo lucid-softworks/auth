@@ -7,10 +7,9 @@ use crate::{
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use sqlx::{QueryBuilder, types::Json};
-use uuid::Uuid;
 
-type AccessPlanRow = (Uuid, String, Option<DateTime<Utc>>);
-type RefreshPlanRow = (Uuid, String, Option<DateTime<Utc>>, Json<Vec<String>>);
+type AccessPlanRow = (String, String, Option<DateTime<Utc>>);
+type RefreshPlanRow = (String, String, Option<DateTime<Utc>>, Json<Vec<String>>);
 
 pub(super) async fn prepare(
     store: &PostgresOAuthProviderStore,
@@ -28,7 +27,7 @@ async fn access_plan(
     model: &PostgresModel<'_>,
     session_id: &str,
 ) -> Result<Vec<AccessPlanRow>, AuthError> {
-    let mut query = QueryBuilder::new("SELECT \"id\", ");
+    let mut query = QueryBuilder::new("SELECT \"id\"::TEXT, ");
     query
         .push(model.quoted_column("clientId")?)
         .push(", ")
@@ -53,7 +52,7 @@ async fn refresh_plan(
     model: &PostgresModel<'_>,
     session_id: &str,
 ) -> Result<Vec<RefreshPlanRow>, AuthError> {
-    let mut query = QueryBuilder::new("SELECT \"id\", ");
+    let mut query = QueryBuilder::new("SELECT \"id\"::TEXT, ");
     query
         .push(model.quoted_column("clientId")?)
         .push(", ")
@@ -131,15 +130,15 @@ pub(super) async fn apply(
 async fn revoke_ids(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     model: &PostgresModel<'_>,
-    ids: &[Uuid],
+    ids: &[String],
     revoked_at: DateTime<Utc>,
 ) -> Result<usize, AuthError> {
     let writes = model.encode_fields([("revoked", Value::String(revoked_at.to_rfc3339()))])?;
     let mut query = update_query(model, writes);
+    query.push(" WHERE ");
+    super::revocation::push_typed_values_predicate(&mut query, model, "id", ids)?;
     query
-        .push(" WHERE \"id\" = ANY(")
-        .push_bind(ids.to_vec())
-        .push("::UUID[]) AND ")
+        .push(" AND ")
         .push(model.quoted_column("revoked")?)
         .push(" IS NULL");
     query

@@ -1,5 +1,5 @@
 use super::{JwtAdapterContext, JwtSchema, NewJwk, StoredJwk};
-use crate::AuthError;
+use crate::{AuthError, PreparedDatabaseId};
 use async_trait::async_trait;
 
 /// Default persistence boundary used by the core authentication adapter.
@@ -7,7 +7,12 @@ use async_trait::async_trait;
 pub trait JwkStore: Send + Sync {
     async fn list_jwks(&self, schema: &JwtSchema) -> Result<Vec<StoredJwk>, AuthError>;
 
-    async fn create_jwk(&self, schema: &JwtSchema, jwk: NewJwk) -> Result<StoredJwk, AuthError>;
+    async fn create_jwk(
+        &self,
+        schema: &JwtSchema,
+        jwk: NewJwk,
+        id: PreparedDatabaseId,
+    ) -> Result<StoredJwk, AuthError>;
 }
 
 /// Better Auth JWT custom `getJwks` callback.

@@ -1,24 +1,23 @@
 use super::AuthService;
 use crate::{AuthError, AuthSession, SessionWithUser};
 use serde_json::{Map, Value};
-use uuid::Uuid;
 
 const ACTIVE_ORGANIZATION_ID: &str = "activeOrganizationId";
 const ACTIVE_TEAM_ID: &str = "activeTeamId";
 
 impl AuthService {
-    pub(crate) fn active_organization_id(session: &SessionWithUser) -> Option<Uuid> {
-        session_uuid(session, ACTIVE_ORGANIZATION_ID)
+    pub(crate) fn active_organization_id(session: &SessionWithUser) -> Option<String> {
+        session_id(session, ACTIVE_ORGANIZATION_ID)
     }
 
-    pub(crate) fn active_team_id(session: &SessionWithUser) -> Option<Uuid> {
-        session_uuid(session, ACTIVE_TEAM_ID)
+    pub(crate) fn active_team_id(session: &SessionWithUser) -> Option<String> {
+        session_id(session, ACTIVE_TEAM_ID)
     }
 
     pub(crate) async fn set_active_organization(
         &self,
         session: &SessionWithUser,
-        organization_id: Option<Uuid>,
+        organization_id: Option<String>,
     ) -> Result<AuthSession, AuthError> {
         let mut fields = Map::new();
         fields.insert(
@@ -32,7 +31,7 @@ impl AuthService {
     pub(crate) async fn set_active_team(
         &self,
         session: &SessionWithUser,
-        team_id: Option<Uuid>,
+        team_id: Option<String>,
     ) -> Result<AuthSession, AuthError> {
         let mut fields = Map::new();
         fields.insert(
@@ -43,11 +42,11 @@ impl AuthService {
     }
 }
 
-fn session_uuid(session: &SessionWithUser, field: &str) -> Option<Uuid> {
+fn session_id(session: &SessionWithUser, field: &str) -> Option<String> {
     session
         .session
         .additional_fields
         .get(field)
         .and_then(Value::as_str)
-        .and_then(|value| Uuid::parse_str(value).ok())
+        .map(str::to_owned)
 }

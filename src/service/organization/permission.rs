@@ -23,7 +23,7 @@ impl AuthService {
                 Some(permissions) => Some(permissions.clone()),
                 None if plugin.config.dynamic_access_control.enabled => plugin
                     .store
-                    .find_role_by_name(member.organization_id, role)
+                    .find_role_by_name(&member.organization_id, role)
                     .await?
                     .map(|role| role.permission),
                 None => None,
@@ -37,7 +37,7 @@ impl AuthService {
 
     pub(crate) async fn organization_role_exists(
         &self,
-        organization_id: uuid::Uuid,
+        organization_id: &str,
         roles: &str,
     ) -> Result<bool, AuthError> {
         let plugin = self.organization_plugin()?;

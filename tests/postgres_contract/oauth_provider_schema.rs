@@ -1,6 +1,7 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{
-    AuthConfig, AuthService, EmailSignUpInput, OAuthProviderPlugin, OAuthProviderPluginConfig,
+    AuthConfig, AuthError, AuthService, DatabaseIdValue, EmailSignUpInput, OAuthProviderPlugin,
+    OAuthProviderPluginConfig, PreparedDatabaseId,
     postgres::{PostgresOAuthProviderStore, PostgresStore},
 };
 use sqlx::postgres::PgPoolOptions;
@@ -143,4 +144,13 @@ fn now() -> chrono::DateTime<Utc> {
     chrono::DateTime::from_timestamp_micros(Utc::now().timestamp_micros())
         .expect("current timestamp is representable")
         + Duration::seconds(1)
+}
+
+fn prepare_oauth_id(
+    _service: &AuthService,
+    _model: &'static str,
+) -> Result<PreparedDatabaseId, AuthError> {
+    Ok(PreparedDatabaseId::Value(DatabaseIdValue::String(
+        Uuid::new_v4().to_string(),
+    )))
 }

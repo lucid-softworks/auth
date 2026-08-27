@@ -197,7 +197,7 @@ async fn password_deletion_clears_the_account_and_runs_callbacks_in_order() {
     assert!(
         fixture
             .store
-            .find_user_by_id(user.id)
+            .find_user_by_id(&user.id)
             .await
             .unwrap()
             .is_none()
@@ -232,21 +232,7 @@ async fn disabled_and_stale_deletion_match_official_errors() {
     let stale = fixture(config, None).await;
     let (_cookie, user) = account(&stale, "stale-delete@example.com").await;
     let old_token = "old-session-token";
-    let old = chrono::Utc::now() - chrono::Duration::days(2);
-    let session = lucid_auth::AuthSession {
-        id: uuid::Uuid::new_v4(),
-        user_id: user.id,
-        token: old_token.into(),
-        actor_user_id: None,
-        authentication_method: Some(lucid_auth::AuthenticationMethod::Password),
-        expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
-        created_at: old,
-        updated_at: old,
-        ip_address: None,
-        user_agent: None,
-        additional_fields: serde_json::Map::new(),
-    };
-    stale.store.create_session(session).await.unwrap();
+    insert_stale_session(&stale, &user, old_token).await;
     let stale_cookie = format!(
         "better-auth.session_token={}",
         stale.service.signed_cookie_value(old_token)
@@ -262,7 +248,7 @@ async fn disabled_and_stale_deletion_match_official_errors() {
     assert!(
         stale
             .store
-            .find_user_by_id(user.id)
+            .find_user_by_id(&user.id)
             .await
             .unwrap()
             .is_some()
@@ -280,11 +266,42 @@ async fn disabled_and_stale_deletion_match_official_errors() {
     assert!(
         stale
             .store
-            .find_user_by_id(user.id)
+            .find_user_by_id(&user.id)
             .await
             .unwrap()
             .is_none()
     );
+}
+
+async fn insert_stale_session(fixture: &Fixture, user: &lucid_auth::AuthUser, token: &str) {
+    let old = chrono::Utc::now() - chrono::Duration::days(2);
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let session = lucid_auth::AuthSession {
+        id: session_id.clone(),
+        user_id: user.id.clone(),
+        token: token.into(),
+        actor_user_id: None,
+        authentication_method: Some(lucid_auth::AuthenticationMethod::Password),
+        expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+        created_at: old,
+        updated_at: old,
+        ip_address: None,
+        user_agent: None,
+        additional_fields: serde_json::Map::new(),
+    };
+    fixture
+        .store
+        .create_session(lucid_auth::DatabaseCreate::new(
+            session,
+            lucid_auth::DatabaseIdPlan::new(
+                lucid_auth::DatabaseIdGeneration::Default,
+                "session",
+                lucid_auth::DatabaseIdInput::String(session_id),
+                true,
+            ),
+        ))
+        .await
+        .unwrap();
 }
 
 #[path = "user_deletion_contract/token.rs"]

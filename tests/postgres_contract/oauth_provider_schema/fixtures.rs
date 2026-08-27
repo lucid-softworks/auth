@@ -7,7 +7,7 @@ use lucid_auth::{
 pub(super) fn client(client_id: &str, user_id: &str) -> OAuthProviderClient {
     let now = now();
     OAuthProviderClient {
-        id: Uuid::new_v4(),
+        id: String::new(),
         client_id: client_id.into(),
         client_secret: Some("stored-secret".into()),
         client_discovery_id: None,
@@ -50,7 +50,7 @@ pub(super) fn client(client_id: &str, user_id: &str) -> OAuthProviderClient {
 pub(super) fn resource(identifier: &str) -> OAuthProviderResource {
     let now = now();
     OAuthProviderResource {
-        id: Uuid::new_v4(),
+        id: String::new(),
         identifier: identifier.into(),
         name: "Storage API".into(),
         access_token_ttl: Some(900),
@@ -71,7 +71,7 @@ pub(super) fn resource(identifier: &str) -> OAuthProviderResource {
 pub(super) fn refresh(token: &str, client_id: &str, user_id: &str) -> OAuthProviderRefreshToken {
     let now = now();
     OAuthProviderRefreshToken {
-        id: Uuid::new_v4(),
+        id: String::new(),
         token: token.into(),
         client_id: client_id.into(),
         session_id: None,
@@ -96,11 +96,11 @@ pub(super) fn access(
     token: &str,
     client_id: &str,
     user_id: &str,
-    refresh_id: Uuid,
+    refresh_id: &str,
 ) -> OAuthProviderAccessToken {
     let now = now();
     OAuthProviderAccessToken {
-        id: Uuid::new_v4(),
+        id: String::new(),
         token: token.into(),
         client_id: client_id.into(),
         session_id: None,
@@ -109,7 +109,7 @@ pub(super) fn access(
         authorization_code_id: Some("authorization-code-id".into()),
         resources: Some(vec!["https://api.example".into()]),
         requested_user_info_claims: Some(vec!["email".into()]),
-        refresh_id: Some(refresh_id),
+        refresh_id: Some(refresh_id.to_owned()),
         expires_at: now + Duration::hours(1),
         created_at: now,
         revoked: None,
@@ -121,7 +121,7 @@ pub(super) fn access(
 pub(super) fn consent(client_id: &str, user_id: &str) -> OAuthProviderConsent {
     let now = now();
     OAuthProviderConsent {
-        id: Uuid::new_v4(),
+        id: String::new(),
         client_id: client_id.into(),
         user_id: Some(user_id.to_owned()),
         reference_id: None,

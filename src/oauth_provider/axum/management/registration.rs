@@ -14,7 +14,6 @@ use crate::{
 };
 use serde_json::Value;
 use std::collections::BTreeSet;
-use uuid::Uuid;
 
 use super::super::super::crypto::store_client_secret;
 
@@ -88,7 +87,7 @@ pub(super) async fn persist_new_client(
     let prepared =
         prepare_registration(service, state, input, user_id, reference_id, source).await?;
     let persisted =
-        persist_registration(state, prepared.client, prepared.resources.clone()).await?;
+        persist_registration(service, state, prepared.client, prepared.resources.clone()).await?;
     let exposed = prepared.plaintext.map(|secret| {
         format!(
             "{}{}",
@@ -183,7 +182,7 @@ fn client_from_input(
     let metadata = (matches!(source, RegistrationSource::Dynamic) && !input.extensions.is_empty())
         .then(|| Value::Object(input.extensions.clone()));
     OAuthProviderClient {
-        id: Uuid::new_v4(),
+        id: String::new(),
         client_id,
         client_secret,
         client_discovery_id: None,
@@ -224,17 +223,34 @@ fn client_from_input(
 }
 
 async fn persist_registration(
+    service: &AuthService,
     state: &ManagementState,
     client: OAuthProviderClient,
     resource_ids: Vec<String>,
 ) -> Result<OAuthProviderClient, OAuthProviderError> {
     let outcome = state
         .store
-        .persist_oauth_client_registration(OAuthClientRegistrationWrite {
-            client,
-            resource_ids,
-            mode: OAuthClientRegistrationMode::Create,
-        })
+        .persist_oauth_client_registration(
+            &|| {
+                service.prepare_database_id(&service.database_id_plan(
+                    "oauthClient",
+                    crate::DatabaseIdInput::Absent,
+                    false,
+                ))
+            },
+            &|| {
+                service.prepare_database_id(&service.database_id_plan(
+                    "oauthClientResource",
+                    crate::DatabaseIdInput::Absent,
+                    false,
+                ))
+            },
+            OAuthClientRegistrationWrite {
+                client,
+                resource_ids,
+                mode: OAuthClientRegistrationMode::Create,
+            },
+        )
         .await
         .map_err(server_error)?;
     match outcome {

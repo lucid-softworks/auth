@@ -37,16 +37,20 @@ pub(crate) async fn assert_persistence(
             },
         )
         .await?;
-    assert_eq!(store.list_members(created.organization.id).await?.len(), 1);
-    assert_eq!(store.list_teams(created.organization.id).await?.len(), 1);
+    assert_eq!(store.list_members(&created.organization.id).await?.len(), 1);
+    assert_eq!(store.list_teams(&created.organization.id).await?.len(), 1);
 
     let team = service
-        .create_organization_team(actor, Some(created.organization.id), "Operations".into())
+        .create_organization_team(
+            actor,
+            Some(created.organization.id.clone()),
+            "Operations".into(),
+        )
         .await?;
     let role = service
         .create_organization_role(
             actor,
-            Some(created.organization.id),
+            Some(created.organization.id.clone()),
             "auditor".into(),
             permissions(&[("ac", &["read"])]),
         )
@@ -61,8 +65,8 @@ async fn assert_invitation_is_atomic(
     service: &Arc<AuthService>,
     store: &Arc<PostgresStore>,
     actor: &SessionWithUser,
-    organization_id: uuid::Uuid,
-    team_id: uuid::Uuid,
+    organization_id: String,
+    team_id: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let invitee = service
         .provision_password_user(lucid_auth::NewPasswordUser {
@@ -79,15 +83,31 @@ async fn assert_invitation_is_atomic(
             NewOrganizationInvitation {
                 email: invitee.email.clone(),
                 role: "member".into(),
-                organization_id: Some(organization_id),
-                team_ids: vec![team_id],
+                organization_id: Some(organization_id.clone()),
+                team_ids: vec![team_id.clone()],
                 resend: false,
             },
         )
         .await?;
+    let member_id = || Ok(explicit_id("accepted-postgres-member"));
+    let team_member_id = || Ok(explicit_id("accepted-postgres-team-member"));
     let (left, right) = tokio::join!(
-        store.accept_invitation(invitation.id, &invitee.id, chrono::Utc::now(), 100),
-        store.accept_invitation(invitation.id, &invitee.id, chrono::Utc::now(), 100),
+        store.accept_invitation(
+            &invitation.id,
+            &invitee.id,
+            chrono::Utc::now(),
+            100,
+            &member_id,
+            &team_member_id,
+        ),
+        store.accept_invitation(
+            &invitation.id,
+            &invitee.id,
+            chrono::Utc::now(),
+            100,
+            &member_id,
+            &team_member_id,
+        ),
     );
     let outcomes = [left?, right?];
     assert_eq!(
@@ -99,18 +119,22 @@ async fn assert_invitation_is_atomic(
     );
     assert!(
         store
-            .find_member(organization_id, &invitee.id)
+            .find_member(&organization_id, &invitee.id)
             .await?
             .is_some()
     );
     assert!(
         store
-            .list_team_members(team_id)
+            .list_team_members(&team_id)
             .await?
             .iter()
             .any(|member| member.user_id == invitee.id)
     );
     Ok(())
+}
+
+fn explicit_id(value: &str) -> lucid_auth::PreparedDatabaseId {
+    lucid_auth::PreparedDatabaseId::Value(lucid_auth::DatabaseIdValue::String(value.into()))
 }
 
 fn permissions(entries: &[(&str, &[&str])]) -> OrganizationPermissions {

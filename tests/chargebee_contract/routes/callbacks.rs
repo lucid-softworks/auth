@@ -56,13 +56,13 @@ async fn cancel_callback_checks_origin_before_optional_session() {
 #[tokio::test]
 async fn authenticated_cancel_callback_reconciles_provider_cancellation() {
     let fixture = fixture(true, |_| {}).await;
-    let user_id = fixture.user_id.unwrap();
+    let user_id = fixture.user_id.as_deref().unwrap();
     fixture
         .store
         .set_user_customer_id(user_id, Some("customer_callback".into()))
         .await
         .unwrap();
-    let mut local = ChargebeeSubscription::future(user_id.to_string());
+    let mut local = ChargebeeSubscription::future(user_id);
     local.status = ChargebeeSubscriptionStatus::Active;
     local.chargebee_customer_id = Some("customer_callback".into());
     local.chargebee_subscription_id = Some("subscription_callback".into());

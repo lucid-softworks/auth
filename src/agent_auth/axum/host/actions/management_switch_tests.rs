@@ -64,9 +64,9 @@ async fn install_shared_organization(
     now: DateTime<Utc>,
 ) {
     let store = Arc::new(MemoryOrganizationStore::default());
-    let organization_id = Uuid::new_v4();
-    let organization = Organization {
-        id: organization_id,
+    let organization_id = Uuid::new_v4().to_string();
+    let mut organization = Organization {
+        id: organization_id.clone(),
         name: "Shared".into(),
         slug: format!("shared-{organization_id}"),
         logo: None,
@@ -74,27 +74,46 @@ async fn install_shared_organization(
         created_at: now,
     };
     let membership = |user_id: &str, role: &str| OrganizationMember {
-        id: Uuid::new_v4(),
-        organization_id,
+        id: Uuid::new_v4().to_string(),
+        organization_id: organization_id.clone(),
         user_id: user_id.to_owned(),
         role: role.into(),
         created_at: now,
     };
+    let mut owner_membership = membership(owner, "owner");
+    let organization_value = organization.id.clone();
+    let owner_value = owner_membership.id.clone();
+    let organization_id = || Ok(explicit_id(&organization_value));
+    let owner_id = || Ok(explicit_id(&owner_value));
     assert_eq!(
         store
-            .create_organization(organization, membership(owner, "owner"), None, None)
+            .create_organization(
+                &mut organization,
+                &organization_id,
+                &mut owner_membership,
+                &owner_id,
+                None,
+                None,
+            )
             .await
             .unwrap(),
         OrganizationCreateOutcome::Created
     );
+    let mut member_membership = membership(member, "member");
+    let member_value = member_membership.id.clone();
+    let member_id = || Ok(explicit_id(&member_value));
     assert_eq!(
         store
-            .add_member(membership(member, "member"), 100)
+            .add_member(&mut member_membership, &member_id, 100)
             .await
             .unwrap(),
         OrganizationMemberWriteOutcome::Written
     );
     state.organization_store = Some(store);
+}
+
+fn explicit_id(value: &str) -> crate::PreparedDatabaseId {
+    crate::PreparedDatabaseId::Value(crate::DatabaseIdValue::String(value.into()))
 }
 
 async fn assert_management_access(
@@ -133,8 +152,8 @@ async fn assert_management_access(
 #[tokio::test]
 async fn shared_organization_members_match_host_management_authorization() {
     let (mut state, _) = state(AgentAuthConfig::default());
-    let owner = Uuid::new_v4().to_string();
-    let member = Uuid::new_v4().to_string();
+    let owner = Uuid::new_v4().to_string().to_string();
+    let member = Uuid::new_v4().to_string().to_string();
     let now = Utc::now();
     let ids = [
         create_host(&state, &owner, "org-update").await,
@@ -228,7 +247,7 @@ async fn switch_preserves_lifecycle_and_emits_autonomous_claim_contract() {
     };
     let (state, store) = state(config);
     let now = Utc::now();
-    let user = Uuid::new_v4().to_string();
+    let user = Uuid::new_v4().to_string().to_string();
     let (host_id, activated_at) = seed_autonomous_claim(&state, &store, &user, now).await;
     events.wait_for(1).await;
     events.clear().await;

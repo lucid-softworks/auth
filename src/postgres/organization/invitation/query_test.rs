@@ -1,11 +1,12 @@
 use super::*;
 use chrono::Duration;
+use uuid::Uuid;
 
 #[test]
 fn invitation_queries_remap_filters_sort_count_status_and_resend() {
     let physical = super::super::super::test_support::physical_schema();
     let invitation = physical.model("invitation").unwrap();
-    let organization_id = Uuid::from_u128(31);
+    let organization_id = Uuid::from_u128(31).to_string();
 
     let filter = filter_query(&invitation, [("email", json!("secret@example.com"))], true).unwrap();
     assert!(filter.sql().contains("FROM \"org\"\"invitations\""));
@@ -18,7 +19,7 @@ fn invitation_queries_remap_filters_sort_count_status_and_resend() {
 
     let mut sorted = filter_query(
         &invitation,
-        [("organizationId", uuid_value(organization_id))],
+        [("organizationId", json!(organization_id))],
         false,
     )
     .unwrap();
@@ -28,11 +29,11 @@ fn invitation_queries_remap_filters_sort_count_status_and_resend() {
         .push(" ASC, \"id\" ASC");
     assert!(sorted.sql().contains("ORDER BY \"issued time\" ASC"));
 
-    let count = count_query(&invitation, organization_id).unwrap();
+    let count = count_query(&invitation, &organization_id).unwrap();
     assert!(count.sql().contains("WHERE \"tenant id\" = $1"));
     let status = status_update_query(
         &invitation,
-        Uuid::from_u128(32),
+        &Uuid::from_u128(32).to_string(),
         OrganizationInvitationStatus::Rejected,
     )
     .unwrap();
@@ -46,7 +47,7 @@ fn invitation_queries_remap_filters_sort_count_status_and_resend() {
 
     let resend = resend_query(
         &invitation,
-        organization_id,
+        &organization_id,
         "secret@example.com",
         Utc::now() + Duration::hours(1),
     )

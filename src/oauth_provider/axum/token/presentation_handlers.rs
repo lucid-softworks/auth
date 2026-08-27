@@ -304,7 +304,15 @@ async fn validate_userinfo_dpop(
     }
     let proof = headers.get("dpop").and_then(|value| value.to_str().ok())
         .ok_or_else(|| OAuthProviderError::InvalidDpopProof("DPoP proof header is required".into()))?;
-    verify_dpop(config, store, proof, method, &format!("{}/oauth2/userinfo", issuer(service, headers)), Some(expected), Some(token)).await?;
+    verify_dpop(
+        DpopContext::new(service, config, store),
+        proof,
+        method,
+        &format!("{}/oauth2/userinfo", issuer(service, headers)),
+        Some(expected),
+        Some(token),
+    )
+    .await?;
     Ok(())
 }
 

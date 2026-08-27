@@ -92,19 +92,19 @@ pub trait StripeStore: Send + Sync {
 
     async fn organization_customer_id(
         &self,
-        organization_id: Uuid,
+        organization_id: &str,
     ) -> Result<Option<String>, StripeStoreError>;
 
     async fn set_organization_customer_id(
         &self,
-        organization_id: Uuid,
+        organization_id: String,
         customer_id: Option<String>,
     ) -> Result<(), StripeStoreError>;
 
     async fn organization_id_by_customer(
         &self,
         customer_id: &str,
-    ) -> Result<Option<Uuid>, StripeStoreError>;
+    ) -> Result<Option<String>, StripeStoreError>;
 
     async fn create_subscription(
         &self,

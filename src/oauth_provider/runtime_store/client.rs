@@ -1,5 +1,5 @@
 use super::OAuthProviderRuntimeStore;
-use crate::{AuthError, oauth_provider::*};
+use crate::{AuthError, DatabaseIdSupplier, oauth_provider::*};
 use async_trait::async_trait;
 use chrono::Utc;
 #[cfg(test)]
@@ -48,10 +48,15 @@ impl OAuthProviderClientStore for OAuthProviderRuntimeStore {
 
     async fn persist_oauth_client_registration(
         &self,
+        client_id_supplier: &dyn DatabaseIdSupplier,
+        link_id_supplier: &dyn DatabaseIdSupplier,
         write: OAuthClientRegistrationWrite,
     ) -> Result<OAuthClientRegistrationOutcome, AuthError> {
         let client_id = write.client.client_id.clone();
-        let outcome = self.inner.persist_oauth_client_registration(write).await?;
+        let outcome = self
+            .inner
+            .persist_oauth_client_registration(client_id_supplier, link_id_supplier, write)
+            .await?;
         self.client_cache.write().await.remove(&client_id);
         Ok(outcome)
     }
@@ -82,9 +87,15 @@ mod tests {
     use chrono::Duration;
     use std::sync::Arc;
 
+    fn test_id() -> Result<crate::PreparedDatabaseId, AuthError> {
+        Ok(crate::PreparedDatabaseId::Value(
+            crate::DatabaseIdValue::String(Uuid::new_v4().to_string()),
+        ))
+    }
+
     fn client(client_id: &str, expires_at: Option<chrono::DateTime<Utc>>) -> OAuthProviderClient {
         OAuthProviderClient {
-            id: Uuid::new_v4(),
+            id: String::new(),
             client_id: client_id.into(),
             client_secret: None,
             client_discovery_id: None,
@@ -124,24 +135,33 @@ mod tests {
         }
     }
 
-    async fn insert(store: &MemoryOAuthProviderStore, client: OAuthProviderClient) {
-        store
-            .persist_oauth_client_registration(OAuthClientRegistrationWrite {
-                client,
-                resource_ids: Vec::new(),
-                mode: OAuthClientRegistrationMode::Create,
-            })
+    async fn insert(
+        store: &MemoryOAuthProviderStore,
+        client: OAuthProviderClient,
+    ) -> OAuthProviderClient {
+        match store
+            .persist_oauth_client_registration(
+                &test_id,
+                &test_id,
+                OAuthClientRegistrationWrite {
+                    client,
+                    resource_ids: Vec::new(),
+                    mode: OAuthClientRegistrationMode::Create,
+                },
+            )
             .await
-            .unwrap();
+            .unwrap()
+        {
+            OAuthClientRegistrationOutcome::Created(client) => client,
+            outcome => panic!("expected a created client, got {outcome:?}"),
+        }
     }
 
     #[tokio::test]
     async fn only_configured_trusted_clients_are_cached() {
         let inner = Arc::new(MemoryOAuthProviderStore::new());
-        let trusted = client("trusted", None);
-        let ordinary = client("ordinary", None);
-        insert(&inner, trusted.clone()).await;
-        insert(&inner, ordinary.clone()).await;
+        let trusted = insert(&inner, client("trusted", None)).await;
+        let ordinary = insert(&inner, client("ordinary", None)).await;
         let mut config = OAuthProviderConfig::new("/login", "/consent");
         config.cached_trusted_clients.insert("trusted".into());
         let runtime = OAuthProviderRuntimeStore::new(Arc::new(config), inner.clone());
@@ -177,8 +197,11 @@ mod tests {
     #[tokio::test]
     async fn trusted_client_cache_entries_expire_with_the_client_secret() {
         let inner = Arc::new(MemoryOAuthProviderStore::new());
-        let original = client("trusted", Some(Utc::now() + Duration::milliseconds(20)));
-        insert(&inner, original.clone()).await;
+        let original = insert(
+            &inner,
+            client("trusted", Some(Utc::now() + Duration::milliseconds(20))),
+        )
+        .await;
         let mut config = OAuthProviderConfig::new("/login", "/consent");
         config.cached_trusted_clients.insert("trusted".into());
         let runtime = OAuthProviderRuntimeStore::new(Arc::new(config), inner.clone());

@@ -1,13 +1,13 @@
-use super::MemoryOrganizationStore;
+use super::{MemoryOrganizationStore, create_id, duplicate_id};
 use crate::{AuthError, OrganizationRole, OrganizationRoleStore};
 use async_trait::async_trait;
-use uuid::Uuid;
 
 #[async_trait]
 impl OrganizationRoleStore for MemoryOrganizationStore {
     async fn create_role(
         &self,
-        role: OrganizationRole,
+        role: &mut OrganizationRole,
+        id: &dyn crate::DatabaseIdSupplier,
         maximum_roles: Option<usize>,
     ) -> Result<bool, AuthError> {
         let mut state = self.state.write().await;
@@ -26,17 +26,21 @@ impl OrganizationRoleStore for MemoryOrganizationStore {
         }) {
             return Ok(false);
         }
-        state.roles.insert(role.id, role);
+        role.id = create_id("organizationRole", id, &mut state)?;
+        if state.roles.contains_key(&role.id) {
+            return Err(duplicate_id("organizationRole"));
+        }
+        state.roles.insert(role.id.clone(), role.clone());
         Ok(true)
     }
 
-    async fn find_role(&self, id: Uuid) -> Result<Option<OrganizationRole>, AuthError> {
-        Ok(self.state.read().await.roles.get(&id).cloned())
+    async fn find_role(&self, id: &str) -> Result<Option<OrganizationRole>, AuthError> {
+        Ok(self.state.read().await.roles.get(id).cloned())
     }
 
     async fn find_role_by_name(
         &self,
-        organization_id: Uuid,
+        organization_id: &str,
         role: &str,
     ) -> Result<Option<OrganizationRole>, AuthError> {
         Ok(self
@@ -49,7 +53,7 @@ impl OrganizationRoleStore for MemoryOrganizationStore {
             .cloned())
     }
 
-    async fn list_roles(&self, organization_id: Uuid) -> Result<Vec<OrganizationRole>, AuthError> {
+    async fn list_roles(&self, organization_id: &str) -> Result<Vec<OrganizationRole>, AuthError> {
         let mut roles: Vec<_> = self
             .state
             .read()
@@ -59,7 +63,7 @@ impl OrganizationRoleStore for MemoryOrganizationStore {
             .filter(|role| role.organization_id == organization_id)
             .cloned()
             .collect();
-        roles.sort_by_key(|role| (role.created_at, role.id));
+        roles.sort_by_key(|role| (role.created_at, role.id.clone()));
         Ok(roles)
     }
 
@@ -77,13 +81,13 @@ impl OrganizationRoleStore for MemoryOrganizationStore {
         {
             return Ok(None);
         }
-        state.roles.insert(role.id, role.clone());
+        state.roles.insert(role.id.clone(), role.clone());
         Ok(Some(role))
     }
 
-    async fn delete_role(&self, id: Uuid) -> Result<bool, AuthError> {
+    async fn delete_role(&self, id: &str) -> Result<bool, AuthError> {
         let mut state = self.state.write().await;
-        let Some(role) = state.roles.get(&id) else {
+        let Some(role) = state.roles.get(id) else {
             return Ok(false);
         };
         if state.members.values().any(|member| {
@@ -96,6 +100,6 @@ impl OrganizationRoleStore for MemoryOrganizationStore {
         }) {
             return Ok(false);
         }
-        Ok(state.roles.remove(&id).is_some())
+        Ok(state.roles.remove(id).is_some())
     }
 }

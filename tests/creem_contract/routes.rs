@@ -91,7 +91,7 @@ async fn anonymous_checkout_preserves_truthy_precedence_and_wire_output() {
 #[tokio::test]
 async fn cancel_and_retrieve_inspect_only_the_first_matching_stored_row() {
     let fixture = fixture("creem-key", true, |_| {}).await;
-    let owner = fixture.user_id.unwrap().to_string();
+    let owner = fixture.user_id.as_ref().unwrap().clone();
     let mut first = CreemSubscription::new("product_first", &owner);
     first.status = "active".into();
     let mut second = CreemSubscription::new("product_second", &owner);
@@ -138,8 +138,10 @@ async fn access_ignores_the_api_key_but_requires_session_and_persistence() {
     );
 
     let authenticated = fixture("", true, |_| {}).await;
-    let mut subscription =
-        CreemSubscription::new("product_access", authenticated.user_id.unwrap().to_string());
+    let mut subscription = CreemSubscription::new(
+        "product_access",
+        authenticated.user_id.as_ref().unwrap().clone(),
+    );
     subscription.status = "ACTIVE".into();
     authenticated
         .store

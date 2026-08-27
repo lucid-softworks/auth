@@ -3,10 +3,9 @@ use super::model::{
     OAuthProviderClientResource, OAuthProviderConsent, OAuthProviderRefreshToken,
     OAuthProviderResource,
 };
-use crate::AuthError;
+use crate::{AuthError, DatabaseIdSupplier};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OAuthClientRegistrationMode {
@@ -46,7 +45,7 @@ pub struct OAuthTokenIssuance {
 
 #[derive(Debug, Clone)]
 pub struct OAuthRefreshRotation {
-    pub previous_refresh_id: Uuid,
+    pub previous_refresh_id: String,
     pub rotated_at: DateTime<Utc>,
     pub replay_expires_at: Option<DateTime<Utc>>,
     pub next_refresh_token: OAuthProviderRefreshToken,
@@ -72,8 +71,8 @@ pub struct OAuthTokenRevocationCount {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OAuthSessionLogoutPlan {
     pub client_ids: Vec<String>,
-    pub access_token_ids: Vec<Uuid>,
-    pub refresh_token_ids: Vec<Uuid>,
+    pub access_token_ids: Vec<String>,
+    pub refresh_token_ids: Vec<String>,
 }
 
 /// Client persistence, including the registration transaction that writes a
@@ -93,6 +92,8 @@ pub trait OAuthProviderClientStore: Send + Sync {
 
     async fn persist_oauth_client_registration(
         &self,
+        client_id: &dyn DatabaseIdSupplier,
+        link_id: &dyn DatabaseIdSupplier,
         write: OAuthClientRegistrationWrite,
     ) -> Result<OAuthClientRegistrationOutcome, AuthError>;
 
@@ -118,6 +119,7 @@ pub trait OAuthProviderResourceStore: Send + Sync {
 
     async fn create_oauth_resource(
         &self,
+        id: &dyn DatabaseIdSupplier,
         resource: OAuthProviderResource,
     ) -> Result<Option<OAuthProviderResource>, AuthError>;
 
@@ -138,6 +140,7 @@ pub trait OAuthProviderResourceStore: Send + Sync {
 
     async fn link_oauth_client_resource(
         &self,
+        id: &dyn DatabaseIdSupplier,
         link: OAuthProviderClientResource,
     ) -> Result<OAuthClientResourceLinkOutcome, AuthError>;
 
@@ -150,7 +153,7 @@ pub trait OAuthProviderResourceStore: Send + Sync {
 
 #[async_trait]
 pub trait OAuthProviderConsentStore: Send + Sync {
-    async fn find_oauth_consent(&self, id: Uuid)
+    async fn find_oauth_consent(&self, id: &str)
     -> Result<Option<OAuthProviderConsent>, AuthError>;
 
     async fn find_oauth_consent_for_grant(
@@ -167,12 +170,13 @@ pub trait OAuthProviderConsentStore: Send + Sync {
 
     async fn upsert_oauth_consent(
         &self,
+        id: &dyn DatabaseIdSupplier,
         consent: OAuthProviderConsent,
     ) -> Result<OAuthProviderConsent, AuthError>;
 
     async fn delete_oauth_consent(
         &self,
-        id: Uuid,
+        id: &str,
     ) -> Result<Option<OAuthProviderConsent>, AuthError>;
 }
 
@@ -191,27 +195,34 @@ pub trait OAuthProviderTokenStore: Send + Sync {
         token: &str,
     ) -> Result<Option<OAuthProviderRefreshToken>, AuthError>;
 
-    async fn issue_oauth_tokens(&self, issuance: OAuthTokenIssuance) -> Result<(), AuthError>;
+    async fn issue_oauth_tokens(
+        &self,
+        refresh_id: &dyn DatabaseIdSupplier,
+        access_id: &dyn DatabaseIdSupplier,
+        issuance: OAuthTokenIssuance,
+    ) -> Result<(), AuthError>;
 
     async fn rotate_oauth_refresh_token(
         &self,
+        refresh_id: &dyn DatabaseIdSupplier,
+        access_id: &dyn DatabaseIdSupplier,
         rotation: OAuthRefreshRotation,
     ) -> Result<OAuthRefreshRotationOutcome, AuthError>;
 
     async fn store_oauth_refresh_rotation_replay(
         &self,
-        refresh_id: Uuid,
+        refresh_id: &str,
         response: String,
     ) -> Result<bool, AuthError>;
 
     async fn delete_oauth_access_token(
         &self,
-        id: Uuid,
+        id: &str,
     ) -> Result<Option<OAuthProviderAccessToken>, AuthError>;
 
     async fn revoke_oauth_refresh_token(
         &self,
-        id: Uuid,
+        id: &str,
         revoked_at: DateTime<Utc>,
     ) -> Result<bool, AuthError>;
 
@@ -251,6 +262,7 @@ pub trait OAuthProviderAssertionStore: Send + Sync {
     /// present and the assertion is a replay.
     async fn reserve_oauth_client_assertion(
         &self,
+        id: &dyn DatabaseIdSupplier,
         assertion: OAuthProviderClientAssertion,
     ) -> Result<bool, AuthError>;
 

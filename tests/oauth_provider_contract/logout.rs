@@ -144,15 +144,19 @@ async fn session_deletion_posts_logout_jwt_and_preserves_offline_refresh() {
     let server = tokio::spawn(async move { axum::serve(listener, callback).await.unwrap() });
 
     let fixture = fixture().await;
-    let mut logout_client = client("logout-client", Some(fixture.user_id));
+    let mut logout_client = client("logout-client", Some(&fixture.user_id));
     logout_client.backchannel_logout_uri = Some(format!("http://{address}/logout"));
     fixture
         .oauth
-        .persist_oauth_client_registration(OAuthClientRegistrationWrite {
-            client: logout_client,
-            resource_ids: Vec::new(),
-            mode: OAuthClientRegistrationMode::Create,
-        })
+        .persist_oauth_client_registration(
+            &oauth_record_id,
+            &oauth_record_id,
+            OAuthClientRegistrationWrite {
+                client: logout_client,
+                resource_ids: Vec::new(),
+                mode: OAuthClientRegistrationMode::Create,
+            },
+        )
         .await
         .unwrap();
     issue_logout_tokens(&fixture).await;
@@ -183,7 +187,7 @@ async fn session_deletion_posts_logout_jwt_and_preserves_offline_refresh() {
 }
 
 async fn register_logout_client(fixture: &Fixture) {
-    let mut logout_client = client("logout-client", Some(fixture.user_id));
+    let mut logout_client = client("logout-client", Some(&fixture.user_id));
     logout_client.enable_end_session = Some(true);
     logout_client.post_logout_redirect_uris = Some(vec![
         "https://client.example/logged-out?existing=kept".into(),
@@ -191,11 +195,15 @@ async fn register_logout_client(fixture: &Fixture) {
     ]);
     fixture
         .oauth
-        .persist_oauth_client_registration(OAuthClientRegistrationWrite {
-            client: logout_client,
-            resource_ids: Vec::new(),
-            mode: OAuthClientRegistrationMode::Create,
-        })
+        .persist_oauth_client_registration(
+            &oauth_record_id,
+            &oauth_record_id,
+            OAuthClientRegistrationWrite {
+                client: logout_client,
+                resource_ids: Vec::new(),
+                mode: OAuthClientRegistrationMode::Create,
+            },
+        )
         .await
         .unwrap();
 }
@@ -221,41 +229,49 @@ async fn signed_hint(fixture: &Fixture) -> String {
 }
 
 async fn issue_logout_tokens(fixture: &Fixture) {
-    let online_id = Uuid::new_v4();
+    let online_id = "pending-refresh".to_owned();
     fixture
         .oauth
-        .issue_oauth_tokens(OAuthTokenIssuance {
-            access_token: Some(access_token(
-                "logout-access",
-                "logout-client",
-                fixture.user_id,
-                Some(fixture.session_id),
-                Some(online_id),
-            )),
-            refresh_token: Some(refresh_token(
-                online_id,
-                "logout-online",
-                "logout-client",
-                fixture.user_id,
-                Some(fixture.session_id),
-                vec!["profile".into()],
-            )),
-        })
+        .issue_oauth_tokens(
+            &oauth_record_id,
+            &oauth_record_id,
+            OAuthTokenIssuance {
+                access_token: Some(access_token(
+                    "logout-access",
+                    "logout-client",
+                    &fixture.user_id,
+                    Some(&fixture.session_id),
+                    Some(online_id.clone()),
+                )),
+                refresh_token: Some(refresh_token(
+                    online_id,
+                    "logout-online",
+                    "logout-client",
+                    &fixture.user_id,
+                    Some(&fixture.session_id),
+                    vec!["profile".into()],
+                )),
+            },
+        )
         .await
         .unwrap();
     fixture
         .oauth
-        .issue_oauth_tokens(OAuthTokenIssuance {
-            access_token: None,
-            refresh_token: Some(refresh_token(
-                Uuid::new_v4(),
-                "logout-offline",
-                "logout-client",
-                fixture.user_id,
-                Some(fixture.session_id),
-                vec!["offline_access".into()],
-            )),
-        })
+        .issue_oauth_tokens(
+            &oauth_record_id,
+            &oauth_record_id,
+            OAuthTokenIssuance {
+                access_token: None,
+                refresh_token: Some(refresh_token(
+                    String::new(),
+                    "logout-offline",
+                    "logout-client",
+                    &fixture.user_id,
+                    Some(&fixture.session_id),
+                    vec!["offline_access".into()],
+                )),
+            },
+        )
         .await
         .unwrap();
 }

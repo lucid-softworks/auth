@@ -7,19 +7,31 @@ mod records;
 pub(super) use records::{AccessRow, ClientRow, ConsentRow, LinkRow, RefreshRow, ResourceRow};
 
 pub(super) fn client_projection(model: &PostgresModel<'_>) -> Result<String, crate::AuthError> {
-    projection_with_text_ids(model, CLIENT_FIELDS, &["userId"])
+    projection_with_text_ids(model, CLIENT_FIELDS, &["id", "userId"])
 }
 
 pub(super) fn refresh_projection(model: &PostgresModel<'_>) -> Result<String, crate::AuthError> {
-    projection_with_text_ids(model, REFRESH_FIELDS, &["sessionId", "userId"])
+    projection_with_text_ids(model, REFRESH_FIELDS, &["id", "sessionId", "userId"])
 }
 
 pub(super) fn access_projection(model: &PostgresModel<'_>) -> Result<String, crate::AuthError> {
-    projection_with_text_ids(model, ACCESS_FIELDS, &["sessionId", "userId"])
+    projection_with_text_ids(
+        model,
+        ACCESS_FIELDS,
+        &["id", "sessionId", "userId", "refreshId"],
+    )
 }
 
 pub(super) fn consent_projection(model: &PostgresModel<'_>) -> Result<String, crate::AuthError> {
-    projection_with_text_ids(model, CONSENT_FIELDS, &["userId"])
+    projection_with_text_ids(model, CONSENT_FIELDS, &["id", "userId"])
+}
+
+pub(super) fn resource_projection(model: &PostgresModel<'_>) -> Result<String, crate::AuthError> {
+    projection_with_text_ids(model, RESOURCE_FIELDS, &["id"])
+}
+
+pub(super) fn link_projection(model: &PostgresModel<'_>) -> Result<String, crate::AuthError> {
+    projection_with_text_ids(model, LINK_FIELDS, &["id"])
 }
 
 fn projection_with_text_ids(
@@ -27,6 +39,9 @@ fn projection_with_text_ids(
     fields: &[(&str, &str)],
     text_ids: &[&str],
 ) -> Result<String, crate::AuthError> {
+    if text_ids.is_empty() {
+        return model.projection_as(fields);
+    }
     fields
         .iter()
         .map(|(logical, alias)| {
@@ -164,18 +179,47 @@ pub(super) fn writes<'a, T: Serialize>(
     record: &T,
     extras: impl IntoIterator<Item = (&'static str, Value)>,
 ) -> Result<Vec<PostgresWrite<'a>>, crate::AuthError> {
-    let mut values = serde_json::to_value(record)
-        .map_err(|error| crate::AuthError::Storage(error.to_string()))?
-        .as_object()
-        .cloned()
-        .ok_or_else(|| {
-            crate::AuthError::Storage("OAuth Provider record is not an object".into())
-        })?;
+    let mut values = record_values(record)?;
+    values.remove("id");
     values.extend(
         extras
             .into_iter()
             .map(|(logical, value)| (logical.to_owned(), value)),
     );
+    encode_values(model, &values)
+}
+
+pub(super) fn insert_writes<'a, T: Serialize>(
+    model: &'a PostgresModel<'_>,
+    record: &T,
+    id: &crate::PreparedDatabaseId,
+    extras: impl IntoIterator<Item = (&'static str, Value)>,
+) -> Result<Vec<PostgresWrite<'a>>, crate::AuthError> {
+    let mut values = record_values(record)?;
+    values.remove("id");
+    super::super::rows::insert_prepared_id(&mut values, id)?;
+    values.extend(
+        extras
+            .into_iter()
+            .map(|(logical, value)| (logical.to_owned(), value)),
+    );
+    encode_values(model, &values)
+}
+
+fn record_values<T: Serialize>(
+    record: &T,
+) -> Result<serde_json::Map<String, Value>, crate::AuthError> {
+    serde_json::to_value(record)
+        .map_err(|error| crate::AuthError::Storage(error.to_string()))?
+        .as_object()
+        .cloned()
+        .ok_or_else(|| crate::AuthError::Storage("OAuth Provider record is not an object".into()))
+}
+
+fn encode_values<'a>(
+    model: &'a PostgresModel<'_>,
+    values: &serde_json::Map<String, Value>,
+) -> Result<Vec<PostgresWrite<'a>>, crate::AuthError> {
     model.encode_fields(
         values
             .iter()

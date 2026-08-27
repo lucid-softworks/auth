@@ -159,7 +159,7 @@ mod tests {
             .await
             .unwrap();
         store
-            .set_organization_customer_id(organization_id, Some("cus_1".into()))
+            .set_organization_customer_id(organization_id.to_string(), Some("cus_1".into()))
             .await
             .unwrap();
         let context = LifecycleContext {

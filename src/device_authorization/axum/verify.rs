@@ -46,7 +46,7 @@ pub(super) async fn verify(
     {
         match state
             .store
-            .bind_pending_user(record.id, &session.user.id)
+            .bind_pending_user(&record.id, &session.user.id)
             .await
         {
             Ok(Some(bound)) => record = bound,

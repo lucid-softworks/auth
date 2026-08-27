@@ -198,7 +198,7 @@ async fn shares_organization(state: &AgentAuthState, user_id: &str, owner_id: &s
         return false;
     };
     for organization in organizations {
-        match store.find_member(organization.id, owner_id).await {
+        match store.find_member(&organization.id, owner_id).await {
             Ok(Some(_)) => return true,
             Ok(None) => {}
             Err(_) => return false,

@@ -1,15 +1,14 @@
 use super::{PostgresModel, PostgresStore, storage_error};
 use crate::{
-    AuthError, AuthUser, DatabaseAccountCreate, DatabaseCreate, PreparedDatabaseId,
-    SiweIdentityWrite, SiweIdentityWriteOutcome, SiweSchema, SiweStore, WalletAddress,
-    WalletAddressOwner,
+    AuthError, AuthUser, DatabaseAccountCreate, DatabaseCreate, SiweIdentityWrite,
+    SiweIdentityWriteOutcome, SiweSchema, SiweStore, WalletAddress, WalletAddressOwner,
 };
 use async_trait::async_trait;
 use sqlx::{Postgres, QueryBuilder, Transaction};
 
 mod query;
 
-use query::{find_owner_tx, find_wallet_pool, insert_wallet_and_account};
+use query::{account_exists_tx, find_owner_tx, find_wallet_pool, insert_wallet_and_account};
 
 #[async_trait]
 impl SiweStore for PostgresStore {
@@ -35,18 +34,18 @@ impl SiweStore for PostgresStore {
         &self,
         _schema: &SiweSchema,
         user: DatabaseCreate<AuthUser>,
-        mut wallet: WalletAddress,
+        mut wallet: DatabaseCreate<WalletAddress>,
         account: &dyn DatabaseAccountCreate,
     ) -> Result<SiweIdentityWriteOutcome, AuthError> {
         let models = IdentityWriteModels::new(self)?;
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
-        lock_address(&mut transaction, &wallet.address).await?;
+        lock_address(&mut transaction, &wallet.record.address).await?;
         if let Some(owner) = find_owner_tx(
             &mut transaction,
             &models.wallet,
             &models.user,
-            &wallet.address,
-            Some(wallet.chain_id),
+            &wallet.record.address,
+            Some(wallet.record.chain_id),
         )
         .await?
         {
@@ -57,19 +56,19 @@ impl SiweStore for PostgresStore {
             &mut transaction,
             &models.wallet,
             &models.user,
-            &wallet.address,
+            &wallet.record.address,
             None,
         )
         .await?;
 
         let outcome = if let Some(owner) = address_owner {
             let account = account.prepare(&owner.user).await?;
-            let (mut account, account_id) = account.into_parts(self)?;
-            wallet.user_id = owner.user.id.clone();
-            wallet.is_primary = false;
-            account.user_id = owner.user.id.clone();
-            models
-                .insert(&mut transaction, &wallet, &account, &account_id)
+            wallet.record.user_id = owner.user.id.clone();
+            wallet.record.is_primary = false;
+            let mut account = account;
+            account.record.user_id = owner.user.id.clone();
+            let (wallet, account) = models
+                .insert(self, &mut transaction, wallet, account)
                 .await?;
             SiweIdentityWriteOutcome::AddedChain {
                 user: owner.user,
@@ -77,7 +76,10 @@ impl SiweStore for PostgresStore {
                 account,
             }
         } else {
-            let (mut user, user_id) = user.into_parts(self)?;
+            let DatabaseCreate {
+                record: mut user,
+                id: user_id,
+            } = user;
             user.email = user.email.to_lowercase();
             if super::user::email_exists_transaction(&mut transaction, &models.user, &user.email)
                 .await?
@@ -85,16 +87,17 @@ impl SiweStore for PostgresStore {
                 transaction.commit().await.map_err(storage_error)?;
                 return Ok(SiweIdentityWriteOutcome::EmailTaken);
             }
+            let user_id = user_id.prepare(self)?;
             let user =
                 super::user::insert_transaction(&mut transaction, &models.user, user, &user_id)
                     .await?;
             let account = account.prepare(&user).await?;
-            let (mut account, account_id) = account.into_parts(self)?;
-            wallet.user_id = user.id.clone();
-            wallet.is_primary = true;
-            account.user_id = user.id.clone();
-            models
-                .insert(&mut transaction, &wallet, &account, &account_id)
+            wallet.record.user_id = user.id.clone();
+            wallet.record.is_primary = true;
+            let mut account = account;
+            account.record.user_id = user.id.clone();
+            let (wallet, account) = models
+                .insert(self, &mut transaction, wallet, account)
                 .await?;
             SiweIdentityWriteOutcome::Created {
                 user,
@@ -118,13 +121,13 @@ impl SiweStore for PostgresStore {
                 wallet, account, ..
             } => (wallet.clone(), account.clone()),
         };
-        lock_address(&mut transaction, &wallet.address).await?;
+        lock_address(&mut transaction, &wallet.record.address).await?;
         if let Some(owner) = find_owner_tx(
             &mut transaction,
             &models.wallet,
             &models.user,
-            &wallet.address,
-            Some(wallet.chain_id),
+            &wallet.record.address,
+            Some(wallet.record.chain_id),
         )
         .await?
         {
@@ -135,7 +138,7 @@ impl SiweStore for PostgresStore {
             &mut transaction,
             &models.wallet,
             &models.user,
-            &wallet.address,
+            &wallet.record.address,
             None,
         )
         .await?;
@@ -151,13 +154,13 @@ impl SiweStore for PostgresStore {
             transaction.commit().await.map_err(storage_error)?;
             return Ok(SiweIdentityWriteOutcome::Existing(owner));
         }
-        let (mut account, account_id) = account.into_parts(self)?;
         let mut wallet = wallet;
-        wallet.user_id = owner.user.id.clone();
-        wallet.is_primary = false;
-        account.user_id = owner.user.id.clone();
-        models
-            .insert(&mut transaction, &wallet, &account, &account_id)
+        wallet.record.user_id = owner.user.id.clone();
+        wallet.record.is_primary = false;
+        let mut account = account;
+        account.record.user_id = owner.user.id.clone();
+        let (wallet, account) = models
+            .insert(self, &mut transaction, wallet, account)
             .await?;
         let outcome = SiweIdentityWriteOutcome::AddedChain {
             user: owner.user,
@@ -186,18 +189,31 @@ impl IdentityWriteModels<'_> {
 
     async fn insert(
         &self,
+        store: &PostgresStore,
         transaction: &mut Transaction<'_, Postgres>,
-        wallet: &WalletAddress,
-        account: &crate::OAuthAccount,
-        account_id: &PreparedDatabaseId,
-    ) -> Result<(), AuthError> {
+        wallet: DatabaseCreate<WalletAddress>,
+        account: DatabaseCreate<crate::OAuthAccount>,
+    ) -> Result<(WalletAddress, crate::OAuthAccount), AuthError> {
+        if account_exists_tx(
+            transaction,
+            &self.account,
+            &account.record.issuer,
+            &account.record.account_id,
+        )
+        .await?
+        {
+            return Err(AuthError::UserAlreadyExists);
+        }
+        let (wallet, wallet_id) = wallet.into_parts(store)?;
+        let (account, account_id) = account.into_parts(store)?;
         insert_wallet_and_account(
             transaction,
             &self.wallet,
             &self.account,
-            wallet,
-            account,
-            account_id,
+            &wallet,
+            &wallet_id,
+            &account,
+            &account_id,
         )
         .await
     }

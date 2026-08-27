@@ -9,7 +9,6 @@ use lucid_auth::{
 };
 use std::sync::Arc;
 use tower::ServiceExt;
-use uuid::Uuid;
 
 struct Fixture {
     service: Arc<AuthService>,
@@ -240,16 +239,20 @@ async fn seed_recovery_state(
         ))
         .await
         .unwrap();
+    let two_factor_id = DatabaseIdPlan::new(DefaultId, "twoFactor", Absent, false);
     factors
-        .upsert_two_factor(TwoFactorRecord {
-            id: Uuid::new_v4(),
-            user_id: owner.id.clone(),
-            encrypted_secret: "secret".into(),
-            encrypted_backup_codes: "codes".into(),
-            verified: true,
-            failed_verification_count: 0,
-            locked_until: None,
-        })
+        .upsert_two_factor(
+            &|| two_factor_id.prepare(fixture.auth_store.as_ref()),
+            TwoFactorRecord {
+                id: String::new(),
+                user_id: owner.id.clone(),
+                encrypted_secret: "secret".into(),
+                encrypted_backup_codes: "codes".into(),
+                verified: true,
+                failed_verification_count: 0,
+                locked_until: None,
+            },
+        )
         .await
         .unwrap();
     factors

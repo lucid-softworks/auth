@@ -17,7 +17,6 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 use tower::ServiceExt;
 use url::Url;
-use uuid::Uuid;
 
 #[path = "two_factor_contract/lifecycle.rs"]
 mod lifecycle;
@@ -172,11 +171,11 @@ async fn sign_in(app: &Router, cookies: &mut CookieJar) -> (StatusCode, HeaderMa
 async fn enable_totp(
     fixture: &Fixture,
     cookies: &mut CookieJar,
-) -> (Uuid, String, Vec<String>, Value) {
+) -> (String, String, Vec<String>, Value) {
     let (status, _, signed_in) = sign_in(&fixture.app, cookies).await;
     assert_eq!(status, StatusCode::OK, "{signed_in}");
     assert_eq!(signed_in["user"]["twoFactorEnabled"], false);
-    let user_id = Uuid::parse_str(signed_in["user"]["id"].as_str().unwrap()).unwrap();
+    let user_id = signed_in["user"]["id"].as_str().unwrap().to_owned();
     let (status, _, enabled) = request(
         &fixture.app,
         cookies,

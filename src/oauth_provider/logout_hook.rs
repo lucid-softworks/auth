@@ -293,7 +293,7 @@ mod tests {
 
     fn fixture_client(client_id: &str) -> OAuthProviderClient {
         OAuthProviderClient {
-            id: Uuid::new_v4(),
+            id: Uuid::new_v4().to_string(),
             client_id: client_id.into(),
             client_secret: None,
             client_discovery_id: None,

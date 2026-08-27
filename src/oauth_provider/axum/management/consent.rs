@@ -12,7 +12,6 @@ use axum::{
 };
 use serde::Deserialize;
 use std::sync::Arc;
-use uuid::Uuid;
 
 use super::super::super::OAuthProviderError;
 use super::super::body::JsonOnly;
@@ -48,10 +47,7 @@ pub(super) async fn get(
     let Some(session) = current_session(&service, &headers).await else {
         return auth_error(AuthError::Unauthorized);
     };
-    let Ok(id) = Uuid::parse_str(&input.id) else {
-        return endpoint_error(StatusCode::NOT_FOUND, "not_found", "no consent");
-    };
-    match state.store.find_oauth_consent(id).await {
+    match state.store.find_oauth_consent(&input.id).await {
         Ok(Some(consent)) if consent.user_id == Some(session.user.id) => {
             Json(consent).into_response()
         }
@@ -84,10 +80,7 @@ pub(super) async fn update(
     let Some(session) = current_session(&service, &headers).await else {
         return auth_error(AuthError::Unauthorized);
     };
-    let Ok(id) = Uuid::parse_str(&input.id) else {
-        return endpoint_error(StatusCode::NOT_FOUND, "not_found", "no consent");
-    };
-    let mut consent = match state.store.find_oauth_consent(id).await {
+    let mut consent = match state.store.find_oauth_consent(&input.id).await {
         Ok(Some(consent)) if consent.user_id == Some(session.user.id) => consent,
         Ok(Some(_)) => return auth_error(AuthError::Unauthorized),
         Ok(None) => return endpoint_error(StatusCode::NOT_FOUND, "not_found", "no consent"),
@@ -117,7 +110,12 @@ pub(super) async fn update(
     }
     consent.scopes = input.update.scopes;
     consent.updated_at = second_precision_now();
-    match state.store.upsert_oauth_consent(consent).await {
+    let id = service.database_id_plan("oauthConsent", crate::DatabaseIdInput::Absent, false);
+    match state
+        .store
+        .upsert_oauth_consent(&|| service.prepare_database_id(&id), consent)
+        .await
+    {
         Ok(consent) => Json(consent).into_response(),
         Err(error) => auth_error(error),
     }
@@ -132,16 +130,13 @@ pub(super) async fn delete(
     let Some(session) = current_session(&service, &headers).await else {
         return auth_error(AuthError::Unauthorized);
     };
-    let Ok(id) = Uuid::parse_str(&input.id) else {
-        return endpoint_error(StatusCode::NOT_FOUND, "not_found", "no consent");
-    };
-    match state.store.find_oauth_consent(id).await {
+    match state.store.find_oauth_consent(&input.id).await {
         Ok(Some(consent)) if consent.user_id == Some(session.user.id) => {}
         Ok(Some(_)) => return auth_error(AuthError::Unauthorized),
         Ok(None) => return endpoint_error(StatusCode::NOT_FOUND, "not_found", "no consent"),
         Err(error) => return auth_error(error),
     }
-    match state.store.delete_oauth_consent(id).await {
+    match state.store.delete_oauth_consent(&input.id).await {
         Ok(_) => StatusCode::OK.into_response(),
         Err(error) => auth_error(error),
     }

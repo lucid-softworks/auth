@@ -149,29 +149,29 @@ async fn linked_accounts_are_user_bound_refresh_safe_and_never_orphan_authentica
     ));
     assert_eq!(
         service
-            .get_provider_access_token(&owner.session, oauth.id)
+            .get_provider_access_token(&owner.session, &oauth.id)
             .await
             .unwrap()
             .access_token,
         "access-one"
     );
     let (left, right) = tokio::join!(
-        service.refresh_provider_access_token(&owner.session, oauth.id),
-        service.refresh_provider_access_token(&owner.session, oauth.id),
+        service.refresh_provider_access_token(&owner.session, &oauth.id),
+        service.refresh_provider_access_token(&owner.session, &oauth.id),
     );
     assert_eq!(left.unwrap().access_token, right.unwrap().access_token);
     let info = service
-        .provider_account_info(&owner.session, oauth.id)
+        .provider_account_info(&owner.session, &oauth.id)
         .await
         .unwrap();
     assert_eq!(info.account.account_id, "shared");
 
     service
-        .unlink_account(&owner.session, oauth.id)
+        .unlink_account(&owner.session, &oauth.id)
         .await
         .unwrap();
     assert!(matches!(
-        service.unlink_account(&owner.session, credential.id).await,
+        service.unlink_account(&owner.session, &credential.id).await,
         Err(AuthError::FailedToUnlinkLastAccount)
     ));
 }

@@ -4,11 +4,10 @@ use crate::oauth_provider::{
 };
 use chrono::{DateTime, Utc};
 use sqlx::{FromRow, types::Json};
-use uuid::Uuid;
 
 #[derive(FromRow)]
 pub(in crate::postgres::oauth_provider) struct ClientRow {
-    id: Uuid,
+    id: String,
     client_id: String,
     client_secret: Option<String>,
     client_discovery_id: Option<String>,
@@ -92,7 +91,7 @@ impl From<ClientRow> for OAuthProviderClient {
 
 #[derive(FromRow)]
 pub(in crate::postgres::oauth_provider) struct ResourceRow {
-    id: Uuid,
+    id: String,
     identifier: String,
     name: String,
     access_token_ttl: Option<i32>,
@@ -133,7 +132,7 @@ impl From<ResourceRow> for OAuthProviderResource {
 
 #[derive(FromRow)]
 pub(in crate::postgres::oauth_provider) struct LinkRow {
-    id: Uuid,
+    id: String,
     client_id: String,
     resource_id: String,
     metadata: Option<serde_json::Value>,
@@ -154,7 +153,7 @@ impl From<LinkRow> for OAuthProviderClientResource {
 
 #[derive(FromRow)]
 pub(in crate::postgres::oauth_provider) struct RefreshRow {
-    id: Uuid,
+    id: String,
     token: String,
     client_id: String,
     session_id: Option<String>,
@@ -201,7 +200,7 @@ impl From<RefreshRow> for OAuthProviderRefreshToken {
 
 #[derive(FromRow)]
 pub(in crate::postgres::oauth_provider) struct AccessRow {
-    id: Uuid,
+    id: String,
     token: String,
     client_id: String,
     session_id: Option<String>,
@@ -210,7 +209,7 @@ pub(in crate::postgres::oauth_provider) struct AccessRow {
     authorization_code_id: Option<String>,
     resources: Option<Json<Vec<String>>>,
     requested_user_info_claims: Option<Json<Vec<String>>>,
-    refresh_id: Option<Uuid>,
+    refresh_id: Option<String>,
     expires_at: DateTime<Utc>,
     created_at: DateTime<Utc>,
     revoked: Option<DateTime<Utc>>,
@@ -242,7 +241,7 @@ impl From<AccessRow> for OAuthProviderAccessToken {
 
 #[derive(FromRow)]
 pub(in crate::postgres::oauth_provider) struct ConsentRow {
-    id: Uuid,
+    id: String,
     client_id: String,
     user_id: Option<String>,
     reference_id: Option<String>,

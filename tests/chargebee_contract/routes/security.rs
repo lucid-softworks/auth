@@ -94,7 +94,7 @@ async fn session_then_reference_authorization_then_origin_is_the_exact_order() {
 #[tokio::test]
 async fn equal_user_reference_needs_no_callback_but_a_different_one_does() {
     let fixture = fixture(true, |_| {}).await;
-    let user_id = fixture.user_id.unwrap().to_string();
+    let user_id = fixture.user_id.as_deref().unwrap().to_owned();
     let valid = json!({
         "itemPriceId": "price_pro",
         "successUrl": "/success",

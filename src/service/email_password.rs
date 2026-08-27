@@ -2,6 +2,8 @@ use super::{AuthService, SignInResult, password::verify_password};
 use crate::{AuthError, AuthUser, AuthenticationMethod, DatabaseModel, SessionWithUser};
 use chrono::{Duration, Utc};
 
+use super::context_id::ContextIdFallback;
+
 /// Core fields accepted by Better Auth's email signup flow.
 #[derive(Debug, Clone)]
 pub struct EmailSignUpInput {
@@ -130,7 +132,11 @@ impl AuthService {
         image: Option<String>,
         additional_fields: serde_json::Map<String, serde_json::Value>,
     ) -> EmailSignUpResult {
+        let id = self
+            .generate_special_database_id("user", ContextIdFallback::Falsey, 32.0)
+            .expect("the fixed synthetic-signup ID length is valid");
         synthetic_signup(
+            id,
             name,
             email,
             image,
@@ -246,6 +252,7 @@ pub(crate) fn valid_email(email: &str) -> bool {
 }
 
 fn synthetic_signup(
+    id: String,
     name: String,
     email: String,
     image: Option<String>,
@@ -256,7 +263,7 @@ fn synthetic_signup(
     EmailSignUpResult {
         token: None,
         user: AuthUser {
-            id: String::new(),
+            id,
             username: None,
             display_username: None,
             name,

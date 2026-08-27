@@ -1,7 +1,6 @@
 use axum::{Extension, Json, extract::Request, http::StatusCode, response::IntoResponse};
 use chrono::{DateTime, Utc};
 use serde_json::json;
-use uuid::Uuid;
 
 use super::{DeviceAuthorizationState, error, generation, request, uri};
 use crate::AuthService;
@@ -122,7 +121,7 @@ async fn create(
             Err(response) => return *response,
         };
         let record = DeviceCode {
-            id: Uuid::new_v4(),
+            id: String::new(),
             device_code: device_code.clone(),
             user_code: user_code.clone(),
             user_id: prepared.user_id.clone(),
@@ -135,7 +134,10 @@ async fn create(
             resources: None,
             oauth_client_id: None,
         };
-        match state.store.create_device_code(record).await {
+        match service
+            .create_device_authorization_code(state.store.as_ref(), record)
+            .await
+        {
             Ok(DeviceCodeCreateOutcome::UniqueConflict) => continue,
             Err(_) => return error::internal("Failed to create device code", true),
             Ok(DeviceCodeCreateOutcome::Created(_)) => {

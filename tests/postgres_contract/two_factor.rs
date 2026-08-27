@@ -1,7 +1,8 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{TwoFactorRecord, TwoFactorStore, postgres::PostgresStore};
 use sqlx::PgPool;
-use uuid::Uuid;
+
+use super::database_id_plan;
 
 pub(super) async fn assert_exact_schema(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
@@ -32,16 +33,20 @@ pub(super) async fn assert_atomic(
     pool: &PgPool,
     user_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let id = database_id_plan("twoFactor");
     let record = store
-        .upsert_two_factor(TwoFactorRecord {
-            id: Uuid::new_v4(),
-            user_id: user_id.to_owned(),
-            encrypted_secret: "encrypted-secret".into(),
-            encrypted_backup_codes: "encrypted-backup-codes".into(),
-            verified: true,
-            failed_verification_count: 0,
-            locked_until: None,
-        })
+        .upsert_two_factor(
+            &|| id.prepare(store),
+            TwoFactorRecord {
+                id: String::new(),
+                user_id: user_id.to_owned(),
+                encrypted_secret: "encrypted-secret".into(),
+                encrypted_backup_codes: "encrypted-backup-codes".into(),
+                verified: true,
+                failed_verification_count: 0,
+                locked_until: None,
+            },
+        )
         .await?;
     assert_eq!(record.user_id, user_id);
 

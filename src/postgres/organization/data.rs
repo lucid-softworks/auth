@@ -5,7 +5,6 @@ use crate::{
 };
 use async_trait::async_trait;
 use serde_json::json;
-use uuid::Uuid;
 
 mod query;
 
@@ -16,13 +15,14 @@ impl OrganizationDataStore for PostgresStore {
     async fn raw_insert_organization(
         &self,
         organization: Organization,
+        id: &dyn crate::DatabaseIdSupplier,
     ) -> Result<Organization, AuthError> {
         let model = self.physical_model("organization")?;
-        insert_organization(&self.pool, &model, &organization).await?;
-        Ok(organization)
+        let id = id.prepare()?;
+        insert_organization(&self.pool, &model, &organization, &id).await
     }
 
-    async fn raw_delete_organization(&self, id: Uuid) -> Result<(), AuthError> {
+    async fn raw_delete_organization(&self, id: &str) -> Result<(), AuthError> {
         let organization = self.physical_model("organization")?;
         let member = self.physical_model("member")?;
         let invitation = self.physical_model("invitation")?;
@@ -47,9 +47,16 @@ impl OrganizationDataStore for PostgresStore {
 
     async fn create_organization(
         &self,
-        organization: Organization,
-        owner: OrganizationMember,
-        default_team: Option<(OrganizationTeam, OrganizationTeamMember)>,
+        organization: &mut Organization,
+        organization_id: &dyn crate::DatabaseIdSupplier,
+        owner: &mut OrganizationMember,
+        owner_id: &dyn crate::DatabaseIdSupplier,
+        default_team: Option<(
+            &mut OrganizationTeam,
+            &dyn crate::DatabaseIdSupplier,
+            &mut OrganizationTeamMember,
+            &dyn crate::DatabaseIdSupplier,
+        )>,
         organization_limit: Option<usize>,
     ) -> Result<OrganizationCreateOutcome, AuthError> {
         let organization_model = self.physical_model("organization")?;
@@ -75,21 +82,35 @@ impl OrganizationDataStore for PostgresStore {
                 return Ok(OrganizationCreateOutcome::LimitReached);
             }
         }
-        insert_organization(&mut *transaction, &organization_model, &organization).await?;
-        insert_member(&mut *transaction, &member_model, &owner).await?;
-        if let (Some((team, member)), Some((team_model, team_member_model))) =
+        let prepared = organization_id.prepare()?;
+        *organization = insert_organization(
+            &mut *transaction,
+            &organization_model,
+            organization,
+            &prepared,
+        )
+        .await?;
+        owner.organization_id = organization.id.clone();
+        let prepared = owner_id.prepare()?;
+        *owner = insert_member(&mut *transaction, &member_model, owner, &prepared).await?;
+        if let (Some((team, team_id, member, member_id)), Some((team_model, team_member_model))) =
             (default_team, team_models)
         {
-            insert_team(&mut *transaction, &team_model, &team).await?;
-            insert_team_member(&mut *transaction, &team_member_model, &member).await?;
+            team.organization_id = organization.id.clone();
+            let prepared = team_id.prepare()?;
+            *team = insert_team(&mut *transaction, &team_model, team, &prepared).await?;
+            member.team_id = team.id.clone();
+            let prepared = member_id.prepare()?;
+            *member = insert_team_member(&mut *transaction, &team_member_model, member, &prepared)
+                .await?;
         }
         transaction.commit().await.map_err(storage_error)?;
         Ok(OrganizationCreateOutcome::Created)
     }
 
-    async fn find_organization_by_id(&self, id: Uuid) -> Result<Option<Organization>, AuthError> {
+    async fn find_organization_by_id(&self, id: &str) -> Result<Option<Organization>, AuthError> {
         let model = self.physical_model("organization")?;
-        fetch_organization(&self.pool, &model, "id", uuid_value(id)).await
+        fetch_organization(&self.pool, &model, "id", json!(id)).await
     }
 
     async fn find_organization_by_slug(
@@ -120,7 +141,7 @@ impl OrganizationDataStore for PostgresStore {
     ) -> Result<Option<Organization>, AuthError> {
         let model = self.physical_model("organization")?;
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
-        if !lock_organization_row(&mut transaction, &model, organization.id).await? {
+        if !lock_organization_row(&mut transaction, &model, &organization.id).await? {
             return Ok(None);
         }
         advisory_slug_lock(&mut transaction, &organization.slug).await?;
@@ -136,7 +157,7 @@ impl OrganizationDataStore for PostgresStore {
             .transpose()
     }
 
-    async fn delete_organization(&self, id: Uuid) -> Result<Option<Organization>, AuthError> {
+    async fn delete_organization(&self, id: &str) -> Result<Option<Organization>, AuthError> {
         let model = self.physical_model("organization")?;
         let mut query = delete_query(&model, id)?;
         query

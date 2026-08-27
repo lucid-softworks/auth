@@ -4,15 +4,14 @@ use chrono::Utc;
 use rand::RngExt;
 use regex::Regex;
 use std::sync::LazyLock;
-use uuid::Uuid;
 
 static WHITESPACE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\s+").expect("static whitespace expression is valid"));
 
-pub(crate) fn user(id: Uuid, default_role: String, overrides: TestUserOverrides) -> AuthUser {
+pub(crate) fn user(id: String, default_role: String, overrides: TestUserOverrides) -> AuthUser {
     let now = Utc::now();
     AuthUser {
-        id: overrides.id.unwrap_or(id).to_string(),
+        id: overrides.id.unwrap_or(id),
         username: overrides.username,
         display_username: overrides.display_username,
         name: overrides.name.unwrap_or_else(|| "Test User".into()),
@@ -49,7 +48,7 @@ pub(crate) fn fixed_database_create<T>(
     )
 }
 
-pub(crate) fn organization(id: Uuid, overrides: TestOrganizationOverrides) -> Organization {
+pub(crate) fn organization(id: String, overrides: TestOrganizationOverrides) -> Organization {
     let generated_name = overrides
         .name
         .as_deref()

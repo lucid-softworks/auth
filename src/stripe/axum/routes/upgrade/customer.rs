@@ -56,7 +56,7 @@ pub(super) async fn resolve(arguments: CustomerArguments<'_>) -> Result<String, 
             let id = Uuid::parse_str(reference_id).map_err(log_error)?;
             if let Some(customer_id) = plugin
                 .store
-                .organization_customer_id(id)
+                .organization_customer_id(&id.to_string())
                 .await
                 .map_err(log_error)?
             {
@@ -66,7 +66,7 @@ pub(super) async fn resolve(arguments: CustomerArguments<'_>) -> Result<String, 
                 organization_customer(plugin, organization, metadata, callback_context).await?;
             plugin
                 .store
-                .set_organization_customer_id(id, Some(customer.id.clone()))
+                .set_organization_customer_id(id.to_string(), Some(customer.id.clone()))
                 .await
                 .map_err(log_error)?;
             Ok(customer.id)

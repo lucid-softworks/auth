@@ -204,7 +204,10 @@ async fn finish_and_assert_preview(
             .unwrap()
             .is_some()
     );
-    assert_eq!(preview.store.list_sessions(user.id).await.unwrap().len(), 1);
+    assert_eq!(
+        preview.store.list_sessions(&user.id).await.unwrap().len(),
+        1
+    );
 }
 
 fn proxy_path(proxy_location: &str) -> String {

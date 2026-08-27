@@ -6,15 +6,15 @@ async fn official_lifecycle_uses_exact_shapes_and_protects_factor_secrets() {
     let mut cookies = CookieJar::default();
     let (user_id, secret, backup_codes, enabled) = enable_totp(&fixture, &mut cookies).await;
 
-    assert_encrypted_enrollment(&fixture, user_id, &secret, &backup_codes, &enabled).await;
+    assert_encrypted_enrollment(&fixture, &user_id, &secret, &backup_codes, &enabled).await;
     assert_totp_uri(&fixture, &mut cookies).await;
-    verify_setup(&fixture, &mut cookies, user_id, &secret, &backup_codes).await;
-    disable_totp_and_enable_otp(&fixture, &mut cookies, user_id).await;
+    verify_setup(&fixture, &mut cookies, &user_id, &secret, &backup_codes).await;
+    disable_totp_and_enable_otp(&fixture, &mut cookies, &user_id).await;
 }
 
 async fn assert_encrypted_enrollment(
     fixture: &Fixture,
-    user_id: Uuid,
+    user_id: &str,
     secret: &str,
     backup_codes: &[String],
     enabled: &Value,
@@ -63,7 +63,7 @@ async fn assert_totp_uri(fixture: &Fixture, cookies: &mut CookieJar) {
 async fn verify_setup(
     fixture: &Fixture,
     cookies: &mut CookieJar,
-    user_id: Uuid,
+    user_id: &str,
     secret: &str,
     backup_codes: &[String],
 ) {
@@ -88,7 +88,7 @@ async fn verify_setup(
     assert!(fixture.factors.two_factor_enabled(user_id).await.unwrap());
 }
 
-async fn disable_totp_and_enable_otp(fixture: &Fixture, cookies: &mut CookieJar, user_id: Uuid) {
+async fn disable_totp_and_enable_otp(fixture: &Fixture, cookies: &mut CookieJar, user_id: &str) {
     let (status, _, disabled) = request(
         &fixture.app,
         cookies,

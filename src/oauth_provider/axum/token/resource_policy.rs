@@ -232,7 +232,7 @@ mod resource_policy_tests {
 
     fn resource(identifier: &str, scopes: &[&str]) -> OAuthProviderResource {
         OAuthProviderResource {
-            id: Uuid::new_v4(), identifier: identifier.into(), name: identifier.into(),
+            id: uuid::Uuid::new_v4().to_string(), identifier: identifier.into(), name: identifier.into(),
             access_token_ttl: Some(900), refresh_token_ttl: Some(1_800),
             signing_algorithm: Some("RS256".into()), signing_key_id: Some("resource-key".into()),
             allowed_scopes: Some(scopes.iter().map(|value| (*value).into()).collect()),

@@ -1,15 +1,16 @@
 use super::*;
 use chrono::Utc;
 use serde_json::json;
+use uuid::Uuid;
 
 #[test]
 fn organization_queries_remap_create_find_sort_count_update_and_delete() {
     let physical = super::super::super::test_support::physical_schema();
     let organization_model = physical.model("organization").unwrap();
     let member_model = physical.model("member").unwrap();
-    let id = Uuid::from_u128(11);
+    let id = Uuid::from_u128(11).to_string();
     let organization = Organization {
-        id,
+        id: id.clone(),
         name: "private name".into(),
         slug: "private-slug".into(),
         logo: None,
@@ -17,7 +18,12 @@ fn organization_queries_remap_create_find_sort_count_update_and_delete() {
         created_at: Utc::now(),
     };
 
-    let writes = rows::organization_writes(&organization_model, &organization).unwrap();
+    let writes = rows::organization_writes(
+        &organization_model,
+        &organization,
+        &crate::postgres::rows::explicit_id(organization.id.clone()),
+    )
+    .unwrap();
     let insert = crate::postgres::rows::insert_query_prefix(&organization_model, writes);
     assert!(insert.sql().starts_with("INSERT INTO \"org\"\"records\""));
     assert!(insert.sql().contains("\"display name\""));
@@ -51,7 +57,7 @@ fn organization_queries_remap_create_find_sort_count_update_and_delete() {
     )));
     assert!(!update.sql().contains("private-slug"));
 
-    let delete = delete_query(&organization_model, id).unwrap();
+    let delete = delete_query(&organization_model, &id).unwrap();
     assert!(delete.sql().starts_with("DELETE FROM \"org\"\"records\""));
     assert!(delete.sql().contains("\"display name\" AS \"name\""));
     assert!(delete.sql().ends_with(&format!(

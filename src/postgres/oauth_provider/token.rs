@@ -4,7 +4,7 @@ use super::{
     rows::{self, AccessRow, RefreshRow},
 };
 use crate::{
-    AuthError,
+    AuthError, DatabaseIdSupplier,
     oauth_provider::{
         OAuthProviderAccessToken, OAuthProviderRefreshToken, OAuthProviderTokenStore,
         OAuthRefreshRotation, OAuthRefreshRotationOutcome, OAuthSessionLogoutPlan,
@@ -15,7 +15,6 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use sqlx::QueryBuilder;
-use uuid::Uuid;
 
 mod logout;
 mod revocation;
@@ -75,22 +74,47 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
             .map_err(storage_error)
     }
 
-    async fn issue_oauth_tokens(&self, issuance: OAuthTokenIssuance) -> Result<(), AuthError> {
+    async fn issue_oauth_tokens(
+        &self,
+        refresh_id: &dyn DatabaseIdSupplier,
+        access_id: &dyn DatabaseIdSupplier,
+        mut issuance: OAuthTokenIssuance,
+    ) -> Result<(), AuthError> {
         let refresh = self.model("oauthRefreshToken")?;
         let access = self.model("oauthAccessToken")?;
         let mut transaction = self.pool().begin().await.map_err(storage_error)?;
+        write::reserve_issuance_token_values(
+            &mut transaction,
+            issuance
+                .refresh_token
+                .as_ref()
+                .map(|token| (&refresh, token.token.as_str())),
+            issuance
+                .access_token
+                .as_ref()
+                .map(|token| (&access, token.token.as_str())),
+        )
+        .await?;
         if let Some(token) = &issuance.refresh_token {
-            write::insert_refresh_token(&mut transaction, token, &refresh).await?;
+            let stored =
+                write::insert_refresh_token(&mut transaction, refresh_id, token, &refresh).await?;
+            if let Some(access) = issuance.access_token.as_mut()
+                && access.refresh_id.is_some()
+            {
+                access.refresh_id = Some(stored.id);
+            }
         }
         if let Some(token) = &issuance.access_token {
-            write::insert_access_token(&mut transaction, token, &access).await?;
+            write::insert_access_token(&mut transaction, access_id, token, &access).await?;
         }
         transaction.commit().await.map_err(storage_error)
     }
 
     async fn rotate_oauth_refresh_token(
         &self,
-        rotation: OAuthRefreshRotation,
+        refresh_id: &dyn DatabaseIdSupplier,
+        access_id: &dyn DatabaseIdSupplier,
+        mut rotation: OAuthRefreshRotation,
     ) -> Result<OAuthRefreshRotationOutcome, AuthError> {
         let refresh = self.model("oauthRefreshToken")?;
         let access = self.model("oauthAccessToken")?;
@@ -106,9 +130,11 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
         ])?;
         let mut transaction = self.pool().begin().await.map_err(storage_error)?;
         let mut consume = update_query(&refresh, writes);
+        consume.push(" WHERE \"id\" = ");
+        refresh
+            .encode("id", json!(rotation.previous_refresh_id))?
+            .push_bind(&mut consume);
         consume
-            .push(" WHERE \"id\" = ")
-            .push_bind(rotation.previous_refresh_id)
             .push(" AND ")
             .push(refresh.quoted_column("revoked")?)
             .push(" IS NULL RETURNING ")
@@ -121,9 +147,10 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
         if consumed.is_none() {
             let projection = rows::refresh_projection(&refresh)?;
             let mut previous = select_model(&refresh, projection)?;
-            previous
-                .push(" WHERE \"id\" = ")
-                .push_bind(rotation.previous_refresh_id);
+            previous.push(" WHERE \"id\" = ");
+            refresh
+                .encode("id", json!(rotation.previous_refresh_id))?
+                .push_bind(&mut previous);
             let previous = previous
                 .build_query_as::<RefreshRow>()
                 .fetch_optional(&mut *transaction)
@@ -135,11 +162,27 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
                 }),
             );
         }
-        let next =
-            write::insert_refresh_token(&mut transaction, &rotation.next_refresh_token, &refresh)
-                .await?;
-        if let Some(token) = &rotation.access_token {
-            write::insert_access_token(&mut transaction, token, &access).await?;
+        write::reserve_issuance_token_values(
+            &mut transaction,
+            Some((&refresh, rotation.next_refresh_token.token.as_str())),
+            rotation
+                .access_token
+                .as_ref()
+                .map(|token| (&access, token.token.as_str())),
+        )
+        .await?;
+        let next = write::insert_refresh_token(
+            &mut transaction,
+            refresh_id,
+            &rotation.next_refresh_token,
+            &refresh,
+        )
+        .await?;
+        if let Some(token) = rotation.access_token.as_mut() {
+            if token.refresh_id.is_some() {
+                token.refresh_id = Some(next.id.clone());
+            }
+            write::insert_access_token(&mut transaction, access_id, token, &access).await?;
         }
         transaction.commit().await.map_err(storage_error)?;
         Ok(OAuthRefreshRotationOutcome::Rotated(next))
@@ -147,13 +190,14 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
 
     async fn store_oauth_refresh_rotation_replay(
         &self,
-        refresh_id: Uuid,
+        refresh_id: &str,
         response: String,
     ) -> Result<bool, AuthError> {
         let model = self.model("oauthRefreshToken")?;
         let writes = model.encode_fields([("rotationReplayResponse", Value::String(response))])?;
         let mut query = update_query(&model, writes);
-        query.push(" WHERE \"id\" = ").push_bind(refresh_id);
+        query.push(" WHERE \"id\" = ");
+        model.encode("id", json!(refresh_id))?.push_bind(&mut query);
         query
             .build()
             .execute(self.pool())
@@ -164,14 +208,13 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
 
     async fn delete_oauth_access_token(
         &self,
-        id: Uuid,
+        id: &str,
     ) -> Result<Option<OAuthProviderAccessToken>, AuthError> {
         let model = self.model("oauthAccessToken")?;
         let mut query = QueryBuilder::new("DELETE FROM ");
+        query.push(model.quoted_table()).push(" WHERE \"id\" = ");
+        model.encode("id", json!(id))?.push_bind(&mut query);
         query
-            .push(model.quoted_table())
-            .push(" WHERE \"id\" = ")
-            .push_bind(id)
             .push(" RETURNING ")
             .push(rows::access_projection(&model)?);
         query
@@ -184,7 +227,7 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
 
     async fn revoke_oauth_refresh_token(
         &self,
-        id: Uuid,
+        id: &str,
         revoked_at: DateTime<Utc>,
     ) -> Result<bool, AuthError> {
         let refresh = self.model("oauthRefreshToken")?;
@@ -193,9 +236,9 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
         let writes =
             refresh.encode_fields([("revoked", Value::String(revoked_at.to_rfc3339()))])?;
         let mut query = update_query(&refresh, writes);
+        query.push(" WHERE \"id\" = ");
+        refresh.encode("id", json!(id))?.push_bind(&mut query);
         query
-            .push(" WHERE \"id\" = ")
-            .push_bind(id)
             .push(" AND ")
             .push(refresh.quoted_column("revoked")?)
             .push(" IS NULL");
@@ -207,7 +250,7 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
             .rows_affected()
             == 1;
         if revoked {
-            revocation::delete_where_uuid(&mut transaction, &access, "refreshId", id).await?;
+            revocation::delete_where_id(&mut transaction, &access, "refreshId", id).await?;
         }
         transaction.commit().await.map_err(storage_error)?;
         Ok(revoked)
@@ -221,7 +264,7 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
         let refresh = self.model("oauthRefreshToken")?;
         let access = self.model("oauthAccessToken")?;
         let mut transaction = self.pool().begin().await.map_err(storage_error)?;
-        let mut select = QueryBuilder::new("SELECT \"id\" FROM ");
+        let mut select = QueryBuilder::new("SELECT \"id\"::TEXT FROM ");
         select
             .push(refresh.quoted_table())
             .push(" WHERE ")
@@ -236,17 +279,13 @@ impl OAuthProviderTokenStore for PostgresOAuthProviderStore {
             .push_bind(&mut select);
         select.push(" FOR UPDATE");
         let refresh_ids = select
-            .build_query_scalar::<Uuid>()
+            .build_query_scalar::<String>()
             .fetch_all(&mut *transaction)
             .await
             .map_err(storage_error)?;
-        let access_tokens = revocation::delete_where_ids(
-            &mut transaction,
-            &access,
-            access.quoted_column("refreshId")?,
-            &refresh_ids,
-        )
-        .await?;
+        let access_tokens =
+            revocation::delete_where_ids(&mut transaction, &access, "refreshId", &refresh_ids)
+                .await?;
         let refresh_tokens =
             revocation::delete_where_ids(&mut transaction, &refresh, "\"id\"", &refresh_ids)
                 .await?;

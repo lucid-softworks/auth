@@ -8,13 +8,12 @@ use super::{
     rows::{self, ConsentRow},
 };
 use crate::{
-    AuthError,
+    AuthError, DatabaseIdSupplier,
     oauth_provider::{OAuthProviderConsent, OAuthProviderConsentStore},
 };
 use async_trait::async_trait;
 use serde_json::json;
 use sqlx::QueryBuilder;
-use uuid::Uuid;
 
 fn select_consents(
     model: &PostgresModel<'_>,
@@ -31,11 +30,12 @@ fn select_consents(
 impl OAuthProviderConsentStore for PostgresOAuthProviderStore {
     async fn find_oauth_consent(
         &self,
-        id: Uuid,
+        id: &str,
     ) -> Result<Option<OAuthProviderConsent>, AuthError> {
         let model = self.model("oauthConsent")?;
         let mut query = select_consents(&model)?;
-        query.push(" WHERE \"id\" = ").push_bind(id);
+        query.push(" WHERE \"id\" = ");
+        model.encode("id", json!(id))?.push_bind(&mut query);
         fetch_optional(query, self.pool()).await
     }
 
@@ -96,6 +96,7 @@ impl OAuthProviderConsentStore for PostgresOAuthProviderStore {
 
     async fn upsert_oauth_consent(
         &self,
+        id: &dyn DatabaseIdSupplier,
         consent: OAuthProviderConsent,
     ) -> Result<OAuthProviderConsent, AuthError> {
         let model = self.model("oauthConsent")?;
@@ -109,8 +110,8 @@ impl OAuthProviderConsentStore for PostgresOAuthProviderStore {
             .await
             .map_err(storage_error)?;
         let existing_id = find_existing_id(&mut transaction, &model, &consent).await?;
-        let writes = rows::writes(&model, &consent, [])?;
-        let mut query = if let Some(id) = existing_id {
+        let mut query = if let Some(existing_id) = existing_id {
+            let writes = rows::writes(&model, &consent, [])?;
             let writes = writes
                 .into_iter()
                 .filter(|write| {
@@ -125,10 +126,17 @@ impl OAuthProviderConsentStore for PostgresOAuthProviderStore {
                 })
                 .collect();
             let mut query = update_query(&model, writes);
-            query.push(" WHERE \"id\" = ").push_bind(id);
+            query.push(" WHERE \"id\" = ");
+            model
+                .encode("id", json!(existing_id))?
+                .push_bind(&mut query);
             query
         } else {
-            insert_query_prefix(&model, writes)
+            let prepared_id = id.prepare()?;
+            insert_query_prefix(
+                &model,
+                rows::insert_writes(&model, &consent, &prepared_id, [])?,
+            )
         };
         query
             .push(" RETURNING ")
@@ -144,14 +152,13 @@ impl OAuthProviderConsentStore for PostgresOAuthProviderStore {
 
     async fn delete_oauth_consent(
         &self,
-        id: Uuid,
+        id: &str,
     ) -> Result<Option<OAuthProviderConsent>, AuthError> {
         let model = self.model("oauthConsent")?;
         let mut query = QueryBuilder::new("DELETE FROM ");
+        query.push(model.quoted_table()).push(" WHERE \"id\" = ");
+        model.encode("id", json!(id))?.push_bind(&mut query);
         query
-            .push(model.quoted_table())
-            .push(" WHERE \"id\" = ")
-            .push_bind(id)
             .push(" RETURNING ")
             .push(rows::consent_projection(&model)?);
         fetch_optional(query, self.pool()).await
@@ -162,8 +169,8 @@ async fn find_existing_id(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     model: &PostgresModel<'_>,
     consent: &OAuthProviderConsent,
-) -> Result<Option<Uuid>, AuthError> {
-    let mut query = QueryBuilder::new("SELECT \"id\" FROM ");
+) -> Result<Option<String>, AuthError> {
+    let mut query = QueryBuilder::new("SELECT \"id\"::TEXT FROM ");
     query
         .push(model.quoted_table())
         .push(" WHERE ")
@@ -185,7 +192,7 @@ async fn find_existing_id(
         .push(model.quoted_column("updatedAt")?)
         .push(" DESC, \"id\" LIMIT 1 FOR UPDATE");
     query
-        .build_query_scalar::<Uuid>()
+        .build_query_scalar::<String>()
         .fetch_optional(&mut **transaction)
         .await
         .map_err(storage_error)

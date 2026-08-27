@@ -13,7 +13,7 @@ pub(crate) struct Fixture {
     pub(crate) client: Arc<FakeChargebeeClient>,
     pub(crate) store: Arc<MemoryChargebeeStore>,
     pub(crate) cookie: Option<String>,
-    pub(crate) user_id: Option<uuid::Uuid>,
+    pub(crate) user_id: Option<String>,
 }
 
 pub(crate) async fn fixture<F>(authenticated: bool, configure: F) -> Fixture
@@ -57,7 +57,7 @@ where
 async fn authenticate(
     service: &Arc<AuthService>,
     authenticated: bool,
-) -> (Option<String>, Option<uuid::Uuid>) {
+) -> (Option<String>, Option<String>) {
     if !authenticated {
         return (None, None);
     }

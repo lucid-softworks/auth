@@ -8,7 +8,7 @@ use super::{
     rows::{self, ClientRow},
 };
 use crate::{
-    AuthError,
+    AuthError, DatabaseIdSupplier,
     oauth_provider::{
         OAuthClientRegistrationMode, OAuthClientRegistrationOutcome, OAuthClientRegistrationWrite,
         OAuthProviderClient, OAuthProviderClientResource, OAuthProviderClientStore,
@@ -18,7 +18,6 @@ use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::json;
 use sqlx::{PgConnection, Postgres, QueryBuilder};
-use uuid::Uuid;
 
 fn decode(row: ClientRow) -> OAuthProviderClient {
     row.into()
@@ -26,12 +25,15 @@ fn decode(row: ClientRow) -> OAuthProviderClient {
 
 async fn insert_client(
     connection: &mut PgConnection,
+    id: &dyn DatabaseIdSupplier,
     client: &OAuthProviderClient,
     model: &PostgresModel<'_>,
 ) -> Result<OAuthProviderClient, AuthError> {
-    let writes = rows::writes(
+    let prepared_id = id.prepare()?;
+    let writes = rows::insert_writes(
         model,
         client,
+        &prepared_id,
         [("clientSecret", serde_json::json!(client.client_secret))],
     )?;
     let mut query = insert_query_prefix(model, writes);
@@ -60,9 +62,9 @@ async fn update_client(
     .filter(|write| !matches!(write.logical(), "id" | "clientId"))
     .collect();
     let mut query = update_query(model, writes);
+    query.push(" WHERE \"id\" = ");
+    model.encode("id", json!(client.id))?.push_bind(&mut query);
     query
-        .push(" WHERE \"id\" = ")
-        .push_bind(client.id)
         .push(" AND ")
         .push(model.quoted_column("clientId")?)
         .push(" = ")
@@ -115,6 +117,7 @@ enum RegistrationWrite {
 
 async fn write_registered_client(
     connection: &mut PgConnection,
+    id: &dyn DatabaseIdSupplier,
     write: &OAuthClientRegistrationWrite,
     model: &PostgresModel<'_>,
 ) -> Result<RegistrationWrite, AuthError> {
@@ -149,8 +152,10 @@ async fn write_registered_client(
         {
             rejected(OAuthClientRegistrationOutcome::DiscoveryOwnershipChanged)
         }
-        (OAuthClientRegistrationMode::RefreshDiscovered { .. }, Some(_)) => {
-            let client = update_client(connection, &write.client, model)
+        (OAuthClientRegistrationMode::RefreshDiscovered { .. }, Some(current)) => {
+            let mut candidate = write.client.clone();
+            candidate.id = current.id;
+            let client = update_client(connection, &candidate, model)
                 .await?
                 .ok_or_else(|| {
                     AuthError::Storage("OAuth client disappeared while locked".into())
@@ -161,7 +166,7 @@ async fn write_registered_client(
             })
         }
         (_, None) => Ok(RegistrationWrite::Stored {
-            client: insert_client(connection, &write.client, model).await?,
+            client: insert_client(connection, id, &write.client, model).await?,
             updated: false,
         }),
     }
@@ -169,19 +174,46 @@ async fn write_registered_client(
 
 async fn link_registration_resources(
     connection: &mut PgConnection,
+    id: &dyn DatabaseIdSupplier,
     client_id: &str,
     resource_ids: Vec<String>,
     model: &PostgresModel<'_>,
 ) -> Result<(), AuthError> {
     for resource_id in resource_ids {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(serde_json::json!([client_id, &resource_id]).to_string())
+            .execute(&mut *connection)
+            .await
+            .map_err(storage_error)?;
+        let mut existing = QueryBuilder::new("SELECT 1 FROM ");
+        existing
+            .push(model.quoted_table())
+            .push(" WHERE ")
+            .push(model.quoted_column("clientId")?)
+            .push(" = ")
+            .push_bind(client_id.to_owned())
+            .push(" AND ")
+            .push(model.quoted_column("resourceId")?)
+            .push(" = ")
+            .push_bind(resource_id.clone());
+        if existing
+            .build_query_scalar::<i32>()
+            .fetch_optional(&mut *connection)
+            .await
+            .map_err(storage_error)?
+            .is_some()
+        {
+            continue;
+        }
         let link = OAuthProviderClientResource {
-            id: Uuid::new_v4(),
+            id: String::new(),
             client_id: client_id.to_owned(),
             resource_id,
             metadata: None,
             created_at: Some(Utc::now()),
         };
-        let writes = rows::writes(model, &link, [])?;
+        let prepared_id = id.prepare()?;
+        let writes = rows::insert_writes(model, &link, &prepared_id, [])?;
         let mut query = insert_query_prefix(model, writes);
         query
             .push(" ON CONFLICT (")
@@ -249,6 +281,8 @@ impl OAuthProviderClientStore for PostgresOAuthProviderStore {
 
     async fn persist_oauth_client_registration(
         &self,
+        client_id_supplier: &dyn DatabaseIdSupplier,
+        link_id_supplier: &dyn DatabaseIdSupplier,
         mut write: OAuthClientRegistrationWrite,
     ) -> Result<OAuthClientRegistrationOutcome, AuthError> {
         let mut resource_ids = std::mem::take(&mut write.resource_ids);
@@ -269,12 +303,20 @@ impl OAuthProviderClientStore for PostgresOAuthProviderStore {
             return Ok(OAuthClientRegistrationOutcome::ResourceNotFound(identifier));
         }
         let (stored, updated) =
-            match write_registered_client(&mut transaction, &write, &client).await? {
+            match write_registered_client(&mut transaction, client_id_supplier, &write, &client)
+                .await?
+            {
                 RegistrationWrite::Stored { client, updated } => (client, updated),
                 RegistrationWrite::Rejected(outcome) => return Ok(outcome),
             };
-        link_registration_resources(&mut transaction, &stored.client_id, resource_ids, &link)
-            .await?;
+        link_registration_resources(
+            &mut transaction,
+            link_id_supplier,
+            &stored.client_id,
+            resource_ids,
+            &link,
+        )
+        .await?;
         transaction.commit().await.map_err(storage_error)?;
         Ok(if updated {
             OAuthClientRegistrationOutcome::Updated(stored)

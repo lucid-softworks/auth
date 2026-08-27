@@ -59,6 +59,7 @@ pub(super) fn prepare_database_id(
         }
     };
     Ok(match value {
+        DatabaseIdGenerationResult::Id(value) if value.is_empty() => PreparedDatabaseId::Deferred,
         DatabaseIdGenerationResult::Id(value) => string_id(value),
         DatabaseIdGenerationResult::Defer => PreparedDatabaseId::Deferred,
     })
@@ -103,6 +104,18 @@ mod tests {
             assert_eq!(request.size, DatabaseIdGenerationSize::Omitted);
             self.0.fetch_add(1, Ordering::Relaxed);
             DatabaseIdGenerationResult::Defer
+        }
+    }
+
+    #[derive(Debug)]
+    struct Empty(AtomicUsize);
+
+    impl DatabaseIdGenerator for Empty {
+        fn generate(&self, request: DatabaseIdGenerationRequest<'_>) -> DatabaseIdGenerationResult {
+            assert_eq!(request.model, "user");
+            assert_eq!(request.size, DatabaseIdGenerationSize::Omitted);
+            self.0.fetch_add(1, Ordering::Relaxed);
+            DatabaseIdGenerationResult::Id(String::new())
         }
     }
 
@@ -193,6 +206,41 @@ mod tests {
             PreparedDatabaseId::Deferred
         );
         assert_eq!(generator.0.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn empty_callback_and_custom_adapter_ids_defer_without_fallback() {
+        let callback = Arc::new(Empty(AtomicUsize::new(0)));
+        assert_eq!(
+            prepare_database_id(
+                &DatabaseIdGeneration::Callback(callback.clone()),
+                "Test Adapter",
+                "user",
+                DatabaseIdAdapterCapabilities::default(),
+                None,
+                false,
+                DatabaseIdInput::Absent,
+            )
+            .unwrap(),
+            PreparedDatabaseId::Deferred
+        );
+        assert_eq!(callback.0.load(Ordering::Relaxed), 1);
+
+        let adapter = Empty(AtomicUsize::new(0));
+        assert_eq!(
+            prepare_database_id(
+                &DatabaseIdGeneration::Default,
+                "Test Adapter",
+                "user",
+                DatabaseIdAdapterCapabilities::default(),
+                Some(&adapter),
+                false,
+                DatabaseIdInput::Absent,
+            )
+            .unwrap(),
+            PreparedDatabaseId::Deferred
+        );
+        assert_eq!(adapter.0.load(Ordering::Relaxed), 1);
     }
 
     #[test]

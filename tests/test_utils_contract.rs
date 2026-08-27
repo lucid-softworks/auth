@@ -19,7 +19,6 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 use tower::ServiceExt;
-use uuid::Uuid;
 
 #[derive(Debug, Default)]
 struct HookCounts {
@@ -130,12 +129,11 @@ async fn user_factories_persistence_and_core_hooks_are_exact() {
     assert!(store.find_user_by_id(&user.id).await.unwrap().is_none());
 
     let saved = helpers.save_user(user).await.unwrap();
-    let saved_id = Uuid::parse_str(&saved.id).unwrap();
     assert_eq!(saved.email, "case@test.example");
     assert_eq!(hooks.creates.load(Ordering::SeqCst), 1);
     assert_eq!(hooks.test_method.load(Ordering::SeqCst), 1);
-    helpers.delete_user(saved_id).await.unwrap();
-    helpers.delete_user(saved_id).await.unwrap();
+    helpers.delete_user(&saved.id).await.unwrap();
+    helpers.delete_user(&saved.id).await.unwrap();
     assert_eq!(hooks.deletes.load(Ordering::SeqCst), 1);
 }
 
@@ -154,8 +152,7 @@ async fn login_headers_and_browser_cookies_authenticate_the_normal_router() {
         .save_user(helpers.create_user(TestUserOverrides::default()))
         .await
         .unwrap();
-    let user_id = Uuid::parse_str(&user.id).unwrap();
-    let login = helpers.login(user_id).await.unwrap();
+    let login = helpers.login(&user.id).await.unwrap();
     assert_eq!(login.user.id, user.id);
     assert_eq!(login.session.token, login.token);
     let cookie = &login.cookies[0];
@@ -182,15 +179,18 @@ async fn login_headers_and_browser_cookies_authenticate_the_normal_router() {
         serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
     assert_eq!(body["user"]["id"], user.id.to_string());
 
-    let headers = helpers.get_auth_headers(user_id).await.unwrap();
+    let headers = helpers.get_auth_headers(&user.id).await.unwrap();
     let cookies = helpers
-        .get_cookies(user_id, Some("localhost"))
+        .get_cookies(&user.id, Some("localhost"))
         .await
         .unwrap();
     assert_ne!(headers["cookie"], login.headers["cookie"]);
     assert_ne!(cookies[0].value, cookie.value);
     assert_eq!(cookies[0].domain, "localhost");
-    let missing = helpers.login(Uuid::new_v4()).await.unwrap_err();
+    let missing = helpers
+        .login("opaque::missing-user::?/+")
+        .await
+        .unwrap_err();
     assert!(missing.to_string().starts_with("User not found: "));
 }
 
@@ -213,7 +213,7 @@ async fn organization_helpers_are_conditional_raw_and_non_persisting_factories()
     assert_eq!(organization.slug.len(), "test-organization-".len() + 4);
     assert!(
         organizations
-            .find_organization_by_id(organization.id)
+            .find_organization_by_id(&organization.id)
             .await
             .unwrap()
             .is_none()
@@ -223,42 +223,50 @@ async fn organization_helpers_are_conditional_raw_and_non_persisting_factories()
         .await
         .unwrap();
     let member = organization_helpers
-        .add_member(Uuid::new_v4(), organization.id, Some(String::new()))
+        .add_member(
+            "opaque::member-user-1::?/+",
+            &organization.id,
+            Some(String::new()),
+        )
         .await
         .unwrap();
     assert_eq!(member.role, "member");
     let default_member = organization_helpers
-        .add_member(Uuid::new_v4(), organization.id, None)
+        .add_member("opaque::member-user-2::?/+", &organization.id, None)
         .await
         .unwrap();
     assert_eq!(default_member.role, "member");
     let custom_member = organization_helpers
-        .add_member(Uuid::new_v4(), organization.id, Some("auditor".into()))
+        .add_member(
+            "opaque::member-user-3::?/+",
+            &organization.id,
+            Some("auditor".into()),
+        )
         .await
         .unwrap();
     assert_eq!(custom_member.role, "auditor");
     assert_eq!(
         organizations
-            .list_members(organization.id)
+            .list_members(&organization.id)
             .await
             .unwrap()
             .len(),
         3
     );
     organization_helpers
-        .delete_organization(organization.id)
+        .delete_organization(&organization.id)
         .await
         .unwrap();
     assert!(
         organizations
-            .find_organization_by_id(organization.id)
+            .find_organization_by_id(&organization.id)
             .await
             .unwrap()
             .is_none()
     );
     assert!(
         organizations
-            .list_members(organization.id)
+            .list_members(&organization.id)
             .await
             .unwrap()
             .is_empty()

@@ -1,16 +1,20 @@
 use super::support::*;
 
 pub(super) async fn persist_authorization_client(fixture: &Fixture, client_id: &str) {
-    let mut registered = client(client_id, Some(fixture.user_id));
+    let mut registered = client(client_id, Some(&fixture.user_id));
     registered.token_endpoint_auth_method = Some("client_secret_post".into());
     registered.require_pkce = Some(false);
     fixture
         .oauth
-        .persist_oauth_client_registration(OAuthClientRegistrationWrite {
-            client: registered,
-            resource_ids: Vec::new(),
-            mode: OAuthClientRegistrationMode::Create,
-        })
+        .persist_oauth_client_registration(
+            &oauth_record_id,
+            &oauth_record_id,
+            OAuthClientRegistrationWrite {
+                client: registered,
+                resource_ids: Vec::new(),
+                mode: OAuthClientRegistrationMode::Create,
+            },
+        )
         .await
         .unwrap();
 }

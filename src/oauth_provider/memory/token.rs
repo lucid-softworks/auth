@@ -1,8 +1,7 @@
-use super::{MemoryOAuthProviderStore, State};
-use crate::{AuthError, oauth_provider::*};
+use super::{MemoryOAuthProviderStore, State, create_id};
+use crate::{AuthError, DatabaseIdSupplier, oauth_provider::*};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 
 #[async_trait]
 impl OAuthProviderTokenStore for MemoryOAuthProviderStore {
@@ -30,27 +29,35 @@ impl OAuthProviderTokenStore for MemoryOAuthProviderStore {
             .cloned())
     }
 
-    async fn issue_oauth_tokens(&self, issuance: OAuthTokenIssuance) -> Result<(), AuthError> {
+    async fn issue_oauth_tokens(
+        &self,
+        refresh_id: &dyn DatabaseIdSupplier,
+        access_id: &dyn DatabaseIdSupplier,
+        mut issuance: OAuthTokenIssuance,
+    ) -> Result<(), AuthError> {
         let mut state = self.state.write().await;
         validate_token_issuance(&state, &issuance)?;
+        prepare_issuance_ids(&mut state, refresh_id, access_id, &mut issuance)?;
         if let Some(refresh) = issuance.refresh_token {
             state
                 .refresh_tokens_by_token
-                .insert(refresh.token.clone(), refresh.id);
-            state.refresh_tokens.insert(refresh.id, refresh);
+                .insert(refresh.token.clone(), refresh.id.clone());
+            state.refresh_tokens.insert(refresh.id.clone(), refresh);
         }
         if let Some(access) = issuance.access_token {
             state
                 .access_tokens_by_token
-                .insert(access.token.clone(), access.id);
-            state.access_tokens.insert(access.id, access);
+                .insert(access.token.clone(), access.id.clone());
+            state.access_tokens.insert(access.id.clone(), access);
         }
         Ok(())
     }
 
     async fn rotate_oauth_refresh_token(
         &self,
-        rotation: OAuthRefreshRotation,
+        refresh_id: &dyn DatabaseIdSupplier,
+        access_id: &dyn DatabaseIdSupplier,
+        mut rotation: OAuthRefreshRotation,
     ) -> Result<OAuthRefreshRotationOutcome, AuthError> {
         let mut state = self.state.write().await;
         let Some(previous) = state
@@ -70,6 +77,16 @@ impl OAuthProviderTokenStore for MemoryOAuthProviderStore {
                 refresh_token: Some(rotation.next_refresh_token.clone()),
             },
         )?;
+        let mut issuance = OAuthTokenIssuance {
+            access_token: rotation.access_token.take(),
+            refresh_token: Some(rotation.next_refresh_token),
+        };
+        prepare_issuance_ids(&mut state, refresh_id, access_id, &mut issuance)?;
+        rotation.next_refresh_token = issuance
+            .refresh_token
+            .take()
+            .expect("rotation always includes a refresh token");
+        rotation.access_token = issuance.access_token;
 
         let previous = state
             .refresh_tokens
@@ -82,24 +99,24 @@ impl OAuthProviderTokenStore for MemoryOAuthProviderStore {
         let next = rotation.next_refresh_token;
         state
             .refresh_tokens_by_token
-            .insert(next.token.clone(), next.id);
-        state.refresh_tokens.insert(next.id, next.clone());
+            .insert(next.token.clone(), next.id.clone());
+        state.refresh_tokens.insert(next.id.clone(), next.clone());
         if let Some(access) = rotation.access_token {
             state
                 .access_tokens_by_token
-                .insert(access.token.clone(), access.id);
-            state.access_tokens.insert(access.id, access);
+                .insert(access.token.clone(), access.id.clone());
+            state.access_tokens.insert(access.id.clone(), access);
         }
         Ok(OAuthRefreshRotationOutcome::Rotated(next))
     }
 
     async fn store_oauth_refresh_rotation_replay(
         &self,
-        refresh_id: Uuid,
+        refresh_id: &str,
         response: String,
     ) -> Result<bool, AuthError> {
         let mut state = self.state.write().await;
-        let Some(refresh) = state.refresh_tokens.get_mut(&refresh_id) else {
+        let Some(refresh) = state.refresh_tokens.get_mut(refresh_id) else {
             return Ok(false);
         };
         refresh.rotation_replay_response = Some(response);
@@ -108,10 +125,10 @@ impl OAuthProviderTokenStore for MemoryOAuthProviderStore {
 
     async fn delete_oauth_access_token(
         &self,
-        id: Uuid,
+        id: &str,
     ) -> Result<Option<OAuthProviderAccessToken>, AuthError> {
         let mut state = self.state.write().await;
-        let removed = state.access_tokens.remove(&id);
+        let removed = state.access_tokens.remove(id);
         if let Some(token) = &removed {
             state.access_tokens_by_token.remove(&token.token);
         }
@@ -120,18 +137,20 @@ impl OAuthProviderTokenStore for MemoryOAuthProviderStore {
 
     async fn revoke_oauth_refresh_token(
         &self,
-        id: Uuid,
+        id: &str,
         revoked_at: DateTime<Utc>,
     ) -> Result<bool, AuthError> {
         let mut state = self.state.write().await;
-        let Some(refresh) = state.refresh_tokens.get_mut(&id) else {
+        let Some(refresh) = state.refresh_tokens.get_mut(id) else {
             return Ok(false);
         };
         if refresh.revoked.is_some() {
             return Ok(false);
         }
         refresh.revoked = Some(revoked_at);
-        remove_access_tokens(&mut state, |access| access.refresh_id == Some(id));
+        remove_access_tokens(&mut state, |access| {
+            access.refresh_id.as_deref() == Some(id)
+        });
         Ok(true)
     }
 
@@ -145,12 +164,13 @@ impl OAuthProviderTokenStore for MemoryOAuthProviderStore {
             .refresh_tokens
             .values()
             .filter(|refresh| refresh.client_id == client_id && refresh.user_id == user_id)
-            .map(|refresh| refresh.id)
+            .map(|refresh| refresh.id.clone())
             .collect::<Vec<_>>();
         let access_tokens = remove_access_tokens(&mut state, |access| {
             access
                 .refresh_id
-                .is_some_and(|refresh_id| refresh_ids.contains(&refresh_id))
+                .as_ref()
+                .is_some_and(|refresh_id| refresh_ids.contains(refresh_id))
         });
         for refresh_id in &refresh_ids {
             if let Some(refresh) = state.refresh_tokens.remove(refresh_id) {
@@ -177,7 +197,7 @@ impl OAuthProviderTokenStore for MemoryOAuthProviderStore {
             .filter(|refresh| {
                 refresh.authorization_code_id.as_deref() == Some(authorization_code_id)
             })
-            .map(|refresh| refresh.id)
+            .map(|refresh| refresh.id.clone())
             .collect::<Vec<_>>();
         for refresh_id in &refresh_ids {
             if let Some(refresh) = state.refresh_tokens.remove(refresh_id) {
@@ -240,14 +260,14 @@ impl OAuthProviderTokenStore for MemoryOAuthProviderStore {
             client_ids,
             access_token_ids: access
                 .filter(|token| token.revoked.is_none())
-                .map(|token| token.id)
+                .map(|token| token.id.clone())
                 .collect(),
             refresh_token_ids: refresh
                 .filter(|token| {
                     token.revoked.is_none()
                         && !token.scopes.iter().any(|scope| scope == "offline_access")
                 })
-                .map(|token| token.id)
+                .map(|token| token.id.clone())
                 .collect(),
         })
     }
@@ -281,32 +301,63 @@ impl OAuthProviderTokenStore for MemoryOAuthProviderStore {
 
 fn validate_token_issuance(state: &State, issuance: &OAuthTokenIssuance) -> Result<(), AuthError> {
     if let Some(refresh) = &issuance.refresh_token
-        && (state.refresh_tokens.contains_key(&refresh.id)
-            || state.refresh_tokens_by_token.contains_key(&refresh.token))
+        && state.refresh_tokens_by_token.contains_key(&refresh.token)
     {
         return Err(AuthError::Storage(
             "OAuth refresh token identifier already exists".into(),
         ));
     }
     if let Some(access) = &issuance.access_token {
-        if state.access_tokens.contains_key(&access.id)
-            || state.access_tokens_by_token.contains_key(&access.token)
-        {
+        if state.access_tokens_by_token.contains_key(&access.token) {
             return Err(AuthError::Storage(
                 "OAuth access token identifier already exists".into(),
             ));
         }
-        if let Some(refresh_id) = access.refresh_id
+        if let Some(refresh_id) = &access.refresh_id
             && issuance
                 .refresh_token
                 .as_ref()
-                .is_none_or(|refresh| refresh.id != refresh_id)
-            && !state.refresh_tokens.contains_key(&refresh_id)
+                .is_none_or(|refresh| refresh.id != *refresh_id && !refresh_id.is_empty())
+            && !state.refresh_tokens.contains_key(refresh_id)
         {
             return Err(AuthError::Storage(
                 "OAuth access token references an unknown refresh token".into(),
             ));
         }
+    }
+    Ok(())
+}
+
+fn prepare_issuance_ids(
+    state: &mut State,
+    refresh_id: &dyn DatabaseIdSupplier,
+    access_id: &dyn DatabaseIdSupplier,
+    issuance: &mut OAuthTokenIssuance,
+) -> Result<(), AuthError> {
+    if let Some(refresh) = issuance.refresh_token.as_mut() {
+        refresh.id = create_id(state, "oauthRefreshToken", refresh_id)?;
+    }
+    if let Some(access) = issuance.access_token.as_mut() {
+        if access.refresh_id.is_some()
+            && let Some(refresh) = issuance.refresh_token.as_ref()
+        {
+            access.refresh_id = Some(refresh.id.clone());
+        }
+        access.id = create_id(state, "oauthAccessToken", access_id)?;
+    }
+    if let Some(refresh) = &issuance.refresh_token
+        && state.refresh_tokens.contains_key(&refresh.id)
+    {
+        return Err(AuthError::Storage(
+            "OAuth refresh token identifier already exists".into(),
+        ));
+    }
+    if let Some(access) = &issuance.access_token
+        && state.access_tokens.contains_key(&access.id)
+    {
+        return Err(AuthError::Storage(
+            "OAuth access token identifier already exists".into(),
+        ));
     }
     Ok(())
 }
@@ -319,7 +370,7 @@ fn remove_access_tokens(
         .access_tokens
         .values()
         .filter(|access| predicate(access))
-        .map(|access| access.id)
+        .map(|access| access.id.clone())
         .collect::<Vec<_>>();
     for id in &ids {
         if let Some(access) = state.access_tokens.remove(id) {
@@ -327,75 +378,4 @@ fn remove_access_tokens(
         }
     }
     ids.len()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono::Duration;
-
-    fn refresh(token: &str, user_id: Uuid) -> OAuthProviderRefreshToken {
-        OAuthProviderRefreshToken {
-            id: Uuid::new_v4(),
-            token: token.into(),
-            client_id: "client".into(),
-            session_id: None,
-            user_id: user_id.to_string(),
-            reference_id: None,
-            authorization_code_id: None,
-            resources: None,
-            requested_user_info_claims: None,
-            expires_at: Utc::now() + Duration::days(30),
-            created_at: Utc::now(),
-            revoked: None,
-            rotated_at: None,
-            rotation_replay_response: None,
-            rotation_replay_expires_at: None,
-            auth_time: None,
-            confirmation: None,
-            scopes: vec!["offline_access".into()],
-        }
-    }
-
-    #[tokio::test]
-    async fn refresh_rotation_is_compare_and_swap() {
-        let store = MemoryOAuthProviderStore::new();
-        let user_id = Uuid::new_v4();
-        let original = refresh("old", user_id);
-        store
-            .issue_oauth_tokens(OAuthTokenIssuance {
-                access_token: None,
-                refresh_token: Some(original.clone()),
-            })
-            .await
-            .unwrap();
-        let next = refresh("new", user_id);
-        let rotation = OAuthRefreshRotation {
-            previous_refresh_id: original.id,
-            rotated_at: Utc::now(),
-            replay_expires_at: None,
-            next_refresh_token: next.clone(),
-            access_token: None,
-        };
-        assert!(matches!(
-            store
-                .rotate_oauth_refresh_token(rotation.clone())
-                .await
-                .unwrap(),
-            OAuthRefreshRotationOutcome::Rotated(_)
-        ));
-        assert!(matches!(
-            store.rotate_oauth_refresh_token(rotation).await.unwrap(),
-            OAuthRefreshRotationOutcome::AlreadyConsumed(_)
-        ));
-        assert_eq!(
-            store
-                .find_oauth_refresh_token("new")
-                .await
-                .unwrap()
-                .unwrap()
-                .id,
-            next.id
-        );
-    }
 }

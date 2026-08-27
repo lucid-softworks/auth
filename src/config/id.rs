@@ -108,6 +108,21 @@ impl DatabaseIdGeneration {
             input,
         )
     }
+
+    pub(crate) fn generate_context_id(
+        &self,
+        model: &str,
+        size: DatabaseIdGenerationSize,
+    ) -> Result<DatabaseIdGenerationResult, DatabaseIdGenerationError> {
+        Ok(match self {
+            Self::Default => DatabaseIdGenerationResult::Id(generate_database_id(size)?),
+            Self::Database | Self::Serial => DatabaseIdGenerationResult::Defer,
+            Self::Uuid => DatabaseIdGenerationResult::Id(uuid::Uuid::new_v4().to_string()),
+            Self::Callback(generator) => {
+                generator.generate(DatabaseIdGenerationRequest { model, size })
+            }
+        })
+    }
 }
 
 /// Better Auth adapter capabilities that affect database ID generation.
@@ -228,6 +243,22 @@ mod tests {
                 DatabaseIdGenerationResult::Id(expected.into())
             );
         }
+    }
+
+    #[test]
+    fn context_generation_uses_undefined_shape_and_literal_false() {
+        assert_eq!(
+            DatabaseIdGeneration::Callback(Arc::new(Fixed))
+                .generate_context_id("user", DatabaseIdGenerationSize::Undefined)
+                .unwrap(),
+            DatabaseIdGenerationResult::Id("user:Undefined".into())
+        );
+        assert_eq!(
+            DatabaseIdGeneration::Database
+                .generate_context_id("user", DatabaseIdGenerationSize::Undefined)
+                .unwrap(),
+            DatabaseIdGenerationResult::Defer
+        );
     }
 
     #[test]

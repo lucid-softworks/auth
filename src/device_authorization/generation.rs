@@ -2,11 +2,13 @@ use super::{
     DeviceAuthorizationConfig, DeviceAuthorizationConfigError, DeviceAuthorizationStore,
     DeviceCode, DeviceCodeCreateOutcome, DeviceCodeStatus,
 };
-use crate::AuthError;
+use crate::{AuthError, AuthService};
 use chrono::{DateTime, Utc};
 use rand::RngExt as _;
-use url::Url;
-use uuid::Uuid;
+
+mod uri;
+
+pub use uri::build_verification_uris;
 
 const DEVICE_CODE_ALPHABET: &[u8] =
     b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -50,15 +52,17 @@ pub enum DeviceAuthorizationGenerationError {
 }
 
 pub async fn generate_device_authorization(
+    service: &AuthService,
     store: &dyn DeviceAuthorizationStore,
     config: &DeviceAuthorizationConfig,
     base_url: &str,
     request: DeviceAuthorizationRequest,
 ) -> Result<GeneratedDeviceAuthorization, DeviceAuthorizationGenerationError> {
-    generate_device_authorization_at(store, config, base_url, request, Utc::now()).await
+    generate_device_authorization_at(service, store, config, base_url, request, Utc::now()).await
 }
 
 pub(crate) async fn generate_device_authorization_at(
+    service: &AuthService,
     store: &dyn DeviceAuthorizationStore,
     config: &DeviceAuthorizationConfig,
     base_url: &str,
@@ -101,7 +105,7 @@ pub(crate) async fn generate_device_authorization_at(
         let device_code = generated_code(config, CodeKind::Device).await?;
         let user_code = generated_code(config, CodeKind::User).await?;
         let record = DeviceCode {
-            id: Uuid::new_v4(),
+            id: String::new(),
             device_code,
             user_code,
             user_id: request.user_id.clone(),
@@ -114,7 +118,10 @@ pub(crate) async fn generate_device_authorization_at(
             resources: request.resources.clone(),
             oauth_client_id: request.oauth_client_id.clone(),
         };
-        match store.create_device_code(record).await? {
+        match service
+            .create_device_authorization_code(store, record)
+            .await?
+        {
             DeviceCodeCreateOutcome::Created(record) => {
                 let (verification_uri, verification_uri_complete) = build_verification_uris(
                     config.verification_uri.as_deref(),
@@ -147,32 +154,6 @@ pub async fn find_device_code_by_user_code(
         return Ok(None);
     }
     store.find_device_code_by_user_code(&normalized).await
-}
-
-pub fn build_verification_uris(
-    verification_uri: Option<&str>,
-    base_url: &str,
-    user_code: &str,
-) -> Result<(String, String), DeviceAuthorizationGenerationError> {
-    let uri = verification_uri.unwrap_or("/device");
-    let verification = match Url::parse(uri) {
-        Ok(url) => url,
-        Err(_) => Url::parse(base_url)
-            .and_then(|base| base.join(uri))
-            .map_err(|_| DeviceAuthorizationGenerationError::InvalidVerificationUri)?,
-    };
-    let mut complete = verification.clone();
-    let retained = complete
-        .query_pairs()
-        .filter(|(name, _)| name != "user_code")
-        .map(|(name, value)| (name.into_owned(), value.into_owned()))
-        .collect::<Vec<_>>();
-    complete
-        .query_pairs_mut()
-        .clear()
-        .extend_pairs(retained)
-        .append_pair("user_code", user_code);
-    Ok((verification.into(), complete.into()))
 }
 
 fn normalize_user_code(user_code: &str) -> String {
@@ -252,28 +233,6 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    #[test]
-    fn verification_uri_resolution_matches_javascript_urls() {
-        assert_eq!(
-            build_verification_uris(
-                Some("verify?theme=dark"),
-                "https://auth.example.test/api/auth/",
-                "AB CD"
-            )
-            .unwrap(),
-            (
-                "https://auth.example.test/api/auth/verify?theme=dark".into(),
-                "https://auth.example.test/api/auth/verify?theme=dark&user_code=AB+CD".into()
-            )
-        );
-        assert_eq!(
-            build_verification_uris(None, "https://auth.example.test/api/auth", "ABCD")
-                .unwrap()
-                .0,
-            "https://auth.example.test/device"
-        );
-    }
-
     #[tokio::test]
     async fn custom_codes_accept_empty_and_count_unicode_characters() {
         let store = MemoryDeviceAuthorizationStore::new();
@@ -283,6 +242,7 @@ mod tests {
             ..DeviceAuthorizationConfig::default()
         };
         let generated = generate_device_authorization_at(
+            &service(),
             &store,
             &config,
             "https://auth.example.test",
@@ -304,10 +264,16 @@ mod tests {
             ..DeviceAuthorizationConfig::default()
         };
         let now = DateTime::from_timestamp_millis(1_700_000_000_000).unwrap();
-        let generated =
-            generate_device_authorization_at(&store, &config, "https://a.test", request(), now)
-                .await
-                .unwrap();
+        let generated = generate_device_authorization_at(
+            &service(),
+            &store,
+            &config,
+            "https://a.test",
+            request(),
+            now,
+        )
+        .await
+        .unwrap();
         assert_eq!(generated.record.expires_at, now);
         assert_eq!(generated.record.polling_interval, Some(-0.5));
         assert_eq!(generated.expires_in, 0);
@@ -318,6 +284,7 @@ mod tests {
     async fn default_generation_uses_exact_alphabets_and_lengths() {
         let store = MemoryDeviceAuthorizationStore::new();
         let generated = generate_device_authorization(
+            &service(),
             &store,
             &DeviceAuthorizationConfig::default(),
             "https://auth.example.test",
@@ -351,9 +318,15 @@ mod tests {
             generate_user_code: Some(Arc::new(StaticGenerator("SAME".into()))),
             ..DeviceAuthorizationConfig::default()
         };
-        generate_device_authorization(&store, &initial, "https://auth.example", request())
-            .await
-            .unwrap();
+        generate_device_authorization(
+            &service(),
+            &store,
+            &initial,
+            "https://auth.example",
+            request(),
+        )
+        .await
+        .unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let config = DeviceAuthorizationConfig {
             generate_device_code: Some(Arc::new(CountingGenerator {
@@ -367,7 +340,14 @@ mod tests {
             ..DeviceAuthorizationConfig::default()
         };
         assert!(matches!(
-            generate_device_authorization(&store, &config, "https://auth.example", request()).await,
+            generate_device_authorization(
+                &service(),
+                &store,
+                &config,
+                "https://auth.example",
+                request(),
+            )
+            .await,
             Err(DeviceAuthorizationGenerationError::UniqueCodesExhausted)
         ));
         assert_eq!(calls.load(Ordering::Relaxed), 6);
@@ -400,5 +380,12 @@ mod tests {
             client_id: "client".into(),
             ..DeviceAuthorizationRequest::default()
         }
+    }
+
+    fn service() -> AuthService {
+        AuthService::new(
+            Arc::new(crate::MemoryStore::default()),
+            crate::AuthConfig::new([42_u8; 32]).unwrap(),
+        )
     }
 }

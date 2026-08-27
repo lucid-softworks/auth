@@ -10,6 +10,7 @@ mod api_key_policy;
 mod audit;
 mod change_email;
 mod configuration;
+mod context_id;
 mod cookie_signing;
 mod database;
 #[cfg(feature = "axum")]
@@ -126,6 +127,9 @@ impl AuthService {
     pub fn try_new(store: Arc<dyn AuthStore>, config: AuthConfig) -> Result<Self, AuthError> {
         config.validate()?;
         let plugins = PluginRegistry::build(&config.plugins, &config)?;
+        if let Some(provider) = plugins.oauth_provider() {
+            provider.bind_database_ids(store.clone(), config.database_id_generation.clone())?;
+        }
         store.bind_schema(plugins.schema_catalog().clone())?;
         if let Some(stripe) = plugins.find::<crate::StripePlugin>() {
             stripe

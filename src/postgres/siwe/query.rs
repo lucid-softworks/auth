@@ -43,6 +43,34 @@ pub(super) async fn find_owner_tx(
     Ok(Some(WalletAddressOwner { wallet, user }))
 }
 
+pub(super) async fn account_exists_tx(
+    transaction: &mut Transaction<'_, Postgres>,
+    model: &PostgresModel<'_>,
+    issuer: &str,
+    account_id: &str,
+) -> Result<bool, AuthError> {
+    let mut query = QueryBuilder::new("SELECT EXISTS(SELECT 1 FROM ");
+    query
+        .push(model.quoted_table())
+        .push(" WHERE ")
+        .push(model.quoted_column("issuer")?)
+        .push(" = ");
+    model.encode("issuer", json!(issuer))?.push_bind(&mut query);
+    query
+        .push(" AND ")
+        .push(model.quoted_column("accountId")?)
+        .push(" = ");
+    model
+        .encode("accountId", json!(account_id))?
+        .push_bind(&mut query);
+    query.push(")");
+    query
+        .build_query_scalar()
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(storage_error)
+}
+
 fn wallet_query(
     model: &PostgresModel<'_>,
     address: &str,
@@ -81,7 +109,7 @@ fn wallet_query(
 fn decode_wallet(model: &PostgresModel<'_>, row: &PgRow) -> Result<WalletAddress, AuthError> {
     let mut values = model.decode_all(row)?;
     Ok(WalletAddress {
-        id: required_uuid(&mut values, "id")?,
+        id: required_string(&mut values, "id")?,
         user_id: required_string(&mut values, "userId")?,
         address: required_string(&mut values, "address")?,
         chain_id: required_number(&mut values, "chainId")?,
@@ -100,11 +128,6 @@ fn chain_id_value(chain_id: f64) -> Result<Value, AuthError> {
     i32::try_from(chain_id)
         .map(|chain_id| json!(chain_id))
         .map_err(|_| AuthError::Storage("SIWE chain ID exceeds the supported range".into()))
-}
-
-fn required_uuid(values: &mut Map<String, Value>, field: &str) -> Result<uuid::Uuid, AuthError> {
-    let value = required_string(values, field)?;
-    uuid::Uuid::parse_str(&value).map_err(|_| invalid_wallet_row(field))
 }
 
 fn required_string(values: &mut Map<String, Value>, field: &str) -> Result<String, AuthError> {
@@ -153,54 +176,61 @@ pub(super) async fn insert_wallet_and_account(
     wallet_model: &PostgresModel<'_>,
     account_model: &PostgresModel<'_>,
     wallet: &WalletAddress,
+    wallet_id: &crate::PreparedDatabaseId,
     account: &crate::OAuthAccount,
     account_id: &crate::PreparedDatabaseId,
-) -> Result<(), AuthError> {
-    let writes = wallet_model.encode_fields([
-        ("id", json!(wallet.id.to_string())),
-        ("userId", json!(wallet.user_id)),
-        ("address", json!(wallet.address)),
-        ("chainId", chain_id_value(wallet.chain_id)?),
-        ("createdAt", json!(wallet.created_at.to_rfc3339())),
-        ("isPrimary", json!(wallet.is_primary)),
-    ])?;
+) -> Result<(WalletAddress, crate::OAuthAccount), AuthError> {
+    let writes = wallet_writes(wallet_model, wallet, wallet_id)?;
     let mut query = insert_wallet_query(wallet_model, writes);
-    query
+    let wallet = query
         .build()
-        .execute(&mut **transaction)
+        .fetch_one(&mut **transaction)
         .await
-        .map_err(storage_error)?;
-    super::super::oauth::insert_account_transaction(
+        .map_err(wallet_insert_error)
+        .and_then(|row| decode_wallet(wallet_model, &row))?;
+    let account = super::super::oauth::insert_account_transaction(
         transaction,
         account_model,
         account,
         account_id,
     )
     .await?;
-    Ok(())
+    Ok((wallet, account))
 }
 
-fn insert_wallet_query(
-    model: &PostgresModel<'_>,
-    writes: Vec<super::super::PostgresWrite<'_>>,
+fn wallet_writes<'a>(
+    model: &'a PostgresModel<'a>,
+    wallet: &WalletAddress,
+    id: &crate::PreparedDatabaseId,
+) -> Result<Vec<super::super::PostgresWrite<'a>>, AuthError> {
+    let mut values = Map::from_iter([
+        ("userId".into(), json!(wallet.user_id)),
+        ("address".into(), json!(wallet.address)),
+        ("chainId".into(), chain_id_value(wallet.chain_id)?),
+        ("createdAt".into(), json!(wallet.created_at.to_rfc3339())),
+        ("isPrimary".into(), json!(wallet.is_primary)),
+    ]);
+    super::super::rows::insert_prepared_id(&mut values, id)?;
+    model.encode_fields(
+        values
+            .iter()
+            .map(|(logical, value)| (logical.as_str(), value.clone())),
+    )
+}
+
+fn insert_wallet_query<'a>(
+    model: &'a PostgresModel<'a>,
+    writes: Vec<super::super::PostgresWrite<'a>>,
 ) -> QueryBuilder<'static, Postgres> {
-    let mut query = QueryBuilder::new("INSERT INTO ");
-    query.push(model.quoted_table()).push(" (");
-    for (index, write) in writes.iter().enumerate() {
-        if index > 0 {
-            query.push(", ");
-        }
-        query.push(write.quoted_column());
+    super::super::rows::insert_query(model, writes)
+}
+
+fn wallet_insert_error(error: sqlx::Error) -> AuthError {
+    if super::super::user::is_unique_violation(&error) {
+        AuthError::UserAlreadyExists
+    } else {
+        storage_error(error)
     }
-    query.push(") VALUES (");
-    for (index, write) in writes.into_iter().enumerate() {
-        if index > 0 {
-            query.push(", ");
-        }
-        write.push_bind(&mut query);
-    }
-    query.push(")");
-    query
 }
 
 #[cfg(test)]
@@ -253,8 +283,8 @@ mod tests {
 
         let writes = model
             .encode_fields([
-                ("id", json!(uuid::Uuid::nil().to_string())),
-                ("userId", json!(uuid::Uuid::nil().to_string())),
+                ("id", json!("opaque-wallet-id")),
+                ("userId", json!("opaque-user-id")),
                 ("address", json!("0xsecret")),
                 ("chainId", json!(1)),
                 ("createdAt", json!(chrono::Utc::now().to_rfc3339())),
@@ -266,6 +296,7 @@ mod tests {
         assert!(insert.sql().contains("\"owner id\""));
         assert_eq!(insert.sql().matches('$').count(), 6);
         assert!(!insert.sql().contains("0xsecret"));
+        assert!(insert.sql().contains(" RETURNING "));
     }
 
     #[test]
@@ -279,7 +310,7 @@ mod tests {
     #[test]
     fn required_wallet_fields_reject_null_values() {
         let mut values = Map::from_iter([("id".into(), Value::Null)]);
-        assert!(required_uuid(&mut values, "id").is_err());
+        assert!(required_string(&mut values, "id").is_err());
         let mut values = Map::from_iter([("isPrimary".into(), Value::Null)]);
         assert!(required_bool(&mut values, "isPrimary").is_err());
         let mut values = Map::from_iter([("createdAt".into(), Value::Null)]);

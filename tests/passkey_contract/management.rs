@@ -34,8 +34,8 @@ async fn matches_official_cross_account_ownership_errors() {
         .unwrap();
     let now = Utc::now();
     let passkey = store
-        .save_passkey(StoredPasskey {
-            id: Uuid::new_v4(),
+        .save_passkey(passkey_create(StoredPasskey {
+            id: Uuid::new_v4().to_string(),
             user_id: other.id,
             name: Some("Other key".into()),
             credential_id: "other-credential".into(),
@@ -46,10 +46,10 @@ async fn matches_official_cross_account_ownership_errors() {
             transports: None,
             aaguid: None,
             created_at: now,
-        })
+        }))
         .await
         .unwrap();
-    let cookie = persisted_session_cookie(&service, &store, luna.id).await;
+    let cookie = persisted_session_cookie(&service, &store, &luna.id).await;
 
     let response = app
         .clone()

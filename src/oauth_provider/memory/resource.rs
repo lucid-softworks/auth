@@ -1,5 +1,5 @@
-use super::MemoryOAuthProviderStore;
-use crate::{AuthError, oauth_provider::*};
+use super::{MemoryOAuthProviderStore, create_id};
+use crate::{AuthError, DatabaseIdSupplier, oauth_provider::*};
 use async_trait::async_trait;
 
 #[async_trait]
@@ -26,12 +26,14 @@ impl OAuthProviderResourceStore for MemoryOAuthProviderStore {
 
     async fn create_oauth_resource(
         &self,
-        resource: OAuthProviderResource,
+        id: &dyn DatabaseIdSupplier,
+        mut resource: OAuthProviderResource,
     ) -> Result<Option<OAuthProviderResource>, AuthError> {
         let mut state = self.state.write().await;
         if state.resources.contains_key(&resource.identifier) {
             return Ok(None);
         }
+        resource.id = create_id(&mut state, "oauthResource", id)?;
         state
             .resources
             .insert(resource.identifier.clone(), resource.clone());
@@ -88,7 +90,8 @@ impl OAuthProviderResourceStore for MemoryOAuthProviderStore {
 
     async fn link_oauth_client_resource(
         &self,
-        link: OAuthProviderClientResource,
+        id: &dyn DatabaseIdSupplier,
+        mut link: OAuthProviderClientResource,
     ) -> Result<OAuthClientResourceLinkOutcome, AuthError> {
         let mut state = self.state.write().await;
         if !state.clients.contains_key(&link.client_id) {
@@ -103,6 +106,7 @@ impl OAuthProviderResourceStore for MemoryOAuthProviderStore {
                 existing.clone(),
             ));
         }
+        link.id = create_id(&mut state, "oauthClientResource", id)?;
         state.client_resources.insert(key, link.clone());
         Ok(OAuthClientResourceLinkOutcome::Linked(link))
     }

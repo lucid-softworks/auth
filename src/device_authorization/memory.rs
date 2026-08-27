@@ -2,12 +2,11 @@ use super::{
     DeviceAuthorizationStore, DeviceCode, DeviceCodeCreateOutcome, DeviceCodeOwner,
     DeviceCodeStatus,
 };
-use crate::AuthError;
+use crate::{AuthError, AuthStore, DatabaseCreate, PreparedDatabaseId};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use tokio::sync::RwLock;
-use uuid::Uuid;
 
 #[derive(Default)]
 pub struct MemoryDeviceAuthorizationStore {
@@ -16,9 +15,10 @@ pub struct MemoryDeviceAuthorizationStore {
 
 #[derive(Default)]
 struct State {
-    records: HashMap<Uuid, DeviceCode>,
-    by_device_code: HashMap<String, Uuid>,
-    by_user_code: HashMap<String, Uuid>,
+    records: HashMap<String, DeviceCode>,
+    by_device_code: HashMap<String, String>,
+    by_user_code: HashMap<String, String>,
+    next_serial: u64,
 }
 
 impl MemoryDeviceAuthorizationStore {
@@ -31,20 +31,35 @@ impl MemoryDeviceAuthorizationStore {
 impl DeviceAuthorizationStore for MemoryDeviceAuthorizationStore {
     async fn create_device_code(
         &self,
-        code: DeviceCode,
+        code: DatabaseCreate<DeviceCode>,
+        auth_store: &dyn AuthStore,
     ) -> Result<DeviceCodeCreateOutcome, AuthError> {
         let mut state = self.state.write().await;
-        if state.records.contains_key(&code.id)
-            || state.by_device_code.contains_key(&code.device_code)
-            || state.by_user_code.contains_key(&code.user_code)
+        if state.by_device_code.contains_key(&code.record.device_code)
+            || state.by_user_code.contains_key(&code.record.user_code)
         {
+            return Ok(DeviceCodeCreateOutcome::UniqueConflict);
+        }
+        let (mut code, id) = code.into_parts(auth_store)?;
+        code.id = match id {
+            PreparedDatabaseId::Value(value) => value.into_output_string(),
+            PreparedDatabaseId::DeferredSerial => next_serial_id(&mut state)?,
+            PreparedDatabaseId::Deferred => {
+                return Err(AuthError::Storage(
+                    "database adapter did not return an id for model 'deviceCode'".into(),
+                ));
+            }
+        };
+        if state.records.contains_key(&code.id) {
             return Ok(DeviceCodeCreateOutcome::UniqueConflict);
         }
         state
             .by_device_code
-            .insert(code.device_code.clone(), code.id);
-        state.by_user_code.insert(code.user_code.clone(), code.id);
-        state.records.insert(code.id, code.clone());
+            .insert(code.device_code.clone(), code.id.clone());
+        state
+            .by_user_code
+            .insert(code.user_code.clone(), code.id.clone());
+        state.records.insert(code.id.clone(), code.clone());
         Ok(DeviceCodeCreateOutcome::Created(code))
     }
 
@@ -71,11 +86,11 @@ impl DeviceAuthorizationStore for MemoryDeviceAuthorizationStore {
 
     async fn bind_pending_user(
         &self,
-        id: Uuid,
+        id: &str,
         user_id: &str,
     ) -> Result<Option<DeviceCode>, AuthError> {
         let mut state = self.state.write().await;
-        let Some(record) = state.records.get_mut(&id) else {
+        let Some(record) = state.records.get_mut(id) else {
             return Ok(None);
         };
         if record.status != DeviceCodeStatus::Pending || record.user_id.is_some() {
@@ -87,11 +102,11 @@ impl DeviceAuthorizationStore for MemoryDeviceAuthorizationStore {
 
     async fn update_last_polled_at(
         &self,
-        id: Uuid,
+        id: &str,
         polled_at: DateTime<Utc>,
     ) -> Result<Option<DeviceCode>, AuthError> {
         let mut state = self.state.write().await;
-        let Some(record) = state.records.get_mut(&id) else {
+        let Some(record) = state.records.get_mut(id) else {
             return Ok(None);
         };
         record.last_polled_at = Some(polled_at);
@@ -100,29 +115,29 @@ impl DeviceAuthorizationStore for MemoryDeviceAuthorizationStore {
 
     async fn update_device_code_status(
         &self,
-        id: Uuid,
+        id: &str,
         status: DeviceCodeStatus,
     ) -> Result<Option<DeviceCode>, AuthError> {
         let mut state = self.state.write().await;
-        let Some(record) = state.records.get_mut(&id) else {
+        let Some(record) = state.records.get_mut(id) else {
             return Ok(None);
         };
         record.status = status;
         Ok(Some(record.clone()))
     }
 
-    async fn delete_device_code(&self, id: Uuid) -> Result<Option<DeviceCode>, AuthError> {
+    async fn delete_device_code(&self, id: &str) -> Result<Option<DeviceCode>, AuthError> {
         let mut state = self.state.write().await;
         Ok(remove_record(&mut state, id))
     }
 
     async fn consume_approved_device_code(
         &self,
-        id: Uuid,
+        id: &str,
         owner: DeviceCodeOwner,
     ) -> Result<Option<DeviceCode>, AuthError> {
         let mut state = self.state.write().await;
-        let consumable = state.records.get(&id).is_some_and(|record| {
+        let consumable = state.records.get(id).is_some_and(|record| {
             record.status == DeviceCodeStatus::Approved && owner.matches(record)
         });
         Ok(consumable
@@ -130,8 +145,20 @@ impl DeviceAuthorizationStore for MemoryDeviceAuthorizationStore {
     }
 }
 
-fn remove_record(state: &mut State, id: Uuid) -> Option<DeviceCode> {
-    let record = state.records.remove(&id)?;
+fn next_serial_id(state: &mut State) -> Result<String, AuthError> {
+    loop {
+        state.next_serial = state.next_serial.checked_add(1).ok_or_else(|| {
+            AuthError::Storage("memory deviceCode serial ID space is exhausted".into())
+        })?;
+        let id = state.next_serial.to_string();
+        if !state.records.contains_key(&id) {
+            return Ok(id);
+        }
+    }
+}
+
+fn remove_record(state: &mut State, id: &str) -> Option<DeviceCode> {
+    let record = state.records.remove(id)?;
     state.by_device_code.remove(&record.device_code);
     state.by_user_code.remove(&record.user_code);
     Some(record)
@@ -147,12 +174,15 @@ mod tests {
     async fn binds_an_unclaimed_pending_record_once() {
         let store = Arc::new(MemoryDeviceAuthorizationStore::new());
         let record = record();
-        store.create_device_code(record.clone()).await.unwrap();
-        let first_user = Uuid::new_v4().to_string();
-        let second_user = Uuid::new_v4().to_string();
+        store
+            .create_device_code(create(record.clone()), &crate::MemoryStore::default())
+            .await
+            .unwrap();
+        let first_user = "first-user".to_owned();
+        let second_user = "second-user".to_owned();
         let (first, second) = tokio::join!(
-            store.bind_pending_user(record.id, &first_user),
-            store.bind_pending_user(record.id, &second_user)
+            store.bind_pending_user(&record.id, &first_user),
+            store.bind_pending_user(&record.id, &second_user)
         );
         let winners = [first.unwrap(), second.unwrap()]
             .into_iter()
@@ -169,21 +199,24 @@ mod tests {
         let store = Arc::new(MemoryDeviceAuthorizationStore::new());
         let mut record = record();
         record.status = DeviceCodeStatus::Approved;
-        store.create_device_code(record.clone()).await.unwrap();
+        store
+            .create_device_code(create(record.clone()), &crate::MemoryStore::default())
+            .await
+            .unwrap();
         assert!(
             store
-                .consume_approved_device_code(record.id, DeviceCodeOwner::ClientId("other".into()))
+                .consume_approved_device_code(&record.id, DeviceCodeOwner::ClientId("other".into()))
                 .await
                 .unwrap()
                 .is_none()
         );
         let (first, second) = tokio::join!(
             store.consume_approved_device_code(
-                record.id,
+                &record.id,
                 DeviceCodeOwner::ClientId("client".into())
             ),
             store.consume_approved_device_code(
-                record.id,
+                &record.id,
                 DeviceCodeOwner::ClientId("client".into())
             )
         );
@@ -199,11 +232,14 @@ mod tests {
         let mut record = record();
         record.status = DeviceCodeStatus::Approved;
         record.oauth_client_id = Some("oauth-client".into());
-        store.create_device_code(record.clone()).await.unwrap();
+        store
+            .create_device_code(create(record.clone()), &crate::MemoryStore::default())
+            .await
+            .unwrap();
         assert!(
             store
                 .consume_approved_device_code(
-                    record.id,
+                    &record.id,
                     DeviceCodeOwner::OAuthClientId("client".into())
                 )
                 .await
@@ -213,7 +249,7 @@ mod tests {
         assert!(
             store
                 .consume_approved_device_code(
-                    record.id,
+                    &record.id,
                     DeviceCodeOwner::OAuthClientId("oauth-client".into())
                 )
                 .await
@@ -226,11 +262,14 @@ mod tests {
     async fn decision_and_poll_writes_are_ordinary_updates() {
         let store = MemoryDeviceAuthorizationStore::new();
         let record = record();
-        store.create_device_code(record.clone()).await.unwrap();
+        store
+            .create_device_code(create(record.clone()), &crate::MemoryStore::default())
+            .await
+            .unwrap();
         let polled_at = Utc::now();
         assert_eq!(
             store
-                .update_last_polled_at(record.id, polled_at)
+                .update_last_polled_at(&record.id, polled_at)
                 .await
                 .unwrap()
                 .unwrap()
@@ -239,7 +278,7 @@ mod tests {
         );
         assert_eq!(
             store
-                .update_device_code_status(record.id, DeviceCodeStatus::Denied)
+                .update_device_code_status(&record.id, DeviceCodeStatus::Denied)
                 .await
                 .unwrap()
                 .unwrap()
@@ -250,7 +289,7 @@ mod tests {
 
     fn record() -> DeviceCode {
         DeviceCode {
-            id: Uuid::new_v4(),
+            id: "memory-device-id".into(),
             device_code: "device".into(),
             user_code: "USERCODE".into(),
             user_id: None,
@@ -263,5 +302,18 @@ mod tests {
             resources: None,
             oauth_client_id: None,
         }
+    }
+
+    fn create(record: DeviceCode) -> DatabaseCreate<DeviceCode> {
+        let id = record.id.clone();
+        DatabaseCreate::new(
+            record,
+            crate::DatabaseIdPlan::new(
+                crate::DatabaseIdGeneration::Default,
+                "deviceCode",
+                crate::DatabaseIdInput::String(id),
+                true,
+            ),
+        )
     }
 }

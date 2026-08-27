@@ -54,6 +54,12 @@ pub struct AuthConfig {
     pub session: SessionConfig,
     pub account: AccountConfig,
     pub verification: VerificationConfig,
+    /// Deprecated Better Auth `advanced.generateId` callback.
+    ///
+    /// Context-only generation paths evaluate this before
+    /// [`Self::database_id_generation`], matching Better Auth 1.7.1. Adapter
+    /// create transforms do not use it.
+    pub legacy_id_generator: Option<Arc<dyn DatabaseIdGenerator>>,
     /// Better Auth `advanced.database.generateId` behavior.
     pub database_id_generation: DatabaseIdGeneration,
     pub database_hooks: Option<Arc<dyn DatabaseHooks>>,
@@ -138,6 +144,7 @@ impl AuthConfig {
             session: SessionConfig::default(),
             account: AccountConfig::default(),
             verification: VerificationConfig::default(),
+            legacy_id_generator: None,
             database_id_generation: DatabaseIdGeneration::default(),
             database_hooks: None,
             secondary_storage: None,
@@ -153,6 +160,17 @@ impl AuthConfig {
             disabled_paths: Vec::new(),
             cors_enabled: false,
         })
+    }
+
+    pub(crate) fn generate_context_id(
+        &self,
+        model: &str,
+        size: DatabaseIdGenerationSize,
+    ) -> Result<DatabaseIdGenerationResult, DatabaseIdGenerationError> {
+        if let Some(generator) = &self.legacy_id_generator {
+            return Ok(generator.generate(DatabaseIdGenerationRequest { model, size }));
+        }
+        self.database_id_generation.generate_context_id(model, size)
     }
 
     pub fn set_base_url(&mut self, value: &str) -> Result<(), AuthError> {

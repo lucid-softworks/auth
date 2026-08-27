@@ -1,10 +1,9 @@
 use super::AuthService;
 use crate::{
-    AuthError, AuthUser, OAuthAccount, SiweError, SiweIdentityWrite, SiweIdentityWriteOutcome,
-    VerificationValue, WalletAddress,
+    AuthError, AuthUser, DatabaseCreate, DatabaseIdInput, OAuthAccount, SiweError,
+    SiweIdentityWrite, SiweIdentityWriteOutcome, VerificationValue, WalletAddress,
 };
 use chrono::{Duration, Utc};
-use uuid::Uuid;
 
 const EMAIL_CLAIM_IDENTIFIER_PREFIX: &str = "siwe-email-claim-";
 
@@ -72,7 +71,7 @@ impl AuthService {
         };
         self.write_siwe_identity(SiweIdentityWrite::AddChain {
             expected_user_id: owner.user.id.clone(),
-            wallet: wallet(owner.user.id.clone(), address, chain_id, false),
+            wallet: self.wallet_create(owner.user.id.clone(), address, chain_id, false)?,
             account: self
                 .prepare_account_create(siwe_account(owner.user.id, address, chain_id))
                 .await?,
@@ -160,7 +159,7 @@ impl AuthService {
             .create_wallet_identity(
                 &self.siwe_plugin()?.config.schema,
                 user,
-                wallet(String::new(), address, chain_id, true),
+                self.wallet_create(String::new(), address, chain_id, true)?,
                 &account,
             )
             .await?;
@@ -172,6 +171,21 @@ impl AuthService {
             Some(lookup) => lookup.lookup(address).await,
             None => Ok(crate::SiweEnsProfile::default()),
         }
+    }
+
+    fn wallet_create(
+        &self,
+        user_id: String,
+        address: &str,
+        chain_id: f64,
+        is_primary: bool,
+    ) -> Result<DatabaseCreate<WalletAddress>, AuthError> {
+        self.prepare_database_create(
+            "walletAddress",
+            DatabaseIdInput::Absent,
+            false,
+            wallet(user_id, address, chain_id, is_primary),
+        )
     }
 
     async fn write_siwe_identity(&self, write: SiweIdentityWrite) -> Result<AuthUser, AuthError> {
@@ -242,7 +256,7 @@ impl AuthService {
 
 fn wallet(user_id: String, address: &str, chain_id: f64, is_primary: bool) -> WalletAddress {
     WalletAddress {
-        id: Uuid::new_v4(),
+        id: String::new(),
         user_id,
         address: address.into(),
         chain_id,
@@ -254,7 +268,7 @@ fn wallet(user_id: String, address: &str, chain_id: f64, is_primary: bool) -> Wa
 fn siwe_account(user_id: String, address: &str, chain_id: f64) -> OAuthAccount {
     let now = Utc::now();
     OAuthAccount {
-        id: Uuid::new_v4().to_string(),
+        id: String::new(),
         user_id,
         issuer: "local:siwe".into(),
         account_id: format!("{address}:{}", javascript_number(chain_id)),

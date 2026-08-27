@@ -70,3 +70,17 @@ fn configured_field(
     }
     field
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_id_is_an_optional_string_without_a_database_reference() {
+        let table = catalog(&DeviceAuthorizationSchema::default(), false);
+        let user_id = &table.fields["userId"];
+        assert_eq!(user_id.field_type, AdditionalFieldType::String);
+        assert!(!user_id.required);
+        assert_eq!(user_id.references, None);
+    }
+}

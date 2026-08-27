@@ -125,7 +125,7 @@ mod tests {
         after(&plugin, &user, &context()).await.unwrap();
         assert_eq!(
             client.idempotency_keys.lock().unwrap().as_slice(),
-            [user.id.to_string()]
+            std::slice::from_ref(&user.id)
         );
     }
 

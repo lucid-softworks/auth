@@ -1,5 +1,5 @@
-use super::MemoryOAuthProviderStore;
-use crate::{AuthError, oauth_provider::*};
+use super::{MemoryOAuthProviderStore, create_id};
+use crate::{AuthError, DatabaseIdSupplier, oauth_provider::*};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
@@ -7,15 +7,17 @@ use chrono::{DateTime, Utc};
 impl OAuthProviderAssertionStore for MemoryOAuthProviderStore {
     async fn reserve_oauth_client_assertion(
         &self,
-        assertion: OAuthProviderClientAssertion,
+        id: &dyn DatabaseIdSupplier,
+        mut assertion: OAuthProviderClientAssertion,
     ) -> Result<bool, AuthError> {
         let mut state = self.state.write().await;
-        if state.client_assertions.contains_key(&assertion.id) {
+        if state.client_assertions.contains_key(&assertion.jti) {
             return Ok(false);
         }
+        assertion.id = create_id(&mut state, "oauthClientAssertion", id)?;
         state
             .client_assertions
-            .insert(assertion.id.clone(), assertion);
+            .insert(assertion.jti.clone(), assertion);
         Ok(true)
     }
 
@@ -36,18 +38,28 @@ impl OAuthProviderAssertionStore for MemoryOAuthProviderStore {
 mod tests {
     use super::*;
     use chrono::Duration;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[tokio::test]
     async fn client_assertions_are_reserved_once_atomically() {
         let store = MemoryOAuthProviderStore::new();
         let assertion = OAuthProviderClientAssertion {
-            id: "assertion-digest".into(),
+            id: String::new(),
+            jti: "assertion-digest".into(),
             expires_at: Utc::now() + Duration::minutes(5),
         };
+        let calls = AtomicUsize::new(0);
+        let id = || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(crate::PreparedDatabaseId::Value(
+                crate::DatabaseIdValue::String(uuid::Uuid::new_v4().to_string()),
+            ))
+        };
         let (left, right) = tokio::join!(
-            store.reserve_oauth_client_assertion(assertion.clone()),
-            store.reserve_oauth_client_assertion(assertion),
+            store.reserve_oauth_client_assertion(&id, assertion.clone()),
+            store.reserve_oauth_client_assertion(&id, assertion),
         );
         assert_eq!(usize::from(left.unwrap()) + usize::from(right.unwrap()), 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 }

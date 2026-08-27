@@ -28,10 +28,10 @@ async fn create_persists_future_before_provider_and_builds_exact_hosted_page_req
         })
     );
 
-    let user_id = fixture.user_id.unwrap();
+    let user_id = fixture.user_id.as_deref().unwrap();
     let subscriptions = fixture
         .store
-        .list_subscriptions_by_reference(&user_id.to_string())
+        .list_subscriptions_by_reference(user_id)
         .await
         .unwrap();
     assert_eq!(subscriptions.len(), 1);
@@ -76,7 +76,7 @@ async fn failed_checkout_leaves_and_reuses_the_first_future_row_with_new_seats()
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["message"], "checkout unavailable");
 
-    let reference = fixture.user_id.unwrap().to_string();
+    let reference = fixture.user_id.as_deref().unwrap().to_owned();
     let before = fixture
         .store
         .list_subscriptions_by_reference(&reference)

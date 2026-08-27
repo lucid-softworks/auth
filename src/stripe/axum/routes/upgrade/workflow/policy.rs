@@ -25,7 +25,7 @@ pub(super) async fn organization_context(
     let organization = if customer_needed {
         let organization = plugin
             .store
-            .find_organization_by_id(id)
+            .find_organization_by_id(&id.to_string())
             .await
             .map_err(auth_error)?
             .ok_or_else(|| known(400, StripeErrorCode::OrganizationNotFound))?;
@@ -41,7 +41,7 @@ pub(super) async fn organization_context(
     let member_count = if member_count_needed {
         plugin
             .store
-            .list_members(id)
+            .list_members(&id.to_string())
             .await
             .map_err(auth_error)?
             .len() as f64

@@ -7,10 +7,10 @@ use axum::{
     routing::get,
 };
 use lucid_auth::{
-    AuthConfig, AuthError, AuthPlugin, AuthService, AxumPluginRoute, MemoryStore, PluginDescriptor,
-    PluginEndpoint, PluginHttpMethod, PluginRateLimit, RateLimitCustomRule, RateLimitOutcome,
-    RateLimitRequest, RateLimitRule, RateLimitRuleResolver, RateLimitStorage, RateLimitStorageMode,
-    SecurityStore,
+    AuthConfig, AuthError, AuthPlugin, AuthService, AxumPluginRoute, DatabaseIdValue, MemoryStore,
+    PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginRateLimit, PreparedDatabaseId,
+    RateLimitCustomRule, RateLimitOutcome, RateLimitRequest, RateLimitRule, RateLimitRuleResolver,
+    RateLimitStorage, RateLimitStorageMode, SecurityStore,
 };
 use serde_json::json;
 use std::{
@@ -45,23 +45,28 @@ async fn rolling_window_boundary_and_retry_seconds_match() {
     let store = MemoryStore::default();
     let now = chrono::Utc::now();
     let rule = RateLimitRule::new(10, 1);
+    let id = || {
+        Ok(PreparedDatabaseId::Value(DatabaseIdValue::String(
+            "rate-limit-id".into(),
+        )))
+    };
     assert_eq!(
         store
-            .consume_rate_limit("key", now, rule, 10)
+            .consume_rate_limit(&id, "key", now, rule, 10)
             .await
             .unwrap(),
         RateLimitOutcome::allowed()
     );
     assert_eq!(
         store
-            .consume_rate_limit("key", now + chrono::Duration::seconds(9), rule, 10)
+            .consume_rate_limit(&id, "key", now + chrono::Duration::seconds(9), rule, 10)
             .await
             .unwrap(),
         RateLimitOutcome::denied(1)
     );
     assert_eq!(
         store
-            .consume_rate_limit("key", now + chrono::Duration::seconds(10), rule, 10)
+            .consume_rate_limit(&id, "key", now + chrono::Duration::seconds(10), rule, 10)
             .await
             .unwrap(),
         RateLimitOutcome::allowed()

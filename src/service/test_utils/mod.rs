@@ -1,10 +1,10 @@
 mod auth;
+mod context_id;
 mod organization;
 mod user;
 
 use super::AuthService;
 use crate::{TestHelpers, TestOrganizationHelpers, TestOtpHelpers, TestUtilsPlugin};
-use uuid::Uuid;
 
 impl AuthService {
     /// Returns the privileged Test Utils API only when `TestUtilsPlugin` is installed.
@@ -13,10 +13,12 @@ impl AuthService {
             .map(|_| TestHelpers { service: self })
     }
 
-    pub(crate) fn generate_id(&self, _model: &str) -> Uuid {
-        // TODO(#100, #101): migrate this temporary UUID-domain bridge to the
-        // Better Auth database ID policy and its Test Utils fallback rules.
-        Uuid::new_v4()
+    pub(crate) fn generate_test_id(&self, model: &str) -> String {
+        context_id::generate(&self.config, model)
+    }
+
+    pub(crate) fn generate_organization_id(&self) -> String {
+        self.generate_test_id("organization")
     }
 
     fn test_utils_plugin(&self) -> Option<&TestUtilsPlugin> {

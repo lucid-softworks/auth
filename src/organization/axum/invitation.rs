@@ -284,7 +284,7 @@ async fn list_user_invitations(
             for invitation in invitations {
                 let organization = match plugin
                     .store
-                    .find_organization_by_id(invitation.organization_id)
+                    .find_organization_by_id(&invitation.organization_id)
                     .await
                 {
                     Ok(Some(organization)) => organization,

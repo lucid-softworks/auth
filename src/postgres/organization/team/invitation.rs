@@ -2,13 +2,12 @@ use super::super::{rows, storage_error};
 use crate::{AuthError, postgres::PostgresModel};
 use serde_json::{Value, json};
 use sqlx::{Postgres, Transaction};
-use uuid::Uuid;
 
 pub(super) async fn remove_team_from_invitations(
     transaction: &mut Transaction<'_, Postgres>,
     invitation_model: &PostgresModel<'_>,
-    organization_id: Uuid,
-    team_id: Uuid,
+    organization_id: &str,
+    team_id: &str,
 ) -> Result<(), AuthError> {
     let mut query = crate::postgres::rows::select_query(invitation_model);
     query
@@ -16,7 +15,7 @@ pub(super) async fn remove_team_from_invitations(
         .push(invitation_model.quoted_column("organizationId")?)
         .push(" = ");
     invitation_model
-        .encode("organizationId", uuid_value(organization_id))?
+        .encode("organizationId", json!(organization_id))?
         .push_bind(&mut query);
     query
         .push(" AND ")
@@ -42,7 +41,7 @@ pub(super) async fn remove_team_from_invitations(
             .team_id
             .unwrap_or_default()
             .split(',')
-            .filter(|candidate| *candidate != team_id.to_string())
+            .filter(|candidate| *candidate != team_id)
             .collect::<Vec<_>>()
             .join(",");
         let writes = invitation_model.encode_fields([(
@@ -54,7 +53,7 @@ pub(super) async fn remove_team_from_invitations(
         let mut update = crate::postgres::rows::update_query(invitation_model, writes);
         update.push(" WHERE \"id\" = ");
         invitation_model
-            .encode("id", uuid_value(invitation.id))?
+            .encode("id", json!(invitation.id))?
             .push_bind(&mut update);
         update
             .build()
@@ -63,8 +62,4 @@ pub(super) async fn remove_team_from_invitations(
             .map_err(storage_error)?;
     }
     Ok(())
-}
-
-fn uuid_value(value: Uuid) -> Value {
-    Value::String(value.to_string())
 }

@@ -2,7 +2,6 @@ use crate::{AuthError, AuthSession, AuthUser};
 use chrono::{DateTime, Utc};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TestUtilsOptions {
@@ -11,7 +10,7 @@ pub struct TestUtilsOptions {
 
 #[derive(Debug, Clone, Default)]
 pub struct TestUserOverrides {
-    pub id: Option<Uuid>,
+    pub id: Option<String>,
     pub username: Option<String>,
     pub display_username: Option<String>,
     pub name: Option<String>,
@@ -30,7 +29,7 @@ pub struct TestUserOverrides {
 
 #[derive(Debug, Clone, Default)]
 pub struct TestOrganizationOverrides {
-    pub id: Option<Uuid>,
+    pub id: Option<String>,
     pub name: Option<String>,
     pub slug: Option<String>,
     pub logo: Option<Option<String>>,
@@ -62,7 +61,7 @@ pub struct TestLoginResult {
 #[derive(Debug, thiserror::Error)]
 pub enum TestUtilsError {
     #[error("User not found: {0}")]
-    UserNotFound(Uuid),
+    UserNotFound(String),
     #[error(transparent)]
     Auth(#[from] AuthError),
 }

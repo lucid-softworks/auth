@@ -289,8 +289,7 @@ mod sign_tests {
         let mut config = OAuthProviderConfig::new("/login", "/consent");
         config.pairwise_secret = Some("12345678901234567890123456789012".into());
         let mut client = test_client();
-        let user_id = Uuid::nil();
-        let user_id = user_id.to_string();
+        let user_id = "user".to_owned();
         let first = subject_identifier(&user_id, &client, &config).unwrap();
         assert_eq!(first, subject_identifier(&user_id, &client, &config).unwrap());
         client.redirect_uris[0] = "https://other.example/callback".into();
@@ -301,7 +300,7 @@ mod sign_tests {
 
     fn test_client() -> OAuthProviderClient {
         OAuthProviderClient {
-            id: Uuid::nil(), client_id: "client".into(), client_secret: None,
+            id: "record".into(), client_id: "client".into(), client_secret: None,
             client_discovery_id: None, disabled: false, skip_consent: None,
             enable_end_session: None, subject_type: Some("pairwise".into()), scopes: None,
             client_credentials_scopes: Vec::new(), user_id: None, created_at: None,

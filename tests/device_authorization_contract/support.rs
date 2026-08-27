@@ -6,9 +6,10 @@ pub(super) use axum::{
 pub(super) use chrono::{Duration, Utc};
 pub(super) use http_body_util::BodyExt;
 pub(super) use lucid_auth::{
-    AuthConfig, AuthService, DeviceAuthorizationConfig, DeviceAuthorizationPlugin,
-    DeviceAuthorizationStore, DeviceCode, DeviceCodeCreateOutcome, DeviceCodeStatus,
-    MemoryDeviceAuthorizationStore, MemoryStore, NewPasswordUser,
+    AuthConfig, AuthService, DatabaseCreate, DatabaseIdGeneration, DatabaseIdInput, DatabaseIdPlan,
+    DeviceAuthorizationConfig, DeviceAuthorizationPlugin, DeviceAuthorizationStore, DeviceCode,
+    DeviceCodeCreateOutcome, DeviceCodeStatus, MemoryDeviceAuthorizationStore, MemoryStore,
+    NewPasswordUser,
 };
 pub(super) use serde_json::{Value, json};
 pub(super) use std::sync::Arc;
@@ -32,8 +33,16 @@ pub(super) async fn fixture() -> Fixture {
 }
 
 pub(super) async fn fixture_with(device_config: DeviceAuthorizationConfig) -> Fixture {
+    fixture_with_strategy(device_config, DatabaseIdGeneration::Default).await
+}
+
+pub(super) async fn fixture_with_strategy(
+    device_config: DeviceAuthorizationConfig,
+    id_generation: DatabaseIdGeneration,
+) -> Fixture {
     let devices = Arc::new(MemoryDeviceAuthorizationStore::new());
     let mut config = AuthConfig::new([211_u8; 32]).unwrap();
+    config.database_id_generation = id_generation;
     config.set_base_url("http://localhost/api/auth").unwrap();
     config
         .add_plugin(DeviceAuthorizationPlugin::from_arc(
@@ -159,7 +168,7 @@ pub(super) fn record(
     status: DeviceCodeStatus,
 ) -> DeviceCode {
     DeviceCode {
-        id: Uuid::new_v4(),
+        id: format!("fixture::{device_code}::{user_code}"),
         device_code: device_code.into(),
         user_code: user_code.into(),
         user_id,
@@ -175,8 +184,21 @@ pub(super) fn record(
 }
 
 pub(super) async fn insert(store: &dyn DeviceAuthorizationStore, record: DeviceCode) {
+    let id = record.id.clone();
+    let create = DatabaseCreate::new(
+        record,
+        DatabaseIdPlan::new(
+            DatabaseIdGeneration::Default,
+            "deviceCode",
+            DatabaseIdInput::String(id),
+            true,
+        ),
+    );
     assert!(matches!(
-        store.create_device_code(record).await.unwrap(),
+        store
+            .create_device_code(create, &MemoryStore::default())
+            .await
+            .unwrap(),
         DeviceCodeCreateOutcome::Created(_)
     ));
 }

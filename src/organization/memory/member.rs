@@ -1,37 +1,39 @@
-use super::{MemoryOrganizationStore, has_role};
+use super::{MemoryOrganizationStore, create_id, duplicate_id, has_role};
 use crate::{
     AuthError, OrganizationMember, OrganizationMemberStore, OrganizationMemberWriteOutcome,
 };
 use async_trait::async_trait;
-use uuid::Uuid;
 
 #[async_trait]
 impl OrganizationMemberStore for MemoryOrganizationStore {
     async fn raw_insert_member(
         &self,
-        member: OrganizationMember,
+        mut member: OrganizationMember,
+        id: &dyn crate::DatabaseIdSupplier,
     ) -> Result<OrganizationMember, AuthError> {
         let mut state = self.state.write().await;
         if state.members.values().any(|existing| {
-            existing.id == member.id
-                || (existing.organization_id == member.organization_id
-                    && existing.user_id == member.user_id)
+            existing.organization_id == member.organization_id && existing.user_id == member.user_id
         }) {
             return Err(AuthError::Storage(
                 "test organization member already exists".into(),
             ));
         }
-        state.members.insert(member.id, member.clone());
+        member.id = create_id("member", id, &mut state)?;
+        if state.members.contains_key(&member.id) {
+            return Err(duplicate_id("member"));
+        }
+        state.members.insert(member.id.clone(), member.clone());
         Ok(member)
     }
 
-    async fn find_member_by_id(&self, id: Uuid) -> Result<Option<OrganizationMember>, AuthError> {
-        Ok(self.state.read().await.members.get(&id).cloned())
+    async fn find_member_by_id(&self, id: &str) -> Result<Option<OrganizationMember>, AuthError> {
+        Ok(self.state.read().await.members.get(id).cloned())
     }
 
     async fn find_member(
         &self,
-        organization_id: Uuid,
+        organization_id: &str,
         user_id: &str,
     ) -> Result<Option<OrganizationMember>, AuthError> {
         Ok(self
@@ -46,7 +48,7 @@ impl OrganizationMemberStore for MemoryOrganizationStore {
 
     async fn list_members(
         &self,
-        organization_id: Uuid,
+        organization_id: &str,
     ) -> Result<Vec<OrganizationMember>, AuthError> {
         let mut members: Vec<_> = self
             .state
@@ -57,13 +59,14 @@ impl OrganizationMemberStore for MemoryOrganizationStore {
             .filter(|member| member.organization_id == organization_id)
             .cloned()
             .collect();
-        members.sort_by_key(|member| (member.created_at, member.id));
+        members.sort_by_key(|member| (member.created_at, member.id.clone()));
         Ok(members)
     }
 
     async fn add_member(
         &self,
-        member: OrganizationMember,
+        member: &mut OrganizationMember,
+        id: &dyn crate::DatabaseIdSupplier,
         membership_limit: usize,
     ) -> Result<OrganizationMemberWriteOutcome, AuthError> {
         let mut state = self.state.write().await;
@@ -81,18 +84,22 @@ impl OrganizationMemberStore for MemoryOrganizationStore {
         {
             return Ok(OrganizationMemberWriteOutcome::LimitReached);
         }
-        state.members.insert(member.id, member);
+        member.id = create_id("member", id, &mut state)?;
+        if state.members.contains_key(&member.id) {
+            return Err(duplicate_id("member"));
+        }
+        state.members.insert(member.id.clone(), member.clone());
         Ok(OrganizationMemberWriteOutcome::Written)
     }
 
     async fn update_member_role(
         &self,
-        member_id: Uuid,
+        member_id: &str,
         role: String,
         creator_role: &str,
     ) -> Result<OrganizationMemberWriteOutcome, AuthError> {
         let mut state = self.state.write().await;
-        let Some(current) = state.members.get(&member_id).cloned() else {
+        let Some(current) = state.members.get(member_id).cloned() else {
             return Ok(OrganizationMemberWriteOutcome::NotFound);
         };
         if has_role(&current, creator_role)
@@ -112,7 +119,7 @@ impl OrganizationMemberStore for MemoryOrganizationStore {
         }
         state
             .members
-            .get_mut(&member_id)
+            .get_mut(member_id)
             .expect("member exists")
             .role = role;
         Ok(OrganizationMemberWriteOutcome::Written)
@@ -120,11 +127,11 @@ impl OrganizationMemberStore for MemoryOrganizationStore {
 
     async fn remove_member(
         &self,
-        member_id: Uuid,
+        member_id: &str,
         creator_role: &str,
     ) -> Result<OrganizationMemberWriteOutcome, AuthError> {
         let mut state = self.state.write().await;
-        let Some(member) = state.members.get(&member_id).cloned() else {
+        let Some(member) = state.members.get(member_id).cloned() else {
             return Ok(OrganizationMemberWriteOutcome::NotFound);
         };
         if has_role(&member, creator_role)
@@ -138,12 +145,12 @@ impl OrganizationMemberStore for MemoryOrganizationStore {
         {
             return Ok(OrganizationMemberWriteOutcome::LastOwner);
         }
-        state.members.remove(&member_id);
+        state.members.remove(member_id);
         let organization_team_ids: Vec<_> = state
             .teams
             .values()
             .filter(|team| team.organization_id == member.organization_id)
-            .map(|team| team.id)
+            .map(|team| team.id.clone())
             .collect();
         state.team_members.retain(|_, team_member| {
             team_member.user_id != member.user_id

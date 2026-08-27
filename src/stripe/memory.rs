@@ -9,7 +9,7 @@ pub struct MemoryStripeStore {
     subscriptions: RwLock<BTreeMap<Uuid, Subscription>>,
     subscription_order: RwLock<Vec<Uuid>>,
     user_customers: RwLock<BTreeMap<String, String>>,
-    organization_customers: RwLock<BTreeMap<Uuid, String>>,
+    organization_customers: RwLock<BTreeMap<String, String>>,
 }
 
 impl MemoryStripeStore {
@@ -47,19 +47,19 @@ impl StripeStore for MemoryStripeStore {
 
     async fn organization_customer_id(
         &self,
-        organization_id: Uuid,
+        organization_id: &str,
     ) -> Result<Option<String>, StripeStoreError> {
         Ok(self
             .organization_customers
             .read()
             .await
-            .get(&organization_id)
+            .get(organization_id)
             .cloned())
     }
 
     async fn set_organization_customer_id(
         &self,
-        organization_id: Uuid,
+        organization_id: String,
         customer_id: Option<String>,
     ) -> Result<(), StripeStoreError> {
         set_customer_id(&self.organization_customers, organization_id, customer_id).await;
@@ -69,13 +69,13 @@ impl StripeStore for MemoryStripeStore {
     async fn organization_id_by_customer(
         &self,
         customer_id: &str,
-    ) -> Result<Option<Uuid>, StripeStoreError> {
+    ) -> Result<Option<String>, StripeStoreError> {
         Ok(self
             .organization_customers
             .read()
             .await
             .iter()
-            .find_map(|(id, stored)| (stored == customer_id).then_some(*id)))
+            .find_map(|(id, stored)| (stored == customer_id).then(|| id.clone())))
     }
 
     async fn create_subscription(

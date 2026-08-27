@@ -70,14 +70,14 @@ impl StripeStore for PostgresStripeStore {
 
     async fn organization_customer_id(
         &self,
-        organization_id: Uuid,
+        organization_id: &str,
     ) -> Result<Option<String>, StripeStoreError> {
         customer::organization_customer_id(self, organization_id).await
     }
 
     async fn set_organization_customer_id(
         &self,
-        organization_id: Uuid,
+        organization_id: String,
         customer_id: Option<String>,
     ) -> Result<(), StripeStoreError> {
         customer::set_organization_customer_id(self, organization_id, customer_id).await
@@ -86,7 +86,7 @@ impl StripeStore for PostgresStripeStore {
     async fn organization_id_by_customer(
         &self,
         customer_id: &str,
-    ) -> Result<Option<Uuid>, StripeStoreError> {
+    ) -> Result<Option<String>, StripeStoreError> {
         customer::organization_id_by_customer(self, customer_id).await
     }
 

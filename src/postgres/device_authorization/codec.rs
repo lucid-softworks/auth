@@ -7,9 +7,9 @@ use std::str::FromStr;
 pub(super) fn writes<'a>(
     model: &'a PostgresModel<'a>,
     code: &DeviceCode,
+    id: &crate::PreparedDatabaseId,
 ) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
     let mut values = Map::from_iter([
-        ("id".into(), json!(code.id.to_string())),
         ("deviceCode".into(), json!(code.device_code)),
         ("userCode".into(), json!(code.user_code)),
         ("userId".into(), optional_string(code.user_id.clone())),
@@ -28,6 +28,7 @@ pub(super) fn writes<'a>(
         ("clientId".into(), optional_string(code.client_id.clone())),
         ("scope".into(), optional_string(code.scope.clone())),
     ]);
+    super::super::rows::insert_prepared_id(&mut values, id)?;
     if model.has_field("resources") {
         values.insert(
             "resources".into(),
@@ -58,7 +59,7 @@ fn decode_values(
     model: &PostgresModel<'_>,
     mut values: Map<String, Value>,
 ) -> Result<DeviceCode, AuthError> {
-    let id = required_uuid(&mut values, "id")?;
+    let id = required_string(&mut values, "id")?;
     let device_code = required_string(&mut values, "deviceCode")?;
     let user_code = required_string(&mut values, "userCode")?;
     let user_id = optional_string_value(&mut values, "userId")?;
@@ -113,11 +114,6 @@ fn optional_number(value: Option<f64>) -> Result<Value, AuthError> {
 
 fn optional_string(value: Option<String>) -> Value {
     value.map(Value::String).unwrap_or(Value::Null)
-}
-
-fn required_uuid(values: &mut Map<String, Value>, field: &str) -> Result<uuid::Uuid, AuthError> {
-    let value = required_string(values, field)?;
-    uuid::Uuid::parse_str(&value).map_err(|_| invalid_row(field))
 }
 
 fn required_string(values: &mut Map<String, Value>, field: &str) -> Result<String, AuthError> {

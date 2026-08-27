@@ -301,8 +301,8 @@ async fn session_and_async_callback_detection_use_the_exact_user_projection() {
     let now = Utc::now();
     let session = SessionWithUser {
         session: AuthSession {
-            id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
+            id: Uuid::new_v4().to_string(),
+            user_id: Uuid::new_v4().to_string(),
             token: "token".into(),
             actor_user_id: None,
             authentication_method: Some(lucid_auth::AuthenticationMethod::Password),
@@ -314,7 +314,7 @@ async fn session_and_async_callback_detection_use_the_exact_user_projection() {
             additional_fields: Default::default(),
         },
         user: AuthUser {
-            id: Uuid::new_v4(),
+            id: Uuid::new_v4().to_string(),
             username: None,
             display_username: None,
             name: "Locale User".into(),

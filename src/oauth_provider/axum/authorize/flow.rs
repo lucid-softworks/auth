@@ -170,9 +170,7 @@ async fn complete_consent(
     };
     let now = Utc::now();
     let consent = OAuthProviderConsent {
-        id: existing
-            .as_ref()
-            .map_or_else(uuid::Uuid::new_v4, |value| value.id),
+        id: String::new(),
         client_id: query.client_id.clone().expect("validated client id"),
         user_id: Some(session.user.id.clone()),
         reference_id: reference_id.clone(),
@@ -182,7 +180,11 @@ async fn complete_consent(
         created_at: existing.as_ref().map_or(now, |value| value.created_at),
         updated_at: now,
     };
-    if let Err(error) = store.upsert_oauth_consent(consent).await {
+    let id = service.database_id_plan("oauthConsent", crate::DatabaseIdInput::Absent, false);
+    if let Err(error) = store
+        .upsert_oauth_consent(&|| service.prepare_database_id(&id), consent)
+        .await
+    {
         return crate::axum::http::auth_error(error);
     }
     if selection.scopes != query.scope.as_deref().map(split_scopes).unwrap_or_default() {

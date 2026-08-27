@@ -15,7 +15,7 @@ pub trait SiweStore: Send + Sync {
         &self,
         schema: &SiweSchema,
         user: DatabaseCreate<AuthUser>,
-        wallet: WalletAddress,
+        wallet: DatabaseCreate<WalletAddress>,
         account: &dyn DatabaseAccountCreate,
     ) -> Result<SiweIdentityWriteOutcome, AuthError>;
 

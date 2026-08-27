@@ -12,7 +12,10 @@ async fn portal_uses_the_user_customer_field_without_needing_a_subscription() {
     let fixture = fixture(true, |_| {}).await;
     fixture
         .store
-        .set_user_customer_id(fixture.user_id.unwrap(), Some("customer_portal".into()))
+        .set_user_customer_id(
+            fixture.user_id.as_deref().unwrap(),
+            Some("customer_portal".into()),
+        )
         .await
         .unwrap();
     let (status, body) = post(
@@ -44,7 +47,7 @@ async fn portal_uses_the_user_customer_field_without_needing_a_subscription() {
 #[tokio::test]
 async fn list_is_local_only_filters_statuses_and_prefers_the_first_plan_item() {
     let fixture = fixture(true, |_| {}).await;
-    let reference = fixture.user_id.unwrap().to_string();
+    let reference = fixture.user_id.as_deref().unwrap().to_owned();
     let active =
         create_subscription(&fixture, &reference, ChargebeeSubscriptionStatus::Active).await;
     create_subscription(&fixture, &reference, ChargebeeSubscriptionStatus::Paused).await;
@@ -81,7 +84,7 @@ async fn list_is_local_only_filters_statuses_and_prefers_the_first_plan_item() {
 #[tokio::test]
 async fn cancel_opens_the_portal_and_embeds_the_exact_callback_url() {
     let fixture = fixture(true, |_| {}).await;
-    let reference = fixture.user_id.unwrap().to_string();
+    let reference = fixture.user_id.as_deref().unwrap().to_owned();
     let mut local = ChargebeeSubscription::future(&reference);
     local.status = ChargebeeSubscriptionStatus::Active;
     local.chargebee_customer_id = Some("customer_cancel".into());

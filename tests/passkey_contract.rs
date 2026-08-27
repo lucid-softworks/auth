@@ -6,8 +6,9 @@ use axum::{
 use chrono::{Duration, Utc};
 use http_body_util::BodyExt;
 use lucid_auth::{
-    AuthConfig, AuthService, AuthSession, AuthStore, AuthenticationMethod, MemoryStore,
-    NewPasswordUser, PasskeyConfig, PasskeyPlugin, StoredPasskey, UsernamePlugin,
+    AuthConfig, AuthService, AuthSession, AuthStore, AuthenticationMethod, DatabaseCreate,
+    DatabaseIdGeneration, DatabaseIdInput, DatabaseIdPlan, MemoryStore, NewPasswordUser,
+    PasskeyConfig, PasskeyPlugin, StoredPasskey, UsernamePlugin,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -16,6 +17,36 @@ use uuid::Uuid;
 
 #[path = "passkey_contract/management.rs"]
 mod management;
+
+fn passkey_create(passkey: StoredPasskey) -> DatabaseCreate<StoredPasskey> {
+    let id = passkey.id.clone();
+    DatabaseCreate::new(
+        passkey,
+        DatabaseIdPlan::new(
+            DatabaseIdGeneration::Default,
+            "passkey",
+            DatabaseIdInput::String(id),
+            true,
+        ),
+    )
+}
+
+fn session_create(session: AuthSession) -> DatabaseCreate<AuthSession> {
+    let id = session.id.clone();
+    DatabaseCreate::new(
+        session,
+        DatabaseIdPlan::new(
+            DatabaseIdGeneration::Default,
+            "session",
+            DatabaseIdInput::String(id),
+            true,
+        ),
+    )
+}
+
+async fn persist_session(store: &MemoryStore, session: AuthSession) {
+    store.create_session(session_create(session)).await.unwrap();
+}
 
 async fn application() -> (Router, Arc<AuthService>, Arc<MemoryStore>) {
     let mut config = AuthConfig::new([30_u8; 32]).unwrap();
@@ -43,8 +74,8 @@ async fn application() -> (Router, Arc<AuthService>, Arc<MemoryStore>) {
         .unwrap();
     let now = Utc::now();
     store
-        .save_passkey(StoredPasskey {
-            id: Uuid::new_v4(),
+        .save_passkey(passkey_create(StoredPasskey {
+            id: Uuid::new_v4().to_string(),
             user_id: user.id,
             name: Some("Security key".into()),
             credential_id: "credential".into(),
@@ -55,7 +86,7 @@ async fn application() -> (Router, Arc<AuthService>, Arc<MemoryStore>) {
             transports: Some("internal,hybrid".into()),
             aaguid: Some("00000000-0000-0000-0000-000000000000".into()),
             created_at: now,
-        })
+        }))
         .await
         .unwrap();
     (lucid_auth::axum::router(service.clone()), service, store)
@@ -65,7 +96,7 @@ async fn application() -> (Router, Arc<AuthService>, Arc<MemoryStore>) {
 async fn registration_options_match_the_official_query_and_defaults() {
     let (app, _, store) = application().await;
     let user = store.find_user_by_username("luna").await.unwrap().unwrap();
-    store.delete_user_passkeys(user.id).await.unwrap();
+    store.delete_user_passkeys(&user.id).await.unwrap();
     let cookie = sign_in_cookie(&app).await;
     let response = app
         .oneshot(
@@ -106,7 +137,7 @@ async fn registration_options_match_the_official_query_and_defaults() {
 async fn management_schema_and_ordinary_session_policy_match() {
     let (app, service, store) = application().await;
     let user = store.find_user_by_username("luna").await.unwrap().unwrap();
-    let cookie = persisted_session_cookie(&service, &store, user.id).await;
+    let cookie = persisted_session_cookie(&service, &store, &user.id).await;
     let response = app
         .clone()
         .oneshot(
@@ -204,11 +235,11 @@ async fn request_origin_fallback_matches_official_verification_errors() {
 async fn stale_registration_does_not_consume_the_challenge() {
     let (app, service, store) = application().await;
     let user = store.find_user_by_username("luna").await.unwrap().unwrap();
-    store.delete_user_passkeys(user.id).await.unwrap();
+    store.delete_user_passkeys(&user.id).await.unwrap();
     let token = Uuid::new_v4().to_string();
     let now = Utc::now();
     let fresh_session = AuthSession {
-        id: Uuid::new_v4(),
+        id: Uuid::new_v4().to_string(),
         user_id: user.id,
         token: token.clone(),
         actor_user_id: None,
@@ -220,7 +251,7 @@ async fn stale_registration_does_not_consume_the_challenge() {
         user_agent: None,
         additional_fields: serde_json::Map::new(),
     };
-    store.create_session(fresh_session.clone()).await.unwrap();
+    persist_session(&store, fresh_session.clone()).await;
     let session_cookie = format!(
         "better-auth.session_token={}",
         service.signed_cookie_value(&token)
@@ -245,7 +276,7 @@ async fn stale_registration_does_not_consume_the_challenge() {
     let cookies = format!("{session_cookie}; {challenge_cookie}");
     let mut stale_session = fresh_session.clone();
     stale_session.created_at = now - Duration::days(2);
-    store.create_session(stale_session).await.unwrap();
+    persist_session(&store, stale_session).await;
 
     let response = app
         .clone()
@@ -259,7 +290,7 @@ async fn stale_registration_does_not_consume_the_challenge() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     assert_eq!(response_json(response).await["code"], "SESSION_NOT_FRESH");
 
-    store.create_session(fresh_session).await.unwrap();
+    persist_session(&store, fresh_session).await;
     let response = app
         .oneshot(passkey_request(
             "/api/auth/passkey/verify-registration",
@@ -298,14 +329,14 @@ async fn sign_in_cookie(app: &Router) -> String {
 async fn persisted_session_cookie(
     service: &AuthService,
     store: &MemoryStore,
-    user_id: Uuid,
+    user_id: &str,
 ) -> String {
     let token = Uuid::new_v4().to_string();
     let now = Utc::now();
     store
-        .create_session(AuthSession {
-            id: Uuid::new_v4(),
-            user_id,
+        .create_session(session_create(AuthSession {
+            id: Uuid::new_v4().to_string(),
+            user_id: user_id.to_owned(),
             token: token.clone(),
             actor_user_id: None,
             authentication_method: Some(AuthenticationMethod::Password),
@@ -315,7 +346,7 @@ async fn persisted_session_cookie(
             ip_address: None,
             user_agent: None,
             additional_fields: serde_json::Map::new(),
-        })
+        }))
         .await
         .unwrap();
     format!(

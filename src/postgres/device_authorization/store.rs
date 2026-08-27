@@ -1,6 +1,6 @@
 use super::{PostgresDeviceAuthorizationStore, codec, query};
 use crate::{
-    AuthError,
+    AuthError, AuthStore, DatabaseCreate,
     device_authorization::{
         DeviceAuthorizationStore, DeviceCode, DeviceCodeCreateOutcome, DeviceCodeOwner,
         DeviceCodeStatus,
@@ -11,31 +11,49 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use sqlx::postgres::PgRow;
-use uuid::Uuid;
 
 #[async_trait]
 impl DeviceAuthorizationStore for PostgresDeviceAuthorizationStore {
     async fn create_device_code(
         &self,
-        code: DeviceCode,
+        code: DatabaseCreate<DeviceCode>,
+        auth_store: &dyn AuthStore,
     ) -> Result<DeviceCodeCreateOutcome, AuthError> {
         let model = self.model()?;
-        let result = query::insert(&model, &code)?
+        let mut transaction = self.pool().begin().await.map_err(storage_error)?;
+        let conflict =
+            query::codes_exist(&model, &code.record.device_code, &code.record.user_code)?
+                .build_query_scalar::<bool>()
+                .fetch_one(&mut *transaction)
+                .await
+                .map_err(storage_error)?;
+        if conflict {
+            transaction.commit().await.map_err(storage_error)?;
+            return Ok(DeviceCodeCreateOutcome::UniqueConflict);
+        }
+        let (code, id) = code.into_parts(auth_store)?;
+        let result = query::insert(&model, &code, &id)?
             .build()
-            .fetch_one(self.pool())
+            .fetch_one(&mut *transaction)
             .await;
         match result {
-            Ok(row) => Ok(DeviceCodeCreateOutcome::Created(codec::decode(
-                &model, &row,
-            )?)),
+            Ok(row) => {
+                let code = codec::decode(&model, &row)?;
+                transaction.commit().await.map_err(storage_error)?;
+                Ok(DeviceCodeCreateOutcome::Created(code))
+            }
             Err(error)
                 if error
                     .as_database_error()
                     .is_some_and(|database| database.is_unique_violation()) =>
             {
+                transaction.rollback().await.map_err(storage_error)?;
                 Ok(DeviceCodeCreateOutcome::UniqueConflict)
             }
-            Err(error) => Err(storage_error(error)),
+            Err(error) => {
+                transaction.rollback().await.map_err(storage_error)?;
+                Err(storage_error(error))
+            }
         }
     }
 
@@ -52,7 +70,7 @@ impl DeviceAuthorizationStore for PostgresDeviceAuthorizationStore {
 
     async fn bind_pending_user(
         &self,
-        id: Uuid,
+        id: &str,
         user_id: &str,
     ) -> Result<Option<DeviceCode>, AuthError> {
         let model = self.model()?;
@@ -66,7 +84,7 @@ impl DeviceAuthorizationStore for PostgresDeviceAuthorizationStore {
 
     async fn update_last_polled_at(
         &self,
-        id: Uuid,
+        id: &str,
         last_polled_at: DateTime<Utc>,
     ) -> Result<Option<DeviceCode>, AuthError> {
         update(self, id, "lastPolledAt", json!(last_polled_at.to_rfc3339())).await
@@ -74,20 +92,20 @@ impl DeviceAuthorizationStore for PostgresDeviceAuthorizationStore {
 
     async fn update_device_code_status(
         &self,
-        id: Uuid,
+        id: &str,
         status: DeviceCodeStatus,
     ) -> Result<Option<DeviceCode>, AuthError> {
         update(self, id, "status", json!(status.as_str())).await
     }
 
-    async fn delete_device_code(&self, id: Uuid) -> Result<Option<DeviceCode>, AuthError> {
+    async fn delete_device_code(&self, id: &str) -> Result<Option<DeviceCode>, AuthError> {
         let model = self.model()?;
-        fetch_optional(&model, query::delete(&model, id), self.pool()).await
+        fetch_optional(&model, query::delete(&model, id)?, self.pool()).await
     }
 
     async fn consume_approved_device_code(
         &self,
-        id: Uuid,
+        id: &str,
         owner: DeviceCodeOwner,
     ) -> Result<Option<DeviceCode>, AuthError> {
         let model = self.model()?;
@@ -118,7 +136,7 @@ async fn find_by(
 
 async fn update(
     store: &PostgresDeviceAuthorizationStore,
-    id: Uuid,
+    id: &str,
     field: &str,
     value: Value,
 ) -> Result<Option<DeviceCode>, AuthError> {

@@ -6,7 +6,7 @@ async fn challenge_attempts_account_lockout_and_backup_code_updates_are_atomic()
     let mut cookies = CookieJar::default();
     let (user_id, _, _, _) = enable_totp(&fixture, &mut cookies).await;
     exhaust_challenge_budget(&fixture, &mut cookies).await;
-    assert_backup_code_update_is_atomic(&fixture, user_id).await;
+    assert_backup_code_update_is_atomic(&fixture, &user_id).await;
     assert_account_lockout().await;
 }
 
@@ -47,7 +47,7 @@ async fn invalid_totp(
     .await
 }
 
-async fn assert_backup_code_update_is_atomic(fixture: &Fixture, user_id: Uuid) {
+async fn assert_backup_code_update_is_atomic(fixture: &Fixture, user_id: &str) {
     let record = fixture
         .factors
         .find_two_factor(user_id)

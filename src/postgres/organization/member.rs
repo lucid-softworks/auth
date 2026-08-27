@@ -4,7 +4,7 @@ use crate::{
     postgres::PostgresStore,
 };
 use async_trait::async_trait;
-use uuid::Uuid;
+use serde_json::json;
 
 mod query;
 
@@ -16,21 +16,22 @@ impl OrganizationMemberStore for PostgresStore {
     async fn raw_insert_member(
         &self,
         member: OrganizationMember,
+        id: &dyn crate::DatabaseIdSupplier,
     ) -> Result<OrganizationMember, AuthError> {
         let model = self.physical_model("member")?;
         let mut connection = self.pool.acquire().await.map_err(storage_error)?;
-        insert_member(&mut *connection, &model, &member).await?;
-        Ok(member)
+        let id = id.prepare()?;
+        insert_member(&mut *connection, &model, &member, &id).await
     }
 
-    async fn find_member_by_id(&self, id: Uuid) -> Result<Option<OrganizationMember>, AuthError> {
+    async fn find_member_by_id(&self, id: &str) -> Result<Option<OrganizationMember>, AuthError> {
         let model = self.physical_model("member")?;
-        find(&self.pool, &model, [("id", uuid_value(id))], false).await
+        find(&self.pool, &model, [("id", json!(id))], false).await
     }
 
     async fn find_member(
         &self,
-        organization_id: Uuid,
+        organization_id: &str,
         user_id: &str,
     ) -> Result<Option<OrganizationMember>, AuthError> {
         let model = self.physical_model("member")?;
@@ -38,7 +39,7 @@ impl OrganizationMemberStore for PostgresStore {
             &self.pool,
             &model,
             [
-                ("organizationId", uuid_value(organization_id)),
+                ("organizationId", json!(organization_id)),
                 ("userId", serde_json::json!(user_id)),
             ],
             false,
@@ -48,7 +49,7 @@ impl OrganizationMemberStore for PostgresStore {
 
     async fn list_members(
         &self,
-        organization_id: Uuid,
+        organization_id: &str,
     ) -> Result<Vec<OrganizationMember>, AuthError> {
         let model = self.physical_model("member")?;
         let mut query = list_query(&model, organization_id)?;
@@ -64,7 +65,8 @@ impl OrganizationMemberStore for PostgresStore {
 
     async fn add_member(
         &self,
-        member: OrganizationMember,
+        member: &mut OrganizationMember,
+        id: &dyn crate::DatabaseIdSupplier,
         membership_limit: usize,
     ) -> Result<OrganizationMemberWriteOutcome, AuthError> {
         let organization_model = self.physical_model("organization")?;
@@ -73,32 +75,33 @@ impl OrganizationMemberStore for PostgresStore {
         lock_organization(
             &mut transaction,
             &organization_model,
-            member.organization_id,
+            &member.organization_id,
         )
         .await?;
         if member_exists(
             &mut transaction,
             &member_model,
-            member.organization_id,
+            &member.organization_id,
             &member.user_id,
         )
         .await?
         {
             return Ok(OrganizationMemberWriteOutcome::AlreadyMember);
         }
-        if member_count(&mut transaction, &member_model, member.organization_id).await?
+        if member_count(&mut transaction, &member_model, &member.organization_id).await?
             >= membership_limit as i64
         {
             return Ok(OrganizationMemberWriteOutcome::LimitReached);
         }
-        insert_member(&mut *transaction, &member_model, &member).await?;
+        let prepared = id.prepare()?;
+        *member = insert_member(&mut *transaction, &member_model, member, &prepared).await?;
         transaction.commit().await.map_err(storage_error)?;
         Ok(OrganizationMemberWriteOutcome::Written)
     }
 
     async fn update_member_role(
         &self,
-        member_id: Uuid,
+        member_id: &str,
         role: String,
         creator_role: &str,
     ) -> Result<OrganizationMemberWriteOutcome, AuthError> {
@@ -108,7 +111,7 @@ impl OrganizationMemberStore for PostgresStore {
         let Some(current) = find(
             &mut *transaction,
             &member_model,
-            [("id", uuid_value(member_id))],
+            [("id", json!(member_id))],
             true,
         )
         .await?
@@ -118,7 +121,7 @@ impl OrganizationMemberStore for PostgresStore {
         lock_organization(
             &mut transaction,
             &organization_model,
-            current.organization_id,
+            &current.organization_id,
         )
         .await?;
         if has_role(&current.role, creator_role)
@@ -126,7 +129,7 @@ impl OrganizationMemberStore for PostgresStore {
             && owner_count(
                 &mut transaction,
                 &member_model,
-                current.organization_id,
+                &current.organization_id,
                 creator_role,
             )
             .await?
@@ -141,7 +144,7 @@ impl OrganizationMemberStore for PostgresStore {
 
     async fn remove_member(
         &self,
-        member_id: Uuid,
+        member_id: &str,
         creator_role: &str,
     ) -> Result<OrganizationMemberWriteOutcome, AuthError> {
         let organization_model = self.physical_model("organization")?;
@@ -152,7 +155,7 @@ impl OrganizationMemberStore for PostgresStore {
         let Some(current) = find(
             &mut *transaction,
             &member_model,
-            [("id", uuid_value(member_id))],
+            [("id", json!(member_id))],
             true,
         )
         .await?
@@ -162,14 +165,14 @@ impl OrganizationMemberStore for PostgresStore {
         lock_organization(
             &mut transaction,
             &organization_model,
-            current.organization_id,
+            &current.organization_id,
         )
         .await?;
         if has_role(&current.role, creator_role)
             && owner_count(
                 &mut transaction,
                 &member_model,
-                current.organization_id,
+                &current.organization_id,
                 creator_role,
             )
             .await?
@@ -184,7 +187,7 @@ impl OrganizationMemberStore for PostgresStore {
                     &mut transaction,
                     team,
                     team_member,
-                    current.organization_id,
+                    &current.organization_id,
                     &current.user_id,
                 )
                 .await?;

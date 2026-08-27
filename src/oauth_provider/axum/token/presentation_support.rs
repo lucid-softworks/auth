@@ -18,7 +18,7 @@ async fn revoke_access(
                 return Ok(false);
             }
             store
-                .delete_oauth_access_token(access.id)
+                .delete_oauth_access_token(&access.id)
                 .await
                 .map_err(server)?;
             Ok(true)
@@ -56,7 +56,7 @@ async fn revoke_refresh(
         return Ok(true);
     }
     store
-        .revoke_oauth_refresh_token(refresh.id, Utc::now())
+        .revoke_oauth_refresh_token(&refresh.id, Utc::now())
         .await
         .map_err(server)
 }

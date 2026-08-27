@@ -322,7 +322,7 @@ mod tests {
     #[test]
     fn resource_links_compare_the_resource_identifier_not_its_row_id() {
         let resource = crate::OAuthProviderResource {
-            id: Uuid::new_v4(),
+            id: Uuid::new_v4().to_string(),
             identifier: "https://api.example.com".into(),
             name: "API".into(),
             access_token_ttl: None,
@@ -339,7 +339,7 @@ mod tests {
             metadata: None,
         };
         let link = crate::OAuthProviderClientResource {
-            id: Uuid::new_v4(),
+            id: Uuid::new_v4().to_string(),
             client_id: "client".into(),
             resource_id: resource.identifier.clone(),
             metadata: None,

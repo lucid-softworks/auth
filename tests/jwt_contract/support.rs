@@ -36,9 +36,14 @@ pub struct SessionCredential {
 }
 
 pub fn fixture(jwt: JwtConfig) -> Fixture {
+    fixture_configured(jwt, |_| {})
+}
+
+pub fn fixture_configured(jwt: JwtConfig, configure: impl FnOnce(&mut AuthConfig)) -> Fixture {
     let mut config = AuthConfig::new([161_u8; 32]).unwrap();
     config.set_base_url(ORIGIN).unwrap();
     config.email_and_password.enabled = true;
+    configure(&mut config);
     config.add_plugin(JwtPlugin::new(jwt)).unwrap();
     let store = Arc::new(MemoryStore::default());
     let service = Arc::new(AuthService::new(store.clone(), config));

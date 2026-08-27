@@ -13,7 +13,6 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tower::ServiceExt;
-use uuid::Uuid;
 
 pub(crate) const DELETE_COOKIE: &str = "dub_id=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT";
 
@@ -41,7 +40,7 @@ impl RecordingTracker {
 #[async_trait]
 impl DubLeadTracker for RecordingTracker {
     async fn track_lead(&self, lead: &DubLead) -> Result<(), DubLeadError> {
-        let user_id = Uuid::parse_str(&lead.customer_external_id).unwrap();
+        let user_id = &lead.customer_external_id;
         assert!(
             self.store.find_user_by_id(user_id).await.unwrap().is_some(),
             "Dub runs after user persistence"

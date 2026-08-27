@@ -2,7 +2,6 @@ use super::super::{rows, storage_error};
 use crate::{AuthError, OrganizationMember, postgres::PostgresModel};
 use serde_json::{Value, json};
 use sqlx::{Postgres, QueryBuilder, Transaction};
-use uuid::Uuid;
 
 pub(super) async fn find<'e, E, const N: usize>(
     executor: E,
@@ -44,9 +43,9 @@ pub(super) fn filter_query<const N: usize>(
 
 pub(super) fn list_query(
     model: &PostgresModel<'_>,
-    organization_id: Uuid,
+    organization_id: &str,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
-    let mut query = filter_query(model, [("organizationId", uuid_value(organization_id))])?;
+    let mut query = filter_query(model, [("organizationId", json!(organization_id))])?;
     query
         .push(" ORDER BY ")
         .push(model.quoted_column("createdAt")?)
@@ -58,24 +57,25 @@ pub(super) async fn insert_member<'e, E>(
     executor: E,
     model: &PostgresModel<'_>,
     member: &OrganizationMember,
-) -> Result<(), AuthError>
+    id: &crate::PreparedDatabaseId,
+) -> Result<OrganizationMember, AuthError>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let mut query =
-        crate::postgres::rows::insert_query_prefix(model, rows::member_writes(model, member)?);
-    query
+        crate::postgres::rows::insert_query(model, rows::member_writes(model, member, id)?);
+    let row = query
         .build()
-        .execute(executor)
+        .fetch_one(executor)
         .await
-        .map(|_| ())
-        .map_err(storage_error)
+        .map_err(storage_error)?;
+    rows::decode_member(model, &row)
 }
 
 pub(in crate::postgres::organization) async fn lock_organization(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
-    id: Uuid,
+    id: &str,
 ) -> Result<(), AuthError> {
     let mut query = QueryBuilder::new("SELECT ");
     query
@@ -83,7 +83,7 @@ pub(in crate::postgres::organization) async fn lock_organization(
         .push(" FROM ")
         .push(model.quoted_table())
         .push(" WHERE \"id\" = ");
-    model.encode("id", uuid_value(id))?.push_bind(&mut query);
+    model.encode("id", json!(id))?.push_bind(&mut query);
     query.push(" FOR UPDATE");
     query
         .build()
@@ -96,7 +96,7 @@ pub(in crate::postgres::organization) async fn lock_organization(
 pub(super) async fn member_exists(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
-    organization_id: Uuid,
+    organization_id: &str,
     user_id: &str,
 ) -> Result<bool, AuthError> {
     let mut query = QueryBuilder::new("SELECT EXISTS(SELECT 1 FROM ");
@@ -106,7 +106,7 @@ pub(super) async fn member_exists(
         .push(model.quoted_column("organizationId")?)
         .push(" = ");
     model
-        .encode("organizationId", uuid_value(organization_id))?
+        .encode("organizationId", json!(organization_id))?
         .push_bind(&mut query);
     query
         .push(" AND ")
@@ -126,7 +126,7 @@ pub(super) async fn member_exists(
 pub(super) async fn member_count(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
-    organization_id: Uuid,
+    organization_id: &str,
 ) -> Result<i64, AuthError> {
     let mut query = count_query(model, organization_id)?;
     query
@@ -138,7 +138,7 @@ pub(super) async fn member_count(
 
 pub(super) fn count_query(
     model: &PostgresModel<'_>,
-    organization_id: Uuid,
+    organization_id: &str,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
     let mut query = QueryBuilder::new("SELECT count(*) FROM ");
     query
@@ -147,7 +147,7 @@ pub(super) fn count_query(
         .push(model.quoted_column("organizationId")?)
         .push(" = ");
     model
-        .encode("organizationId", uuid_value(organization_id))?
+        .encode("organizationId", json!(organization_id))?
         .push_bind(&mut query);
     Ok(query)
 }
@@ -155,7 +155,7 @@ pub(super) fn count_query(
 pub(super) async fn owner_count(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
-    organization_id: Uuid,
+    organization_id: &str,
     role: &str,
 ) -> Result<i64, AuthError> {
     let mut query = count_query(model, organization_id)?;
@@ -175,15 +175,13 @@ pub(super) async fn owner_count(
 pub(super) async fn update_role(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
-    member_id: Uuid,
+    member_id: &str,
     role: String,
 ) -> Result<(), AuthError> {
     let writes = model.encode_fields([("role", json!(role))])?;
     let mut query = crate::postgres::rows::update_query(model, writes);
     query.push(" WHERE \"id\" = ");
-    model
-        .encode("id", uuid_value(member_id))?
-        .push_bind(&mut query);
+    model.encode("id", json!(member_id))?.push_bind(&mut query);
     query
         .build()
         .execute(&mut **transaction)
@@ -195,13 +193,11 @@ pub(super) async fn update_role(
 pub(super) async fn delete_member(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
-    member_id: Uuid,
+    member_id: &str,
 ) -> Result<(), AuthError> {
     let mut query = QueryBuilder::new("DELETE FROM ");
     query.push(model.quoted_table()).push(" WHERE \"id\" = ");
-    model
-        .encode("id", uuid_value(member_id))?
-        .push_bind(&mut query);
+    model.encode("id", json!(member_id))?.push_bind(&mut query);
     query
         .build()
         .execute(&mut **transaction)
@@ -214,7 +210,7 @@ pub(super) async fn delete_team_members(
     transaction: &mut Transaction<'_, Postgres>,
     team: &PostgresModel<'_>,
     team_member: &PostgresModel<'_>,
-    organization_id: Uuid,
+    organization_id: &str,
     user_id: &str,
 ) -> Result<(), AuthError> {
     let mut query = delete_team_members_query(team, team_member, organization_id, user_id)?;
@@ -229,7 +225,7 @@ pub(super) async fn delete_team_members(
 pub(super) fn delete_team_members_query(
     team: &PostgresModel<'_>,
     team_member: &PostgresModel<'_>,
-    organization_id: Uuid,
+    organization_id: &str,
     user_id: &str,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
     let mut query = QueryBuilder::new("DELETE FROM ");
@@ -242,7 +238,7 @@ pub(super) fn delete_team_members_query(
         .push(" WHERE ")
         .push(team.quoted_column("organizationId")?)
         .push(" = ");
-    team.encode("organizationId", uuid_value(organization_id))?
+    team.encode("organizationId", json!(organization_id))?
         .push_bind(&mut query);
     query
         .push(") AND ")
@@ -265,10 +261,6 @@ pub(super) fn incomplete_team_schema() -> AuthError {
     AuthError::InvalidConfiguration(
         "Better Auth organization team and teamMember models must be installed together".into(),
     )
-}
-
-pub(super) fn uuid_value(value: Uuid) -> Value {
-    Value::String(value.to_string())
 }
 
 #[cfg(test)]

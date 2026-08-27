@@ -8,6 +8,8 @@ mod algorithms;
 mod claims;
 #[path = "jwt_contract/cookie_cache.rs"]
 mod cookie_cache;
+#[path = "jwt_contract/database_ids.rs"]
+mod database_ids;
 #[path = "jwt_contract/header.rs"]
 mod header;
 #[path = "jwt_contract/metadata.rs"]

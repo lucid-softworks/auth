@@ -104,7 +104,7 @@ pub(in crate::chargebee::axum) async fn organization_snapshot(
         .organization_plugin()
         .map_err(internal_error)?
         .store
-        .find_organization_by_id(id)
+        .find_organization_by_id(&id.to_string())
         .await
         .map_err(internal_error)?
         .ok_or_else(organization_not_found)?;

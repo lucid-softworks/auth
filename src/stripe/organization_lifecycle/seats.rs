@@ -25,13 +25,13 @@ async fn sync_inner(
 ) -> Result<(), SeatSyncError> {
     let Some(_customer_id) = plugin
         .store
-        .organization_customer_id(organization.id)
+        .organization_customer_id(&organization.id)
         .await?
     else {
         return Ok(());
     };
     let member_count = organization_store
-        .list_members(organization.id)
+        .list_members(&organization.id)
         .await?
         .len() as f64;
     let Some((subscription, plan)) = local_seat_subscription(plugin, organization).await? else {
@@ -165,29 +165,34 @@ mod tests {
         let stripe_store = Arc::new(MemoryStripeStore::new());
         let organization = organization();
         stripe_store
-            .set_organization_customer_id(organization.id, Some("cus_org".into()))
+            .set_organization_customer_id(organization.id.clone(), Some("cus_org".into()))
             .await
             .unwrap();
         let now = Utc::now();
-        let local = local_subscription(organization.id);
+        let local = local_subscription(organization.id.clone());
         stripe_store
             .create_subscription(local.clone())
             .await
             .unwrap();
         let organization_store = MemoryOrganizationStore::default();
+        let organization_id = organization.id.clone();
+        let organization_id = || Ok(explicit_id(&organization_id));
         organization_store
-            .raw_insert_organization(organization.clone())
+            .raw_insert_organization(organization.clone(), &organization_id)
             .await
             .unwrap();
         for role in ["owner", "member"] {
+            let member = OrganizationMember {
+                id: Uuid::new_v4().to_string(),
+                organization_id: organization.id.clone(),
+                user_id: Uuid::new_v4().to_string(),
+                role: role.into(),
+                created_at: now,
+            };
+            let member_id = member.id.clone();
+            let member_id = || Ok(explicit_id(&member_id));
             organization_store
-                .raw_insert_member(OrganizationMember {
-                    id: Uuid::new_v4(),
-                    organization_id: organization.id,
-                    user_id: Uuid::new_v4().to_string(),
-                    role: role.into(),
-                    created_at: now,
-                })
+                .raw_insert_member(member, &member_id)
                 .await
                 .unwrap();
         }
@@ -212,11 +217,15 @@ mod tests {
         );
     }
 
-    fn local_subscription(organization_id: Uuid) -> Subscription {
+    fn explicit_id(value: &str) -> PreparedDatabaseId {
+        PreparedDatabaseId::Value(DatabaseIdValue::String(value.into()))
+    }
+
+    fn local_subscription(organization_id: String) -> Subscription {
         Subscription {
             id: Uuid::new_v4(),
             plan: "team".into(),
-            reference_id: organization_id.to_string(),
+            reference_id: organization_id,
             stripe_customer_id: Some("cus_org".into()),
             stripe_subscription_id: Some("sub_1".into()),
             status: SubscriptionStatus::Active,

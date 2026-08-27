@@ -5,12 +5,11 @@ use crate::{
 };
 use chrono::Utc;
 use std::collections::BTreeMap;
-use uuid::Uuid;
 
 pub(super) async fn validate_teams(
     plugin: &crate::OrganizationPlugin,
-    organization_id: Uuid,
-    team_ids: &[Uuid],
+    organization_id: &str,
+    team_ids: &[String],
 ) -> Result<(), AuthError> {
     if !team_ids.is_empty() && !plugin.config.teams.enabled {
         return Err(team_not_found());
@@ -18,14 +17,14 @@ pub(super) async fn validate_teams(
     for team_id in team_ids {
         let valid = plugin
             .store
-            .find_team(*team_id)
+            .find_team(team_id)
             .await?
             .is_some_and(|team| team.organization_id == organization_id);
         if !valid {
             return Err(team_not_found());
         }
         if let Some(limit) = plugin.config.teams.maximum_members_per_team
-            && plugin.store.list_team_members(*team_id).await?.len() >= limit
+            && plugin.store.list_team_members(team_id).await?.len() >= limit
         {
             return Err(OrganizationError::forbidden(
                 "TEAM_MEMBER_LIMIT_REACHED",
@@ -39,7 +38,7 @@ pub(super) async fn validate_teams(
 
 pub(super) async fn require_pending(
     plugin: &crate::OrganizationPlugin,
-    invitation_id: Uuid,
+    invitation_id: &str,
 ) -> Result<OrganizationInvitation, AuthError> {
     plugin
         .store
@@ -123,12 +122,12 @@ pub(super) async fn require_permission(
     Err(OrganizationError::forbidden(code, message).into())
 }
 
-pub(super) fn single_team_id(invitation: &OrganizationInvitation) -> Option<Uuid> {
+pub(super) fn single_team_id(invitation: &OrganizationInvitation) -> Option<String> {
     invitation
         .team_id
         .as_deref()
         .and_then(|ids| (!ids.contains(',')).then_some(ids))
-        .and_then(|id| Uuid::parse_str(id).ok())
+        .map(str::to_owned)
 }
 
 pub(super) fn normalize_roles(role: &str) -> String {

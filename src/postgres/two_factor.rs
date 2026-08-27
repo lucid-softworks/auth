@@ -1,7 +1,7 @@
 mod codec;
 
 use super::{PostgresModel, PostgresStore, storage_error};
-use crate::{AuthError, TwoFactorRecord, TwoFactorStore};
+use crate::{AuthError, DatabaseIdSupplier, TwoFactorRecord, TwoFactorStore};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::json;
@@ -60,6 +60,7 @@ impl TwoFactorStore for PostgresStore {
 
     async fn upsert_two_factor(
         &self,
+        id: &dyn DatabaseIdSupplier,
         record: TwoFactorRecord,
     ) -> Result<TwoFactorRecord, AuthError> {
         let user_model = self.user_model()?;
@@ -97,7 +98,8 @@ impl TwoFactorStore for PostgresStore {
             return Ok(stored);
         }
 
-        let writes = two_factor_writes(&model, &record)?;
+        let prepared_id = id.prepare()?;
+        let writes = two_factor_writes(&model, &record, &prepared_id)?;
         let mut insert = super::rows::insert_query(&model, writes);
         let row = insert
             .build()

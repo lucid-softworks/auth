@@ -1,8 +1,9 @@
 use chrono::{Duration, Utc};
 use lucid_auth::{
-    AuthConfig, AuthService, DeviceAuthorizationConfig, DeviceAuthorizationModelSchema,
-    DeviceAuthorizationSchema, DeviceAuthorizationStore, DeviceCode, DeviceCodeCreateOutcome,
-    DeviceCodeOwner, DeviceCodeStatus, OAuthDeviceAuthorizationPlugin, OAuthProviderPlugin,
+    AuthConfig, AuthService, DatabaseCreate, DatabaseIdGeneration, DatabaseIdInput, DatabaseIdPlan,
+    DeviceAuthorizationConfig, DeviceAuthorizationModelSchema, DeviceAuthorizationSchema,
+    DeviceAuthorizationStore, DeviceCode, DeviceCodeCreateOutcome, DeviceCodeOwner,
+    DeviceCodeStatus, NewPasswordUser, OAuthDeviceAuthorizationPlugin, OAuthProviderPlugin,
     OAuthProviderPluginConfig,
     postgres::{
         PostgresAdapterConfig, PostgresDeviceAuthorizationStore, PostgresSchemaObject,
@@ -52,6 +53,7 @@ async fn remapped_schema_migrates_idempotently_and_preserves_atomic_ownership()
     config.schema = schema;
     let plugin = OAuthDeviceAuthorizationPlugin::postgres(config, postgres.clone());
     let mut auth = AuthConfig::new([52; 32])?;
+    auth.database_id_generation = DatabaseIdGeneration::Serial;
     let mut provider_config = OAuthProviderPluginConfig::new("/login", "/consent");
     provider_config.disable_jwt_plugin = true;
     auth.add_plugin(OAuthProviderPlugin::postgres(
@@ -59,7 +61,7 @@ async fn remapped_schema_migrates_idempotently_and_preserves_atomic_ownership()
         postgres.clone(),
     )?)?;
     auth.add_plugin(plugin)?;
-    let _service = AuthService::new(Arc::new(postgres.clone()), auth);
+    let service = AuthService::new(Arc::new(postgres.clone()), auth);
     let plan = postgres.migration_plan(&[])?;
     let table = "Device Code Recordss";
     for name in [
@@ -81,9 +83,11 @@ async fn remapped_schema_migrates_idempotently_and_preserves_atomic_ownership()
     postgres.migrate().await?;
     postgres.migrate().await?;
     let device_codes = PostgresDeviceAuthorizationStore::new(postgres.clone());
+    let users = provision_users(&service).await?;
 
-    round_trip::all_fields_and_unique_codes(&device_codes).await?;
-    atomic::claim_and_consume_are_single_winner(&device_codes).await?;
+    assert_id_storage(&pool).await?;
+    round_trip::all_fields_and_unique_codes(&device_codes, &postgres, &users[0]).await?;
+    atomic::claim_and_consume_are_single_winner(&device_codes, &postgres, &users).await?;
 
     pool.close().await;
     sqlx::query(&format!("DROP SCHEMA {database_schema} CASCADE"))
@@ -115,9 +119,43 @@ fn mapped_schema() -> DeviceAuthorizationSchema {
     }
 }
 
+async fn assert_id_storage(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+    let types = sqlx::query_as::<_, (String, String)>(
+        "SELECT column_name, data_type FROM information_schema.columns \
+         WHERE table_schema = current_schema() AND table_name = 'Device Code Recordss' \
+           AND column_name IN ('id', 'owner user') ORDER BY column_name",
+    )
+    .fetch_all(pool)
+    .await?;
+    assert_eq!(
+        types,
+        [
+            ("id".into(), "integer".into()),
+            ("owner user".into(), "text".into())
+        ]
+    );
+    Ok(())
+}
+
+async fn provision_users(service: &AuthService) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut ids = Vec::new();
+    for suffix in ["one", "two", "three"] {
+        let user = service
+            .provision_password_user(NewPasswordUser {
+                username: format!("device_{suffix}"),
+                name: format!("Device {suffix}"),
+                email: Some(format!("device-{suffix}@example.com")),
+                password: "correct horse battery staple".into(),
+                role: "user".into(),
+            })
+            .await?;
+        ids.push(user.id);
+    }
+    Ok(ids)
+}
 fn code(suffix: &str, user_id: Option<String>) -> DeviceCode {
     DeviceCode {
-        id: Uuid::new_v4(),
+        id: String::new(),
         device_code: format!("device-{suffix}"),
         user_code: format!("USER-{suffix}"),
         user_id,
@@ -130,4 +168,16 @@ fn code(suffix: &str, user_id: Option<String>) -> DeviceCode {
         resources: Some(vec!["https://api.example".into()]),
         oauth_client_id: Some("oauth-client".into()),
     }
+}
+
+fn create(code: DeviceCode) -> DatabaseCreate<DeviceCode> {
+    DatabaseCreate::new(
+        code,
+        DatabaseIdPlan::new(
+            DatabaseIdGeneration::Serial,
+            "deviceCode",
+            DatabaseIdInput::Absent,
+            false,
+        ),
+    )
 }

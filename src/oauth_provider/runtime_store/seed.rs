@@ -1,12 +1,12 @@
 use super::OAuthProviderRuntimeStore;
 use crate::{AuthError, oauth_provider::*};
-use chrono::{DateTime, Utc};
-use serde_json::Value;
+use chrono::Utc;
 use std::sync::atomic::Ordering;
-use url::Url;
-use uuid::Uuid;
 
-const RESOURCE_SIGNING_ALGORITHMS: &[&str] = &["EdDSA", "ES256", "ES512", "PS256", "RS256"];
+mod resource_input;
+
+use resource_input::merge_resource;
+pub(in crate::oauth_provider) use resource_input::{identifier_allowed, resource_from_input};
 
 impl OAuthProviderRuntimeStore {
     pub(super) async fn ensure_resources_seeded(&self) -> Result<(), AuthError> {
@@ -37,7 +37,9 @@ impl OAuthProviderRuntimeStore {
         match (self.config.resource_seed_mode, existing) {
             (_, None) => {
                 let resource = resource_from_input(input, Utc::now())?;
-                self.inner.create_oauth_resource(resource).await?;
+                self.inner
+                    .create_oauth_resource(&|| self.prepare_id("oauthResource"), resource)
+                    .await?;
             }
             (OAuthResourceSeedMode::InsertOnly, Some(_)) => {}
             (OAuthResourceSeedMode::Merge, Some(existing)) => {
@@ -57,113 +59,12 @@ impl OAuthProviderRuntimeStore {
     async fn persist_seed_update(&self, resource: OAuthProviderResource) -> Result<(), AuthError> {
         let retry = resource.clone();
         if self.inner.update_oauth_resource(resource).await?.is_none() {
-            self.inner.create_oauth_resource(retry).await?;
+            self.inner
+                .create_oauth_resource(&|| self.prepare_id("oauthResource"), retry)
+                .await?;
         }
         Ok(())
     }
-}
-
-pub(in crate::oauth_provider) async fn identifier_allowed(
-    config: &OAuthProviderConfig,
-    identifier: &str,
-) -> Result<bool, AuthError> {
-    if let Some(validator) = &config.callbacks.identifier_validator {
-        return validator.validate(identifier).await;
-    }
-    Ok(Url::parse(identifier).is_ok_and(|url| {
-        // Better Auth checks the URL API's `hash` string for truthiness. An
-        // empty trailing `#` therefore behaves like no fragment, while a
-        // non-empty fragment is rejected.
-        url.fragment().is_none_or(str::is_empty)
-    }))
-}
-
-pub(in crate::oauth_provider) fn resource_from_input(
-    mut input: OAuthResourceInput,
-    now: DateTime<Utc>,
-) -> Result<OAuthProviderResource, AuthError> {
-    if input
-        .signing_algorithm
-        .as_deref()
-        .is_some_and(|algorithm| !RESOURCE_SIGNING_ALGORITHMS.contains(&algorithm))
-    {
-        input.signing_algorithm = None;
-    }
-    let identifier = input.identifier;
-    Ok(OAuthProviderResource {
-        id: Uuid::new_v4(),
-        name: input.name.unwrap_or_else(|| identifier.clone()),
-        identifier,
-        access_token_ttl: optional_i64(input.access_token_ttl)?,
-        refresh_token_ttl: optional_i64(input.refresh_token_ttl)?,
-        signing_algorithm: input.signing_algorithm,
-        signing_key_id: input.signing_key_id,
-        allowed_scopes: input.allowed_scopes,
-        custom_claims: input.custom_claims.map(Value::Object),
-        dpop_bound_access_tokens_required: input.dpop_bound_access_tokens_required.unwrap_or(false),
-        disabled: input.disabled.unwrap_or(false),
-        created_at: Some(now),
-        updated_at: Some(now),
-        policy_version: 1,
-        metadata: input.metadata.map(Value::Object),
-    })
-}
-
-fn merge_resource(
-    mut resource: OAuthProviderResource,
-    input: OAuthResourceInput,
-    now: DateTime<Utc>,
-) -> Result<OAuthProviderResource, AuthError> {
-    if let Some(value) = input.name {
-        resource.name = value;
-    }
-    merge_optional(&mut resource.access_token_ttl, input.access_token_ttl)?;
-    merge_optional(&mut resource.refresh_token_ttl, input.refresh_token_ttl)?;
-    if let Some(value) = input.signing_algorithm
-        && RESOURCE_SIGNING_ALGORITHMS.contains(&value.as_str())
-    {
-        resource.signing_algorithm = Some(value);
-    }
-    replace_some(&mut resource.signing_key_id, input.signing_key_id);
-    replace_some(&mut resource.allowed_scopes, input.allowed_scopes);
-    replace_some(
-        &mut resource.custom_claims,
-        input.custom_claims.map(Value::Object),
-    );
-    if let Some(value) = input.dpop_bound_access_tokens_required {
-        resource.dpop_bound_access_tokens_required = value;
-    }
-    if let Some(value) = input.disabled {
-        resource.disabled = value;
-    }
-    replace_some(&mut resource.metadata, input.metadata.map(Value::Object));
-    resource.updated_at = Some(now);
-    Ok(resource)
-}
-
-fn merge_optional(target: &mut Option<i64>, value: Option<u64>) -> Result<(), AuthError> {
-    if let Some(value) = value {
-        *target = Some(i64::try_from(value).map_err(|_| {
-            AuthError::InvalidConfiguration("OAuth resource TTL exceeds i64::MAX".into())
-        })?);
-    }
-    Ok(())
-}
-
-fn replace_some<T>(target: &mut Option<T>, value: Option<T>) {
-    if value.is_some() {
-        *target = value;
-    }
-}
-
-fn optional_i64(value: Option<u64>) -> Result<Option<i64>, AuthError> {
-    value
-        .map(|value| {
-            i64::try_from(value).map_err(|_| {
-                AuthError::InvalidConfiguration("OAuth resource TTL exceeds i64::MAX".into())
-            })
-        })
-        .transpose()
 }
 
 #[cfg(test)]
@@ -175,6 +76,12 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
     use std::time::Duration;
+
+    fn test_id() -> Result<crate::PreparedDatabaseId, AuthError> {
+        Ok(crate::PreparedDatabaseId::Value(
+            crate::DatabaseIdValue::String(uuid::Uuid::new_v4().to_string()),
+        ))
+    }
 
     fn input(identifier: &str) -> OAuthResourceInput {
         OAuthResourceInput {
@@ -194,7 +101,7 @@ mod tests {
 
     fn existing(identifier: &str) -> OAuthProviderResource {
         OAuthProviderResource {
-            id: Uuid::new_v4(),
+            id: String::new(),
             identifier: identifier.into(),
             name: "admin name".into(),
             access_token_ttl: Some(900),
@@ -218,7 +125,14 @@ mod tests {
     ) -> OAuthProviderRuntimeStore {
         config.login_page = "/login".into();
         config.consent_page = "/consent".into();
-        OAuthProviderRuntimeStore::new(Arc::new(config), store)
+        let runtime = OAuthProviderRuntimeStore::new(Arc::new(config), store);
+        runtime
+            .bind_database_ids(
+                Arc::new(crate::MemoryStore::default()),
+                crate::DatabaseIdGeneration::default(),
+            )
+            .unwrap();
+        runtime
     }
 
     #[tokio::test]
@@ -226,7 +140,7 @@ mod tests {
         let identifier = "https://api.example.com";
         let store = Arc::new(MemoryOAuthProviderStore::new());
         store
-            .create_oauth_resource(existing(identifier))
+            .create_oauth_resource(&test_id, existing(identifier))
             .await
             .unwrap();
         let mut configured = input(identifier);
@@ -263,8 +177,11 @@ mod tests {
     async fn merge_updates_only_fields_present_in_config() {
         let identifier = "https://api.example.com";
         let store = Arc::new(MemoryOAuthProviderStore::new());
-        let old = existing(identifier);
-        store.create_oauth_resource(old.clone()).await.unwrap();
+        let old = store
+            .create_oauth_resource(&test_id, existing(identifier))
+            .await
+            .unwrap()
+            .unwrap();
         let mut configured = input(identifier);
         configured.name = Some("configured name".into());
         configured.access_token_ttl = Some(300);
@@ -292,8 +209,11 @@ mod tests {
     async fn overwrite_replaces_omitted_policy_with_upstream_defaults() {
         let identifier = "https://api.example.com";
         let store = Arc::new(MemoryOAuthProviderStore::new());
-        let old = existing(identifier);
-        store.create_oauth_resource(old.clone()).await.unwrap();
+        let old = store
+            .create_oauth_resource(&test_id, existing(identifier))
+            .await
+            .unwrap()
+            .unwrap();
         let mut config = OAuthProviderConfig::new("/login", "/consent");
         config.resources = vec![input(identifier)];
         config.resource_seed_mode = OAuthResourceSeedMode::Overwrite;

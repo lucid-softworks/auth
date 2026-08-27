@@ -1,14 +1,13 @@
 use super::OAuthProviderRuntimeStore;
-use crate::{AuthError, oauth_provider::*};
+use crate::{AuthError, DatabaseIdSupplier, oauth_provider::*};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 
 #[async_trait]
 impl OAuthProviderConsentStore for OAuthProviderRuntimeStore {
     async fn find_oauth_consent(
         &self,
-        id: Uuid,
+        id: &str,
     ) -> Result<Option<OAuthProviderConsent>, AuthError> {
         self.inner.find_oauth_consent(id).await
     }
@@ -33,14 +32,15 @@ impl OAuthProviderConsentStore for OAuthProviderRuntimeStore {
 
     async fn upsert_oauth_consent(
         &self,
+        id: &dyn DatabaseIdSupplier,
         consent: OAuthProviderConsent,
     ) -> Result<OAuthProviderConsent, AuthError> {
-        self.inner.upsert_oauth_consent(consent).await
+        self.inner.upsert_oauth_consent(id, consent).await
     }
 
     async fn delete_oauth_consent(
         &self,
-        id: Uuid,
+        id: &str,
     ) -> Result<Option<OAuthProviderConsent>, AuthError> {
         self.inner.delete_oauth_consent(id).await
     }
@@ -62,20 +62,31 @@ impl OAuthProviderTokenStore for OAuthProviderRuntimeStore {
         self.inner.find_oauth_refresh_token(token).await
     }
 
-    async fn issue_oauth_tokens(&self, issuance: OAuthTokenIssuance) -> Result<(), AuthError> {
-        self.inner.issue_oauth_tokens(issuance).await
+    async fn issue_oauth_tokens(
+        &self,
+        refresh_id: &dyn DatabaseIdSupplier,
+        access_id: &dyn DatabaseIdSupplier,
+        issuance: OAuthTokenIssuance,
+    ) -> Result<(), AuthError> {
+        self.inner
+            .issue_oauth_tokens(refresh_id, access_id, issuance)
+            .await
     }
 
     async fn rotate_oauth_refresh_token(
         &self,
+        refresh_id: &dyn DatabaseIdSupplier,
+        access_id: &dyn DatabaseIdSupplier,
         rotation: OAuthRefreshRotation,
     ) -> Result<OAuthRefreshRotationOutcome, AuthError> {
-        self.inner.rotate_oauth_refresh_token(rotation).await
+        self.inner
+            .rotate_oauth_refresh_token(refresh_id, access_id, rotation)
+            .await
     }
 
     async fn store_oauth_refresh_rotation_replay(
         &self,
-        refresh_id: Uuid,
+        refresh_id: &str,
         response: String,
     ) -> Result<bool, AuthError> {
         self.inner
@@ -85,14 +96,14 @@ impl OAuthProviderTokenStore for OAuthProviderRuntimeStore {
 
     async fn delete_oauth_access_token(
         &self,
-        id: Uuid,
+        id: &str,
     ) -> Result<Option<OAuthProviderAccessToken>, AuthError> {
         self.inner.delete_oauth_access_token(id).await
     }
 
     async fn revoke_oauth_refresh_token(
         &self,
-        id: Uuid,
+        id: &str,
         revoked_at: DateTime<Utc>,
     ) -> Result<bool, AuthError> {
         self.inner.revoke_oauth_refresh_token(id, revoked_at).await
@@ -150,9 +161,12 @@ impl OAuthProviderTokenStore for OAuthProviderRuntimeStore {
 impl OAuthProviderAssertionStore for OAuthProviderRuntimeStore {
     async fn reserve_oauth_client_assertion(
         &self,
+        id: &dyn DatabaseIdSupplier,
         assertion: OAuthProviderClientAssertion,
     ) -> Result<bool, AuthError> {
-        self.inner.reserve_oauth_client_assertion(assertion).await
+        self.inner
+            .reserve_oauth_client_assertion(id, assertion)
+            .await
     }
 
     async fn delete_expired_oauth_client_assertions(

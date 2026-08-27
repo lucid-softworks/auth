@@ -45,6 +45,7 @@ use std::{borrow::Cow, fmt, sync::Arc};
 pub struct OAuthProviderPlugin {
     config: Arc<OAuthProviderConfig>,
     store: Arc<dyn OAuthProviderStore>,
+    runtime_store: Arc<runtime_store::OAuthProviderRuntimeStore>,
     logout: logout_hook::LogoutCoordinator,
 }
 
@@ -59,13 +60,15 @@ impl OAuthProviderPlugin {
     pub fn from_arc(mut config: OAuthProviderConfig, store: Arc<dyn OAuthProviderStore>) -> Self {
         config.runtime_instance_id = uuid::Uuid::new_v4();
         let config = Arc::new(config);
-        let store = Arc::new(runtime_store::OAuthProviderRuntimeStore::new(
+        let runtime_store = Arc::new(runtime_store::OAuthProviderRuntimeStore::new(
             config.clone(),
             store,
         ));
+        let store = runtime_store.clone();
         Self {
             config,
             store,
+            runtime_store,
             logout: logout_hook::LogoutCoordinator::default(),
         }
     }
@@ -89,6 +92,14 @@ impl OAuthProviderPlugin {
 
     pub fn store(&self) -> &Arc<dyn OAuthProviderStore> {
         &self.store
+    }
+
+    pub(crate) fn bind_database_ids(
+        &self,
+        store: Arc<dyn crate::AuthStore>,
+        strategy: crate::DatabaseIdGeneration,
+    ) -> Result<(), AuthError> {
+        self.runtime_store.bind_database_ids(store, strategy)
     }
 
     pub fn resource_admin(&self) -> OAuthProviderResourceAdmin {
@@ -300,7 +311,12 @@ mod tests {
         let identifier = "https://api.example.com";
         let mut config = OAuthProviderConfig::new("/login", "/consent");
         config.resources = vec![identifier.into()];
+        config.disable_jwt_plugin = true;
         let plugin = OAuthProviderPlugin::in_memory(config);
+        let mut auth = AuthConfig::new([42; 32]).unwrap();
+        auth.add_plugin(plugin.clone()).unwrap();
+        let _service =
+            crate::AuthService::try_new(Arc::new(crate::MemoryStore::default()), auth).unwrap();
 
         let resource = plugin
             .store()

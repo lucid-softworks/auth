@@ -130,6 +130,7 @@ async fn validate_client_assertion(
         }
     };
     validate_client_assertion_claims(
+        context.service,
         context.config,
         context.store,
         context.client,
@@ -191,6 +192,7 @@ fn client_assertion_verifier(
 }
 
 async fn validate_client_assertion_claims(
+    service: &AuthService,
     config: &OAuthProviderConfig,
     store: &dyn OAuthProviderStore,
     client: &OAuthProviderClient,
@@ -212,7 +214,7 @@ async fn validate_client_assertion_claims(
         OAuthProviderError::InvalidClient("client assertion must include exp claim".into())
     })?;
     validate_client_assertion_lifetime(config, claims, now, exp)?;
-    reserve_client_assertion(store, client, claims, exp.ceil() as i64).await
+    reserve_client_assertion(service, store, client, claims, exp.ceil() as i64).await
 }
 
 fn validate_client_assertion_audience(
@@ -269,6 +271,7 @@ fn validate_client_assertion_lifetime(
 }
 
 async fn reserve_client_assertion(
+    service: &AuthService,
     store: &dyn OAuthProviderStore,
     client: &OAuthProviderClient,
     claims: &Map<String, Value>,
@@ -285,10 +288,16 @@ async fn reserve_client_assertion(
         OAuthProviderError::InvalidClient("client assertion exp is invalid".into())
     })?;
     let reserved = store
-        .reserve_oauth_client_assertion(OAuthProviderClientAssertion {
-            id: client_assertion_id(&format!("private_key_jwt:{}", client.client_id), jti),
-            expires_at,
-        })
+        .reserve_oauth_client_assertion(
+            &|| service.prepare_database_id(&service.database_id_plan(
+                "oauthClientAssertion", crate::DatabaseIdInput::Absent, false,
+            )),
+            OAuthProviderClientAssertion {
+                id: String::new(),
+                jti: client_assertion_id(&format!("private_key_jwt:{}", client.client_id), jti),
+                expires_at,
+            },
+        )
         .await
         .map_err(server)?;
     if !reserved {

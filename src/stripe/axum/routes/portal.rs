@@ -44,9 +44,7 @@ async fn handle(
         Err(response) => return response,
     };
     let direct = match customer_type {
-        CustomerType::Organization => uuid::Uuid::parse_str(&reference_id)
-            .ok()
-            .map(|id| plugin.store.organization_customer_id(id)),
+        CustomerType::Organization => Some(plugin.store.organization_customer_id(&reference_id)),
         CustomerType::User => Some(plugin.store.user_customer_id(&session.user.id)),
     };
     let mut customer_id = match direct {

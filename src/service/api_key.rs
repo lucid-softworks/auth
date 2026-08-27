@@ -336,7 +336,7 @@ impl AuthService {
             .ok_or(ApiKeyError::OrganizationPluginRequired)?;
         let member = plugin
             .store
-            .find_member(organization_id, &actor.user.id)
+            .find_member(&organization_id.to_string(), &actor.user.id)
             .await?
             .ok_or(ApiKeyError::UserNotOrganizationMember)?;
         let required = BTreeMap::from([("apiKey".into(), vec![action.into()])]);

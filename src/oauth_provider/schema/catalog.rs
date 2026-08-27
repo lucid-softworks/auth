@@ -87,7 +87,7 @@ fn required(model: OAuthProviderModel, logical: &str) -> bool {
         OAuthProviderModel::Consent => {
             matches!(logical, "clientId" | "scopes" | "createdAt" | "updatedAt")
         }
-        OAuthProviderModel::ClientAssertion => logical == "expiresAt",
+        OAuthProviderModel::ClientAssertion => matches!(logical, "jti" | "expiresAt"),
     }
 }
 

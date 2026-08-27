@@ -1,3 +1,5 @@
+#[path = "device_authorization_contract/database_ids.rs"]
+mod database_ids;
 #[path = "device_authorization_contract/flow.rs"]
 mod flow;
 #[path = "device_authorization_contract/oauth.rs"]

@@ -10,13 +10,13 @@ use std::collections::BTreeMap;
 #[tokio::test]
 async fn update_selects_the_matching_active_provider_subscription() {
     let fixture = fixture(true, |_| {}).await;
-    let user_id = fixture.user_id.unwrap();
+    let user_id = fixture.user_id.as_deref().unwrap();
     fixture
         .store
         .set_user_customer_id(user_id, Some("customer_update".into()))
         .await
         .unwrap();
-    let mut local = ChargebeeSubscription::future(user_id.to_string());
+    let mut local = ChargebeeSubscription::future(user_id);
     local.status = ChargebeeSubscriptionStatus::Active;
     local.chargebee_customer_id = Some("customer_update".into());
     local.chargebee_subscription_id = Some("subscription_update".into());

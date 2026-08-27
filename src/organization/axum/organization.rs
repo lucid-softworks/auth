@@ -13,7 +13,6 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
-use uuid::Uuid;
 
 pub(super) fn routes() -> Vec<AxumPluginRoute> {
     vec![
@@ -358,7 +357,7 @@ async fn set_active(
         return Json(Value::Null).into_response();
     };
     match service
-        .set_active_organization(&session, Some(organization.id))
+        .set_active_organization(&session, Some(organization.id.clone()))
         .await
     {
         Ok(_) => Json(organization).into_response(),
@@ -366,12 +365,15 @@ async fn set_active(
     }
 }
 
-pub(super) fn optional_id(value: Option<String>) -> Result<Option<Uuid>, AuthError> {
+pub(super) fn optional_id(value: Option<String>) -> Result<Option<String>, AuthError> {
     value.map(|value| id(&value)).transpose()
 }
 
-pub(super) fn id(value: &str) -> Result<Uuid, AuthError> {
-    Uuid::parse_str(value).map_err(|_| {
-        OrganizationError::bad_request("ORGANIZATION_NOT_FOUND", "Organization not found").into()
-    })
+pub(super) fn id(value: &str) -> Result<String, AuthError> {
+    (!value.is_empty())
+        .then(|| value.to_owned())
+        .ok_or_else(|| {
+            OrganizationError::bad_request("ORGANIZATION_NOT_FOUND", "Organization not found")
+                .into()
+        })
 }

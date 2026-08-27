@@ -36,7 +36,7 @@ async fn issue_tokens(
     let (access_expires_at, refresh_expires_at) =
         token_expirations(config, &request, &policy, now.timestamp())?;
     let proof = dpop_for_token_endpoint(
-        config, store, &request.client, &policy,
+        DpopContext::new(service, config, store), &request.client, &policy,
         request.expected_dpop_jkt.as_deref(), headers,
         &request.endpoint,
     ).await?;
@@ -64,7 +64,7 @@ async fn issue_tokens(
     .await?;
     let access = new_access(
         &context, &request, &policy, confirmation.clone(),
-        refresh.as_ref().map(|value| value.row.id), access_expires_at, now,
+        refresh.as_ref().map(|value| value.row.id.clone()), access_expires_at, now,
     ).await?;
     if let Some(replayed) = persist_issuance(
         &context, &request, &access, refresh.as_ref(), &replay_fingerprint, now,
@@ -141,7 +141,7 @@ async fn new_refresh(
     let (plain, stored) = generate_refresh(config).await?;
     let user = request.user.as_ref().expect("refresh requires a user");
     let row = OAuthProviderRefreshToken {
-        id: Uuid::new_v4(), token: stored, client_id: request.client.client_id.clone(),
+        id: String::new(), token: stored, client_id: request.client.client_id.clone(),
         session_id: request.session_id.clone(), user_id: user.id.clone(), reference_id: request.reference_id.clone(),
         authorization_code_id: request.authorization_code_id.clone(),
         resources: request.previous_refresh.as_ref().and_then(|token| token.resources.clone())
@@ -162,7 +162,7 @@ async fn new_access(
     request: &IssueRequest,
     policy: &ResourcePolicy,
     confirmation: Option<Value>,
-    refresh_id: Option<Uuid>,
+    refresh_id: Option<String>,
     expires_at: i64,
     now: DateTime<Utc>,
 ) -> Result<IssuedAccess, OAuthProviderError> {
@@ -179,7 +179,7 @@ async fn new_access(
     }
     let (plain, stored) = generate_opaque(context.config).await?;
     let row = OAuthProviderAccessToken {
-        id: Uuid::new_v4(), token: stored, client_id: request.client.client_id.clone(),
+        id: String::new(), token: stored, client_id: request.client.client_id.clone(),
         session_id: request.session_id.clone(), user_id: request.user.as_ref().map(|user| user.id.clone()),
         reference_id: request.reference_id.clone(), authorization_code_id: request.authorization_code_id.clone(),
         resources: request.resources.clone(),
@@ -206,7 +206,7 @@ async fn persist_issuance(
 ) -> Result<Option<Value>, OAuthProviderError> {
     if let Some(previous) = &request.previous_refresh {
         let rotation = OAuthRefreshRotation {
-            previous_refresh_id: previous.id, rotated_at: now,
+            previous_refresh_id: previous.id.clone(), rotated_at: now,
             replay_expires_at: (context.config.refresh_token_reuse_interval > 0)
                 .then_some(now + Duration::seconds(context.config.refresh_token_reuse_interval as i64)),
             next_refresh_token: refresh.map(|value| value.row.clone())
@@ -220,15 +220,31 @@ async fn persist_issuance(
             request,
             fingerprint,
             context.store
-                .rotate_oauth_refresh_token(rotation)
+                .rotate_oauth_refresh_token(
+                    &|| context.service.prepare_database_id(&context.service.database_id_plan(
+                        "oauthRefreshToken", crate::DatabaseIdInput::Absent, false,
+                    )),
+                    &|| context.service.prepare_database_id(&context.service.database_id_plan(
+                        "oauthAccessToken", crate::DatabaseIdInput::Absent, false,
+                    )),
+                    rotation,
+                )
                 .await
                 .map_err(server)?,
         )
         .await;
     }
-    context.store.issue_oauth_tokens(OAuthTokenIssuance {
-        access_token: access.row.clone(), refresh_token: refresh.map(|value| value.row.clone()),
-    }).await.map_err(server)?;
+    context.store.issue_oauth_tokens(
+        &|| context.service.prepare_database_id(&context.service.database_id_plan(
+            "oauthRefreshToken", crate::DatabaseIdInput::Absent, false,
+        )),
+        &|| context.service.prepare_database_id(&context.service.database_id_plan(
+            "oauthAccessToken", crate::DatabaseIdInput::Absent, false,
+        )),
+        OAuthTokenIssuance {
+            access_token: access.row.clone(), refresh_token: refresh.map(|value| value.row.clone()),
+        },
+    ).await.map_err(server)?;
     Ok(None)
 }
 
@@ -331,6 +347,6 @@ async fn store_rotation_replay(
     let encoded = service.encrypt_oauth_provider_secret(
         serde_json::to_string(&envelope).map_err(json_server)?.as_bytes(),
     ).map_err(|_| OAuthProviderError::ServerError("failed to protect refresh replay response".into()))?;
-    store.store_oauth_refresh_rotation_replay(previous.id, encoded).await.map_err(server)?;
+    store.store_oauth_refresh_rotation_replay(&previous.id, encoded).await.map_err(server)?;
     Ok(())
 }

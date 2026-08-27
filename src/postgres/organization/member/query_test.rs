@@ -1,4 +1,5 @@
 use super::*;
+use uuid::Uuid;
 
 #[test]
 fn member_queries_remap_filters_sorting_counts_and_team_cleanup_join() {
@@ -6,14 +7,14 @@ fn member_queries_remap_filters_sorting_counts_and_team_cleanup_join() {
     let member = physical.model("member").unwrap();
     let team = physical.model("team").unwrap();
     let team_member = physical.model("teamMember").unwrap();
-    let organization_id = Uuid::from_u128(21);
-    let user_id = Uuid::from_u128(22);
+    let organization_id = Uuid::from_u128(21).to_string();
+    let user_id = Uuid::from_u128(22).to_string();
 
     let filter = filter_query(
         &member,
         [
-            ("organizationId", uuid_value(organization_id)),
-            ("userId", uuid_value(user_id)),
+            ("organizationId", json!(organization_id)),
+            ("userId", json!(user_id)),
         ],
     )
     .unwrap();
@@ -21,13 +22,13 @@ fn member_queries_remap_filters_sorting_counts_and_team_cleanup_join() {
     assert!(filter.sql().contains("\"tenant id\" = $1"));
     assert!(filter.sql().contains("\"person id\" = $2"));
 
-    let list = list_query(&member, organization_id).unwrap();
+    let list = list_query(&member, &organization_id).unwrap();
     assert!(list.sql().contains("ORDER BY \"joined time\" ASC"));
-    let count = count_query(&member, organization_id).unwrap();
+    let count = count_query(&member, &organization_id).unwrap();
     assert_eq!(count.sql().matches('$').count(), 1);
 
     let cleanup =
-        delete_team_members_query(&team, &team_member, organization_id, &user_id.to_string())
+        delete_team_members_query(&team, &team_member, &organization_id, &user_id.to_string())
             .unwrap();
     assert!(
         cleanup

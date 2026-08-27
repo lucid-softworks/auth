@@ -8,17 +8,21 @@ async fn mismatched_reuse_inside_the_interval_does_not_revoke_the_family() {
     let stored = URL_SAFE_NO_PAD.encode(Sha256::digest(original.as_bytes()));
     fixture
         .oauth
-        .issue_oauth_tokens(OAuthTokenIssuance {
-            access_token: None,
-            refresh_token: Some(refresh_token(
-                Uuid::new_v4(),
-                &stored,
-                &client_id,
-                fixture.user_id,
-                Some(fixture.session_id),
-                vec!["openid".into(), "profile".into(), "offline_access".into()],
-            )),
-        })
+        .issue_oauth_tokens(
+            &oauth_record_id,
+            &oauth_record_id,
+            OAuthTokenIssuance {
+                access_token: None,
+                refresh_token: Some(refresh_token(
+                    String::new(),
+                    &stored,
+                    &client_id,
+                    &fixture.user_id,
+                    Some(&fixture.session_id),
+                    vec!["openid".into(), "profile".into(), "offline_access".into()],
+                )),
+            },
+        )
         .await
         .unwrap();
 

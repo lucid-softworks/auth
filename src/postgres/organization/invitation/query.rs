@@ -6,7 +6,6 @@ use crate::{
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use sqlx::{Postgres, QueryBuilder, Transaction};
-use uuid::Uuid;
 
 pub(super) async fn find<'e, E, const N: usize>(
     executor: E,
@@ -85,38 +84,38 @@ pub(super) async fn insert_invitation(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
     invitation: &OrganizationInvitation,
-) -> Result<(), AuthError> {
-    let mut query = crate::postgres::rows::insert_query_prefix(
-        model,
-        rows::invitation_writes(model, invitation)?,
-    );
-    query
+    id: &crate::PreparedDatabaseId,
+) -> Result<OrganizationInvitation, AuthError> {
+    let mut query =
+        crate::postgres::rows::insert_query(model, rows::invitation_writes(model, invitation, id)?);
+    let row = query
         .build()
-        .execute(&mut **transaction)
+        .fetch_one(&mut **transaction)
         .await
-        .map(|_| ())
-        .map_err(storage_error)
+        .map_err(storage_error)?;
+    rows::decode_invitation(model, &row)
 }
 
 pub(super) async fn insert_member(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
     member: &OrganizationMember,
-) -> Result<(), AuthError> {
+    id: &crate::PreparedDatabaseId,
+) -> Result<OrganizationMember, AuthError> {
     let mut query =
-        crate::postgres::rows::insert_query_prefix(model, rows::member_writes(model, member)?);
-    query
+        crate::postgres::rows::insert_query(model, rows::member_writes(model, member, id)?);
+    let row = query
         .build()
-        .execute(&mut **transaction)
+        .fetch_one(&mut **transaction)
         .await
-        .map(|_| ())
-        .map_err(storage_error)
+        .map_err(storage_error)?;
+    rows::decode_member(model, &row)
 }
 
 pub(super) async fn count_by_organization(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
-    organization_id: Uuid,
+    organization_id: &str,
 ) -> Result<i64, AuthError> {
     let mut query = count_query(model, organization_id)?;
     query
@@ -128,7 +127,7 @@ pub(super) async fn count_by_organization(
 
 pub(super) fn count_query(
     model: &PostgresModel<'_>,
-    organization_id: Uuid,
+    organization_id: &str,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
     let mut query = QueryBuilder::new("SELECT count(*) FROM ");
     query
@@ -137,7 +136,7 @@ pub(super) fn count_query(
         .push(model.quoted_column("organizationId")?)
         .push(" = ");
     model
-        .encode("organizationId", uuid_value(organization_id))?
+        .encode("organizationId", json!(organization_id))?
         .push_bind(&mut query);
     Ok(query)
 }
@@ -145,7 +144,7 @@ pub(super) fn count_query(
 pub(super) async fn pending_count(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
-    organization_id: Uuid,
+    organization_id: &str,
     email: Option<&str>,
 ) -> Result<i64, AuthError> {
     let mut query = count_query(model, organization_id)?;
@@ -174,7 +173,7 @@ pub(super) async fn pending_count(
 pub(super) async fn cancel_pending_for_email(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
-    organization_id: Uuid,
+    organization_id: &str,
     email: &str,
 ) -> Result<(), AuthError> {
     let writes = model.encode_fields([("status", json!("canceled"))])?;
@@ -184,7 +183,7 @@ pub(super) async fn cancel_pending_for_email(
         .push(model.quoted_column("organizationId")?)
         .push(" = ");
     model
-        .encode("organizationId", uuid_value(organization_id))?
+        .encode("organizationId", json!(organization_id))?
         .push_bind(&mut query);
     query
         .push(" AND lower(")
@@ -208,13 +207,13 @@ pub(super) async fn cancel_pending_for_email(
 
 pub(super) fn status_update_query(
     model: &PostgresModel<'_>,
-    id: Uuid,
+    id: &str,
     status: OrganizationInvitationStatus,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
     let writes = model.encode_fields([("status", json!(rows::status_name(status)))])?;
     let mut query = crate::postgres::rows::update_query(model, writes);
     query.push(" WHERE \"id\" = ");
-    model.encode("id", uuid_value(id))?.push_bind(&mut query);
+    model.encode("id", json!(id))?.push_bind(&mut query);
     query.push(" RETURNING ").push(model.all_projection());
     Ok(query)
 }
@@ -222,7 +221,7 @@ pub(super) fn status_update_query(
 pub(super) async fn update_status(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
-    id: Uuid,
+    id: &str,
     status: OrganizationInvitationStatus,
 ) -> Result<(), AuthError> {
     let mut query = status_update_query(model, id, status)?;
@@ -236,7 +235,7 @@ pub(super) async fn update_status(
 
 pub(super) fn resend_query(
     model: &PostgresModel<'_>,
-    organization_id: Uuid,
+    organization_id: &str,
     email: &str,
     expires_at: DateTime<Utc>,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
@@ -249,7 +248,7 @@ pub(super) fn resend_query(
         .push(model.quoted_column("organizationId")?)
         .push(" = ");
     model
-        .encode("organizationId", uuid_value(organization_id))?
+        .encode("organizationId", json!(organization_id))?
         .push_bind(&mut query);
     query
         .push(" AND lower(")
@@ -274,7 +273,7 @@ pub(super) fn resend_query(
 pub(super) async fn member_exists(
     transaction: &mut Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
-    organization_id: Uuid,
+    organization_id: &str,
     user_id: &str,
 ) -> Result<bool, AuthError> {
     let mut query = QueryBuilder::new("SELECT EXISTS(SELECT 1 FROM ");
@@ -284,7 +283,7 @@ pub(super) async fn member_exists(
         .push(model.quoted_column("organizationId")?)
         .push(" = ");
     model
-        .encode("organizationId", uuid_value(organization_id))?
+        .encode("organizationId", json!(organization_id))?
         .push_bind(&mut query);
     query
         .push(" AND ")
@@ -308,10 +307,6 @@ pub(super) fn decode_optional(
     row.as_ref()
         .map(|row| rows::decode_invitation(model, row))
         .transpose()
-}
-
-pub(super) fn uuid_value(value: Uuid) -> Value {
-    Value::String(value.to_string())
 }
 
 #[cfg(test)]

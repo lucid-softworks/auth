@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use uuid::Uuid;
 
 pub type OrganizationPermissions = BTreeMap<String, Vec<String>>;
 
@@ -32,8 +31,8 @@ pub struct OrganizationCreation {
 pub struct NewOrganizationInvitation {
     pub email: String,
     pub role: String,
-    pub organization_id: Option<Uuid>,
-    pub team_ids: Vec<Uuid>,
+    pub organization_id: Option<String>,
+    pub team_ids: Vec<String>,
     pub resend: bool,
 }
 
@@ -57,7 +56,7 @@ pub struct OrganizationInvitationDetails {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Organization {
-    pub id: Uuid,
+    pub id: String,
     pub name: String,
     pub slug: String,
     pub logo: Option<String>,
@@ -68,8 +67,8 @@ pub struct Organization {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrganizationMember {
-    pub id: Uuid,
-    pub organization_id: Uuid,
+    pub id: String,
+    pub organization_id: String,
     pub user_id: String,
     pub role: String,
     pub created_at: DateTime<Utc>,
@@ -87,8 +86,8 @@ pub enum OrganizationInvitationStatus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrganizationInvitation {
-    pub id: Uuid,
-    pub organization_id: Uuid,
+    pub id: String,
+    pub organization_id: String,
     pub email: String,
     pub role: String,
     pub status: OrganizationInvitationStatus,
@@ -101,9 +100,9 @@ pub struct OrganizationInvitation {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrganizationTeam {
-    pub id: Uuid,
+    pub id: String,
     pub name: String,
-    pub organization_id: Uuid,
+    pub organization_id: String,
     pub created_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<DateTime<Utc>>,
@@ -112,8 +111,8 @@ pub struct OrganizationTeam {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrganizationTeamMember {
-    pub id: Uuid,
-    pub team_id: Uuid,
+    pub id: String,
+    pub team_id: String,
     pub user_id: String,
     pub created_at: DateTime<Utc>,
 }
@@ -121,8 +120,8 @@ pub struct OrganizationTeamMember {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrganizationRole {
-    pub id: Uuid,
-    pub organization_id: Uuid,
+    pub id: String,
+    pub organization_id: String,
     pub role: String,
     pub permission: OrganizationPermissions,
     pub created_at: DateTime<Utc>,

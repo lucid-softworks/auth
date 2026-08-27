@@ -4,10 +4,9 @@ use crate::{
 };
 use chrono::Utc;
 use std::collections::BTreeMap;
-use uuid::Uuid;
 
 impl TestHelpers<'_> {
-    pub async fn login(&self, user_id: Uuid) -> Result<TestLoginResult, TestUtilsError> {
+    pub async fn login(&self, user_id: &str) -> Result<TestLoginResult, TestUtilsError> {
         let (token, session, user) = self.create_test_session(user_id).await?;
         Ok(TestLoginResult {
             headers: cookie_headers(self.service, &token),
@@ -20,7 +19,7 @@ impl TestHelpers<'_> {
 
     pub async fn get_auth_headers(
         &self,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<BTreeMap<String, String>, TestUtilsError> {
         let (token, _, _) = self.create_test_session(user_id).await?;
         Ok(cookie_headers(self.service, &token))
@@ -28,7 +27,7 @@ impl TestHelpers<'_> {
 
     pub async fn get_cookies(
         &self,
-        user_id: Uuid,
+        user_id: &str,
         domain: Option<&str>,
     ) -> Result<Vec<TestCookie>, TestUtilsError> {
         let (token, _, _) = self.create_test_session(user_id).await?;
@@ -37,14 +36,14 @@ impl TestHelpers<'_> {
 
     async fn create_test_session(
         &self,
-        user_id: Uuid,
+        user_id: &str,
     ) -> Result<(String, crate::AuthSession, crate::AuthUser), TestUtilsError> {
         let user = self
             .service
             .store
-            .find_user_by_id(&user_id.to_string())
+            .find_user_by_id(user_id)
             .await?
-            .ok_or(TestUtilsError::UserNotFound(user_id))?;
+            .ok_or_else(|| TestUtilsError::UserNotFound(user_id.to_owned()))?;
         let result = self
             .service
             .create_session(user, AuthenticationMethod::Extension, None, None, None)

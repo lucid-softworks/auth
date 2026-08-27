@@ -1,5 +1,5 @@
 use super::MemoryStore;
-use crate::{AuthError, JwkStore, JwtSchema, NewJwk, StoredJwk};
+use crate::{AuthError, JwkStore, JwtSchema, NewJwk, PreparedDatabaseId, StoredJwk};
 use async_trait::async_trait;
 
 #[async_trait]
@@ -8,9 +8,15 @@ impl JwkStore for MemoryStore {
         Ok(self.state.read().await.jwks.clone())
     }
 
-    async fn create_jwk(&self, _schema: &JwtSchema, jwk: NewJwk) -> Result<StoredJwk, AuthError> {
+    async fn create_jwk(
+        &self,
+        _schema: &JwtSchema,
+        jwk: NewJwk,
+        id: PreparedDatabaseId,
+    ) -> Result<StoredJwk, AuthError> {
+        let id = self.create_id("jwks", id, self.state.read().await.jwks.len())?;
         let stored = StoredJwk {
-            id: uuid::Uuid::new_v4().to_string(),
+            id,
             public_key: jwk.public_key,
             private_key: jwk.private_key,
             created_at: jwk.created_at,
@@ -45,12 +51,14 @@ mod tests {
                     alg: None,
                     crv: None,
                 },
+                PreparedDatabaseId::Value(crate::DatabaseIdValue::String("memory-jwk".into())),
             )
             .await
             .unwrap();
 
         let records = store.list_jwks(&JwtSchema::default()).await.unwrap();
         assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id, "memory-jwk");
         assert_eq!(records[0].public_key, "public");
     }
 }

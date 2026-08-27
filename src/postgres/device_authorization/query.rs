@@ -6,10 +6,36 @@ use sqlx::{Postgres, QueryBuilder};
 pub(super) fn insert(
     model: &PostgresModel<'_>,
     code: &DeviceCode,
+    id: &crate::PreparedDatabaseId,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
-    let writes = codec::writes(model, code)?;
+    let writes = codec::writes(model, code, id)?;
     let mut query = super::super::rows::insert_query_prefix(model, writes);
     query.push(" RETURNING ").push(model.all_projection());
+    Ok(query)
+}
+
+pub(super) fn codes_exist(
+    model: &PostgresModel<'_>,
+    device_code: &str,
+    user_code: &str,
+) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
+    let mut query = QueryBuilder::new("SELECT EXISTS(SELECT 1 FROM ");
+    query
+        .push(model.quoted_table())
+        .push(" WHERE ")
+        .push(model.quoted_column("deviceCode")?)
+        .push(" = ");
+    model
+        .encode("deviceCode", Value::String(device_code.into()))?
+        .push_bind(&mut query);
+    query
+        .push(" OR ")
+        .push(model.quoted_column("userCode")?)
+        .push(" = ");
+    model
+        .encode("userCode", Value::String(user_code.into()))?
+        .push_bind(&mut query);
+    query.push(")");
     Ok(query)
 }
 
@@ -29,30 +55,38 @@ pub(super) fn find_by(
 
 pub(super) fn update_field(
     model: &PostgresModel<'_>,
-    id: uuid::Uuid,
+    id: &str,
     field: &str,
     value: Value,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
     let writes = model.encode_fields([(field, value)])?;
     let mut query = super::super::rows::update_query(model, writes);
     query
-        .push(" WHERE \"id\" = ")
-        .push_bind(id)
-        .push(" RETURNING ")
-        .push(model.all_projection());
+        .push(" WHERE ")
+        .push(model.quoted_column("id")?)
+        .push(" = ");
+    model
+        .encode("id", Value::String(id.into()))?
+        .push_bind(&mut query);
+    query.push(" RETURNING ").push(model.all_projection());
     Ok(query)
 }
 
 pub(super) fn bind_pending_user(
     model: &PostgresModel<'_>,
-    id: uuid::Uuid,
+    id: &str,
     user_id: &str,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
     let writes = model.encode_fields([("userId", Value::String(user_id.to_owned()))])?;
     let mut query = super::super::rows::update_query(model, writes);
     query
-        .push(" WHERE \"id\" = ")
-        .push_bind(id)
+        .push(" WHERE ")
+        .push(model.quoted_column("id")?)
+        .push(" = ");
+    model
+        .encode("id", Value::String(id.into()))?
+        .push_bind(&mut query);
+    query
         .push(" AND ")
         .push(model.quoted_column("status")?)
         .push(" = ");
@@ -67,28 +101,39 @@ pub(super) fn bind_pending_user(
     Ok(query)
 }
 
-pub(super) fn delete(model: &PostgresModel<'_>, id: uuid::Uuid) -> QueryBuilder<'static, Postgres> {
+pub(super) fn delete(
+    model: &PostgresModel<'_>,
+    id: &str,
+) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
     let mut query = QueryBuilder::new("DELETE FROM ");
     query
         .push(model.quoted_table())
-        .push(" WHERE \"id\" = ")
-        .push_bind(id)
-        .push(" RETURNING ")
-        .push(model.all_projection());
-    query
+        .push(" WHERE ")
+        .push(model.quoted_column("id")?)
+        .push(" = ");
+    model
+        .encode("id", Value::String(id.into()))?
+        .push_bind(&mut query);
+    query.push(" RETURNING ").push(model.all_projection());
+    Ok(query)
 }
 
 pub(super) fn consume(
     model: &PostgresModel<'_>,
-    id: uuid::Uuid,
+    id: &str,
     owner_field: &str,
     owner_value: String,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
     let mut query = QueryBuilder::new("DELETE FROM ");
     query
         .push(model.quoted_table())
-        .push(" WHERE \"id\" = ")
-        .push_bind(id)
+        .push(" WHERE ")
+        .push(model.quoted_column("id")?)
+        .push(" = ");
+    model
+        .encode("id", Value::String(id.into()))?
+        .push_bind(&mut query);
+    query
         .push(" AND ")
         .push(model.quoted_column(owner_field)?)
         .push(" = ");
@@ -160,7 +205,7 @@ mod tests {
 
     fn code() -> DeviceCode {
         DeviceCode {
-            id: uuid::Uuid::new_v4(),
+            id: "opaque-device-id".into(),
             device_code: "private-device-code".into(),
             user_code: "PRIVATE".into(),
             user_id: None,
@@ -180,8 +225,13 @@ mod tests {
         let store = store(true);
         let model = store.physical_model("deviceCode").unwrap();
         let code = code();
+        let id = super::super::super::rows::explicit_id(&code.id);
         let sql = [
-            insert(&model, &code).unwrap().sql().to_owned(),
+            insert(&model, &code, &id).unwrap().sql().to_owned(),
+            codes_exist(&model, &code.device_code, &code.user_code)
+                .unwrap()
+                .sql()
+                .to_owned(),
             find_by(
                 &model,
                 "deviceCode",
@@ -190,16 +240,16 @@ mod tests {
             .unwrap()
             .sql()
             .to_owned(),
-            bind_pending_user(&model, code.id, &uuid::Uuid::new_v4().to_string())
+            bind_pending_user(&model, &code.id, "opaque-user-id")
                 .unwrap()
                 .sql()
                 .to_owned(),
-            update_field(&model, code.id, "status", json!("denied"))
+            update_field(&model, &code.id, "status", json!("denied"))
                 .unwrap()
                 .sql()
                 .to_owned(),
-            delete(&model, code.id).sql().to_owned(),
-            consume(&model, code.id, "oauthClientId", "oauth-client".into())
+            delete(&model, &code.id).unwrap().sql().to_owned(),
+            consume(&model, &code.id, "oauthClientId", "oauth-client".into())
                 .unwrap()
                 .sql()
                 .to_owned(),
@@ -212,6 +262,18 @@ mod tests {
         assert!(!sql.contains("lucid_auth_device_codes"));
         assert!(!sql.contains("private-device-code"));
         assert!(!sql.contains("oauth-client"));
+        assert!(sql.contains(" RETURNING "));
+    }
+
+    #[tokio::test]
+    async fn deferred_ids_are_omitted_and_hydrated_with_returning() {
+        let store = store(true);
+        let model = store.physical_model("deviceCode").unwrap();
+        let insert = insert(&model, &code(), &crate::PreparedDatabaseId::Deferred).unwrap();
+        let sql = insert.sql();
+        let values = sql.split(" VALUES ").next().unwrap();
+        assert!(!values.contains("\"id\""));
+        assert!(sql.contains(" RETURNING "));
     }
 
     #[tokio::test]

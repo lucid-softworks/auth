@@ -23,10 +23,10 @@ pub(crate) async fn assert_persistence(
         }))
         .await?;
     assert_eq!(user.email, "postgres-test-utils@example.com");
-    let login = test.login(user.id).await?;
+    let login = test.login(&user.id).await?;
     assert!(store.find_session(&login.token).await?.is_some());
-    let headers = test.get_auth_headers(user.id).await?;
-    let cookies = test.get_cookies(user.id, None).await?;
+    let headers = test.get_auth_headers(&user.id).await?;
+    let cookies = test.get_cookies(&user.id, None).await?;
     assert_ne!(headers["cookie"], login.headers["cookie"]);
     assert_ne!(cookies[0].value, login.cookies[0].value);
     assert_eq!(cookies[0].domain, "test-utils.example.com");
@@ -41,7 +41,7 @@ pub(crate) async fn assert_persistence(
         )
         .await?;
     let member = organizations
-        .add_member(user.id, organization.id, None)
+        .add_member(&user.id, &organization.id, None)
         .await?;
     assert_eq!(member.role, "member");
     sqlx::query(
@@ -49,13 +49,13 @@ pub(crate) async fn assert_persistence(
            (id, "organizationId", email, role, status, "inviterId", "expiresAt", "createdAt")
            VALUES ($1, $2, $3, 'member', 'pending', $4, NOW() + INTERVAL '1 hour', NOW())"#,
     )
-    .bind(uuid::Uuid::new_v4())
-    .bind(organization.id)
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(&organization.id)
     .bind("delete-order@example.com")
-    .bind(user.id)
+    .bind(&user.id)
     .execute(pool)
     .await?;
-    organizations.delete_organization(organization.id).await?;
+    organizations.delete_organization(&organization.id).await?;
     for (table, organization_column) in [
         ("member", "\"organizationId\""),
         ("invitation", "\"organizationId\""),
@@ -64,13 +64,13 @@ pub(crate) async fn assert_persistence(
         let count = sqlx::query_scalar::<_, i64>(&format!(
             "SELECT count(*) FROM \"{table}\" WHERE {organization_column} = $1"
         ))
-        .bind(organization.id)
+        .bind(&organization.id)
         .fetch_one(pool)
         .await?;
         assert_eq!(count, 0);
     }
 
-    test.delete_user(user.id).await?;
-    test.delete_user(user.id).await?;
+    test.delete_user(&user.id).await?;
+    test.delete_user(&user.id).await?;
     Ok(())
 }

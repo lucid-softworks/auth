@@ -13,7 +13,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use uuid::Uuid;
 
 pub(super) fn routes() -> Vec<AxumPluginRoute> {
     vec![
@@ -289,7 +288,7 @@ async fn resolve_organization_id(
     service: &AuthService,
     session: &crate::SessionWithUser,
     query: &super::member_list::MemberQuery,
-) -> Result<Option<Uuid>, AuthError> {
+) -> Result<Option<String>, AuthError> {
     if let Some(slug) = query.organization_slug.as_deref() {
         return service
             .get_organization(session, None, Some(slug))

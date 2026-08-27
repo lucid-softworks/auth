@@ -93,6 +93,7 @@ async fn issue_code_result(
         .await?;
     let user_id = input.user_id.clone();
     let generated = generate_device_authorization(
+        &service,
         store.as_ref(),
         &config,
         &base_url,
@@ -186,7 +187,7 @@ async fn exchange_device_code(
     let effective_resources = prepare_redemption(input, &authorized).await?;
     let consumed = store
         .consume_approved_device_code(
-            authorized.record.id,
+            &authorized.record.id,
             DeviceCodeOwner::OAuthClientId(authorized.authenticated.client_id.clone()),
         )
         .await
@@ -299,11 +300,11 @@ async fn poll(
         ));
     }
     store
-        .update_last_polled_at(record.id, now)
+        .update_last_polled_at(&record.id, now)
         .await
         .map_err(server)?;
     if record.expires_at < now {
-        store.delete_device_code(record.id).await.map_err(server)?;
+        store.delete_device_code(&record.id).await.map_err(server)?;
         return Err(OAuthProviderError::ExpiredToken(
             "Device code has expired".into(),
         ));
@@ -313,7 +314,7 @@ async fn poll(
             "Authorization pending".into(),
         )),
         DeviceCodeStatus::Denied => {
-            store.delete_device_code(record.id).await.map_err(server)?;
+            store.delete_device_code(&record.id).await.map_err(server)?;
             Err(OAuthProviderError::AccessDenied("Access denied".into()))
         }
         DeviceCodeStatus::Approved if record.user_id.is_some() => Ok(()),

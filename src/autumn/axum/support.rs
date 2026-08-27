@@ -5,7 +5,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde_json::{Map, Value, json};
-use uuid::Uuid;
 
 pub(super) fn error_response(
     logical_status: StatusCode,
@@ -48,8 +47,7 @@ pub(super) async fn active_organization(
                 .additional_fields
                 .get("activeOrganizationId")
         })
-        .and_then(Value::as_str)
-        .and_then(|id| Uuid::parse_str(id).ok())?;
+        .and_then(Value::as_str)?;
     let plugin = service.organization_plugin().ok()?;
     plugin
         .store

@@ -11,10 +11,10 @@ async fn list_cancel_restore_and_portal_use_the_local_owner_and_provider_contrac
     let fixture = fixture(None).await;
     fixture
         .stripe
-        .set_user_customer_id(fixture.user_id, Some("cus_owner".into()))
+        .set_user_customer_id(&fixture.user_id, Some("cus_owner".into()))
         .await
         .unwrap();
-    let local = local_subscription(fixture.user_id.to_string());
+    let local = local_subscription(fixture.user_id.clone());
     fixture
         .stripe
         .create_subscription(local.clone())

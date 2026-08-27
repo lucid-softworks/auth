@@ -180,8 +180,11 @@ async fn dependent_account_hook_receives_returned_user_id_before_account_callbac
 #[derive(Clone)]
 struct ContextRecordingPreparer {
     result: crate::DatabaseWrite<OAuthAccount>,
-    observed: Arc<Mutex<Vec<(String, crate::DatabaseWriteOperation, Option<OAuthAccount>)>>>,
+    observed: Arc<Mutex<Vec<ObservedDependentAccountContext>>>,
 }
+
+type ObservedDependentAccountContext =
+    (String, crate::DatabaseWriteOperation, Option<OAuthAccount>);
 
 #[async_trait::async_trait]
 impl crate::DependentAccountPreparer for ContextRecordingPreparer {

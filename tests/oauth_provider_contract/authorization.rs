@@ -9,15 +9,19 @@ async fn authorization_errors_use_only_trusted_redirects_and_allow_loopback_port
 }
 
 async fn register_loopback_client(fixture: &Fixture) {
-    let mut redirect_client = client("redirect-contract", Some(fixture.user_id));
+    let mut redirect_client = client("redirect-contract", Some(&fixture.user_id));
     redirect_client.redirect_uris = vec!["http://127.0.0.1/callback".into()];
     fixture
         .oauth
-        .persist_oauth_client_registration(OAuthClientRegistrationWrite {
-            client: redirect_client,
-            resource_ids: Vec::new(),
-            mode: OAuthClientRegistrationMode::Create,
-        })
+        .persist_oauth_client_registration(
+            &oauth_record_id,
+            &oauth_record_id,
+            OAuthClientRegistrationWrite {
+                client: redirect_client,
+                resource_ids: Vec::new(),
+                mode: OAuthClientRegistrationMode::Create,
+            },
+        )
         .await
         .unwrap();
 }

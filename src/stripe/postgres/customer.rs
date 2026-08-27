@@ -2,7 +2,6 @@ use super::{PostgresStripeStore, storage_error};
 use crate::{postgres::PostgresModel, stripe::StripeStoreError};
 use serde_json::{Value, json};
 use sqlx::{Postgres, QueryBuilder};
-use uuid::Uuid;
 
 const CUSTOMER_FIELD: &str = "stripeCustomerId";
 
@@ -37,17 +36,17 @@ pub(super) async fn user_id_by_customer(
 
 pub(super) async fn organization_customer_id(
     store: &PostgresStripeStore,
-    organization_id: Uuid,
+    organization_id: &str,
 ) -> Result<Option<String>, StripeStoreError> {
     let Some(model) = customer_model(store, "organization")? else {
         return Ok(None);
     };
-    scalar(store, customer_query(&model, uuid_value(organization_id))?).await
+    scalar(store, customer_query(&model, json!(organization_id))?).await
 }
 
 pub(super) async fn set_organization_customer_id(
     store: &PostgresStripeStore,
-    organization_id: Uuid,
+    organization_id: String,
     customer_id: Option<String>,
 ) -> Result<(), StripeStoreError> {
     let Some(model) = customer_model(store, "organization")? else {
@@ -55,7 +54,7 @@ pub(super) async fn set_organization_customer_id(
     };
     execute(
         store,
-        set_customer_query(&model, uuid_value(organization_id), customer_id)?,
+        set_customer_query(&model, json!(organization_id), customer_id)?,
     )
     .await
 }
@@ -63,11 +62,11 @@ pub(super) async fn set_organization_customer_id(
 pub(super) async fn organization_id_by_customer(
     store: &PostgresStripeStore,
     customer_id: &str,
-) -> Result<Option<Uuid>, StripeStoreError> {
+) -> Result<Option<String>, StripeStoreError> {
     let Some(model) = customer_model(store, "organization")? else {
         return Ok(None);
     };
-    uuid_id_by_customer(store, by_customer_query(&model, customer_id, false)?).await
+    string_id_by_customer(store, by_customer_query(&model, customer_id, false)?).await
 }
 
 fn customer_query(
@@ -157,17 +156,6 @@ async fn scalar(
         .map_err(storage_error)
 }
 
-async fn uuid_id_by_customer(
-    store: &PostgresStripeStore,
-    mut query: QueryBuilder<'static, Postgres>,
-) -> Result<Option<Uuid>, StripeStoreError> {
-    query
-        .build_query_scalar()
-        .fetch_optional(store.pool())
-        .await
-        .map_err(storage_error)
-}
-
 async fn string_id_by_customer(
     store: &PostgresStripeStore,
     mut query: QueryBuilder<'static, Postgres>,
@@ -191,10 +179,6 @@ async fn execute(
         .map_err(storage_error)
 }
 
-fn uuid_value(value: Uuid) -> Value {
-    Value::String(value.to_string())
-}
-
 fn schema_error(error: crate::AuthError) -> StripeStoreError {
     StripeStoreError::Unavailable(error.to_string())
 }
@@ -202,6 +186,7 @@ fn schema_error(error: crate::AuthError) -> StripeStoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uuid::Uuid;
 
     #[tokio::test]
     async fn customer_queries_use_physical_columns_without_json_or_literal_values() {

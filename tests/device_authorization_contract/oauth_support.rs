@@ -1,9 +1,9 @@
 use super::support::*;
 use lucid_auth::{
-    JwtConfig, JwtPlugin, MemoryOAuthProviderStore, OAuthClientRegistrationMode,
+    DatabaseIdValue, JwtConfig, JwtPlugin, MemoryOAuthProviderStore, OAuthClientRegistrationMode,
     OAuthClientRegistrationOutcome, OAuthClientRegistrationWrite, OAuthDeviceAuthorizationPlugin,
     OAuthProviderClientStore, OAuthProviderPlugin, OAuthProviderPluginConfig,
-    OAuthProviderResource, OAuthProviderResourceStore,
+    OAuthProviderResource, OAuthProviderResourceStore, PreparedDatabaseId, SignInResult,
 };
 
 pub(super) const CLIENT_ID: &str = "device-client";
@@ -19,25 +19,66 @@ pub(super) struct OAuthFixture {
 pub(super) async fn oauth_fixture() -> OAuthFixture {
     let devices = Arc::new(MemoryDeviceAuthorizationStore::new());
     let oauth = Arc::new(MemoryOAuthProviderStore::new());
+    register_oauth_records(&oauth).await;
+    let auth = oauth_auth_config(oauth, devices.clone());
+    let service = Arc::new(AuthService::try_new(Arc::new(MemoryStore::default()), auth).unwrap());
+    let signed_in = provision_and_sign_in(&service).await;
+    let cookie = format!(
+        "better-auth.session_token={}",
+        service.signed_cookie_value(&signed_in.token)
+    );
+    OAuthFixture {
+        app: lucid_auth::axum::router(service),
+        devices,
+        cookie,
+        user_id: signed_in.session.user.id,
+    }
+}
+
+async fn register_oauth_records(oauth: &MemoryOAuthProviderStore) {
+    let resource_id = || {
+        Ok(PreparedDatabaseId::Value(DatabaseIdValue::String(
+            "device-resource-record".into(),
+        )))
+    };
     oauth
-        .create_oauth_resource(resource())
+        .create_oauth_resource(&resource_id, resource())
         .await
         .unwrap()
         .expect("resource is created");
     let mut registered = oauth_client();
     registered.user_id = None;
+    let client_id = || {
+        Ok(PreparedDatabaseId::Value(DatabaseIdValue::String(
+            "device-client-record".into(),
+        )))
+    };
+    let link_id = || {
+        Ok(PreparedDatabaseId::Value(DatabaseIdValue::String(
+            "device-client-resource-record".into(),
+        )))
+    };
     assert!(matches!(
         oauth
-            .persist_oauth_client_registration(OAuthClientRegistrationWrite {
-                client: registered,
-                resource_ids: vec![RESOURCE.into()],
-                mode: OAuthClientRegistrationMode::Create,
-            })
+            .persist_oauth_client_registration(
+                &client_id,
+                &link_id,
+                OAuthClientRegistrationWrite {
+                    client: registered,
+                    resource_ids: vec![RESOURCE.into()],
+                    mode: OAuthClientRegistrationMode::Create,
+                },
+            )
             .await
             .unwrap(),
         OAuthClientRegistrationOutcome::Created(_)
     ));
+}
 
+fn oauth_auth_config(
+    oauth: Arc<MemoryOAuthProviderStore>,
+    devices: Arc<MemoryDeviceAuthorizationStore>,
+) -> AuthConfig {
     let mut auth = AuthConfig::new([212_u8; 32]).unwrap();
     auth.set_base_url("http://localhost/api/auth").unwrap();
     auth.add_plugin(JwtPlugin::new(JwtConfig::default()))
@@ -54,7 +95,10 @@ pub(super) async fn oauth_fixture() -> OAuthFixture {
         devices.clone() as Arc<_>,
     ))
     .unwrap();
-    let service = Arc::new(AuthService::try_new(Arc::new(MemoryStore::default()), auth).unwrap());
+    auth
+}
+
+async fn provision_and_sign_in(service: &AuthService) -> SignInResult {
     service
         .provision_password_user(NewPasswordUser {
             username: "oauth_device_owner".into(),
@@ -65,7 +109,7 @@ pub(super) async fn oauth_fixture() -> OAuthFixture {
         })
         .await
         .unwrap();
-    let signed_in = service
+    service
         .sign_in_username(
             "oauth_device_owner",
             "correct horse battery staple".into(),
@@ -73,23 +117,13 @@ pub(super) async fn oauth_fixture() -> OAuthFixture {
             None,
         )
         .await
-        .unwrap();
-    let cookie = format!(
-        "better-auth.session_token={}",
-        service.signed_cookie_value(&signed_in.token)
-    );
-    OAuthFixture {
-        app: lucid_auth::axum::router(service),
-        devices,
-        cookie,
-        user_id: signed_in.session.user.id,
-    }
+        .unwrap()
 }
 
 fn oauth_client() -> lucid_auth::OAuthProviderClient {
     let now = Utc::now();
     lucid_auth::OAuthProviderClient {
-        id: Uuid::new_v4(),
+        id: Uuid::new_v4().to_string(),
         client_id: CLIENT_ID.into(),
         client_secret: None,
         client_discovery_id: None,
@@ -131,7 +165,7 @@ fn oauth_client() -> lucid_auth::OAuthProviderClient {
 
 fn resource() -> OAuthProviderResource {
     OAuthProviderResource {
-        id: Uuid::new_v4(),
+        id: Uuid::new_v4().to_string(),
         identifier: RESOURCE.into(),
         name: "Device resource".into(),
         access_token_ttl: None,

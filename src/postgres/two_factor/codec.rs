@@ -1,24 +1,30 @@
 use super::super::{PostgresModel, PostgresWrite};
-use crate::{AuthError, TwoFactorRecord};
+use crate::{AuthError, PreparedDatabaseId, TwoFactorRecord};
 use serde_json::{Map, Value, json};
 use sqlx::postgres::PgRow;
 
 pub(super) fn two_factor_writes<'a>(
     model: &'a PostgresModel<'a>,
     record: &TwoFactorRecord,
+    id: &PreparedDatabaseId,
 ) -> Result<Vec<PostgresWrite<'a>>, AuthError> {
-    model.encode_fields([
-        ("id", json!(record.id.to_string())),
-        ("userId", json!(record.user_id)),
-        ("secret", json!(record.encrypted_secret)),
-        ("backupCodes", json!(record.encrypted_backup_codes)),
-        ("verified", json!(record.verified)),
+    let mut values = Map::from_iter([
+        ("userId".into(), json!(record.user_id)),
+        ("secret".into(), json!(record.encrypted_secret)),
+        ("backupCodes".into(), json!(record.encrypted_backup_codes)),
+        ("verified".into(), json!(record.verified)),
         (
-            "failedVerificationCount",
+            "failedVerificationCount".into(),
             json!(record.failed_verification_count),
         ),
-        ("lockedUntil", optional_date(record.locked_until)),
-    ])
+        ("lockedUntil".into(), optional_date(record.locked_until)),
+    ]);
+    super::super::rows::insert_prepared_id(&mut values, id)?;
+    model.encode_fields(
+        values
+            .iter()
+            .map(|(logical, value)| (logical.as_str(), value.clone())),
+    )
 }
 
 pub(super) fn two_factor_update_writes<'a>(
@@ -47,11 +53,11 @@ pub(super) fn decode_two_factor(
 }
 
 fn decode_two_factor_values(mut values: Map<String, Value>) -> Result<TwoFactorRecord, AuthError> {
-    use super::super::rows::{optional_date_value, required_string, required_uuid};
+    use super::super::rows::{optional_date_value, required_string};
     let verified = optional_bool(&mut values, "verified", true)?;
     let failed_verification_count = optional_u32(&mut values, "failedVerificationCount", 0)?;
     Ok(TwoFactorRecord {
-        id: required_uuid(&mut values, "id")?,
+        id: required_string(&mut values, "id")?,
         user_id: required_string(&mut values, "userId")?,
         encrypted_secret: required_string(&mut values, "secret")?,
         encrypted_backup_codes: required_string(&mut values, "backupCodes")?,
@@ -120,7 +126,6 @@ mod tests {
     };
     use chrono::Utc;
     use std::sync::Arc;
-    use uuid::Uuid;
 
     #[test]
     fn official_projection_honors_hostile_remaps_and_has_no_alternate_state() {
@@ -156,8 +161,8 @@ mod tests {
             ]
         );
         let record = TwoFactorRecord {
-            id: Uuid::new_v4(),
-            user_id: Uuid::new_v4().to_string(),
+            id: String::new(),
+            user_id: "user-arbitrary-string".into(),
             encrypted_secret: "bound' --".into(),
             encrypted_backup_codes: "codes".into(),
             verified: false,
@@ -166,11 +171,29 @@ mod tests {
         };
         let query = super::super::super::rows::insert_query(
             &model,
-            two_factor_writes(&model, &record).unwrap(),
+            two_factor_writes(
+                &model,
+                &record,
+                &PreparedDatabaseId::Value(crate::DatabaseIdValue::String(
+                    "two-factor-arbitrary-string".into(),
+                )),
+            )
+            .unwrap(),
         );
         let sql = query.sql();
         assert!(sql.contains("\"two\"\" factor\"") && sql.contains("\"encrypted secret\""));
         assert!(!sql.contains("bound") && !sql.contains("last_totp_counter"));
+        for deferred in [
+            PreparedDatabaseId::Deferred,
+            PreparedDatabaseId::DeferredSerial,
+        ] {
+            let query = super::super::super::rows::insert_query(
+                &model,
+                two_factor_writes(&model, &record, &deferred).unwrap(),
+            );
+            let insert_columns = query.sql().split_once(" VALUES").unwrap().0;
+            assert!(!insert_columns.contains("\"id\""));
+        }
         let user = physical.model("user").unwrap();
         assert_eq!(
             user.quoted_column("twoFactorEnabled").unwrap(),
@@ -180,11 +203,11 @@ mod tests {
 
     #[test]
     fn nullable_official_defaults_decode_without_alternate_columns() {
-        let id = Uuid::new_v4();
-        let user_id = Uuid::new_v4();
+        let id = "two-factor-arbitrary-string";
+        let user_id = "user-arbitrary-string";
         let record = decode_two_factor_values(Map::from_iter([
-            ("id".into(), json!(id.to_string())),
-            ("userId".into(), json!(user_id.to_string())),
+            ("id".into(), json!(id)),
+            ("userId".into(), json!(user_id)),
             ("secret".into(), json!("secret")),
             ("backupCodes".into(), json!("codes")),
             ("verified".into(), Value::Null),
@@ -193,6 +216,8 @@ mod tests {
         ]))
         .unwrap();
         assert!(record.verified);
+        assert_eq!(record.id, id);
+        assert_eq!(record.user_id, user_id);
         assert_eq!(record.failed_verification_count, 0);
         assert_eq!(record.locked_until, None);
     }

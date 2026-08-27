@@ -98,12 +98,15 @@ async fn rejected_custom_tracking_keeps_persistence_but_discards_every_response_
     assert!(
         fixture
             .store
-            .find_password_hash(user.id)
+            .find_password_hash(&user.id)
             .await
             .unwrap()
             .is_some()
     );
-    assert_eq!(fixture.store.list_sessions(user.id).await.unwrap().len(), 1);
+    assert_eq!(
+        fixture.store.list_sessions(&user.id).await.unwrap().len(),
+        1
+    );
     assert_eq!(requests.lock().await.len(), 1);
     assert_eq!(requests.lock().await[0].1.path, "/sign-up/email");
     assert!(fixture.tracker.calls().await.is_empty());

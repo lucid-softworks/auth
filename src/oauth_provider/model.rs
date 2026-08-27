@@ -1,12 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// A registered OAuth 2.1 client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuthProviderClient {
-    pub id: Uuid,
+    pub id: String,
     pub client_id: String,
     #[serde(skip_serializing)]
     pub client_secret: Option<String>,
@@ -55,7 +54,7 @@ pub struct OAuthProviderClient {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuthProviderResource {
-    pub id: Uuid,
+    pub id: String,
     pub identifier: String,
     pub name: String,
     pub access_token_ttl: Option<i64>,
@@ -76,7 +75,7 @@ pub struct OAuthProviderResource {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuthProviderClientResource {
-    pub id: Uuid,
+    pub id: String,
     pub client_id: String,
     pub resource_id: String,
     pub metadata: Option<serde_json::Value>,
@@ -87,7 +86,7 @@ pub struct OAuthProviderClientResource {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuthProviderRefreshToken {
-    pub id: Uuid,
+    pub id: String,
     #[serde(skip_serializing)]
     pub token: String,
     pub client_id: String,
@@ -114,7 +113,7 @@ pub struct OAuthProviderRefreshToken {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuthProviderAccessToken {
-    pub id: Uuid,
+    pub id: String,
     #[serde(skip_serializing)]
     pub token: String,
     pub client_id: String,
@@ -124,7 +123,7 @@ pub struct OAuthProviderAccessToken {
     pub authorization_code_id: Option<String>,
     pub resources: Option<Vec<String>>,
     pub requested_user_info_claims: Option<Vec<String>>,
-    pub refresh_id: Option<Uuid>,
+    pub refresh_id: Option<String>,
     pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub revoked: Option<DateTime<Utc>>,
@@ -136,7 +135,7 @@ pub struct OAuthProviderAccessToken {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuthProviderConsent {
-    pub id: Uuid,
+    pub id: String,
     pub client_id: String,
     pub user_id: Option<String>,
     pub reference_id: Option<String>,
@@ -151,7 +150,8 @@ pub struct OAuthProviderConsent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuthProviderClientAssertion {
-    /// Better Auth supplies a truncated base64url SHA-256 digest as this id.
     pub id: String,
+    /// Better Auth supplies a truncated base64url SHA-256 digest for replay detection.
+    pub jti: String,
     pub expires_at: DateTime<Utc>,
 }

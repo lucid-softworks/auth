@@ -59,7 +59,7 @@ async fn authenticate(service: &AuthService, store: &MemoryStore, verified: bool
         .unwrap();
     store
         .update_user_profile(
-            user.id,
+            &user.id,
             UserProfileUpdate {
                 additional_fields: Map::from_iter([(
                     "dodoCustomerId".into(),
@@ -72,7 +72,7 @@ async fn authenticate(service: &AuthService, store: &MemoryStore, verified: bool
         .unwrap();
     if verified {
         store
-            .update_user_email(user.id, &user.email, &user.email, true)
+            .update_user_email(&user.id, &user.email, &user.email, true)
             .await
             .unwrap();
     }

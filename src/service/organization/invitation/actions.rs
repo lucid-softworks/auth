@@ -10,16 +10,15 @@ use crate::{
     OrganizationInvitationWriteOutcome, SessionWithUser,
 };
 use chrono::Utc;
-use uuid::Uuid;
 
 impl AuthService {
     pub async fn accept_organization_invitation(
         &self,
         session: &SessionWithUser,
-        invitation_id: Uuid,
+        invitation_id: String,
     ) -> Result<OrganizationInvitationAcceptance, AuthError> {
         let plugin = self.organization_plugin()?;
-        let invitation = require_pending(plugin, invitation_id).await?;
+        let invitation = require_pending(plugin, &invitation_id).await?;
         require_recipient(
             session,
             &invitation,
@@ -27,7 +26,7 @@ impl AuthService {
         )?;
         if plugin
             .store
-            .find_member(invitation.organization_id, &invitation.inviter_id)
+            .find_member(&invitation.organization_id, &invitation.inviter_id)
             .await?
             .is_none()
         {
@@ -35,7 +34,7 @@ impl AuthService {
         }
         let organization = plugin
             .store
-            .find_organization_by_id(invitation.organization_id)
+            .find_organization_by_id(&invitation.organization_id)
             .await?
             .ok_or_else(organization_not_found)?;
         if let Some(hooks) = &plugin.config.hooks {
@@ -43,20 +42,20 @@ impl AuthService {
                 .before_accept_invitation(&invitation, &session.user, &organization)
                 .await?;
         }
-        accept_atomically(plugin, invitation_id, &session.user.id).await?;
-        self.set_active_organization(session, Some(invitation.organization_id))
+        accept_atomically(self, plugin, &invitation_id, &session.user.id).await?;
+        self.set_active_organization(session, Some(invitation.organization_id.clone()))
             .await?;
         if let Some(team_id) = single_team_id(&invitation) {
             self.set_active_team(session, Some(team_id)).await?;
         }
         let member = plugin
             .store
-            .find_member(invitation.organization_id, &session.user.id)
+            .find_member(&invitation.organization_id, &session.user.id)
             .await?
             .ok_or_else(member_not_found)?;
         let invitation = plugin
             .store
-            .find_invitation(invitation_id)
+            .find_invitation(&invitation_id)
             .await?
             .ok_or_else(invitation_not_found)?;
         if let Some(hooks) = &plugin.config.hooks {
@@ -75,10 +74,10 @@ impl AuthService {
     pub async fn reject_organization_invitation(
         &self,
         session: &SessionWithUser,
-        invitation_id: Uuid,
+        invitation_id: String,
     ) -> Result<OrganizationInvitation, AuthError> {
         let plugin = self.organization_plugin()?;
-        let invitation = require_pending(plugin, invitation_id).await?;
+        let invitation = require_pending(plugin, &invitation_id).await?;
         require_recipient(
             session,
             &invitation,
@@ -86,7 +85,7 @@ impl AuthService {
         )?;
         let organization = plugin
             .store
-            .find_organization_by_id(invitation.organization_id)
+            .find_organization_by_id(&invitation.organization_id)
             .await?
             .ok_or_else(organization_not_found)?;
         if let Some(hooks) = &plugin.config.hooks {
@@ -96,7 +95,7 @@ impl AuthService {
         }
         let rejected = plugin
             .store
-            .set_invitation_status(invitation_id, OrganizationInvitationStatus::Rejected)
+            .set_invitation_status(&invitation_id, OrganizationInvitationStatus::Rejected)
             .await?
             .ok_or_else(invitation_not_found)?;
         if let Some(hooks) = &plugin.config.hooks {
@@ -110,23 +109,23 @@ impl AuthService {
     pub async fn cancel_organization_invitation(
         &self,
         session: &SessionWithUser,
-        invitation_id: Uuid,
+        invitation_id: String,
     ) -> Result<OrganizationInvitation, AuthError> {
         let plugin = self.organization_plugin()?;
         let invitation = plugin
             .store
-            .find_invitation(invitation_id)
+            .find_invitation(&invitation_id)
             .await?
             .ok_or_else(invitation_not_found)?;
         let member = plugin
             .store
-            .find_member(invitation.organization_id, &session.user.id)
+            .find_member(&invitation.organization_id, &session.user.id)
             .await?
             .ok_or_else(member_not_found)?;
         require_permission(self, &member, "cancel").await?;
         let organization = plugin
             .store
-            .find_organization_by_id(invitation.organization_id)
+            .find_organization_by_id(&invitation.organization_id)
             .await?
             .ok_or_else(organization_not_found)?;
         if let Some(hooks) = &plugin.config.hooks {
@@ -136,7 +135,7 @@ impl AuthService {
         }
         let canceled = plugin
             .store
-            .set_invitation_status(invitation_id, OrganizationInvitationStatus::Canceled)
+            .set_invitation_status(&invitation_id, OrganizationInvitationStatus::Canceled)
             .await?
             .ok_or_else(invitation_not_found)?;
         if let Some(hooks) = &plugin.config.hooks {
@@ -150,10 +149,10 @@ impl AuthService {
     pub async fn get_organization_invitation(
         &self,
         session: &SessionWithUser,
-        invitation_id: Uuid,
+        invitation_id: String,
     ) -> Result<OrganizationInvitationDetails, AuthError> {
         let plugin = self.organization_plugin()?;
-        let invitation = require_pending(plugin, invitation_id).await?;
+        let invitation = require_pending(plugin, &invitation_id).await?;
         require_invitation_viewer(
             session,
             &invitation,
@@ -161,12 +160,12 @@ impl AuthService {
         )?;
         let organization = plugin
             .store
-            .find_organization_by_id(invitation.organization_id)
+            .find_organization_by_id(&invitation.organization_id)
             .await?
             .ok_or_else(organization_not_found)?;
         if plugin
             .store
-            .find_member(invitation.organization_id, &invitation.inviter_id)
+            .find_member(&invitation.organization_id, &invitation.inviter_id)
             .await?
             .is_none()
         {
@@ -187,10 +186,16 @@ impl AuthService {
 }
 
 async fn accept_atomically(
+    service: &AuthService,
     plugin: &crate::OrganizationPlugin,
-    invitation_id: Uuid,
+    invitation_id: &str,
     user_id: &str,
 ) -> Result<(), AuthError> {
+    let member_plan = service.database_id_plan("member", crate::DatabaseIdInput::Absent, false);
+    let team_member_plan =
+        service.database_id_plan("teamMember", crate::DatabaseIdInput::Absent, false);
+    let member_id = || member_plan.prepare(service.store.as_ref());
+    let team_member_id = || team_member_plan.prepare(service.store.as_ref());
     match plugin
         .store
         .accept_invitation(
@@ -198,6 +203,8 @@ async fn accept_atomically(
             user_id,
             Utc::now(),
             plugin.config.membership_limit,
+            &member_id,
+            &team_member_id,
         )
         .await?
     {

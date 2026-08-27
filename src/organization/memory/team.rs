@@ -1,16 +1,16 @@
-use super::MemoryOrganizationStore;
+use super::{MemoryOrganizationStore, create_id, duplicate_id};
 use crate::{
     AuthError, OrganizationTeam, OrganizationTeamMember, OrganizationTeamStore,
     OrganizationTeamWriteOutcome,
 };
 use async_trait::async_trait;
-use uuid::Uuid;
 
 #[async_trait]
 impl OrganizationTeamStore for MemoryOrganizationStore {
     async fn create_team(
         &self,
-        team: OrganizationTeam,
+        team: &mut OrganizationTeam,
+        id: &dyn crate::DatabaseIdSupplier,
         maximum_teams: Option<usize>,
     ) -> Result<OrganizationTeamWriteOutcome, AuthError> {
         let mut state = self.state.write().await;
@@ -29,15 +29,19 @@ impl OrganizationTeamStore for MemoryOrganizationStore {
         }) {
             return Ok(OrganizationTeamWriteOutcome::LimitReached);
         }
-        state.teams.insert(team.id, team);
+        team.id = create_id("team", id, &mut state)?;
+        if state.teams.contains_key(&team.id) {
+            return Err(duplicate_id("team"));
+        }
+        state.teams.insert(team.id.clone(), team.clone());
         Ok(OrganizationTeamWriteOutcome::Written)
     }
 
-    async fn find_team(&self, id: Uuid) -> Result<Option<OrganizationTeam>, AuthError> {
-        Ok(self.state.read().await.teams.get(&id).cloned())
+    async fn find_team(&self, id: &str) -> Result<Option<OrganizationTeam>, AuthError> {
+        Ok(self.state.read().await.teams.get(id).cloned())
     }
 
-    async fn list_teams(&self, organization_id: Uuid) -> Result<Vec<OrganizationTeam>, AuthError> {
+    async fn list_teams(&self, organization_id: &str) -> Result<Vec<OrganizationTeam>, AuthError> {
         let mut teams: Vec<_> = self
             .state
             .read()
@@ -47,7 +51,7 @@ impl OrganizationTeamStore for MemoryOrganizationStore {
             .filter(|team| team.organization_id == organization_id)
             .cloned()
             .collect();
-        teams.sort_by_key(|team| (team.created_at, team.id));
+        teams.sort_by_key(|team| (team.created_at, team.id.clone()));
         Ok(teams)
     }
 
@@ -65,17 +69,17 @@ impl OrganizationTeamStore for MemoryOrganizationStore {
         {
             return Ok(None);
         }
-        state.teams.insert(team.id, team.clone());
+        state.teams.insert(team.id.clone(), team.clone());
         Ok(Some(team))
     }
 
     async fn remove_team(
         &self,
-        id: Uuid,
+        id: &str,
         allow_removing_all: bool,
     ) -> Result<OrganizationTeamWriteOutcome, AuthError> {
         let mut state = self.state.write().await;
-        let Some(team) = state.teams.get(&id).cloned() else {
+        let Some(team) = state.teams.get(id).cloned() else {
             return Ok(OrganizationTeamWriteOutcome::NotFound);
         };
         if !allow_removing_all
@@ -88,7 +92,7 @@ impl OrganizationTeamStore for MemoryOrganizationStore {
         {
             return Ok(OrganizationTeamWriteOutcome::LastTeam);
         }
-        state.teams.remove(&id);
+        state.teams.remove(id);
         state.team_members.retain(|_, member| member.team_id != id);
         let id = id.to_string();
         for invitation in state.invitations.values_mut().filter(|invitation| {
@@ -110,7 +114,8 @@ impl OrganizationTeamStore for MemoryOrganizationStore {
 
     async fn add_team_member(
         &self,
-        member: OrganizationTeamMember,
+        member: &mut OrganizationTeamMember,
+        id: &dyn crate::DatabaseIdSupplier,
         maximum_members: Option<usize>,
     ) -> Result<OrganizationTeamWriteOutcome, AuthError> {
         let mut state = self.state.write().await;
@@ -129,13 +134,17 @@ impl OrganizationTeamStore for MemoryOrganizationStore {
         }) {
             return Ok(OrganizationTeamWriteOutcome::LimitReached);
         }
-        state.team_members.insert(member.id, member);
+        member.id = create_id("teamMember", id, &mut state)?;
+        if state.team_members.contains_key(&member.id) {
+            return Err(duplicate_id("teamMember"));
+        }
+        state.team_members.insert(member.id.clone(), member.clone());
         Ok(OrganizationTeamWriteOutcome::Written)
     }
 
     async fn remove_team_member(
         &self,
-        team_id: Uuid,
+        team_id: &str,
         user_id: &str,
     ) -> Result<OrganizationTeamWriteOutcome, AuthError> {
         let mut state = self.state.write().await;
@@ -143,7 +152,7 @@ impl OrganizationTeamStore for MemoryOrganizationStore {
             .team_members
             .values()
             .find(|member| member.team_id == team_id && member.user_id == user_id)
-            .map(|member| member.id)
+            .map(|member| member.id.clone())
         else {
             return Ok(OrganizationTeamWriteOutcome::NotFound);
         };
@@ -153,7 +162,7 @@ impl OrganizationTeamStore for MemoryOrganizationStore {
 
     async fn list_team_members(
         &self,
-        team_id: Uuid,
+        team_id: &str,
     ) -> Result<Vec<OrganizationTeamMember>, AuthError> {
         let mut members: Vec<_> = self
             .state
@@ -164,7 +173,7 @@ impl OrganizationTeamStore for MemoryOrganizationStore {
             .filter(|member| member.team_id == team_id)
             .cloned()
             .collect();
-        members.sort_by_key(|member| (member.created_at, member.id));
+        members.sort_by_key(|member| (member.created_at, member.id.clone()));
         Ok(members)
     }
 
@@ -176,7 +185,7 @@ impl OrganizationTeamStore for MemoryOrganizationStore {
             .filter(|member| member.user_id == user_id)
             .filter_map(|member| state.teams.get(&member.team_id).cloned())
             .collect();
-        teams.sort_by_key(|team| (team.created_at, team.id));
+        teams.sort_by_key(|team| (team.created_at, team.id.clone()));
         Ok(teams)
     }
 }

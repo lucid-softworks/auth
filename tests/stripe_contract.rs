@@ -209,14 +209,14 @@ fn conditional_schema_is_remappable_and_never_persists_plan_configuration() {
 #[tokio::test]
 async fn memory_store_preserves_adapter_order_non_unique_references_and_reverse_customer_links() {
     let store = MemoryStripeStore::new();
-    let user_id = Uuid::new_v4();
-    let organization_id = Uuid::new_v4();
+    let user_id = Uuid::new_v4().to_string();
+    let organization_id = Uuid::new_v4().to_string();
     store
-        .set_user_customer_id(user_id, Some("cus_user".into()))
+        .set_user_customer_id(&user_id, Some("cus_user".into()))
         .await
         .unwrap();
     store
-        .set_organization_customer_id(organization_id, Some("cus_org".into()))
+        .set_organization_customer_id(organization_id.clone(), Some("cus_org".into()))
         .await
         .unwrap();
     assert_eq!(

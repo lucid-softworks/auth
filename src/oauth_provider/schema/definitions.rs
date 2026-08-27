@@ -197,7 +197,7 @@ const CONSENT_FIELDS: &[FieldDefinition] = &[
     field!("updatedAt"),
 ];
 
-const ASSERTION_FIELDS: &[FieldDefinition] = &[field!("expiresAt")];
+const ASSERTION_FIELDS: &[FieldDefinition] = &[field!("jti"), field!("expiresAt")];
 
 const DEFINITIONS: &[ModelDefinition] = &[
     ModelDefinition {
@@ -240,6 +240,6 @@ const DEFINITIONS: &[ModelDefinition] = &[
         model: OAuthProviderModel::ClientAssertion,
         logical_name: "oauthClientAssertion",
         fields: ASSERTION_FIELDS,
-        unique: &[],
+        unique: &[&["jti"]],
     },
 ];

@@ -10,6 +10,7 @@ impl OAuthProviderResourceAdmin {
 
     pub async fn create(
         &self,
+        service: &AuthService,
         input: OAuthResourceInput,
         context: &OAuthCallbackContext,
     ) -> Result<OAuthProviderResource, AuthError> {
@@ -18,8 +19,12 @@ impl OAuthProviderResourceAdmin {
         validate_create_input(&input)?;
         self.validate_identifier(&input.identifier).await?;
         let identifier = input.identifier.clone();
+        let id = service.database_id_plan("oauthResource", crate::DatabaseIdInput::Absent, false);
         self.store
-            .create_oauth_resource(resource_from_input(input, Utc::now())?)
+            .create_oauth_resource(
+                &|| service.prepare_database_id(&id),
+                resource_from_input(input, Utc::now())?,
+            )
             .await?
             .ok_or_else(|| {
                 AuthError::InvalidRequest(format!("resource {identifier} already exists"))
@@ -83,6 +88,7 @@ impl OAuthProviderResourceAdmin {
 
     pub async fn link(
         &self,
+        service: &AuthService,
         client_id: impl Into<String>,
         resource_id: impl Into<String>,
         context: &OAuthCallbackContext,
@@ -90,14 +96,19 @@ impl OAuthProviderResourceAdmin {
         let resource_id = resource_id.into();
         self.authorize(OAuthResourceAction::Link, Some(&resource_id), context)
             .await?;
+        let id =
+            service.database_id_plan("oauthClientResource", crate::DatabaseIdInput::Absent, false);
         self.store
-            .link_oauth_client_resource(OAuthProviderClientResource {
-                id: Uuid::new_v4(),
-                client_id: client_id.into(),
-                resource_id,
-                metadata: None,
-                created_at: Some(Utc::now()),
-            })
+            .link_oauth_client_resource(
+                &|| service.prepare_database_id(&id),
+                OAuthProviderClientResource {
+                    id: String::new(),
+                    client_id: client_id.into(),
+                    resource_id,
+                    metadata: None,
+                    created_at: Some(Utc::now()),
+                },
+            )
             .await
     }
 

@@ -36,19 +36,22 @@ impl AuthService {
         let existing = plugin.store.find_two_factor(&session.user.id).await?;
         let already_verified = existing.as_ref().is_some_and(|record| record.verified);
         let verified = already_verified || plugin.config.skip_verification_on_enable;
+        let id = self.database_id_plan("twoFactor", crate::DatabaseIdInput::Absent, false);
+        let prepare_id = || id.prepare(self.store.as_ref());
         plugin
             .store
-            .upsert_two_factor(TwoFactorRecord {
-                id: existing
-                    .as_ref()
-                    .map_or_else(uuid::Uuid::new_v4, |record| record.id),
-                user_id: session.user.id.clone(),
-                encrypted_secret,
-                encrypted_backup_codes,
-                verified,
-                failed_verification_count: 0,
-                locked_until: None,
-            })
+            .upsert_two_factor(
+                &prepare_id,
+                TwoFactorRecord {
+                    id: String::new(),
+                    user_id: session.user.id.clone(),
+                    encrypted_secret,
+                    encrypted_backup_codes,
+                    verified,
+                    failed_verification_count: 0,
+                    locked_until: None,
+                },
+            )
             .await?;
         if verified {
             plugin
@@ -190,7 +193,9 @@ impl AuthService {
             serde_json::to_vec(&codes).map_err(|error| AuthError::Storage(error.to_string()))?;
         record.encrypted_backup_codes =
             crate::two_factor::crypto::encrypt(&self.config.secret, &encoded)?;
-        plugin.store.upsert_two_factor(record).await?;
+        let id = self.database_id_plan("twoFactor", crate::DatabaseIdInput::Absent, false);
+        let prepare_id = || id.prepare(self.store.as_ref());
+        plugin.store.upsert_two_factor(&prepare_id, record).await?;
         Ok(codes)
     }
 

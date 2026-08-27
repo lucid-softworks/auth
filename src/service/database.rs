@@ -1,5 +1,7 @@
 use super::AuthService;
-use crate::store::{DatabaseCreate, DatabaseIdInput, DatabaseIdPlan, DatabaseWrite};
+use crate::store::{
+    DatabaseCreate, DatabaseIdInput, DatabaseIdPlan, DatabaseWrite, PreparedDatabaseId,
+};
 use crate::{AuthError, BeforeDatabaseHook, DatabaseCreateRecord, DatabaseModel, DatabaseRecord};
 use chrono::{DateTime, Utc};
 
@@ -12,6 +14,39 @@ use create::{
 };
 
 impl AuthService {
+    pub(crate) fn database_id_plan(
+        &self,
+        model: impl Into<String>,
+        input: DatabaseIdInput,
+        force_allow_id: bool,
+    ) -> DatabaseIdPlan {
+        DatabaseIdPlan::new(
+            self.config.database_id_generation.clone(),
+            model,
+            input,
+            force_allow_id,
+        )
+    }
+
+    pub(crate) fn prepare_database_id(
+        &self,
+        plan: &DatabaseIdPlan,
+    ) -> Result<PreparedDatabaseId, AuthError> {
+        plan.prepare(self.store.as_ref())
+    }
+
+    pub(crate) async fn create_device_authorization_code(
+        &self,
+        store: &dyn crate::DeviceAuthorizationStore,
+        record: crate::DeviceCode,
+    ) -> Result<crate::DeviceCodeCreateOutcome, AuthError> {
+        let create = DatabaseCreate::new(
+            record,
+            self.database_id_plan("deviceCode", DatabaseIdInput::Absent, false),
+        );
+        store.create_device_code(create, self.store.as_ref()).await
+    }
+
     pub(super) fn credential_account_create(
         &self,
         password_hash: String,
@@ -33,11 +68,30 @@ impl AuthService {
 
     pub(super) async fn prepare_user_create(
         &self,
+        user: crate::AuthUser,
+    ) -> Result<DatabaseCreate<crate::AuthUser>, AuthError> {
+        self.prepare_user_create_with_input(user, None).await
+    }
+
+    pub(super) async fn prepare_forced_user_create(
+        &self,
+        user: crate::AuthUser,
+    ) -> Result<DatabaseCreate<crate::AuthUser>, AuthError> {
+        let id = DatabaseIdInput::String(user.id.clone());
+        self.prepare_user_create_with_input(user, Some(id)).await
+    }
+
+    async fn prepare_user_create_with_input(
+        &self,
         mut user: crate::AuthUser,
+        supplied_id: Option<DatabaseIdInput>,
     ) -> Result<DatabaseCreate<crate::AuthUser>, AuthError> {
         user.additional_fields =
             self.create_additional_fields(DatabaseModel::User, user.additional_fields)?;
-        let draft = create_hook_record(DatabaseRecord::User(user))?;
+        let mut draft = create_hook_record(DatabaseRecord::User(user))?;
+        if let Some(id) = supplied_id {
+            draft.merge(crate::DatabaseCreatePatch::new().with_id(id));
+        }
         let (record, id, id_present) =
             decode_create_hook_record(self.before_database_create(draft).await?, None)?;
         match record {

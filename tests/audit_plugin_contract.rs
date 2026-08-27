@@ -13,7 +13,6 @@ use lucid_auth::{
 use serde_json::Value;
 use std::sync::Arc;
 use tower::ServiceExt;
-use uuid::Uuid;
 
 async fn fixture(
     audit: Option<Arc<dyn AuditStore>>,
@@ -105,15 +104,15 @@ async fn plugin_records_identity_applies_retention_and_owns_the_route() {
     }));
     for role in ["viewer", "member", "viewer"] {
         service
-            .set_user_role(&owner.session, member.id, role)
+            .set_user_role(&owner.session, &member.id, role)
             .await
             .unwrap();
     }
     let events = service.list_audit_events(&owner.session, 10).await.unwrap();
     assert_eq!(events.len(), 2);
     assert!(events.iter().all(|event| {
-        event.actor_user_id == Some(owner.session.user.id)
-            && event.subject_user_id == Some(member.id)
+        event.actor_user_id == Some(owner.session.user.id.clone())
+            && event.subject_user_id == Some(member.id.clone())
             && event.outcome == lucid_auth::AuditOutcome::Success
     }));
 
@@ -153,7 +152,7 @@ impl AuditStore for FailingAuditStore {
         Err(AuthError::Storage("audit sink unavailable".into()))
     }
 
-    async fn anonymize_user(&self, _user_id: Uuid) -> Result<(), AuthError> {
+    async fn anonymize_user(&self, _user_id: &str) -> Result<(), AuthError> {
         Err(AuthError::Storage("audit sink unavailable".into()))
     }
 }
@@ -162,7 +161,7 @@ impl AuditStore for FailingAuditStore {
 async fn sink_failure_is_fail_open_for_authoritative_writes() {
     let (_, service, owner, member) = fixture(Some(Arc::new(FailingAuditStore)), 10).await;
     let updated = service
-        .set_user_role(&owner.session, member.id, "viewer")
+        .set_user_role(&owner.session, &member.id, "viewer")
         .await
         .unwrap();
     assert_eq!(updated.role, "viewer");
@@ -178,7 +177,7 @@ async fn records_impersonated_and_actorless_identity() {
     let (_, service, owner, member) = fixture(Some(audit.clone()), 100).await;
 
     service
-        .impersonate_user(&owner.session, member.id, None, None)
+        .impersonate_user(&owner.session, &member.id, None, None)
         .await
         .unwrap();
     service
@@ -193,15 +192,21 @@ async fn records_impersonated_and_actorless_identity() {
         .iter()
         .find(|event| event.action == "impersonation.started")
         .unwrap();
-    assert_eq!(impersonation.actor_user_id, Some(owner.session.user.id));
-    assert_eq!(impersonation.subject_user_id, Some(member.id));
+    assert_eq!(
+        impersonation.actor_user_id,
+        Some(owner.session.user.id.clone())
+    );
+    assert_eq!(impersonation.subject_user_id, Some(member.id.clone()));
 
     let recovery = events
         .iter()
         .find(|event| event.action == "operator_security.owner_recovered")
         .unwrap();
     assert_eq!(recovery.actor_user_id, None);
-    assert_eq!(recovery.subject_user_id, Some(owner.session.user.id));
+    assert_eq!(
+        recovery.subject_user_id,
+        Some(owner.session.user.id.clone())
+    );
 }
 
 #[tokio::test]
@@ -209,11 +214,11 @@ async fn deleting_a_user_anonymizes_prior_event_identity() {
     let audit = Arc::new(MemoryAuditStore::default());
     let (_, service, owner, member) = fixture(Some(audit.clone()), 100).await;
     service
-        .set_user_role(&owner.session, member.id, "viewer")
+        .set_user_role(&owner.session, &member.id, "viewer")
         .await
         .unwrap();
     service
-        .remove_user(&owner.session, member.id)
+        .remove_user(&owner.session, &member.id)
         .await
         .unwrap();
 
@@ -222,6 +227,9 @@ async fn deleting_a_user_anonymizes_prior_event_identity() {
         .iter()
         .find(|event| event.action == "user.role.changed")
         .unwrap();
-    assert_eq!(role_change.actor_user_id, Some(owner.session.user.id));
+    assert_eq!(
+        role_change.actor_user_id,
+        Some(owner.session.user.id.clone())
+    );
     assert_eq!(role_change.subject_user_id, None);
 }

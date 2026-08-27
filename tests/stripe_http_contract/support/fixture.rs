@@ -5,14 +5,13 @@ use lucid_auth::{
     StaticPlans, StripePlugin, SubscriptionConfiguration, SubscriptionOptions,
 };
 use std::sync::Arc;
-use uuid::Uuid;
 
 pub(crate) struct Fixture {
     pub(crate) app: Router,
     pub(crate) stripe: Arc<MemoryStripeStore>,
     pub(crate) client: Arc<FakeStripeClient>,
     pub(crate) cookie: String,
-    pub(crate) user_id: Uuid,
+    pub(crate) user_id: String,
 }
 
 pub(crate) async fn fixture(authorizer: Option<Arc<dyn ReferenceAuthorizer>>) -> Fixture {

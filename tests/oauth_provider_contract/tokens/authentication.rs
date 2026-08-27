@@ -94,27 +94,35 @@ async fn public_none_clients_can_revoke_but_cannot_introspect_and_inactive_useri
     let public_id = "public-contract-client";
     fixture
         .oauth
-        .persist_oauth_client_registration(OAuthClientRegistrationWrite {
-            client: client(public_id, Some(fixture.user_id)),
-            resource_ids: Vec::new(),
-            mode: OAuthClientRegistrationMode::Create,
-        })
+        .persist_oauth_client_registration(
+            &oauth_record_id,
+            &oauth_record_id,
+            OAuthClientRegistrationWrite {
+                client: client(public_id, Some(&fixture.user_id)),
+                resource_ids: Vec::new(),
+                mode: OAuthClientRegistrationMode::Create,
+            },
+        )
         .await
         .unwrap();
     let raw_access = "public-contract-access";
     let stored_access = URL_SAFE_NO_PAD.encode(Sha256::digest(raw_access.as_bytes()));
     fixture
         .oauth
-        .issue_oauth_tokens(OAuthTokenIssuance {
-            access_token: Some(access_token(
-                &stored_access,
-                public_id,
-                fixture.user_id,
-                None,
-                None,
-            )),
-            refresh_token: None,
-        })
+        .issue_oauth_tokens(
+            &oauth_record_id,
+            &oauth_record_id,
+            OAuthTokenIssuance {
+                access_token: Some(access_token(
+                    &stored_access,
+                    public_id,
+                    &fixture.user_id,
+                    None,
+                    None,
+                )),
+                refresh_token: None,
+            },
+        )
         .await
         .unwrap();
     let (status, _, error) = form_request(
@@ -167,17 +175,21 @@ async fn refresh_introspection_includes_issuer_and_strips_token_scheme_case_inse
     let stored_refresh = URL_SAFE_NO_PAD.encode(Sha256::digest(raw_refresh.as_bytes()));
     fixture
         .oauth
-        .issue_oauth_tokens(OAuthTokenIssuance {
-            access_token: None,
-            refresh_token: Some(refresh_token(
-                Uuid::new_v4(),
-                &stored_refresh,
-                &client_id,
-                fixture.user_id,
-                None,
-                vec!["api.read".into()],
-            )),
-        })
+        .issue_oauth_tokens(
+            &oauth_record_id,
+            &oauth_record_id,
+            OAuthTokenIssuance {
+                access_token: None,
+                refresh_token: Some(refresh_token(
+                    String::new(),
+                    &stored_refresh,
+                    &client_id,
+                    &fixture.user_id,
+                    None,
+                    vec!["api.read".into()],
+                )),
+            },
+        )
         .await
         .unwrap();
     let presented = format!("bEaReR {raw_refresh}");

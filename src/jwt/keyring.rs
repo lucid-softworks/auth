@@ -49,9 +49,18 @@ pub(crate) async fn create(
     if let Some(creator) = &config.adapter.create_jwk {
         return creator.create_jwk(data, context).await;
     }
-    default_store(service)?
-        .create_jwk(&config.schema, data)
-        .await
+    let (store, id) = prepare_default_create(service, || default_store(service))?;
+    store.create_jwk(&config.schema, data, id).await
+}
+
+fn prepare_default_create<'a>(
+    service: &AuthService,
+    resolve_store: impl FnOnce() -> Result<&'a dyn crate::JwkStore, AuthError>,
+) -> Result<(&'a dyn crate::JwkStore, crate::PreparedDatabaseId), AuthError> {
+    let store = resolve_store()?;
+    let id = service.database_id_plan("jwks", crate::DatabaseIdInput::Absent, false);
+    let id = service.prepare_database_id(&id)?;
+    Ok((store, id))
 }
 
 pub(crate) async fn resolve(
@@ -182,4 +191,44 @@ fn default_store(service: &AuthService) -> Result<&dyn crate::JwkStore, AuthErro
 
 fn key_json(error: serde_json::Error) -> AuthError {
     AuthError::Storage(format!("JWT key JSON failed: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        AuthConfig, DatabaseIdGeneration, DatabaseIdGenerationRequest, DatabaseIdGenerationResult,
+        DatabaseIdGenerator, MemoryStore,
+    };
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    #[derive(Debug)]
+    struct CountingGenerator(AtomicUsize);
+
+    impl DatabaseIdGenerator for CountingGenerator {
+        fn generate(&self, _: DatabaseIdGenerationRequest<'_>) -> DatabaseIdGenerationResult {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            DatabaseIdGenerationResult::Id("must-not-be-consumed".into())
+        }
+    }
+
+    #[test]
+    fn missing_default_store_does_not_consume_a_jwks_id_callback() {
+        let generator = Arc::new(CountingGenerator(AtomicUsize::new(0)));
+        let mut config = AuthConfig::new([b'J'; 32]).unwrap();
+        config.database_id_generation = DatabaseIdGeneration::Callback(generator.clone());
+        let service = AuthService::new(Arc::new(MemoryStore::default()), config);
+        let missing_store = || {
+            Err(JwtError::KeyConfiguration(
+                "test authentication store has no JWK persistence".into(),
+            )
+            .into())
+        };
+
+        assert!(prepare_default_create(&service, missing_store).is_err());
+        assert_eq!(generator.0.load(Ordering::SeqCst), 0);
+    }
 }

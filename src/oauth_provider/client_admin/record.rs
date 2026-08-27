@@ -2,7 +2,6 @@ use super::{OAuthProviderClientAdminCreateInput, OAuthProviderClientAdminUpdateI
 use crate::oauth_provider::OAuthProviderClient;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
-use uuid::Uuid;
 
 pub(super) fn from_create(
     input: OAuthProviderClientAdminCreateInput,
@@ -22,7 +21,7 @@ pub(super) fn from_create(
             .then(|| vec!["code".into()])
     });
     OAuthProviderClient {
-        id: Uuid::new_v4(),
+        id: String::new(),
         client_id,
         client_secret,
         client_discovery_id: None,

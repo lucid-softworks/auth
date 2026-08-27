@@ -32,7 +32,6 @@ use std::{
     sync::Arc,
 };
 use url::Url;
-use uuid::Uuid;
 
 use super::super::{
     DEFAULT_DPOP_ALGORITHMS, OAuthCallbackContext, OAuthClaimTarget,
@@ -244,6 +243,7 @@ pub(in crate::oauth_provider) async fn provider_api_validate_access_token(
 }
 
 pub(in crate::oauth_provider) async fn provider_api_consume_client_assertion(
+    service: &AuthService,
     config: &OAuthProviderConfig,
     store: &dyn OAuthProviderStore,
     input: super::provider_api::OAuthProviderClientAssertionInput,
@@ -282,10 +282,20 @@ pub(in crate::oauth_provider) async fn provider_api_consume_client_assertion(
         OAuthProviderError::InvalidClient("client assertion exp is invalid".into())
     })?;
     let reserved = store
-        .reserve_oauth_client_assertion(OAuthProviderClientAssertion {
-            id: client_assertion_id(&input.namespace, jti),
-            expires_at,
-        })
+        .reserve_oauth_client_assertion(
+            &|| {
+                service.prepare_database_id(&service.database_id_plan(
+                    "oauthClientAssertion",
+                    crate::DatabaseIdInput::Absent,
+                    false,
+                ))
+            },
+            OAuthProviderClientAssertion {
+                id: String::new(),
+                jti: client_assertion_id(&input.namespace, jti),
+                expires_at,
+            },
+        )
         .await
         .map_err(server)?;
     if reserved {

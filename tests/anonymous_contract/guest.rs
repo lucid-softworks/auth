@@ -71,7 +71,7 @@ async fn guest_capability_sessions_are_not_anonymous_plugin_upgrade_sources() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(store.find_user_by_id(guest_id).await.unwrap().is_some());
+    assert!(store.find_user_by_id(&guest_id).await.unwrap().is_some());
     assert!(
         service
             .guest_capability_principal(&guest.token)

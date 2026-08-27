@@ -58,7 +58,7 @@ pub(crate) struct Fixture {
     pub app: Router,
     pub client: Arc<FakeAutumnClient>,
     pub cookie: String,
-    pub user_id: uuid::Uuid,
+    pub user_id: String,
 }
 
 pub(crate) async fn fixture() -> Fixture {
@@ -109,7 +109,7 @@ pub(crate) async fn user_fixture(scope: AutumnCustomerScope) -> Fixture {
     }
 }
 
-pub(crate) async fn organization_fixture(scope: AutumnCustomerScope) -> (Fixture, uuid::Uuid) {
+pub(crate) async fn organization_fixture(scope: AutumnCustomerScope) -> (Fixture, String) {
     let client = Arc::new(FakeAutumnClient::default());
     let mut options = AutumnOptions::with_client(client.clone());
     options.secret_key = Some("autumn_organization_key".into());

@@ -115,7 +115,7 @@ async fn refresh_token_grant(
         refresh.confirmation.as_ref(),
     );
     if refresh.revoked.is_some() {
-        validate_refresh_replay_dpop(config, store, headers, &endpoint, &refresh).await?;
+        validate_refresh_replay_dpop(service, config, store, headers, &endpoint, &refresh).await?;
         return reused_refresh_response(service, config, store, &client_id, &refresh, &replay_fingerprint).await;
     }
     issue_refreshed_tokens(
@@ -189,6 +189,7 @@ async fn issue_refreshed_tokens(
 }
 
 async fn validate_refresh_replay_dpop(
+    service: &AuthService,
     config: &OAuthProviderConfig,
     store: &dyn OAuthProviderStore,
     headers: &HeaderMap,
@@ -200,7 +201,15 @@ async fn validate_refresh_replay_dpop(
     };
     let proof = headers.get("dpop").and_then(|value| value.to_str().ok())
         .ok_or_else(|| OAuthProviderError::InvalidDpopProof("DPoP proof header is required".into()))?;
-    verify_dpop(config, store, proof, "POST", endpoint, Some(expected), None).await?;
+    verify_dpop(
+        DpopContext::new(service, config, store),
+        proof,
+        "POST",
+        endpoint,
+        Some(expected),
+        None,
+    )
+    .await?;
     Ok(())
 }
 

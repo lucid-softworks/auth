@@ -17,6 +17,12 @@ pub(super) async fn save(
     store: &PostgresStore,
     passkey: crate::store::DatabaseCreate<StoredPasskey>,
 ) -> Result<StoredPasskey, AuthError> {
+    if find_by_credential_id(store, &passkey.record.credential_id)
+        .await?
+        .is_some()
+    {
+        return Err(AuthError::CredentialAlreadyRegistered);
+    }
     let (passkey, id) = passkey.into_parts(store)?;
     let model = store.passkey_model()?;
     let writes = passkey_writes(&model, &passkey, &id)?;

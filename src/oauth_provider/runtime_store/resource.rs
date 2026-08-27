@@ -1,5 +1,5 @@
 use super::OAuthProviderRuntimeStore;
-use crate::{AuthError, oauth_provider::*};
+use crate::{AuthError, DatabaseIdSupplier, oauth_provider::*};
 use async_trait::async_trait;
 
 #[async_trait]
@@ -33,11 +33,12 @@ impl OAuthProviderResourceStore for OAuthProviderRuntimeStore {
 
     async fn create_oauth_resource(
         &self,
+        id: &dyn DatabaseIdSupplier,
         resource: OAuthProviderResource,
     ) -> Result<Option<OAuthProviderResource>, AuthError> {
         self.ensure_resources_seeded().await?;
         let identifier = resource.identifier.clone();
-        let result = self.inner.create_oauth_resource(resource).await?;
+        let result = self.inner.create_oauth_resource(id, resource).await?;
         self.resource_cache.write().await.remove(&identifier);
         Ok(result)
     }
@@ -73,10 +74,11 @@ impl OAuthProviderResourceStore for OAuthProviderRuntimeStore {
 
     async fn link_oauth_client_resource(
         &self,
+        id: &dyn DatabaseIdSupplier,
         link: OAuthProviderClientResource,
     ) -> Result<OAuthClientResourceLinkOutcome, AuthError> {
         self.ensure_resources_seeded().await?;
-        self.inner.link_oauth_client_resource(link).await
+        self.inner.link_oauth_client_resource(id, link).await
     }
 
     async fn unlink_oauth_client_resource(
@@ -98,9 +100,15 @@ mod tests {
     use std::sync::Arc;
     use uuid::Uuid;
 
+    fn test_id() -> Result<crate::PreparedDatabaseId, AuthError> {
+        Ok(crate::PreparedDatabaseId::Value(
+            crate::DatabaseIdValue::String(Uuid::new_v4().to_string()),
+        ))
+    }
+
     fn resource(identifier: &str, name: &str) -> OAuthProviderResource {
         OAuthProviderResource {
-            id: Uuid::new_v4(),
+            id: String::new(),
             identifier: identifier.into(),
             name: name.into(),
             access_token_ttl: None,
@@ -122,8 +130,11 @@ mod tests {
     async fn configured_resource_cache_is_read_through_and_write_invalidated() {
         let identifier = "https://cached.example.com";
         let inner = Arc::new(MemoryOAuthProviderStore::new());
-        let original = resource(identifier, "original");
-        inner.create_oauth_resource(original.clone()).await.unwrap();
+        let original = inner
+            .create_oauth_resource(&test_id, resource(identifier, "original"))
+            .await
+            .unwrap()
+            .unwrap();
         let mut config = OAuthProviderConfig::new("/login", "/consent");
         config.cached_resources.insert(identifier.into());
         let runtime = OAuthProviderRuntimeStore::new(Arc::new(config), inner.clone());
@@ -165,7 +176,7 @@ mod tests {
 
         runtime.delete_oauth_resource(identifier).await.unwrap();
         inner
-            .create_oauth_resource(resource(identifier, "recreated"))
+            .create_oauth_resource(&test_id, resource(identifier, "recreated"))
             .await
             .unwrap();
         assert_eq!(
@@ -183,8 +194,11 @@ mod tests {
     async fn resources_outside_cache_membership_are_always_reloaded() {
         let identifier = "https://uncached.example.com";
         let inner = Arc::new(MemoryOAuthProviderStore::new());
-        let original = resource(identifier, "original");
-        inner.create_oauth_resource(original.clone()).await.unwrap();
+        let original = inner
+            .create_oauth_resource(&test_id, resource(identifier, "original"))
+            .await
+            .unwrap()
+            .unwrap();
         let runtime = OAuthProviderRuntimeStore::new(
             Arc::new(OAuthProviderConfig::new("/login", "/consent")),
             inner.clone(),

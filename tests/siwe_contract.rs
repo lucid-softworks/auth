@@ -6,8 +6,9 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use lucid_auth::{
-    AuthConfig, AuthError, AuthService, AuthStore, MemoryStore, SessionStorageMode, SiweConfig,
-    SiweMessageVerifier, SiweNonceGenerator, SiwePlugin, SiweVerificationRequest,
+    AdditionalFieldType, AuthConfig, AuthError, AuthService, AuthStore, MemoryStore,
+    SessionStorageMode, SiweConfig, SiweMessageVerifier, SiweNonceGenerator, SiwePlugin,
+    SiweVerificationRequest,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -18,6 +19,8 @@ mod validation_helpers;
 use validation_helpers::*;
 #[path = "siwe_contract/create_hooks.rs"]
 mod create_hooks;
+#[path = "siwe_contract/database_ids.rs"]
+mod database_ids;
 #[path = "siwe_contract/runtime_helpers.rs"]
 mod runtime_helpers;
 
@@ -95,6 +98,25 @@ async fn json_response(response: axum::response::Response) -> (StatusCode, Value
     (status, serde_json::from_slice(&bytes).unwrap())
 }
 
+fn assert_default_wallet_schema(service: &AuthService) {
+    let wallet = service.database_schema().table("walletAddress").unwrap();
+    assert_eq!(wallet.model_name, "walletAddress");
+    assert!(wallet.fields.contains_key("address"));
+    let user_id = &wallet.fields["userId"];
+    assert_eq!(user_id.field_type, AdditionalFieldType::String);
+    let reference = user_id.references.as_ref().unwrap();
+    assert_eq!(reference.model, "user");
+    assert_eq!(reference.field, "id");
+    assert!(
+        service
+            .generic_database_schema()
+            .table("walletAddress")
+            .unwrap()
+            .fields
+            .contains_key("address")
+    );
+}
+
 #[tokio::test]
 async fn descriptor_schema_and_both_nonce_routes_match_better_auth() {
     let (app, service) = application("route001");
@@ -106,17 +128,7 @@ async fn descriptor_schema_and_both_nonce_routes_match_better_auth() {
     assert_eq!(descriptor.client.unwrap().factory, "siweClient");
     assert_eq!(descriptor.endpoints.len(), 3);
     assert!(service.plugin_migrations().is_empty());
-    let default_wallet = service.database_schema().table("walletAddress").unwrap();
-    assert_eq!(default_wallet.model_name, "walletAddress");
-    assert!(default_wallet.fields.contains_key("address"));
-    assert!(
-        service
-            .generic_database_schema()
-            .table("walletAddress")
-            .unwrap()
-            .fields
-            .contains_key("address")
-    );
+    assert_default_wallet_schema(&service);
 
     let store = Arc::new(MemoryStore::default());
     let mut config = AuthConfig::new([123_u8; 32]).unwrap();

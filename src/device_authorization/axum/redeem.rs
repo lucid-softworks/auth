@@ -34,7 +34,7 @@ pub(super) async fn standalone(
         DeviceCodeStatus::Denied => {
             state
                 .store
-                .delete_device_code(record.id)
+                .delete_device_code(&record.id)
                 .await
                 .map_err(|_| {
                     Box::new(error::internal("Unable to delete denied device code", true))
@@ -84,14 +84,14 @@ async fn load_and_consume(
     record: DeviceCode,
     client_id: &str,
 ) -> Result<(DeviceCode, crate::AuthUser), Box<axum::response::Response>> {
-    let Some(user_id) = record.user_id else {
+    let Some(user_id) = record.user_id.as_deref() else {
         return Err(Box::new(error::internal(
             "Invalid device code status",
             true,
         )));
     };
     let user = service
-        .device_authorization_user(&user_id)
+        .device_authorization_user(user_id)
         .await
         .map_err(|_| {
             Box::new(error::internal(
@@ -102,7 +102,7 @@ async fn load_and_consume(
         .ok_or_else(|| Box::new(error::internal("User not found", true)))?;
     let claimed = state
         .store
-        .consume_approved_device_code(record.id, DeviceCodeOwner::ClientId(client_id.into()))
+        .consume_approved_device_code(&record.id, DeviceCodeOwner::ClientId(client_id.into()))
         .await
         .map_err(|_| Box::new(error::internal("Unable to consume device code", true)))?
         .filter(|claimed| claimed.user_id.is_some())
@@ -130,7 +130,7 @@ async fn advance_poll(
     }
     state
         .store
-        .update_last_polled_at(record.id, now)
+        .update_last_polled_at(&record.id, now)
         .await
         .map_err(|_| {
             Box::new(error::internal(
@@ -141,7 +141,7 @@ async fn advance_poll(
     if record.expires_at < now {
         state
             .store
-            .delete_device_code(record.id)
+            .delete_device_code(&record.id)
             .await
             .map_err(|_| {
                 Box::new(error::internal(

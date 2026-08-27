@@ -265,6 +265,12 @@ impl OAuthProviderApi {
         &self,
         input: OAuthProviderClientAssertionInput,
     ) -> Result<(), OAuthProviderError> {
-        token::provider_api_consume_client_assertion(&self.config, self.store.as_ref(), input).await
+        token::provider_api_consume_client_assertion(
+            &self.service,
+            &self.config,
+            self.store.as_ref(),
+            input,
+        )
+        .await
     }
 }

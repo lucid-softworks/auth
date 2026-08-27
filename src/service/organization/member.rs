@@ -4,7 +4,6 @@ use crate::{
     OrganizationPermissions, SessionWithUser,
 };
 use std::collections::BTreeMap;
-use uuid::Uuid;
 
 impl AuthService {
     pub async fn active_organization_member(
@@ -14,7 +13,7 @@ impl AuthService {
         let organization_id = Self::active_organization_id(session).ok_or_else(no_active)?;
         self.organization_plugin()?
             .store
-            .find_member(organization_id, &session.user.id)
+            .find_member(&organization_id, &session.user.id)
             .await?
             .ok_or_else(member_not_found)
     }
@@ -22,7 +21,7 @@ impl AuthService {
     pub async fn list_organization_members(
         &self,
         session: &SessionWithUser,
-        organization_id: Option<Uuid>,
+        organization_id: Option<String>,
     ) -> Result<Vec<OrganizationMember>, AuthError> {
         let organization_id = organization_id
             .or_else(|| Self::active_organization_id(session))
@@ -30,19 +29,19 @@ impl AuthService {
         let plugin = self.organization_plugin()?;
         if plugin
             .store
-            .find_member(organization_id, &session.user.id)
+            .find_member(&organization_id, &session.user.id)
             .await?
             .is_none()
         {
             return Err(not_member());
         }
-        plugin.store.list_members(organization_id).await
+        plugin.store.list_members(&organization_id).await
     }
 
     pub async fn list_organization_members_with_users(
         &self,
         session: &SessionWithUser,
-        organization_id: Option<Uuid>,
+        organization_id: Option<String>,
     ) -> Result<Vec<crate::OrganizationMemberWithUser>, AuthError> {
         let members = self
             .list_organization_members(session, organization_id)
@@ -59,8 +58,8 @@ impl AuthService {
     pub async fn update_organization_member_role(
         &self,
         session: &SessionWithUser,
-        organization_id: Option<Uuid>,
-        member_id: Uuid,
+        organization_id: Option<String>,
+        member_id: String,
         role: String,
     ) -> Result<OrganizationMember, AuthError> {
         let organization_id = organization_id
@@ -69,17 +68,17 @@ impl AuthService {
         let plugin = self.organization_plugin()?;
         let actor = plugin
             .store
-            .find_member(organization_id, &session.user.id)
+            .find_member(&organization_id, &session.user.id)
             .await?
             .ok_or_else(member_not_found)?;
         let target = plugin
             .store
-            .find_member_by_id(member_id)
+            .find_member_by_id(&member_id)
             .await?
             .filter(|member| member.organization_id == organization_id)
             .ok_or_else(member_not_found)?;
         let mut role = normalize_roles(&role);
-        validate_member_role(self, organization_id, &role).await?;
+        validate_member_role(self, &organization_id, &role).await?;
         let actor_is_creator = has_role(&actor.role, &plugin.config.creator_role);
         if (has_role(&target.role, &plugin.config.creator_role)
             || has_role(&role, &plugin.config.creator_role))
@@ -90,7 +89,7 @@ impl AuthService {
         require_member_permission(self, &actor, "update", true).await?;
         let organization = plugin
             .store
-            .find_organization_by_id(organization_id)
+            .find_organization_by_id(&organization_id)
             .await?
             .ok_or_else(no_active)?;
         let target_user = self
@@ -103,17 +102,17 @@ impl AuthService {
                 .before_update_member_role(role, &target, &target_user, &organization)
                 .await?;
         }
-        validate_member_role(self, organization_id, &role).await?;
+        validate_member_role(self, &organization_id, &role).await?;
         let previous_role = target.role.clone();
         match plugin
             .store
-            .update_member_role(member_id, role, &plugin.config.creator_role)
+            .update_member_role(&member_id, role, &plugin.config.creator_role)
             .await?
         {
             OrganizationMemberWriteOutcome::Written => {
                 let member = plugin
                     .store
-                    .find_member_by_id(member_id)
+                    .find_member_by_id(&member_id)
                     .await?
                     .ok_or_else(member_not_found)?;
                 if let Some(hooks) = &plugin.config.hooks {
@@ -136,7 +135,7 @@ impl AuthService {
     pub async fn remove_organization_member(
         &self,
         session: &SessionWithUser,
-        organization_id: Option<Uuid>,
+        organization_id: Option<String>,
         member_id_or_email: &str,
     ) -> Result<OrganizationMember, AuthError> {
         let organization_id = organization_id
@@ -145,29 +144,26 @@ impl AuthService {
         let plugin = self.organization_plugin()?;
         let actor = plugin
             .store
-            .find_member(organization_id, &session.user.id)
+            .find_member(&organization_id, &session.user.id)
             .await?
             .ok_or_else(member_not_found)?;
         require_member_permission(self, &actor, "delete", false).await?;
         let target = if member_id_or_email.contains('@') {
             match self.store.find_user_by_email(member_id_or_email).await? {
-                Some(user) => plugin.store.find_member(organization_id, &user.id).await?,
+                Some(user) => plugin.store.find_member(&organization_id, &user.id).await?,
                 None => None,
             }
         } else {
-            match Uuid::parse_str(member_id_or_email) {
-                Ok(id) => plugin
-                    .store
-                    .find_member_by_id(id)
-                    .await?
-                    .filter(|member| member.organization_id == organization_id),
-                Err(_) => None,
-            }
+            plugin
+                .store
+                .find_member_by_id(member_id_or_email)
+                .await?
+                .filter(|member| member.organization_id == organization_id)
         }
         .ok_or_else(member_not_found)?;
         let organization = plugin
             .store
-            .find_organization_by_id(organization_id)
+            .find_organization_by_id(&organization_id)
             .await?
             .ok_or_else(no_active)?;
         let target_user = self
@@ -182,7 +178,7 @@ impl AuthService {
         }
         match plugin
             .store
-            .remove_member(target.id, &plugin.config.creator_role)
+            .remove_member(&target.id, &plugin.config.creator_role)
             .await?
         {
             OrganizationMemberWriteOutcome::Written => {
@@ -211,17 +207,17 @@ impl AuthService {
     pub async fn leave_organization(
         &self,
         session: &SessionWithUser,
-        organization_id: Uuid,
+        organization_id: String,
     ) -> Result<OrganizationMember, AuthError> {
         let plugin = self.organization_plugin()?;
         let member = plugin
             .store
-            .find_member(organization_id, &session.user.id)
+            .find_member(&organization_id, &session.user.id)
             .await?
             .ok_or_else(member_not_found)?;
         let organization = plugin
             .store
-            .find_organization_by_id(organization_id)
+            .find_organization_by_id(&organization_id)
             .await?
             .ok_or_else(no_active)?;
         if let Some(hooks) = &plugin.config.hooks {
@@ -231,7 +227,7 @@ impl AuthService {
         }
         match plugin
             .store
-            .remove_member(member.id, &plugin.config.creator_role)
+            .remove_member(&member.id, &plugin.config.creator_role)
             .await?
         {
             OrganizationMemberWriteOutcome::Written => {
@@ -258,7 +254,7 @@ impl AuthService {
     pub async fn organization_member_role(
         &self,
         session: &SessionWithUser,
-        organization_id: Option<Uuid>,
+        organization_id: Option<String>,
         user_id: Option<String>,
     ) -> Result<String, AuthError> {
         let organization_id = organization_id
@@ -267,7 +263,7 @@ impl AuthService {
         let plugin = self.organization_plugin()?;
         if plugin
             .store
-            .find_member(organization_id, &session.user.id)
+            .find_member(&organization_id, &session.user.id)
             .await?
             .is_none()
         {
@@ -276,7 +272,7 @@ impl AuthService {
         plugin
             .store
             .find_member(
-                organization_id,
+                &organization_id,
                 user_id.as_deref().unwrap_or(&session.user.id),
             )
             .await?
@@ -287,7 +283,7 @@ impl AuthService {
     pub async fn has_organization_permission(
         &self,
         session: &SessionWithUser,
-        organization_id: Option<Uuid>,
+        organization_id: Option<String>,
         permissions: OrganizationPermissions,
     ) -> Result<bool, AuthError> {
         let organization_id = organization_id
@@ -296,7 +292,7 @@ impl AuthService {
         let member = self
             .organization_plugin()?
             .store
-            .find_member(organization_id, &session.user.id)
+            .find_member(&organization_id, &session.user.id)
             .await?
             .ok_or_else(|| {
                 OrganizationError::unauthorized(
@@ -311,7 +307,7 @@ impl AuthService {
 
 async fn validate_member_role(
     service: &AuthService,
-    organization_id: Uuid,
+    organization_id: &str,
     role: &str,
 ) -> Result<(), AuthError> {
     if role.is_empty()

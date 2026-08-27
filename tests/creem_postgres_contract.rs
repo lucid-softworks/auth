@@ -3,8 +3,9 @@
 use chrono::Utc;
 use lucid_auth::{
     AuthConfig, AuthPlugin, AuthService, AuthStore, AuthUser, CreemModelSchema, CreemSchema,
-    CreemStore, CreemSubscription, CreemSubscriptionPatch, PluginDescriptor, PluginProvenance,
-    PluginSchemaTable, PostgresCreemStore, creem_schema_tables, postgres::PostgresStore,
+    CreemStore, CreemSubscription, CreemSubscriptionPatch, DatabaseCreate, DatabaseIdGeneration,
+    DatabaseIdInput, DatabaseIdPlan, PluginDescriptor, PluginProvenance, PluginSchemaTable,
+    PostgresCreemStore, creem_schema_tables, postgres::PostgresStore,
 };
 use serde_json::{Map, Value};
 use sqlx::postgres::PgPoolOptions;
@@ -115,14 +116,13 @@ async fn assert_real_user_updates(
     postgres: &PostgresStore,
     store: &PostgresCreemStore,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let user = user();
-    postgres.create_user_without_account(user.clone()).await?;
-    store
-        .set_user_customer_id(&user.id.to_string(), "customer")
+    let user = postgres
+        .create_user_without_account(user_create(user()))
         .await?;
-    store.set_user_had_trial(&user.id.to_string(), true).await?;
+    store.set_user_customer_id(&user.id, "customer").await?;
+    store.set_user_had_trial(&user.id, true).await?;
     let stored_user = store
-        .find_user(&user.id.to_string())
+        .find_user(&user.id)
         .await?
         .expect("core user remains visible to Creem");
     assert_eq!(
@@ -130,7 +130,7 @@ async fn assert_real_user_updates(
         Some(Value::String("customer".into()))
     );
     assert_eq!(stored_user.had_trial, Some(Value::Bool(true)));
-    let core_user = postgres.find_user_by_id(user.id).await?.unwrap();
+    let core_user = postgres.find_user_by_id(&user.id).await?.unwrap();
     assert_eq!(
         core_user.additional_fields.get("creemCustomerId"),
         Some(&Value::String("customer".into()))
@@ -209,7 +209,7 @@ fn subscription(reference_id: &str, provider_id: &str) -> CreemSubscription {
 fn user() -> AuthUser {
     let now = Utc::now();
     AuthUser {
-        id: Uuid::new_v4(),
+        id: String::new(),
         username: None,
         display_username: None,
         name: "Creem PostgreSQL user".into(),
@@ -225,4 +225,16 @@ fn user() -> AuthUser {
         created_at: now,
         updated_at: now,
     }
+}
+
+fn user_create(user: AuthUser) -> DatabaseCreate<AuthUser> {
+    DatabaseCreate::new(
+        user,
+        DatabaseIdPlan::new(
+            DatabaseIdGeneration::Default,
+            "user",
+            DatabaseIdInput::Absent,
+            false,
+        ),
+    )
 }

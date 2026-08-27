@@ -3,7 +3,6 @@ use crate::{AuthError, AuthUser};
 use chrono::{DateTime, Utc};
 use serde_json::{Map, Value, json};
 use sqlx::{Postgres, QueryBuilder, postgres::PgRow};
-use uuid::Uuid;
 
 pub(super) use super::user::query::{
     insert_query, insert_query_prefix, select_query, update_query,
@@ -149,14 +148,6 @@ pub(super) fn push_model_value<'args>(
 ) -> Result<(), AuthError> {
     model.encode(field, value)?.push_bind(query);
     Ok(())
-}
-
-pub(super) fn required_uuid(
-    values: &mut Map<String, Value>,
-    field: &str,
-) -> Result<Uuid, AuthError> {
-    let value = required_string(values, field)?;
-    Uuid::parse_str(&value).map_err(|_| invalid_row(field))
 }
 
 pub(super) fn required_string(

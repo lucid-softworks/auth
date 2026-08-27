@@ -4,7 +4,7 @@ pub(super) async fn sync(plugin: &StripePlugin, organization: &Organization) {
     let result = async {
         let Some(customer_id) = plugin
             .store
-            .organization_customer_id(organization.id)
+            .organization_customer_id(&organization.id)
             .await?
         else {
             return Ok::<(), NameSyncError>(());
@@ -71,7 +71,7 @@ mod tests {
         let store = Arc::new(MemoryStripeStore::new());
         let organization = organization();
         store
-            .set_organization_customer_id(organization.id, Some("cus_org".into()))
+            .set_organization_customer_id(organization.id.clone(), Some("cus_org".into()))
             .await
             .unwrap();
         plugin(client.clone(), store, false)

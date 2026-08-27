@@ -3,6 +3,8 @@ mod invitation;
 mod member;
 mod role;
 mod rows;
+#[cfg(test)]
+mod rows_test;
 mod team;
 
 #[cfg(test)]

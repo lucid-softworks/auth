@@ -138,35 +138,41 @@ async fn resource_policy_issues_audience_jwt_with_ttl_scopes_and_custom_claims()
     let identifier = "https://resource.example";
     fixture
         .oauth
-        .create_oauth_resource(OAuthProviderResource {
-            id: Uuid::new_v4(),
-            identifier: identifier.into(),
-            name: "Contract resource".into(),
-            access_token_ttl: Some(120),
-            refresh_token_ttl: None,
-            signing_algorithm: None,
-            signing_key_id: None,
-            allowed_scopes: Some(vec!["api.read".into()]),
-            custom_claims: Some(json!({"tenant":"contract"})),
-            dpop_bound_access_tokens_required: false,
-            disabled: false,
-            created_at: Some(Utc::now()),
-            updated_at: Some(Utc::now()),
-            policy_version: 1,
-            metadata: None,
-        })
+        .create_oauth_resource(
+            &oauth_record_id,
+            OAuthProviderResource {
+                id: String::new(),
+                identifier: identifier.into(),
+                name: "Contract resource".into(),
+                access_token_ttl: Some(120),
+                refresh_token_ttl: None,
+                signing_algorithm: None,
+                signing_key_id: None,
+                allowed_scopes: Some(vec!["api.read".into()]),
+                custom_claims: Some(json!({"tenant":"contract"})),
+                dpop_bound_access_tokens_required: false,
+                disabled: false,
+                created_at: Some(Utc::now()),
+                updated_at: Some(Utc::now()),
+                policy_version: 1,
+                metadata: None,
+            },
+        )
         .await
         .unwrap()
         .unwrap();
     fixture
         .oauth
-        .link_oauth_client_resource(OAuthProviderClientResource {
-            id: Uuid::new_v4(),
-            client_id: client_id.clone(),
-            resource_id: identifier.into(),
-            metadata: None,
-            created_at: Some(Utc::now()),
-        })
+        .link_oauth_client_resource(
+            &oauth_record_id,
+            OAuthProviderClientResource {
+                id: String::new(),
+                client_id: client_id.clone(),
+                resource_id: identifier.into(),
+                metadata: None,
+                created_at: Some(Utc::now()),
+            },
+        )
         .await
         .unwrap();
     let (status, _, tokens) = form_request(
@@ -201,6 +207,48 @@ async fn resource_policy_issues_audience_jwt_with_ttl_scopes_and_custom_claims()
     assert_eq!(active["tenant"], "contract");
 }
 
+async fn insert_resource_for_client(fixture: &Fixture, client_id: &str, resource: &str) {
+    fixture
+        .oauth
+        .create_oauth_resource(
+            &oauth_record_id,
+            OAuthProviderResource {
+                id: String::new(),
+                identifier: resource.into(),
+                name: "Custom issuer resource".into(),
+                access_token_ttl: None,
+                refresh_token_ttl: None,
+                signing_algorithm: None,
+                signing_key_id: None,
+                allowed_scopes: Some(vec!["api.read".into()]),
+                custom_claims: None,
+                dpop_bound_access_tokens_required: false,
+                disabled: false,
+                created_at: Some(Utc::now()),
+                updated_at: Some(Utc::now()),
+                policy_version: 1,
+                metadata: None,
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    fixture
+        .oauth
+        .link_oauth_client_resource(
+            &oauth_record_id,
+            OAuthProviderClientResource {
+                id: String::new(),
+                client_id: client_id.to_owned(),
+                resource_id: resource.into(),
+                metadata: None,
+                created_at: Some(Utc::now()),
+            },
+        )
+        .await
+        .unwrap();
+}
+
 #[tokio::test]
 async fn custom_jwt_issuer_matches_discovery_and_issued_resource_tokens() {
     let mut provider = OAuthProviderPluginConfig::new("/login", "/consent");
@@ -210,39 +258,7 @@ async fn custom_jwt_issuer_matches_discovery_and_issued_resource_tokens() {
     let fixture = fixture_with_jwt_and_provider(jwt, provider).await;
     let (client_id, client_secret) = create_m2m_client(&fixture).await;
     let resource = "https://resource.example/custom-issuer";
-    fixture
-        .oauth
-        .create_oauth_resource(OAuthProviderResource {
-            id: Uuid::new_v4(),
-            identifier: resource.into(),
-            name: "Custom issuer resource".into(),
-            access_token_ttl: None,
-            refresh_token_ttl: None,
-            signing_algorithm: None,
-            signing_key_id: None,
-            allowed_scopes: Some(vec!["api.read".into()]),
-            custom_claims: None,
-            dpop_bound_access_tokens_required: false,
-            disabled: false,
-            created_at: Some(Utc::now()),
-            updated_at: Some(Utc::now()),
-            policy_version: 1,
-            metadata: None,
-        })
-        .await
-        .unwrap()
-        .unwrap();
-    fixture
-        .oauth
-        .link_oauth_client_resource(OAuthProviderClientResource {
-            id: Uuid::new_v4(),
-            client_id: client_id.clone(),
-            resource_id: resource.into(),
-            metadata: None,
-            created_at: Some(Utc::now()),
-        })
-        .await
-        .unwrap();
+    insert_resource_for_client(&fixture, &client_id, resource).await;
     let (_, _, metadata) = json_request(
         &fixture.app,
         "GET",

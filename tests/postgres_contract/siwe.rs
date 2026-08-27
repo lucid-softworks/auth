@@ -3,6 +3,7 @@ use lucid_auth::{
     AuthConfig, AuthError, AuthService, SiweConfig, SiweMessageVerifier, SiweNonceGenerator,
     SiwePlugin, SiweSchema, SiweVerificationRequest, postgres::PostgresStore,
 };
+use std::collections::HashSet;
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
@@ -155,6 +156,19 @@ async fn assert_persisted_identity(
             .await?,
         4
     );
+    let wallet_ids = sqlx::query_scalar::<_, String>(
+        "SELECT id FROM postgres_siwe_wallets WHERE owner_id = $1 ORDER BY network",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    assert_eq!(wallet_ids.len(), 3);
+    assert!(
+        wallet_ids
+            .iter()
+            .all(|id| { id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_alphanumeric()) })
+    );
+    assert_eq!(wallet_ids.iter().collect::<HashSet<_>>().len(), 3);
     Ok(())
 }
 
@@ -166,6 +180,15 @@ async fn assert_plugin_migration_applied(
             .fetch_one(pool)
             .await?
     );
+    let id_types = sqlx::query_scalar::<_, String>(
+        "SELECT data_type FROM information_schema.columns \
+         WHERE table_schema = current_schema() \
+           AND table_name = 'postgres_siwe_wallets' \
+           AND column_name IN ('id', 'owner_id') ORDER BY column_name",
+    )
+    .fetch_all(pool)
+    .await?;
+    assert_eq!(id_types, ["text", "text"]);
     Ok(())
 }
 

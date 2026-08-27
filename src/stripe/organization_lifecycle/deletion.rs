@@ -10,7 +10,7 @@ pub(super) async fn guard(
 ) -> Result<(), AuthError> {
     let customer_id = plugin
         .store
-        .organization_customer_id(organization.id)
+        .organization_customer_id(&organization.id)
         .await
         .map_err(store_error)?;
     let Some(customer_id) = customer_id else {
@@ -99,7 +99,7 @@ mod tests {
         let store = Arc::new(MemoryStripeStore::new());
         let organization = organization();
         store
-            .set_organization_customer_id(organization.id, Some("cus_org".into()))
+            .set_organization_customer_id(organization.id.clone(), Some("cus_org".into()))
             .await
             .unwrap();
         let error = plugin(client, store, false)

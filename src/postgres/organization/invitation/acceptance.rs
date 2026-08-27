@@ -1,15 +1,13 @@
 use super::super::storage_error;
-use super::query::{
-    count_by_organization, find, insert_member, member_exists, update_status, uuid_value,
-};
+use super::query::{count_by_organization, find, insert_member, member_exists, update_status};
 use crate::{
     AuthError, OrganizationInvitation, OrganizationInvitationStatus,
     OrganizationInvitationWriteOutcome, OrganizationMember, OrganizationTeamMember,
     postgres::PostgresModel,
 };
 use chrono::{DateTime, Utc};
+use serde_json::json;
 use sqlx::{Postgres, QueryBuilder, Transaction};
-use uuid::Uuid;
 
 pub(super) struct InvitationAcceptanceContext<'model, 'schema> {
     pub(super) pool: &'model sqlx::PgPool,
@@ -20,10 +18,12 @@ pub(super) struct InvitationAcceptanceContext<'model, 'schema> {
         &'model PostgresModel<'schema>,
         &'model PostgresModel<'schema>,
     )>,
-    pub(super) invitation_id: Uuid,
+    pub(super) invitation_id: &'model str,
     pub(super) user_id: &'model str,
     pub(super) now: DateTime<Utc>,
     pub(super) membership_limit: usize,
+    pub(super) member_id: &'model dyn crate::DatabaseIdSupplier,
+    pub(super) team_member_id: &'model dyn crate::DatabaseIdSupplier,
 }
 
 pub(super) async fn accept_invitation_transaction(
@@ -39,12 +39,14 @@ pub(super) async fn accept_invitation_transaction(
         user_id,
         now,
         membership_limit,
+        member_id,
+        team_member_id,
     } = context;
     let mut transaction = pool.begin().await.map_err(storage_error)?;
     let Some(invitation) = find(
         &mut *transaction,
         invitation_model,
-        [("id", uuid_value(invitation_id))],
+        [("id", json!(invitation_id))],
         true,
     )
     .await?
@@ -60,78 +62,99 @@ pub(super) async fn accept_invitation_transaction(
     super::super::member::lock_organization(
         &mut transaction,
         organization,
-        invitation.organization_id,
+        &invitation.organization_id,
     )
     .await?;
     if member_exists(
         &mut transaction,
         member_model,
-        invitation.organization_id,
+        &invitation.organization_id,
         user_id,
     )
     .await?
     {
         return Ok(OrganizationInvitationWriteOutcome::AlreadyMember);
     }
-    if count_by_organization(&mut transaction, member_model, invitation.organization_id).await?
+    if count_by_organization(&mut transaction, member_model, &invitation.organization_id).await?
         >= membership_limit as i64
     {
         return Ok(OrganizationInvitationWriteOutcome::LimitReached);
     }
     write_acceptance(
         &mut transaction,
-        invitation_model,
-        member_model,
-        team_models,
-        invitation,
-        user_id,
-        now,
+        AcceptanceWriteContext {
+            invitation_model,
+            member_model,
+            team_models,
+            invitation,
+            user_id,
+            now,
+            member_id,
+            team_member_id,
+        },
     )
     .await?;
     transaction.commit().await.map_err(storage_error)?;
     Ok(OrganizationInvitationWriteOutcome::Written)
 }
 
+struct AcceptanceWriteContext<'model, 'schema> {
+    invitation_model: &'model PostgresModel<'schema>,
+    member_model: &'model PostgresModel<'schema>,
+    team_models: Option<(
+        &'model PostgresModel<'schema>,
+        &'model PostgresModel<'schema>,
+    )>,
+    invitation: OrganizationInvitation,
+    user_id: &'model str,
+    now: DateTime<Utc>,
+    member_id: &'model dyn crate::DatabaseIdSupplier,
+    team_member_id: &'model dyn crate::DatabaseIdSupplier,
+}
+
 async fn write_acceptance(
     transaction: &mut Transaction<'_, Postgres>,
-    invitation_model: &PostgresModel<'_>,
-    member_model: &PostgresModel<'_>,
-    team_models: Option<(&PostgresModel<'_>, &PostgresModel<'_>)>,
-    invitation: OrganizationInvitation,
-    user_id: &str,
-    now: DateTime<Utc>,
+    context: AcceptanceWriteContext<'_, '_>,
 ) -> Result<(), AuthError> {
-    insert_member(
-        transaction,
+    let AcceptanceWriteContext {
+        invitation_model,
         member_model,
-        &OrganizationMember {
-            id: Uuid::new_v4(),
-            organization_id: invitation.organization_id,
-            user_id: user_id.to_owned(),
-            role: invitation.role.clone(),
-            created_at: now,
-        },
-    )
-    .await?;
+        team_models,
+        invitation,
+        user_id,
+        now,
+        member_id,
+        team_member_id,
+    } = context;
+    let member = OrganizationMember {
+        id: String::new(),
+        organization_id: invitation.organization_id.clone(),
+        user_id: user_id.to_owned(),
+        role: invitation.role.clone(),
+        created_at: now,
+    };
+    let prepared = member_id.prepare()?;
+    let _member = insert_member(transaction, member_model, &member, &prepared).await?;
     if let Some((team, team_member)) = team_models {
         for team_id in invitation
             .team_id
             .as_deref()
             .into_iter()
             .flat_map(|ids| ids.split(','))
-            .filter_map(|id| Uuid::parse_str(id).ok())
+            .map(str::to_owned)
         {
             insert_team_member_if_owned(
                 transaction,
                 team,
                 team_member,
-                OrganizationTeamMember {
-                    id: Uuid::new_v4(),
+                &mut OrganizationTeamMember {
+                    id: String::new(),
                     team_id,
                     user_id: user_id.to_owned(),
                     created_at: now,
                 },
-                invitation.organization_id,
+                &invitation.organization_id,
+                team_member_id,
             )
             .await?;
         }
@@ -139,7 +162,7 @@ async fn write_acceptance(
     update_status(
         transaction,
         invitation_model,
-        invitation.id,
+        &invitation.id,
         OrganizationInvitationStatus::Accepted,
     )
     .await
@@ -149,18 +172,19 @@ async fn insert_team_member_if_owned(
     transaction: &mut Transaction<'_, Postgres>,
     team: &PostgresModel<'_>,
     team_member: &PostgresModel<'_>,
-    member: OrganizationTeamMember,
-    organization_id: Uuid,
+    member: &mut OrganizationTeamMember,
+    organization_id: &str,
+    id: &dyn crate::DatabaseIdSupplier,
 ) -> Result<(), AuthError> {
     let mut exists = QueryBuilder::new("SELECT EXISTS(SELECT 1 FROM ");
     exists.push(team.quoted_table()).push(" WHERE \"id\" = ");
-    team.encode("id", uuid_value(member.team_id))?
+    team.encode("id", json!(member.team_id))?
         .push_bind(&mut exists);
     exists
         .push(" AND ")
         .push(team.quoted_column("organizationId")?)
         .push(" = ");
-    team.encode("organizationId", uuid_value(organization_id))?
+    team.encode("organizationId", json!(organization_id))?
         .push_bind(&mut exists);
     exists.push(")");
     if !exists
@@ -171,18 +195,41 @@ async fn insert_team_member_if_owned(
     {
         return Ok(());
     }
-    let mut query = crate::postgres::rows::insert_query_prefix(
-        team_member,
-        super::super::rows::team_member_writes(team_member, &member)?,
-    );
-    query
-        .push(" ON CONFLICT (")
-        .push(team_member.quoted_column("membershipKey")?)
-        .push(") DO NOTHING");
-    query
-        .build()
-        .execute(&mut **transaction)
+    let mut duplicate = QueryBuilder::new("SELECT EXISTS(SELECT 1 FROM ");
+    duplicate
+        .push(team_member.quoted_table())
+        .push(" WHERE ")
+        .push(team_member.quoted_column("teamId")?)
+        .push(" = ");
+    team_member
+        .encode("teamId", json!(member.team_id))?
+        .push_bind(&mut duplicate);
+    duplicate
+        .push(" AND ")
+        .push(team_member.quoted_column("userId")?)
+        .push(" = ");
+    team_member
+        .encode("userId", json!(member.user_id))?
+        .push_bind(&mut duplicate);
+    duplicate.push(")");
+    if duplicate
+        .build_query_scalar::<bool>()
+        .fetch_one(&mut **transaction)
         .await
-        .map(|_| ())
-        .map_err(storage_error)
+        .map_err(storage_error)?
+    {
+        return Ok(());
+    }
+    let prepared = id.prepare()?;
+    let mut query = crate::postgres::rows::insert_query(
+        team_member,
+        super::super::rows::team_member_writes(team_member, member, &prepared)?,
+    );
+    let row = query
+        .build()
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(storage_error)?;
+    *member = super::super::rows::decode_team_member(team_member, &row)?;
+    Ok(())
 }

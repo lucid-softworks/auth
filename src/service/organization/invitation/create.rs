@@ -10,7 +10,6 @@ use crate::{
     SessionWithUser,
 };
 use chrono::{Duration, Utc};
-use uuid::Uuid;
 
 impl AuthService {
     pub async fn invite_organization_member(
@@ -20,22 +19,23 @@ impl AuthService {
     ) -> Result<OrganizationInvitation, AuthError> {
         let organization_id = input
             .organization_id
+            .clone()
             .or_else(|| Self::active_organization_id(session))
             .ok_or_else(organization_not_found)?;
         let plugin = self.organization_plugin()?;
         let inviter = plugin
             .store
-            .find_member(organization_id, &session.user.id)
+            .find_member(&organization_id, &session.user.id)
             .await?
             .ok_or_else(member_not_found)?;
         require_permission(self, &inviter, "create").await?;
         let email = normalize_email(&input.email)?;
         let role = normalize_roles(&input.role);
-        validate_invited_role(self, &inviter, organization_id, &role).await?;
+        validate_invited_role(self, &inviter, &organization_id, &role).await?;
         if let Some(user) = self.store.find_user_by_email(&email).await?
             && plugin
                 .store
-                .find_member(organization_id, &user.id)
+                .find_member(&organization_id, &user.id)
                 .await?
                 .is_some()
         {
@@ -45,17 +45,17 @@ impl AuthService {
             )
             .into());
         }
-        validate_teams(plugin, organization_id, &input.team_ids).await?;
+        validate_teams(plugin, &organization_id, &input.team_ids).await?;
         let organization = plugin
             .store
-            .find_organization_by_id(organization_id)
+            .find_organization_by_id(&organization_id)
             .await?
             .ok_or_else(organization_not_found)?;
         if input.resend
             && let Some(invitation) = plugin
                 .store
                 .resend_invitation(
-                    organization_id,
+                    &organization_id,
                     &email,
                     Utc::now() + Duration::seconds(plugin.config.invitation_expires_in_seconds),
                 )
@@ -70,7 +70,7 @@ impl AuthService {
                 .before_create_invitation(invitation, &session.user, &organization)
                 .await?;
         }
-        persist_invitation(plugin, invitation.clone()).await?;
+        persist_invitation(self, plugin, &mut invitation).await?;
         if let Some(hooks) = &plugin.config.hooks {
             hooks
                 .after_create_invitation(&invitation, &session.user, &organization)
@@ -104,7 +104,7 @@ async fn send_invitation(
 async fn validate_invited_role(
     service: &AuthService,
     inviter: &crate::OrganizationMember,
-    organization_id: Uuid,
+    organization_id: &str,
     role: &str,
 ) -> Result<(), AuthError> {
     let plugin = service.organization_plugin()?;
@@ -131,25 +131,18 @@ fn new_invitation(
     plugin: &crate::OrganizationPlugin,
     session: &SessionWithUser,
     input: NewOrganizationInvitation,
-    organization_id: Uuid,
+    organization_id: String,
     email: String,
     role: String,
 ) -> OrganizationInvitation {
     let now = Utc::now();
     OrganizationInvitation {
-        id: Uuid::new_v4(),
+        id: String::new(),
         organization_id,
         email,
         role,
         status: OrganizationInvitationStatus::Pending,
-        team_id: (!input.team_ids.is_empty()).then(|| {
-            input
-                .team_ids
-                .iter()
-                .map(Uuid::to_string)
-                .collect::<Vec<_>>()
-                .join(",")
-        }),
+        team_id: (!input.team_ids.is_empty()).then(|| input.team_ids.join(",")),
         inviter_id: session.user.id.clone(),
         expires_at: now + Duration::seconds(plugin.config.invitation_expires_in_seconds),
         created_at: now,
@@ -157,13 +150,17 @@ fn new_invitation(
 }
 
 async fn persist_invitation(
+    service: &AuthService,
     plugin: &crate::OrganizationPlugin,
-    invitation: OrganizationInvitation,
+    invitation: &mut OrganizationInvitation,
 ) -> Result<(), AuthError> {
+    let plan = service.database_id_plan("invitation", crate::DatabaseIdInput::Absent, false);
+    let id = || plan.prepare(service.store.as_ref());
     match plugin
         .store
         .create_invitation(
             invitation,
+            &id,
             plugin.config.invitation_limit,
             plugin.config.membership_limit,
             plugin.config.cancel_pending_invitations_on_reinvite,

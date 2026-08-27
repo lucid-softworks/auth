@@ -4,20 +4,19 @@ use crate::{
     SessionWithUser,
 };
 use chrono::Utc;
-use uuid::Uuid;
 
 impl AuthService {
     pub async fn create_organization_team(
         &self,
         session: &SessionWithUser,
-        organization_id: Option<Uuid>,
+        organization_id: Option<String>,
         name: String,
     ) -> Result<OrganizationTeam, AuthError> {
         let organization_id = active_or(session, organization_id)?;
         let plugin = self.organization_plugin()?;
         let member = plugin
             .store
-            .find_member(organization_id, &session.user.id)
+            .find_member(&organization_id, &session.user.id)
             .await?
             .ok_or_else(|| {
                 OrganizationError::forbidden(
@@ -36,11 +35,11 @@ impl AuthService {
         let now = Utc::now();
         let organization = plugin
             .store
-            .find_organization_by_id(organization_id)
+            .find_organization_by_id(&organization_id)
             .await?
             .ok_or_else(team_not_found)?;
         let mut team = OrganizationTeam {
-            id: Uuid::new_v4(),
+            id: String::new(),
             name,
             organization_id,
             created_at: now,
@@ -51,9 +50,16 @@ impl AuthService {
                 .before_create_team(team, &session.user, &organization)
                 .await?;
         }
+        let input = if team.id.is_empty() {
+            crate::DatabaseIdInput::Absent
+        } else {
+            crate::DatabaseIdInput::String(team.id.clone())
+        };
+        let plan = self.database_id_plan("team", input, true);
+        let id = || plan.prepare(self.store.as_ref());
         match plugin
             .store
-            .create_team(team.clone(), plugin.config.teams.maximum_teams)
+            .create_team(&mut team, &id, plugin.config.teams.maximum_teams)
             .await?
         {
             OrganizationTeamWriteOutcome::Written => {
@@ -81,18 +87,18 @@ impl AuthService {
     pub async fn update_organization_team(
         &self,
         session: &SessionWithUser,
-        team_id: Uuid,
+        team_id: String,
         name: Option<String>,
     ) -> Result<OrganizationTeam, AuthError> {
         let plugin = self.organization_plugin()?;
         let mut team = plugin
             .store
-            .find_team(team_id)
+            .find_team(&team_id)
             .await?
             .ok_or_else(team_not_found)?;
         let member = plugin
             .store
-            .find_member(team.organization_id, &session.user.id)
+            .find_member(&team.organization_id, &session.user.id)
             .await?
             .ok_or_else(team_not_found)?;
         require_team_permission(
@@ -109,7 +115,7 @@ impl AuthService {
         team.updated_at = Some(Utc::now());
         let organization = plugin
             .store
-            .find_organization_by_id(team.organization_id)
+            .find_organization_by_id(&team.organization_id)
             .await?
             .ok_or_else(team_not_found)?;
         if let Some(hooks) = &plugin.config.hooks {
@@ -134,23 +140,23 @@ impl AuthService {
     pub async fn remove_organization_team(
         &self,
         session: &SessionWithUser,
-        organization_id: Option<Uuid>,
-        team_id: Uuid,
+        organization_id: Option<String>,
+        team_id: String,
     ) -> Result<(), AuthError> {
         let organization_id = active_or(session, organization_id)?;
         let plugin = self.organization_plugin()?;
         let team = plugin
             .store
-            .find_team(team_id)
+            .find_team(&team_id)
             .await?
             .filter(|team| team.organization_id == organization_id)
             .ok_or_else(team_not_found)?;
         let member = plugin
             .store
-            .find_member(organization_id, &session.user.id)
+            .find_member(&organization_id, &session.user.id)
             .await?
             .ok_or_else(team_not_found)?;
-        if Self::active_team_id(session) == Some(team.id) {
+        if Self::active_team_id(session) == Some(team.id.clone()) {
             return Err(OrganizationError::forbidden(
                 "YOU_ARE_NOT_ALLOWED_TO_DELETE_THIS_TEAM",
                 "You are not allowed to delete this team",
@@ -167,7 +173,7 @@ impl AuthService {
         .await?;
         let organization = plugin
             .store
-            .find_organization_by_id(organization_id)
+            .find_organization_by_id(&organization_id)
             .await?
             .ok_or_else(team_not_found)?;
         if let Some(hooks) = &plugin.config.hooks {
@@ -177,7 +183,7 @@ impl AuthService {
         }
         match plugin
             .store
-            .remove_team(team_id, plugin.config.teams.allow_removing_all_teams)
+            .remove_team(&team_id, plugin.config.teams.allow_removing_all_teams)
             .await?
         {
             OrganizationTeamWriteOutcome::Written => {
@@ -200,13 +206,13 @@ impl AuthService {
     pub async fn list_organization_teams(
         &self,
         session: &SessionWithUser,
-        organization_id: Option<Uuid>,
+        organization_id: Option<String>,
     ) -> Result<Vec<OrganizationTeam>, AuthError> {
         let organization_id = active_or(session, organization_id)?;
         let plugin = self.organization_plugin()?;
         if plugin
             .store
-            .find_member(organization_id, &session.user.id)
+            .find_member(&organization_id, &session.user.id)
             .await?
             .is_none()
         {
@@ -216,13 +222,13 @@ impl AuthService {
             )
             .into());
         }
-        plugin.store.list_teams(organization_id).await
+        plugin.store.list_teams(&organization_id).await
     }
 
     pub async fn set_active_organization_team(
         &self,
         session: &SessionWithUser,
-        team_id: Option<Uuid>,
+        team_id: Option<String>,
     ) -> Result<Option<OrganizationTeam>, AuthError> {
         let Some(team_id) = team_id else {
             self.set_active_team(session, None).await?;
@@ -234,13 +240,13 @@ impl AuthService {
         let plugin = self.organization_plugin()?;
         let team = plugin
             .store
-            .find_team(team_id)
+            .find_team(&team_id)
             .await?
             .filter(|team| team.organization_id == organization_id)
             .ok_or_else(team_not_found)?;
         if !plugin
             .store
-            .list_team_members(team_id)
+            .list_team_members(&team_id)
             .await?
             .iter()
             .any(|member| member.user_id == session.user.id)

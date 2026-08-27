@@ -321,7 +321,7 @@ async fn mirrored_password_reset_revokes_secondary_and_database_sessions() {
         .await
         .unwrap();
     assert!(secondary.get(&session.token).await.unwrap().is_some());
-    assert_eq!(store.list_sessions(user.id).await.unwrap().len(), 1);
+    assert_eq!(store.list_sessions(&user.id).await.unwrap().len(), 1);
 
     let token = "mirrored-password-reset";
     service
@@ -338,7 +338,7 @@ async fn mirrored_password_reset_revokes_secondary_and_database_sessions() {
         .unwrap();
 
     assert!(secondary.get(&session.token).await.unwrap().is_none());
-    assert!(store.list_sessions(user.id).await.unwrap().is_empty());
+    assert!(store.list_sessions(&user.id).await.unwrap().is_empty());
     assert!(service.session(&session.token).await.unwrap().is_none());
     assert!(
         service

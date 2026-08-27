@@ -3,13 +3,12 @@ use crate::AuthError;
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use sqlx::{QueryBuilder, types::Json};
-use uuid::Uuid;
 
-pub(super) async fn delete_where_uuid(
+pub(super) async fn delete_where_id(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     model: &PostgresModel<'_>,
     logical: &str,
-    value: Uuid,
+    value: &str,
 ) -> Result<usize, AuthError> {
     let column = model.quoted_column(logical)?;
     let mut query = QueryBuilder::new("DELETE FROM ");
@@ -17,14 +16,9 @@ pub(super) async fn delete_where_uuid(
         .push(model.quoted_table())
         .push(" WHERE ")
         .push(column)
-        .push(" = ")
-        .push_bind(value);
-    query
-        .build()
-        .execute(&mut **transaction)
-        .await
-        .map(|result| result.rows_affected() as usize)
-        .map_err(storage_error)
+        .push(" = ");
+    model.encode(logical, json!(value))?.push_bind(&mut query);
+    execute_delete(transaction, query).await
 }
 
 pub(super) async fn delete_where_text(
@@ -46,18 +40,35 @@ pub(super) async fn delete_where_text(
 pub(super) async fn delete_where_ids(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     model: &PostgresModel<'_>,
-    column: &str,
-    values: &[Uuid],
+    logical: &str,
+    values: &[String],
 ) -> Result<usize, AuthError> {
     let mut query = QueryBuilder::new("DELETE FROM ");
-    query
-        .push(model.quoted_table())
-        .push(" WHERE ")
-        .push(column)
-        .push(" = ANY(")
-        .push_bind(values.to_vec())
-        .push("::UUID[])");
+    query.push(model.quoted_table()).push(" WHERE ");
+    push_typed_values_predicate(&mut query, model, logical, values)?;
     execute_delete(transaction, query).await
+}
+
+pub(super) fn push_typed_values_predicate(
+    query: &mut QueryBuilder<'static, sqlx::Postgres>,
+    model: &PostgresModel<'_>,
+    logical: &str,
+    values: &[String],
+) -> Result<(), AuthError> {
+    if values.is_empty() {
+        query.push("FALSE");
+        return Ok(());
+    }
+    query.push("(");
+    for (index, value) in values.iter().enumerate() {
+        if index != 0 {
+            query.push(" OR ");
+        }
+        query.push(model.quoted_column(logical)?).push(" = ");
+        model.encode(logical, json!(value))?.push_bind(query);
+    }
+    query.push(")");
+    Ok(())
 }
 
 async fn execute_delete(
@@ -109,7 +120,7 @@ async fn revoke_online_refresh_tokens(
     session_id: &str,
     revoked_at: DateTime<Utc>,
 ) -> Result<usize, AuthError> {
-    let mut select = QueryBuilder::new("SELECT \"id\", ");
+    let mut select = QueryBuilder::new("SELECT \"id\"::TEXT, ");
     select
         .push(model.quoted_column("scopes")?)
         .push(" FROM ")
@@ -125,7 +136,7 @@ async fn revoke_online_refresh_tokens(
         .push(model.quoted_column("revoked")?)
         .push(" IS NULL FOR UPDATE");
     let ids = select
-        .build_query_as::<(Uuid, Json<Vec<String>>)>()
+        .build_query_as::<(String, Json<Vec<String>>)>()
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage_error)?
@@ -136,10 +147,8 @@ async fn revoke_online_refresh_tokens(
         .collect::<Vec<_>>();
     let writes = model.encode_fields([("revoked", Value::String(revoked_at.to_rfc3339()))])?;
     let mut update = update_query(model, writes);
-    update
-        .push(" WHERE \"id\" = ANY(")
-        .push_bind(ids)
-        .push("::UUID[])");
+    update.push(" WHERE ");
+    push_typed_values_predicate(&mut update, model, "id", &ids)?;
     update
         .build()
         .execute(&mut **transaction)

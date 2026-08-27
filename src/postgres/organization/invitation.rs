@@ -6,7 +6,6 @@ use crate::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::json;
-use uuid::Uuid;
 
 mod acceptance;
 mod query;
@@ -18,7 +17,8 @@ use query::*;
 impl OrganizationInvitationStore for PostgresStore {
     async fn create_invitation(
         &self,
-        mut invitation: OrganizationInvitation,
+        invitation: &mut OrganizationInvitation,
+        id: &dyn crate::DatabaseIdSupplier,
         invitation_limit: usize,
         membership_limit: usize,
         cancel_pending: bool,
@@ -27,8 +27,8 @@ impl OrganizationInvitationStore for PostgresStore {
         let member = self.physical_model("member")?;
         let invitation_model = self.physical_model("invitation")?;
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
-        lock_organization(&mut transaction, &organization, invitation.organization_id).await?;
-        if count_by_organization(&mut transaction, &member, invitation.organization_id).await?
+        lock_organization(&mut transaction, &organization, &invitation.organization_id).await?;
+        if count_by_organization(&mut transaction, &member, &invitation.organization_id).await?
             >= membership_limit as i64
         {
             return Ok(OrganizationInvitationWriteOutcome::LimitReached);
@@ -36,7 +36,7 @@ impl OrganizationInvitationStore for PostgresStore {
         let pending = pending_count(
             &mut transaction,
             &invitation_model,
-            invitation.organization_id,
+            &invitation.organization_id,
             Some(&invitation.email),
         )
         .await?;
@@ -47,7 +47,7 @@ impl OrganizationInvitationStore for PostgresStore {
             cancel_pending_for_email(
                 &mut transaction,
                 &invitation_model,
-                invitation.organization_id,
+                &invitation.organization_id,
                 &invitation.email,
             )
             .await?;
@@ -55,7 +55,7 @@ impl OrganizationInvitationStore for PostgresStore {
         if pending_count(
             &mut transaction,
             &invitation_model,
-            invitation.organization_id,
+            &invitation.organization_id,
             None,
         )
         .await?
@@ -65,26 +65,28 @@ impl OrganizationInvitationStore for PostgresStore {
         }
         invitation.email = invitation.email.to_lowercase();
         invitation.status = OrganizationInvitationStatus::Pending;
-        insert_invitation(&mut transaction, &invitation_model, &invitation).await?;
+        let prepared = id.prepare()?;
+        *invitation =
+            insert_invitation(&mut transaction, &invitation_model, invitation, &prepared).await?;
         transaction.commit().await.map_err(storage_error)?;
         Ok(OrganizationInvitationWriteOutcome::Written)
     }
 
-    async fn find_invitation(&self, id: Uuid) -> Result<Option<OrganizationInvitation>, AuthError> {
+    async fn find_invitation(&self, id: &str) -> Result<Option<OrganizationInvitation>, AuthError> {
         let model = self.physical_model("invitation")?;
-        find(&self.pool, &model, [("id", uuid_value(id))], false).await
+        find(&self.pool, &model, [("id", json!(id))], false).await
     }
 
     async fn list_invitations(
         &self,
-        organization_id: Uuid,
+        organization_id: &str,
     ) -> Result<Vec<OrganizationInvitation>, AuthError> {
         let model = self.physical_model("invitation")?;
         list(
             &self.pool,
             &model,
             "organizationId",
-            uuid_value(organization_id),
+            json!(organization_id),
             false,
         )
         .await
@@ -100,7 +102,7 @@ impl OrganizationInvitationStore for PostgresStore {
 
     async fn set_invitation_status(
         &self,
-        id: Uuid,
+        id: &str,
         status: OrganizationInvitationStatus,
     ) -> Result<Option<OrganizationInvitation>, AuthError> {
         let model = self.physical_model("invitation")?;
@@ -117,7 +119,7 @@ impl OrganizationInvitationStore for PostgresStore {
 
     async fn resend_invitation(
         &self,
-        organization_id: Uuid,
+        organization_id: &str,
         email: &str,
         expires_at: DateTime<Utc>,
     ) -> Result<Option<OrganizationInvitation>, AuthError> {
@@ -135,10 +137,12 @@ impl OrganizationInvitationStore for PostgresStore {
 
     async fn accept_invitation(
         &self,
-        invitation_id: Uuid,
+        invitation_id: &str,
         user_id: &str,
         now: DateTime<Utc>,
         membership_limit: usize,
+        member_id: &dyn crate::DatabaseIdSupplier,
+        team_member_id: &dyn crate::DatabaseIdSupplier,
     ) -> Result<OrganizationInvitationWriteOutcome, AuthError> {
         let organization = self.physical_model("organization")?;
         let invitation_model = self.physical_model("invitation")?;
@@ -161,6 +165,8 @@ impl OrganizationInvitationStore for PostgresStore {
             user_id,
             now,
             membership_limit,
+            member_id,
+            team_member_id,
         })
         .await
     }

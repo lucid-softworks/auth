@@ -1,9 +1,9 @@
 use lucid_auth::{
-    AnonymousPlugin, AuthConfig, AuthService, AuthStore, AuthenticationMethod, MemoryStore,
-    NewPasswordUser, StoredPasskey,
+    AnonymousPlugin, AuthConfig, AuthService, AuthStore, AuthenticationMethod, DatabaseCreate,
+    DatabaseIdGeneration, DatabaseIdInput, DatabaseIdPlan, MemoryStore, NewPasswordUser,
+    StoredPasskey,
 };
 use std::sync::Arc;
-use uuid::Uuid;
 
 fn service(allow_anonymous: bool) -> AuthService {
     let mut config = AuthConfig::new([7_u8; 32]).unwrap();
@@ -70,19 +70,27 @@ async fn enrolled_accounts_still_receive_a_normal_password_session() {
         .unwrap();
     let now = chrono::Utc::now();
     store
-        .save_passkey(StoredPasskey {
-            id: Uuid::new_v4(),
-            user_id: user.id,
-            name: Some("Test passkey".into()),
-            credential_id: "test-credential".into(),
-            public_key: "public-key".into(),
-            counter: 0,
-            device_type: "singleDevice".into(),
-            backed_up: false,
-            transports: None,
-            aaguid: None,
-            created_at: now,
-        })
+        .save_passkey(DatabaseCreate::new(
+            StoredPasskey {
+                id: String::new(),
+                user_id: user.id,
+                name: Some("Test passkey".into()),
+                credential_id: "test-credential".into(),
+                public_key: "public-key".into(),
+                counter: 0,
+                device_type: "singleDevice".into(),
+                backed_up: false,
+                transports: None,
+                aaguid: None,
+                created_at: now,
+            },
+            DatabaseIdPlan::new(
+                DatabaseIdGeneration::Default,
+                "passkey",
+                DatabaseIdInput::Absent,
+                false,
+            ),
+        ))
         .await
         .unwrap();
 

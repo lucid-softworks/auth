@@ -8,8 +8,8 @@ pub(super) use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 pub(super) use chrono::{Duration, Utc};
 pub(super) use http_body_util::BodyExt;
 pub(super) use lucid_auth::{
-    AuthConfig, AuthError, AuthPlugin, AuthService, JwtAdapterContext, JwtConfig, JwtPlugin,
-    JwtProtectedHeader, JwtSigningOverrides, MemoryOAuthProviderStore, MemoryStore,
+    AuthConfig, AuthError, AuthPlugin, AuthService, DatabaseIdValue, JwtAdapterContext, JwtConfig,
+    JwtPlugin, JwtProtectedHeader, JwtSigningOverrides, MemoryOAuthProviderStore, MemoryStore,
     NewPasswordUser, OAuthCallbackContext, OAuthClaimTarget, OAuthClientRegistrationMode,
     OAuthClientRegistrationOutcome, OAuthClientRegistrationWrite, OAuthExpiration,
     OAuthExtensionClientAuthentication, OAuthExtensionClientAuthenticationInput,
@@ -20,7 +20,7 @@ pub(super) use lucid_auth::{
     OAuthProviderExtension, OAuthProviderMetadataDocument, OAuthProviderPlugin,
     OAuthProviderPluginConfig, OAuthProviderRefreshToken, OAuthProviderResource,
     OAuthProviderResourceStore, OAuthProviderTokenStore, OAuthRefreshRotation,
-    OAuthRefreshRotationOutcome, OAuthTokenIssuance,
+    OAuthRefreshRotationOutcome, OAuthTokenIssuance, PreparedDatabaseId,
 };
 pub(super) use serde_json::{Map, Value, json};
 pub(super) use sha2::{Digest as _, Sha256};
@@ -29,13 +29,19 @@ pub(super) use tower::ServiceExt;
 pub(super) use url::Url;
 pub(super) use uuid::Uuid;
 
+pub(super) fn oauth_record_id() -> Result<PreparedDatabaseId, AuthError> {
+    Ok(PreparedDatabaseId::Value(DatabaseIdValue::String(
+        Uuid::new_v4().to_string(),
+    )))
+}
+
 pub(super) struct Fixture {
     pub(super) app: Router,
     pub(super) service: Arc<AuthService>,
     pub(super) oauth: Arc<MemoryOAuthProviderStore>,
     pub(super) cookie: String,
-    pub(super) session_id: Uuid,
-    pub(super) user_id: Uuid,
+    pub(super) session_id: String,
+    pub(super) user_id: String,
     pub(super) raw_session_token: String,
 }
 
@@ -198,10 +204,10 @@ pub(super) async fn authorized_form_request(
     (status, headers, body)
 }
 
-pub(super) fn client(client_id: &str, user_id: Option<Uuid>) -> OAuthProviderClient {
+pub(super) fn client(client_id: &str, user_id: Option<&str>) -> OAuthProviderClient {
     let now = Utc::now();
     OAuthProviderClient {
-        id: Uuid::new_v4(),
+        id: String::new(),
         client_id: client_id.into(),
         client_secret: None,
         client_discovery_id: None,
@@ -215,7 +221,7 @@ pub(super) fn client(client_id: &str, user_id: Option<Uuid>) -> OAuthProviderCli
             "offline_access".into(),
         ]),
         client_credentials_scopes: Vec::new(),
-        user_id,
+        user_id: user_id.map(str::to_owned),
         created_at: Some(now),
         updated_at: Some(now),
         expires_at: None,
@@ -246,11 +252,11 @@ pub(super) fn client(client_id: &str, user_id: Option<Uuid>) -> OAuthProviderCli
 }
 
 pub(super) fn refresh_token(
-    id: Uuid,
+    id: String,
     token: &str,
     client_id: &str,
-    user_id: Uuid,
-    session_id: Option<Uuid>,
+    user_id: &str,
+    session_id: Option<&str>,
     scopes: Vec<String>,
 ) -> OAuthProviderRefreshToken {
     let now = Utc::now();
@@ -258,8 +264,8 @@ pub(super) fn refresh_token(
         id,
         token: token.into(),
         client_id: client_id.into(),
-        session_id,
-        user_id,
+        session_id: session_id.map(str::to_owned),
+        user_id: user_id.to_owned(),
         reference_id: None,
         authorization_code_id: None,
         resources: None,
@@ -279,17 +285,17 @@ pub(super) fn refresh_token(
 pub(super) fn access_token(
     token: &str,
     client_id: &str,
-    user_id: Uuid,
-    session_id: Option<Uuid>,
-    refresh_id: Option<Uuid>,
+    user_id: &str,
+    session_id: Option<&str>,
+    refresh_id: Option<String>,
 ) -> OAuthProviderAccessToken {
     let now = Utc::now();
     OAuthProviderAccessToken {
-        id: Uuid::new_v4(),
+        id: String::new(),
         token: token.into(),
         client_id: client_id.into(),
-        session_id,
-        user_id: Some(user_id),
+        session_id: session_id.map(str::to_owned),
+        user_id: Some(user_id.to_owned()),
         reference_id: None,
         authorization_code_id: None,
         resources: None,

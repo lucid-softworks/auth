@@ -6,51 +6,60 @@ use crate::{
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use sqlx::{Postgres, QueryBuilder};
-use uuid::Uuid;
 
 #[async_trait]
 impl OrganizationRoleStore for PostgresStore {
     async fn create_role(
         &self,
-        role: OrganizationRole,
+        role: &mut OrganizationRole,
+        id: &dyn crate::DatabaseIdSupplier,
         maximum_roles: Option<usize>,
     ) -> Result<bool, AuthError> {
         let organization = self.physical_model("organization")?;
         let model = self.physical_model("organizationRole")?;
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
-        lock_organization(&mut transaction, &organization, role.organization_id).await?;
+        lock_organization(&mut transaction, &organization, &role.organization_id).await?;
         if let Some(limit) = maximum_roles
-            && role_count(&mut transaction, &model, role.organization_id).await? >= limit as i64
+            && role_count(&mut transaction, &model, &role.organization_id).await? >= limit as i64
         {
             return Ok(false);
         }
-        let mut query =
-            crate::postgres::rows::insert_query_prefix(&model, rows::role_writes(&model, &role)?);
-        query
-            .push(" ON CONFLICT (")
-            .push(model.quoted_column("organizationId")?)
-            .push(", ")
-            .push(model.quoted_column("role")?)
-            .push(") DO NOTHING");
-        let inserted = query
+        if find(
+            &mut *transaction,
+            &model,
+            [
+                ("organizationId", json!(role.organization_id)),
+                ("role", json!(role.role)),
+            ],
+        )
+        .await?
+        .is_some()
+        {
+            return Ok(false);
+        }
+        let prepared = id.prepare()?;
+        let mut query = crate::postgres::rows::insert_query(
+            &model,
+            rows::role_writes(&model, role, &prepared)?,
+        );
+        let row = query
             .build()
-            .execute(&mut *transaction)
+            .fetch_one(&mut *transaction)
             .await
-            .map_err(storage_error)?
-            .rows_affected()
-            == 1;
+            .map_err(storage_error)?;
+        *role = rows::decode_role(&model, &row)?;
         transaction.commit().await.map_err(storage_error)?;
-        Ok(inserted)
+        Ok(true)
     }
 
-    async fn find_role(&self, id: Uuid) -> Result<Option<OrganizationRole>, AuthError> {
+    async fn find_role(&self, id: &str) -> Result<Option<OrganizationRole>, AuthError> {
         let model = self.physical_model("organizationRole")?;
-        find(&self.pool, &model, [("id", uuid_value(id))]).await
+        find(&self.pool, &model, [("id", json!(id))]).await
     }
 
     async fn find_role_by_name(
         &self,
-        organization_id: Uuid,
+        organization_id: &str,
         role: &str,
     ) -> Result<Option<OrganizationRole>, AuthError> {
         let model = self.physical_model("organizationRole")?;
@@ -58,14 +67,14 @@ impl OrganizationRoleStore for PostgresStore {
             &self.pool,
             &model,
             [
-                ("organizationId", uuid_value(organization_id)),
+                ("organizationId", json!(organization_id)),
                 ("role", json!(role)),
             ],
         )
         .await
     }
 
-    async fn list_roles(&self, organization_id: Uuid) -> Result<Vec<OrganizationRole>, AuthError> {
+    async fn list_roles(&self, organization_id: &str) -> Result<Vec<OrganizationRole>, AuthError> {
         let model = self.physical_model("organizationRole")?;
         let mut query = list_query(&model, organization_id)?;
         query
@@ -94,21 +103,21 @@ impl OrganizationRoleStore for PostgresStore {
             .transpose()
     }
 
-    async fn delete_role(&self, id: Uuid) -> Result<bool, AuthError> {
+    async fn delete_role(&self, id: &str) -> Result<bool, AuthError> {
         let organization = self.physical_model("organization")?;
         let model = self.physical_model("organizationRole")?;
         let member = self.physical_model("member")?;
         let mut transaction = self.pool.begin().await.map_err(storage_error)?;
-        let Some(role) = find(&mut *transaction, &model, [("id", uuid_value(id))]).await? else {
+        let Some(role) = find(&mut *transaction, &model, [("id", json!(id))]).await? else {
             return Ok(false);
         };
-        lock_organization(&mut transaction, &organization, role.organization_id).await?;
-        if role_assigned(&mut transaction, &member, role.organization_id, &role.role).await? {
+        lock_organization(&mut transaction, &organization, &role.organization_id).await?;
+        if role_assigned(&mut transaction, &member, &role.organization_id, &role.role).await? {
             return Ok(false);
         }
         let mut query = QueryBuilder::new("DELETE FROM ");
         query.push(model.quoted_table()).push(" WHERE \"id\" = ");
-        model.encode("id", uuid_value(id))?.push_bind(&mut query);
+        model.encode("id", json!(id))?.push_bind(&mut query);
         query
             .build()
             .execute(&mut *transaction)
@@ -155,9 +164,9 @@ fn filter_query<const N: usize>(
 
 fn list_query(
     model: &PostgresModel<'_>,
-    organization_id: Uuid,
+    organization_id: &str,
 ) -> Result<QueryBuilder<'static, Postgres>, AuthError> {
-    let mut query = filter_query(model, [("organizationId", uuid_value(organization_id))])?;
+    let mut query = filter_query(model, [("organizationId", json!(organization_id))])?;
     query
         .push(" ORDER BY ")
         .push(model.quoted_column("createdAt")?)
@@ -183,9 +192,7 @@ fn update_query(
     ])?;
     let mut query = crate::postgres::rows::update_query(model, writes);
     query.push(" WHERE \"id\" = ");
-    model
-        .encode("id", uuid_value(role.id))?
-        .push_bind(&mut query);
+    model.encode("id", json!(role.id))?.push_bind(&mut query);
     query
         .push(" AND NOT EXISTS (SELECT 1 FROM ")
         .push(model.quoted_table())
@@ -193,7 +200,7 @@ fn update_query(
         .push(model.quoted_column("organizationId")?)
         .push(" = ");
     model
-        .encode("organizationId", uuid_value(role.organization_id))?
+        .encode("organizationId", json!(role.organization_id))?
         .push_bind(&mut query);
     query
         .push(" AND ")
@@ -203,9 +210,7 @@ fn update_query(
         .encode("role", json!(role.role))?
         .push_bind(&mut query);
     query.push(" AND \"id\" <> ");
-    model
-        .encode("id", uuid_value(role.id))?
-        .push_bind(&mut query);
+    model.encode("id", json!(role.id))?.push_bind(&mut query);
     query.push(") RETURNING ").push(model.all_projection());
     Ok(query)
 }
@@ -213,7 +218,7 @@ fn update_query(
 async fn role_count(
     transaction: &mut sqlx::Transaction<'_, Postgres>,
     model: &PostgresModel<'_>,
-    organization_id: Uuid,
+    organization_id: &str,
 ) -> Result<i64, AuthError> {
     let mut query = QueryBuilder::new("SELECT count(*) FROM ");
     query
@@ -222,7 +227,7 @@ async fn role_count(
         .push(model.quoted_column("organizationId")?)
         .push(" = ");
     model
-        .encode("organizationId", uuid_value(organization_id))?
+        .encode("organizationId", json!(organization_id))?
         .push_bind(&mut query);
     query
         .build_query_scalar()
@@ -234,7 +239,7 @@ async fn role_count(
 async fn role_assigned(
     transaction: &mut sqlx::Transaction<'_, Postgres>,
     member: &PostgresModel<'_>,
-    organization_id: Uuid,
+    organization_id: &str,
     role: &str,
 ) -> Result<bool, AuthError> {
     let mut query = QueryBuilder::new("SELECT EXISTS(SELECT 1 FROM ");
@@ -244,7 +249,7 @@ async fn role_assigned(
         .push(member.quoted_column("organizationId")?)
         .push(" = ");
     member
-        .encode("organizationId", uuid_value(organization_id))?
+        .encode("organizationId", json!(organization_id))?
         .push_bind(&mut query);
     query
         .push(" AND ")
@@ -259,30 +264,32 @@ async fn role_assigned(
         .map_err(storage_error)
 }
 
-fn uuid_value(value: Uuid) -> Value {
-    Value::String(value.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::Utc;
     use std::collections::BTreeMap;
+    use uuid::Uuid;
 
     #[test]
     fn role_queries_remap_create_filter_sort_and_update() {
         let physical = super::super::test_support::physical_schema();
         let model = physical.model("organizationRole").unwrap();
         let role = OrganizationRole {
-            id: Uuid::from_u128(51),
-            organization_id: Uuid::from_u128(52),
+            id: Uuid::from_u128(51).to_string(),
+            organization_id: Uuid::from_u128(52).to_string(),
             role: "private-role".into(),
             permission: BTreeMap::from([("team".into(), vec!["read".into()])]),
             created_at: Utc::now(),
             updated_at: Some(Utc::now()),
         };
 
-        let writes = rows::role_writes(&model, &role).unwrap();
+        let writes = rows::role_writes(
+            &model,
+            &role,
+            &crate::postgres::rows::explicit_id(role.id.clone()),
+        )
+        .unwrap();
         let insert = crate::postgres::rows::insert_query_prefix(&model, writes);
         assert!(insert.sql().starts_with("INSERT INTO \"org\"\"roles\""));
         assert!(insert.sql().contains("\"permission json\""));
@@ -291,7 +298,7 @@ mod tests {
         let filter = filter_query(
             &model,
             [
-                ("organizationId", uuid_value(role.organization_id)),
+                ("organizationId", json!(role.organization_id)),
                 ("role", json!("private-role")),
             ],
         )
@@ -299,7 +306,7 @@ mod tests {
         assert!(filter.sql().contains("\"tenant id\" = $1"));
         assert!(filter.sql().contains("\"role name\" = $2"));
 
-        let list = list_query(&model, role.organization_id).unwrap();
+        let list = list_query(&model, &role.organization_id).unwrap();
         assert!(list.sql().contains("ORDER BY \"created time\" ASC"));
         let update = update_query(&model, &role).unwrap();
         assert!(update.sql().contains("SET \"role name\" = $1"));
