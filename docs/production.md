@@ -1,7 +1,7 @@
 # Production deployment checklist
 
 Use this checklist after the [installation guide](installation.md). The runnable
-PostgreSQL example demonstrates the correct startup order, but production hosts
+SQLite and PostgreSQL examples demonstrate the correct startup order, but production hosts
 must supply their own process supervision, TLS edge, observability, and secret
 management.
 
@@ -23,7 +23,7 @@ management.
 - Use the same secret on every instance and keep it stable across restarts.
 - lucid-auth currently accepts one active secret. Plan rotation as a coordinated
   session/cookie invalidation until multi-secret rollover is implemented.
-- Keep OAuth client secrets, email-provider credentials, and the PostgreSQL URL
+- Keep OAuth client secrets, email-provider credentials, and database URLs
   under the same operational controls.
 
 ## TLS and cookies
@@ -98,12 +98,27 @@ proxy trust.
   `redirectTo`, `errorCallbackURL`, and `newUserCallbackURL`.
 - Pin custom-scheme origins to the intended authority/path where possible.
 
-## PostgreSQL and migrations
+## Database storage and migrations
 
-- Use PostgreSQL for durable or multi-instance deployments. `MemoryStore` is
+- Use SQLite for a local single-host database or PostgreSQL for conventional
+  multi-instance deployments. `MemoryStore` is
   process-local and loses users, sessions, challenges, and rate limits on exit.
+- For SQLite, construct `SqliteStore` with the same resolved service schema and
+  run its additive migration plan before accepting traffic. It intentionally
+  has no release ledger, all-plan transaction, retry, WAL, busy-timeout,
+  synchronous, shared-cache, checkpoint, vacuum, or foreign-key policy.
+  Configure those choices on the supplied SQLx pool and test the resulting file
+  locking and backup behavior on the actual host filesystem.
+- A plain SQLite `:memory:` URL belongs to one connection. Limit that pool to
+  one connection unless the application explicitly selects a shared-memory
+  configuration. Enable `foreign_keys` in caller connection options when the
+  generated `REFERENCES` clauses must be enforced; the store never toggles it.
+- SQLite schema evolution only adds the objects supported by the pinned Better
+  Auth 1.7.1 Kysely migration behavior. Treat unsafe required-column additions,
+  type/nullable warnings, and index conflicts as manual deployment work. It
+  never drops, renames, rewrites, or backfills existing objects.
 - Apply `store.migrate_all(&service.plugin_migrations())` and require its schema
-  report to be compatible before traffic reaches a new version. Use the
+  report to be compatible before PostgreSQL traffic reaches a new version. Use the
   read-only `diagnose_schema` API for readiness checks and drift inspection.
 - Back up and test restore procedures before upgrades. Bound-schema evolution
   and Lucid extension operations are idempotent, transactional, and serialized

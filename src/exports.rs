@@ -50,4 +50,5 @@ pub use crate::{
     commet::*, creem::*, database_schema::*, device_authorization::*, dodo_payments::*, dub::*,
     electron::*, error::AuthError, expo::*, have_i_been_pwned::*, i18n::*, mcp::*,
     memory::MemoryStore, open_api::*, origin::TrustedOrigin, polar::*, stripe::*, test_utils::*,
+    user_deletion::*,
 };

@@ -76,6 +76,8 @@ pub mod axum;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 pub mod protocol;
+#[cfg(feature = "sqlite")]
+pub mod sqlite;
 
 pub use additional_fields::{
     AdditionalField, AdditionalFieldDefault, AdditionalFieldOnDelete, AdditionalFieldReference,
@@ -245,9 +247,4 @@ pub use store::{
     DependentAccountContext, DependentAccountPreparer, OAuthAccountOwner, OAuthAccountStore,
     OAuthTokenUpdateOutcome, PasskeyDeleteOutcome, PreparedDatabaseId, SecurityStore,
     UserProfileUpdate, VerificationStore, run_database_transaction,
-};
-pub use user_deletion::{
-    ChangeEmailConfig, ChangeEmailConfirmation, ChangeEmailConfirmationSender,
-    DeleteAccountVerification, DeleteAccountVerificationSender, DeleteUserConfig, UserConfig,
-    UserDeletionCallback,
 };

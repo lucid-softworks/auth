@@ -11,7 +11,7 @@ limitations, upgrade audit, and links to every tracked gap.
 
 ## Start here
 
-- [Install and run the memory or PostgreSQL server](docs/installation.md)
+- [Install and run the memory, SQLite, or PostgreSQL server](docs/installation.md)
 - [Connect React, Vue, Svelte, Solid, vanilla, SSR, and extension clients](docs/frameworks.md)
 - [Connect the pinned Electron main, preload, renderer, and browser-proxy clients](docs/frameworks.md#electron)
 - [Review the production proxy, TLS, cookie, CORS, secret, and migration checklist](docs/production.md)
@@ -28,6 +28,23 @@ export BETTER_AUTH_URL="http://localhost:3000"
 export FRONTEND_ORIGIN="http://localhost:5173"
 cargo run --example http_memory --features axum
 ```
+
+For durable local storage without a separate database server, enable `sqlite`
+and run the native SQLx example. The store consumes the same resolved Better
+Auth schema as the service and performs additive Better Auth 1.7.1 migrations:
+
+```sh
+export DATABASE_URL="sqlite://lucid-auth.db"
+cargo run --example http_sqlite --features axum,sqlite
+```
+
+`SqliteStore` accepts an existing `SqlitePool`, a URL, or caller-built SQLx
+connection options. It does not set foreign keys, WAL, synchronous mode, busy
+timeouts, shared cache, retries, or checkpoint policy. A plain
+`sqlite::memory:` database must use one pool connection; use a file database or
+an explicitly configured shared-memory URI for multiple connections. See the
+[SQLite storage matrix](COMPATIBILITY.md#storage-and-deployment) for the exact
+native versus D1 boundary.
 
 The currently supported surface covers:
 
@@ -2022,7 +2039,7 @@ atomic; unknown-user verification and reset sends remain enumeration-safe.
 the Better Auth plugin options. Native code can also call `create_email_otp` and
 `get_email_otp`, corresponding to Better Auth's server-only APIs.
 
-Phone Number is an optional native plugin. Supply the same memory or PostgreSQL
+Phone Number is an optional native plugin. Supply the same memory, SQLite, or PostgreSQL
 store used by `AuthService`, an OTP sender, and—when OTP verification may create
 users—a temporary-email resolver:
 
@@ -2154,7 +2171,7 @@ migrate the bound service schema, including the configured wallet-address
 model.
 
 Organization is an optional native plugin. Its store is independent from the
-core authentication store and can use either memory or PostgreSQL:
+core authentication store and can use memory, SQLite, or PostgreSQL:
 
 ```rust
 let organizations = Arc::new(MemoryOrganizationStore::default());
@@ -2176,8 +2193,8 @@ The plugin implements every Better Auth 1.7.1 `organizationClient` method for
 organizations, active state, members, invitations, teams, permissions, and
 dynamic roles. Limits and last-owner rules are enforced atomically. Invitation
 delivery, creation policy, and all documented organization/member/invitation/team
-lifecycle hooks have native async traits. PostgreSQL users pass the shared
-`PostgresStore` and migrate the schema after binding the service.
+lifecycle hooks have native async traits. SQLite and PostgreSQL users pass the
+shared database store and migrate the resolved schema after binding the service.
 
 API Key is an optional native plugin. Register it explicitly; without the plugin,
 its routes and PostgreSQL table do not exist:
