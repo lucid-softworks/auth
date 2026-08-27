@@ -82,25 +82,6 @@ impl AuthService {
             .await?
             .ok_or_else(|| OneTimeTokenError::SessionNotFound.into())
     }
-
-    #[cfg(feature = "axum")]
-    pub(crate) async fn session_being_bound(&self, token: &str) -> Option<SessionWithUser> {
-        if !self
-            .plugins
-            .find::<crate::OneTimeTokenPlugin>()
-            .is_some_and(|plugin| plugin.config().set_ott_header_on_new_session)
-        {
-            return None;
-        }
-        if let Ok(Some(session)) = self.find_stored_session(token).await {
-            return Some(session);
-        }
-        self.pending_stateless_sessions
-            .lock()
-            .await
-            .get(token)
-            .cloned()
-    }
 }
 
 async fn stored_token(storage: &OneTimeTokenStorage, token: &str) -> Result<String, AuthError> {

@@ -19,6 +19,8 @@ mod cookie_signing;
 mod database;
 #[cfg(feature = "axum")]
 mod device_authorization;
+#[cfg(feature = "axum")]
+mod electron;
 mod email_otp;
 mod email_password;
 mod email_verification;
@@ -55,6 +57,8 @@ mod provider_logout;
 mod provider_refresh;
 mod recovery;
 mod session;
+#[cfg(feature = "axum")]
+mod session_binding;
 mod session_create;
 #[cfg(feature = "axum")]
 mod session_http_cache;

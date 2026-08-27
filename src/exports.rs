@@ -47,7 +47,7 @@ pub use crate::username::{
 };
 pub use crate::{
     agent_auth::*, autumn::*, bearer::*, captcha::*, chargebee::*, client_ip::IpAddressConfig,
-    commet::*, creem::*, dodo_payments::*, dub::*, error::AuthError, expo::*, have_i_been_pwned::*,
-    i18n::*, mcp::*, memory::MemoryStore, open_api::*, origin::TrustedOrigin, polar::*, stripe::*,
-    test_utils::*,
+    commet::*, creem::*, device_authorization::*, dodo_payments::*, dub::*, electron::*,
+    error::AuthError, expo::*, have_i_been_pwned::*, i18n::*, mcp::*, memory::MemoryStore,
+    open_api::*, origin::TrustedOrigin, polar::*, stripe::*, test_utils::*,
 };

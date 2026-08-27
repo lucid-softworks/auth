@@ -13,6 +13,7 @@ limitations, upgrade audit, and links to every tracked gap.
 
 - [Install and run the memory or PostgreSQL server](docs/installation.md)
 - [Connect React, Vue, Svelte, Solid, vanilla, SSR, and extension clients](docs/frameworks.md)
+- [Connect the pinned Electron main, preload, renderer, and browser-proxy clients](docs/frameworks.md#electron)
 - [Review the production proxy, TLS, cookie, CORS, secret, and migration checklist](docs/production.md)
 - [Choose a database ID strategy and migrate older UUID schemas](#database-id-strategies)
 - [Choose only supported core methods and plugins](COMPATIBILITY.md)
@@ -41,6 +42,8 @@ The currently supported surface covers:
 - the complete official `lastLoginMethodClient` surface as an optional native plugin
 - the official `jwtClient` token/JWKS surface as an optional native plugin
 - the complete official `oneTimeTokenClient` surface as an optional native plugin
+- the official `@better-auth/electron` main-process, preload, renderer, and
+  browser-proxy flow as an optional native plugin
 - standalone and OAuth Provider device authorization through the official
   `deviceAuthorizationClient` and `oauthDeviceAuthorizationClient`
 - the complete Better Auth username lifecycle as an optional native plugin
@@ -203,7 +206,28 @@ cookie filtering, focus/network managers, session caching, and
 `lastLoginMethodClient` remain client-side features of the pinned npm package;
 the Rust plugin owns no schema, migration, device state, or retry layer. See the
  [framework guide](docs/frameworks.md#expo-and-react-native) for the complete
- boundary.
+boundary.
+
+### Electron
+
+Install the exact client package and enable its native server counterpart:
+
+```sh
+npm install --save-exact better-auth@1.7.1 @better-auth/electron@1.7.1
+```
+
+```rust
+use lucid_auth::ElectronPlugin;
+
+config.add_plugin(ElectronPlugin::default())?;
+```
+
+Use `electronClient()` only in Electron's main process, `setupRenderer()` in a
+context-isolated preload, and `electronProxyClient()` in the web page that
+hands the authenticated browser session back to the application. Keep the
+session/cookie store in the main process. The complete setup, package entry
+points, deep-link flow, and the pinned package's raw-versus-encoded token
+boundary are documented in the [framework guide](docs/frameworks.md#electron).
 
 ### Stripe billing
 

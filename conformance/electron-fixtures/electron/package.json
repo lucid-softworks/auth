@@ -1,0 +1,6 @@
+{
+  "name": "electron",
+  "version": "36.0.0",
+  "type": "module",
+  "main": "index.js"
+}

@@ -20,6 +20,7 @@ mod database_schema;
 pub mod device_authorization;
 mod dodo_payments;
 mod dub;
+mod electron;
 mod email;
 mod email_otp;
 mod error;
@@ -101,7 +102,6 @@ pub use database_hooks::{
     DeferredHookResponse,
 };
 pub use database_schema::*;
-pub use device_authorization::*;
 pub use email::{
     EmailVerificationConfig, PasswordResetCallback, PasswordResetEmail, PasswordResetEmailSender,
     VerificationEmail, VerificationEmailSender,

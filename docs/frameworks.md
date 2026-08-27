@@ -168,16 +168,88 @@ device store, or retry behavior; see [#77](https://github.com/lucid-softworks/au
 
 ## Electron
 
-The official `@better-auth/electron` system-browser integration is **not yet
-compatible**. It requires server-side transfer/code-exchange and proxy routes
-that are not part of the core HTTP client. This is tracked in
-[#78](https://github.com/lucid-softworks/auth/issues/78).
+The official `@better-auth/electron@1.7.1` main-process client, preload bridge,
+storage adapter, and browser proxy are supported by the optional native
+`ElectronPlugin`. Install the exact packages; the published Electron package
+requires Node 22 or newer and Electron 36 or newer:
 
-A hand-written Electron main-process client may use supported HTTP endpoints,
-but it must keep cookie/token material out of the renderer and implement its own
-safe system-browser callback flow. The documented `electronClient()` and
-`electronProxyClient()` must not be advertised until the native plugin passes
-their exact conformance contract.
+```sh
+npm install --save-exact better-auth@1.7.1 @better-auth/electron@1.7.1
+npm install electron conf
+```
+
+Enable the server plugin. The default `client_id` is `electron`, the transfer
+code lasts 300 seconds, the readable redirect cookie lasts 120 seconds, and its
+prefix is `better-auth`:
+
+```rust
+use lucid_auth::{ElectronOptions, ElectronPlugin};
+
+config.trust_origin("com.example.app:/")?;
+config.add_plugin(ElectronPlugin::new(ElectronOptions::default()))?;
+```
+
+The Electron main process owns `electronClient()` and persistent storage:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { electronClient } from "@better-auth/electron/client";
+import { storage } from "@better-auth/electron/storage";
+
+export const authClient = createAuthClient({
+  baseURL: "https://auth.example.com",
+  plugins: [electronClient({
+    protocol: "com.example.app",
+    signInURL: "https://app.example.com/sign-in",
+    storage: storage(),
+  })],
+});
+
+authClient.setupMain();
+```
+
+Expose only the package's fixed IPC bridge from a context-isolated preload:
+
+```ts
+import { setupRenderer } from "@better-auth/electron/preload";
+
+setupRenderer();
+```
+
+The web sign-in page adds the proxy client and starts its redirect poll after
+authentication:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { electronProxyClient } from "@better-auth/electron/proxy";
+
+export const browserAuth = createAuthClient({
+  plugins: [electronProxyClient({ protocol: "com.example.app" })],
+});
+
+browserAuth.ensureElectronRedirect();
+```
+
+Keep cookie/session storage and `authenticate()` in the main process; do not
+send bearer or cookie material into the renderer. Retain the package defaults
+on both clients unless the same `clientID`, cookie prefix, protocol, and
+callback path are configured consistently.
+
+The pinned package intentionally has an asymmetric handoff: its server response
+contains the raw 32-character authorization code, while the readable redirect
+cookie contains base64url JSON and the browser proxy places that encoded value
+in the deep-link fragment. Pass the deep-link `token` to the official
+`authenticate()` action. Do not feed the raw response code into it and do not
+add aliases or decoding fallbacks. `callbackURL` is the only accepted request
+field spelling.
+
+Provider-based `requestAuth({ provider: ... })` uses the native in-process
+`/electron/init-oauth-proxy` route. The direct sign-in URL remains an
+application-owned browser page. Lucid-auth does not treat the nonstandard
+`electron-origin` header as an `Origin`; configure normal trusted web origins
+for browser requests. The plugin adds no database model or migration and uses
+the existing verification and session stores. See the exact audited boundary
+in [the compatibility matrix](../COMPATIBILITY.md#storage-and-deployment).
 
 ## Client plugins and types
 
@@ -191,4 +263,4 @@ The official docs used for this boundary are Better Auth's
 [installation](https://better-auth.com/docs/installation),
 [client](https://better-auth.com/docs/concepts/client),
 [Expo](https://better-auth.com/docs/integrations/expo), and
-[Electron](https://better-auth.com/docs/beta/integrations/electron) guides.
+[Electron](https://better-auth.com/docs/integrations/electron) guides.
