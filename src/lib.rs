@@ -76,6 +76,8 @@ pub mod axum;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 pub mod protocol;
+#[cfg(feature = "sqlite")]
+pub mod sqlite;
 
 pub use additional_fields::{
     AdditionalField, AdditionalFieldDefault, AdditionalFieldOnDelete, AdditionalFieldReference,
