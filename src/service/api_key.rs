@@ -13,7 +13,6 @@ use chrono::Utc;
 use rand::RngExt;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Default)]
 pub struct ApiKeyUpdate {
@@ -52,7 +51,7 @@ impl AuthService {
         actor: &SessionWithUser,
         config: &ApiKeyConfiguration,
         input: NewApiKey,
-        organization_id: Uuid,
+        organization_id: &str,
     ) -> Result<IssuedApiKey, AuthError> {
         self.issue_api_key_for_reference(actor, config, input, Some(organization_id))
             .await
@@ -63,7 +62,7 @@ impl AuthService {
         actor: &SessionWithUser,
         config: &ApiKeyConfiguration,
         mut input: NewApiKey,
-        organization_id: Option<Uuid>,
+        organization_id: Option<&str>,
     ) -> Result<IssuedApiKey, AuthError> {
         self.plugins.authorize_application_access(actor).await?;
         let reference_id = match config.reference {
@@ -72,7 +71,7 @@ impl AuthService {
                 let organization_id = organization_id.ok_or(ApiKeyError::OrganizationIdRequired)?;
                 self.authorize_organization_api_key(actor, organization_id, "create")
                     .await?;
-                organization_id.to_string()
+                organization_id.to_owned()
             }
         };
         validate_create(config, &input)?;
@@ -159,7 +158,7 @@ impl AuthService {
         config_id: Option<&str>,
         sort_by: Option<&str>,
         direction: ApiKeySortDirection,
-        organization_id: Uuid,
+        organization_id: &str,
     ) -> Result<Vec<ApiKey>, AuthError> {
         self.list_api_keys_for_reference(
             actor,
@@ -179,7 +178,7 @@ impl AuthService {
         config_id: Option<&str>,
         sort_by: Option<&str>,
         direction: ApiKeySortDirection,
-        organization_id: Option<Uuid>,
+        organization_id: Option<&str>,
     ) -> Result<Vec<ApiKey>, AuthError> {
         self.plugins.authorize_application_access(actor).await?;
         if let Some(organization_id) = organization_id {
@@ -187,7 +186,7 @@ impl AuthService {
                 .await?;
         }
         let reference_id = organization_id
-            .map(|id| id.to_string())
+            .map(str::to_owned)
             .unwrap_or_else(|| actor.user.id.clone());
         let mut keys = self
             .list_api_key_records(config, &reference_id, config_id)
@@ -260,11 +259,7 @@ impl AuthService {
                 Err(ApiKeyError::NotFound.into())
             }
             ApiKeyReference::Organization => {
-                let organization_id = api_key
-                    .reference_id
-                    .parse()
-                    .map_err(|_| ApiKeyError::NotFound)?;
-                self.authorize_organization_api_key(actor, organization_id, action)
+                self.authorize_organization_api_key(actor, &api_key.reference_id, action)
                     .await?;
                 Ok(api_key)
             }
@@ -275,7 +270,7 @@ impl AuthService {
     async fn authorize_organization_api_key(
         &self,
         actor: &SessionWithUser,
-        organization_id: Uuid,
+        organization_id: &str,
         action: &str,
     ) -> Result<(), AuthError> {
         let plugin = self
@@ -284,7 +279,7 @@ impl AuthService {
             .ok_or(ApiKeyError::OrganizationPluginRequired)?;
         let member = plugin
             .store
-            .find_member(&organization_id.to_string(), &actor.user.id)
+            .find_member(organization_id, &actor.user.id)
             .await?
             .ok_or(ApiKeyError::UserNotOrganizationMember)?;
         let required = BTreeMap::from([("apiKey".into(), vec![action.into()])]);

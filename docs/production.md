@@ -108,6 +108,10 @@ proxy trust.
 - Back up and test restore procedures before upgrades. Bound-schema evolution
   and Lucid extension operations are idempotent, transactional, and serialized
   with an advisory lock, but they are not a substitute for database backups.
+- Select `AuthConfig::database_id_generation` before the first migration and
+  keep it identical on every instance. Older lucid-auth UUID schemas require
+  the [breaking database ID migration](database-id-migration.md); the migrator
+  reports incompatible ID/reference types but does not rewrite their data.
 - Configure enough SQL connections for authentication and plugin workloads;
   bound the pool rather than allowing unbounded connections per instance.
 - Use database rate-limit storage when more than one service instance accepts

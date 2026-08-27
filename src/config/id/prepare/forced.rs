@@ -42,6 +42,7 @@ pub(super) fn prepare_forced_id(
         }
         DatabaseIdInput::Number(value) => PreparedDatabaseId::Value(DatabaseIdValue::Number(value)),
         DatabaseIdInput::String(value) => string_id(value),
+        DatabaseIdInput::Array(value) => PreparedDatabaseId::Value(DatabaseIdValue::Array(value)),
         DatabaseIdInput::Absent | DatabaseIdInput::Null => deferred_id(strategy),
     }
 }
@@ -52,6 +53,7 @@ fn is_falsey(input: &DatabaseIdInput) -> bool {
         DatabaseIdInput::Boolean(value) => !value,
         DatabaseIdInput::Number(value) => *value == 0.0 || value.is_nan(),
         DatabaseIdInput::String(value) => value.is_empty(),
+        DatabaseIdInput::Array(_) => false,
     }
 }
 
@@ -60,8 +62,13 @@ fn javascript_number(input: &DatabaseIdInput) -> Option<f64> {
         DatabaseIdInput::Boolean(value) => Some(u8::from(*value).into()),
         DatabaseIdInput::Number(value) => (!value.is_nan()).then_some(*value),
         DatabaseIdInput::String(value) => javascript_number_string(value),
+        DatabaseIdInput::Array(value) => javascript_number_string(&javascript_array_string(value)),
         DatabaseIdInput::Absent | DatabaseIdInput::Null => Some(0.0),
     }
+}
+
+fn javascript_array_string(value: &[serde_json::Value]) -> String {
+    DatabaseIdValue::Array(value.to_vec()).into_output_string()
 }
 
 fn javascript_number_string(input: &str) -> Option<f64> {

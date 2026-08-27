@@ -1,7 +1,6 @@
 use super::{ApiKeyConfiguration, ApiKeyReference, config_ids_match, http_input};
 use crate::{ApiKey, ApiKeySortDirection, AuthError, AuthService, SessionWithUser};
 use std::collections::HashSet;
-use uuid::Uuid;
 
 pub(super) async fn list_records(
     service: &AuthService,
@@ -10,7 +9,7 @@ pub(super) async fn list_records(
     requested_config_id: Option<&str>,
     sort_by: Option<&str>,
     direction: ApiKeySortDirection,
-    organization_id: Option<Uuid>,
+    organization_id: Option<&str>,
 ) -> Result<Vec<ApiKey>, AuthError> {
     let mut records = if requested_config_id.is_some_and(|id| !id.is_empty()) {
         let config = http_input::resolve_configuration(configurations, requested_config_id)?;
@@ -59,7 +58,7 @@ async fn list_all_storage_groups(
     configurations: &[ApiKeyConfiguration],
     sort_by: Option<&str>,
     direction: ApiKeySortDirection,
-    organization_id: Option<Uuid>,
+    organization_id: Option<&str>,
 ) -> Result<Vec<ApiKey>, AuthError> {
     let mut storage_groups = HashSet::new();
     let mut seen_ids = HashSet::new();
@@ -94,7 +93,7 @@ async fn list_storage_group(
     config_id: Option<&str>,
     sort_by: Option<&str>,
     direction: ApiKeySortDirection,
-    organization_id: Option<Uuid>,
+    organization_id: Option<&str>,
 ) -> Result<Vec<ApiKey>, AuthError> {
     match organization_id {
         Some(organization_id) => {

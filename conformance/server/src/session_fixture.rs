@@ -7,7 +7,8 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use lucid_auth::{
-    AuthSession, AuthStore, AuthenticationMethod, SecondaryStorage, StoredPasskey,
+    AuthSession, AuthStore, AuthenticationMethod, DatabaseCreate, DatabaseIdGeneration,
+    DatabaseIdInput, DatabaseIdPlan, SecondaryStorage, StoredPasskey,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -24,22 +25,29 @@ pub(crate) async fn create(
     let token = Uuid::new_v4().to_string();
     let now = Utc::now();
     ensure_passkey(&fixture, authentication_method, now).await;
-    let session = AuthSession {
-        id: Uuid::new_v4(),
-        user_id: fixture.owner_id,
-        token: token.clone(),
-        actor_user_id: None,
-        authentication_method: Some(authentication_method),
-        expires_at: now + Duration::hours(1),
-        created_at: now,
-        updated_at: now,
-        ip_address: None,
-        user_agent: Some("official Better Auth client conformance".into()),
-        additional_fields: serde_json::Map::new(),
-    };
-    fixture
+    let session = fixture
         .store
-        .create_session(session.clone())
+        .create_session(DatabaseCreate::new(
+            AuthSession {
+                id: String::new(),
+                user_id: fixture.owner_id.clone(),
+                token: token.clone(),
+                actor_user_id: None,
+                authentication_method: Some(authentication_method),
+                expires_at: now + Duration::hours(1),
+                created_at: now,
+                updated_at: now,
+                ip_address: None,
+                user_agent: Some("official Better Auth client conformance".into()),
+                additional_fields: serde_json::Map::new(),
+            },
+            DatabaseIdPlan::new(
+                DatabaseIdGeneration::Default,
+                "session",
+                DatabaseIdInput::Absent,
+                false,
+            ),
+        ))
         .await
         .expect("persist fixture session");
     persist_secondary_session(&fixture, &session).await;
@@ -49,7 +57,7 @@ pub(crate) async fn create(
 async fn persist_secondary_session(fixture: &Fixture, session: &AuthSession) {
     let user = fixture
         .store
-        .find_user_by_id(fixture.owner_id)
+        .find_user_by_id(&fixture.owner_id)
         .await
         .expect("load fixture owner")
         .expect("fixture owner exists");
@@ -113,7 +121,7 @@ async fn ensure_passkey(
     if authentication_method != AuthenticationMethod::Passkey
         || !fixture
             .store
-            .list_passkeys(fixture.owner_id)
+            .list_passkeys(&fixture.owner_id)
             .await
             .expect("list fixture passkeys")
             .is_empty()
@@ -122,19 +130,27 @@ async fn ensure_passkey(
     }
     fixture
         .store
-        .save_passkey(StoredPasskey {
-            id: Uuid::new_v4(),
-            user_id: fixture.owner_id,
-            name: Some("Conformance key".into()),
-            credential_id: "conformance-credential".into(),
-            public_key: "cHVibGljLWtleQ==".into(),
-            counter: 0,
-            device_type: "singleDevice".into(),
-            backed_up: false,
-            transports: None,
-            aaguid: None,
-            created_at: now,
-        })
+        .save_passkey(DatabaseCreate::new(
+            StoredPasskey {
+                id: String::new(),
+                user_id: fixture.owner_id.clone(),
+                name: Some("Conformance key".into()),
+                credential_id: "conformance-credential".into(),
+                public_key: "cHVibGljLWtleQ==".into(),
+                counter: 0,
+                device_type: "singleDevice".into(),
+                backed_up: false,
+                transports: None,
+                aaguid: None,
+                created_at: now,
+            },
+            DatabaseIdPlan::new(
+                DatabaseIdGeneration::Default,
+                "passkey",
+                DatabaseIdInput::Absent,
+                false,
+            ),
+        ))
         .await
         .expect("persist fixture passkey");
 }

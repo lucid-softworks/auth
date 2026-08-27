@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 
 mod create;
 mod delete;
+mod user;
 
 use create::{
     CredentialAccountCreate, OAuthAccountCreate, apply_create_before, create_hook_record,
@@ -64,67 +65,6 @@ impl AuthService {
             service: self.clone(),
             account,
         }
-    }
-
-    pub(super) async fn prepare_user_create(
-        &self,
-        user: crate::AuthUser,
-    ) -> Result<DatabaseCreate<crate::AuthUser>, AuthError> {
-        self.prepare_user_create_with_input(user, None).await
-    }
-
-    pub(super) async fn prepare_forced_user_create(
-        &self,
-        user: crate::AuthUser,
-    ) -> Result<DatabaseCreate<crate::AuthUser>, AuthError> {
-        let id = DatabaseIdInput::String(user.id.clone());
-        self.prepare_user_create_with_input(user, Some(id)).await
-    }
-
-    async fn prepare_user_create_with_input(
-        &self,
-        mut user: crate::AuthUser,
-        supplied_id: Option<DatabaseIdInput>,
-    ) -> Result<DatabaseCreate<crate::AuthUser>, AuthError> {
-        user.additional_fields =
-            self.create_additional_fields(DatabaseModel::User, user.additional_fields)?;
-        let mut draft = create_hook_record(DatabaseRecord::User(user))?;
-        if let Some(id) = supplied_id {
-            draft.merge(crate::DatabaseCreatePatch::new().with_id(id));
-        }
-        let (record, id, id_present) =
-            decode_create_hook_record(self.before_database_create(draft).await?, None)?;
-        match record {
-            DatabaseRecord::User(user) => {
-                self.prepare_database_create(DatabaseModel::User.as_str(), id, id_present, user)
-            }
-            _ => unreachable!("database hook model was validated"),
-        }
-    }
-
-    pub(super) async fn finish_user_create(&self, user: &crate::AuthUser) -> Result<(), AuthError> {
-        self.after_database_create(&DatabaseRecord::User(user.clone()))
-            .await
-    }
-
-    pub(super) async fn prepare_user_update(
-        &self,
-        original: &crate::AuthUser,
-        candidate: crate::AuthUser,
-    ) -> Result<crate::AuthUser, AuthError> {
-        let candidate = match self
-            .before_database_update(DatabaseRecord::User(candidate))
-            .await?
-        {
-            DatabaseRecord::User(user) => user,
-            _ => unreachable!("database hook model was validated"),
-        };
-        if candidate.id != original.id || candidate.created_at != original.created_at {
-            return Err(AuthError::InvalidConfiguration(
-                "a user update database hook changed a protected field".into(),
-            ));
-        }
-        Ok(candidate)
     }
 
     pub(super) fn create_additional_fields(

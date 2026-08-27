@@ -235,7 +235,7 @@ impl AuthService {
             updated_at: now,
         };
         let user = self
-            .prepare_user_create(user)
+            .prepare_user_create_with_prepared_fields(user)
             .await
             .map_err(|_| AuthError::OAuthUnableToCreateUser)?;
         account.user_id.clear();

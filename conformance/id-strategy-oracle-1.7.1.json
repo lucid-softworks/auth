@@ -1,0 +1,36 @@
+{
+  "betterAuthVersion": "1.7.1",
+  "defaultLength": 32,
+  "testUtilsFallbackLength": 24,
+  "alphabetProbe": "azAZ09",
+  "errors": {
+    "invalidLength": "Length must be a positive integer.",
+    "unsupportedSerial": "[oracle] Your database or database adapter does not support numeric ids. Please disable \"useNumberId\" in your config."
+  },
+  "warnings": {
+    "suppliedId": "[oracle] - You are trying to create a record with an id. This is not allowed as we handle id generation for you, unless you pass in the `forceAllowId` parameter. The id will be ignored.",
+    "invalidUuid": "[Adapter Factory] - Invalid UUID value for field `id` provided when `forceAllowId` is true. Generating a new UUID.",
+    "memoryFalse": "[better-auth] Misconfiguration detected.\nYou are using the memory DB with generateId: false.\nThis will cause no id to be generated for any model.\nMost of the features of Better Auth will not work correctly."
+  },
+  "fixedUuid": "123e4567-e89b-42d3-a456-426614174000",
+  "serialCoercion": [
+    { "kind": "boolean", "value": true, "output": 1 },
+    { "kind": "string", "value": " 0x10 ", "output": 16 },
+    { "kind": "array", "value": [], "output": 0 },
+    { "kind": "array", "value": [7], "output": 7 },
+    { "kind": "array", "value": [1, 2], "output": null },
+    { "kind": "null", "value": null, "output": null },
+    { "kind": "boolean", "value": false, "output": null },
+    { "kind": "number", "value": 0, "output": null },
+    { "kind": "string", "value": "", "output": null }
+  ],
+  "adapterCallback": {
+    "keys": ["model"],
+    "model": "widget",
+    "hasSize": false
+  },
+  "contextCallbacks": [
+    { "source": "legacy", "keys": ["model", "size"], "model": "user", "hasSize": true, "size": "undefined" },
+    { "source": "database", "keys": ["model", "size"], "model": "session", "hasSize": true, "size": 9 }
+  ]
+}

@@ -14,6 +14,7 @@ limitations, upgrade audit, and links to every tracked gap.
 - [Install and run the memory or PostgreSQL server](docs/installation.md)
 - [Connect React, Vue, Svelte, Solid, vanilla, SSR, and extension clients](docs/frameworks.md)
 - [Review the production proxy, TLS, cookie, CORS, secret, and migration checklist](docs/production.md)
+- [Choose a database ID strategy and migrate older UUID schemas](#database-id-strategies)
 - [Choose only supported core methods and plugins](COMPATIBILITY.md)
 - [Enable Agent Auth and review its exact server/client boundary](COMPATIBILITY.md#agent-auth)
 
@@ -87,6 +88,74 @@ The library keeps authentication protocol details separate from host-product
 authorization. Core principals contain actor, subject, session, and credential
 provenance only. An explicitly enabled host-policy plugin may project a role;
 core-only principals leave it unset.
+
+### Database ID strategies
+
+`AuthConfig::database_id_generation` is the exact native equivalent of Better
+Auth 1.7.1's `advanced.database.generateId`. The default is not UUID: it creates
+32-character `a-zA-Z0-9` IDs in the application.
+
+```rust
+use lucid_auth::DatabaseIdGeneration;
+
+// Better Auth's omitted/default advanced.database.generateId.
+config.database_id_generation = DatabaseIdGeneration::Default;
+
+// Better Auth generateId: false. Every inserted table needs a database default.
+config.database_id_generation = DatabaseIdGeneration::Database;
+
+// Better Auth generateId: "serial". PostgreSQL uses integer identity columns.
+config.database_id_generation = DatabaseIdGeneration::Serial;
+
+// Better Auth generateId: "uuid". PostgreSQL uses native UUID columns/defaults.
+config.database_id_generation = DatabaseIdGeneration::Uuid;
+```
+
+A callback receives Better Auth's logical model name and the presence-sensitive
+size requested by the calling path:
+
+```rust
+use lucid_auth::{
+    DatabaseIdGeneration, DatabaseIdGenerationRequest,
+    DatabaseIdGenerationResult, DatabaseIdGenerator,
+};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
+
+#[derive(Debug)]
+struct ModelIds(AtomicU64);
+
+impl DatabaseIdGenerator for ModelIds {
+    fn generate(
+        &self,
+        request: DatabaseIdGenerationRequest<'_>,
+    ) -> DatabaseIdGenerationResult {
+        let sequence = self.0.fetch_add(1, Ordering::Relaxed);
+        DatabaseIdGenerationResult::Id(format!("app_{}_{sequence}", request.model))
+    }
+}
+
+config.database_id_generation =
+    DatabaseIdGeneration::Callback(Arc::new(ModelIds(AtomicU64::new(1))));
+```
+
+All public record IDs and references remain strings, including serial database
+values. `DatabaseIdGeneration::Database` is intentionally invalid with the
+official memory-store behavior because no database supplies the omitted IDs;
+use `Default`, `Serial`, `Uuid`, or a callback for memory-backed services.
+Adapter capabilities such as native UUID support and `disableIdGeneration` are
+adapter declarations, not additional application strategy names. There are no
+legacy aliases for `AuthIdGenerator`, `AuthConfig::id_generator`, or implicit
+UUID fallback.
+
+The [database ID compatibility table](COMPATIBILITY.md#database-id-generation)
+documents callback precedence, `forceAllowId`, Test Utils fallback behavior,
+and the complete memory/PostgreSQL boundary. Existing installations that used
+the former UUID default must follow the
+[breaking database ID migration guide](docs/database-id-migration.md) before
+running migrations.
 
 ### Stripe billing
 
@@ -1035,6 +1104,12 @@ of `testUtils()` only; Better Auth's separate `better-auth/test` Node/Vitest
 harness is outside the Rust server compatibility boundary. See the
 [compatibility matrix](COMPATIBILITY.md#security-utility-and-developer-plugins)
 for the exact surface.
+
+Test Utils factories call the configured context ID generator first. A literal
+defer/`false` result uses Better Auth's 24-character `a-zA-Z0-9` factory
+fallback; the ordinary default strategy returns its normal 32-character ID,
+and `Uuid` returns a UUID. An empty callback string remains empty because it is
+not literal `false`.
 
 Username is an optional native plugin. Register it explicitly to add username
 fields to email signup and current-user updates and to mount the official

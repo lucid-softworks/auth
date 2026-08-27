@@ -117,7 +117,7 @@ impl AuthService {
         user: AuthUser,
         password_hash: String,
     ) -> Result<AuthUser, AuthError> {
-        let user = self.prepare_user_create(user).await?;
+        let user = self.prepare_user_create_with_prepared_fields(user).await?;
         let credential = self.credential_account_create(password_hash, user.record.created_at);
         let owner = self.store.create_password_user(user, &credential).await?;
         self.finish_user_create(&owner.user).await?;

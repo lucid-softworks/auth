@@ -25,6 +25,8 @@ pub enum DatabaseIdInput {
     Boolean(bool),
     Number(f64),
     String(String),
+    /// A JavaScript array supplied by a database create hook.
+    Array(Vec<serde_json::Value>),
 }
 
 /// Truthy ID value emitted by Better Auth's input transform.
@@ -33,6 +35,7 @@ pub enum DatabaseIdValue {
     Boolean(bool),
     Number(f64),
     String(String),
+    Array(Vec<serde_json::Value>),
 }
 
 impl DatabaseIdValue {
@@ -41,6 +44,7 @@ impl DatabaseIdValue {
             Self::Boolean(value) => value.to_string(),
             Self::Number(value) => javascript_number_string(value),
             Self::String(value) => value,
+            Self::Array(value) => javascript_array_string(&value),
         }
     }
 
@@ -51,7 +55,30 @@ impl DatabaseIdValue {
                 .map(serde_json::Value::Number)
                 .ok_or_else(|| AuthError::Storage("database id is not a finite number".into())),
             Self::String(value) => Ok(serde_json::Value::String(value.clone())),
+            Self::Array(value) => Ok(serde_json::Value::Array(value.clone())),
         }
+    }
+}
+
+fn javascript_array_string(value: &[serde_json::Value]) -> String {
+    value
+        .iter()
+        .map(javascript_array_element_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn javascript_array_element_string(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => String::new(),
+        serde_json::Value::Bool(value) => value.to_string(),
+        serde_json::Value::Number(value) => value
+            .as_f64()
+            .map(javascript_number_string)
+            .unwrap_or_else(|| value.to_string()),
+        serde_json::Value::String(value) => value.clone(),
+        serde_json::Value::Array(value) => javascript_array_string(value),
+        serde_json::Value::Object(_) => "[object Object]".into(),
     }
 }
 
@@ -223,6 +250,22 @@ mod tests {
                 DatabaseIdValue::Number(value).into_output_string(),
                 expected
             );
+        }
+    }
+
+    #[test]
+    fn array_outputs_match_javascript_string_conversion() {
+        for (value, expected) in [
+            (serde_json::json!([]), ""),
+            (serde_json::json!([null]), ""),
+            (serde_json::json!([true, 7, "id"]), "true,7,id"),
+            (serde_json::json!([[1], [2, 3]]), "1,2,3"),
+            (serde_json::json!([{}]), "[object Object]"),
+        ] {
+            let serde_json::Value::Array(value) = value else {
+                unreachable!("the fixture values are arrays")
+            };
+            assert_eq!(DatabaseIdValue::Array(value).into_output_string(), expected);
         }
     }
 }

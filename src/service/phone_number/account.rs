@@ -282,29 +282,33 @@ impl AuthService {
             Some(generator) => generator.generate(phone_number).await?,
             None => phone_number.into(),
         };
-        let mut additional_fields = self
-            .create_additional_fields(crate::DatabaseModel::User, without_phone_fields(supplied))?;
-        additional_fields.insert(PHONE_NUMBER.into(), json!(phone_number));
-        additional_fields.insert(PHONE_NUMBER_VERIFIED.into(), json!(true));
+        let additional_fields = without_phone_fields(supplied);
+        let internal_fields = Map::from_iter([
+            (PHONE_NUMBER.into(), json!(phone_number)),
+            (PHONE_NUMBER_VERIFIED.into(), json!(true)),
+        ]);
         let now = Utc::now();
         let user = self
-            .prepare_user_create(AuthUser {
-                id: String::new(),
-                username: None,
-                display_username: None,
-                name,
-                email: email.to_lowercase(),
-                email_verified: false,
-                image: None,
-                additional_fields,
-                role: self.default_user_role(),
-                is_anonymous: false,
-                banned: false,
-                ban_reason: None,
-                ban_expires: None,
-                created_at: now,
-                updated_at: now,
-            })
+            .prepare_user_create_with_internal_fields(
+                AuthUser {
+                    id: String::new(),
+                    username: None,
+                    display_username: None,
+                    name,
+                    email: email.to_lowercase(),
+                    email_verified: false,
+                    image: None,
+                    additional_fields,
+                    role: self.default_user_role(),
+                    is_anonymous: false,
+                    banned: false,
+                    ban_reason: None,
+                    ban_expires: None,
+                    created_at: now,
+                    updated_at: now,
+                },
+                internal_fields,
+            )
             .await?;
         let user = match plugin.store.create_phone_number_user(user).await? {
             PhoneNumberWriteOutcome::Written(user) => user,

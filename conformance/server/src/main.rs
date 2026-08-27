@@ -39,7 +39,7 @@ pub(crate) struct Fixture {
     pub(crate) service: Arc<AuthService>,
     pub(crate) store: Arc<MemoryStore>,
     pub(crate) secondary: Arc<MemorySecondaryStorage>,
-    pub(crate) owner_id: uuid::Uuid,
+    pub(crate) owner_id: String,
     mcp_resource: Option<String>,
     verification_emails: Arc<Mutex<Vec<VerificationEmail>>>,
     password_reset_emails: Arc<Mutex<Vec<PasswordResetEmail>>>,

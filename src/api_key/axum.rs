@@ -20,7 +20,6 @@ use axum::{
 use chrono::{Duration, Utc};
 use serde_json::{Value, json};
 use std::sync::Arc;
-use uuid::Uuid;
 
 pub(super) fn routes(
     _service: Arc<AuthService>,
@@ -90,11 +89,7 @@ async fn create(
         rate_limit_max: Some(config.rate_limit.max_requests),
     };
     let result = if config.reference == crate::ApiKeyReference::Organization {
-        let Some(organization_id) = input
-            .organization_id
-            .as_deref()
-            .and_then(|id| Uuid::parse_str(id).ok())
-        else {
+        let Some(organization_id) = input.organization_id.as_deref() else {
             return auth_error(ApiKeyError::OrganizationIdRequired.into());
         };
         service
@@ -142,11 +137,7 @@ async fn list(
         Some("asc") | None => ApiKeySortDirection::Ascending,
         Some(_) => return auth_error(AuthError::InvalidRequest("invalid sortDirection".into())),
     };
-    let organization_id = match input.organization_id.as_deref().map(Uuid::parse_str) {
-        Some(Ok(id)) => Some(id),
-        Some(Err(_)) => return auth_error(ApiKeyError::UserNotOrganizationMember.into()),
-        None => None,
-    };
+    let organization_id = input.organization_id.as_deref();
     let result = super::listing::list_records(
         &service,
         &actor,

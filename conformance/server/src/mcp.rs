@@ -7,9 +7,10 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use lucid_auth::{
-    McpProtectedRequest, McpProtectedRequestOutcome, OAuthClientRegistrationMode,
-    OAuthClientRegistrationOutcome, OAuthClientRegistrationWrite, OAuthProviderClient,
-    OAuthProviderStore, RequireMcpAuthOptions, require_mcp_auth,
+    DatabaseIdGenerationSize, DatabaseIdValue, McpProtectedRequest, McpProtectedRequestOutcome,
+    OAuthClientRegistrationMode, OAuthClientRegistrationOutcome, OAuthClientRegistrationWrite,
+    OAuthProviderClient, OAuthProviderStore, PreparedDatabaseId, RequireMcpAuthOptions,
+    generate_database_id, require_mcp_auth,
 };
 use serde_json::json;
 use sha2::{Digest as _, Sha256};
@@ -23,7 +24,7 @@ pub(super) async fn seed_client(store: &dyn OAuthProviderStore, resource: &str) 
     let now = chrono::Utc::now();
     let secret = URL_SAFE_NO_PAD.encode(Sha256::digest(b"mcp-conformance-secret"));
     let client = OAuthProviderClient {
-        id: uuid::Uuid::new_v4(),
+        id: String::new(),
         client_id: "mcp-conformance-client".into(),
         client_secret: Some(secret),
         client_discovery_id: None,
@@ -63,15 +64,25 @@ pub(super) async fn seed_client(store: &dyn OAuthProviderStore, resource: &str) 
     };
     assert!(matches!(
         store
-            .persist_oauth_client_registration(OAuthClientRegistrationWrite {
-                client,
-                resource_ids: vec![resource.into()],
-                mode: OAuthClientRegistrationMode::Create,
-            })
+            .persist_oauth_client_registration(
+                &default_database_id,
+                &default_database_id,
+                OAuthClientRegistrationWrite {
+                    client,
+                    resource_ids: vec![resource.into()],
+                    mode: OAuthClientRegistrationMode::Create,
+                },
+            )
             .await
             .expect("seed MCP client"),
         OAuthClientRegistrationOutcome::Created(_)
     ));
+}
+
+fn default_database_id() -> Result<PreparedDatabaseId, lucid_auth::AuthError> {
+    let id = generate_database_id(DatabaseIdGenerationSize::Omitted)
+        .map_err(|error| lucid_auth::AuthError::Storage(error.to_string()))?;
+    Ok(PreparedDatabaseId::Value(DatabaseIdValue::String(id)))
 }
 
 pub(super) async fn handle(
