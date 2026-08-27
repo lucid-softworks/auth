@@ -329,6 +329,7 @@ impl AuthService {
         api_key
     }
 
+    #[cfg(feature = "axum")]
     pub(crate) async fn migrate_list_api_key_metadata(
         &self,
         configurations: &[ApiKeyConfiguration],

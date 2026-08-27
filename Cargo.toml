@@ -275,3 +275,67 @@ required-features = ["axum"]
 [[test]]
 name = "user_deletion_contract"
 required-features = ["axum"]
+
+[[test]]
+name = "account_update_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "autumn_http_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "commet_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "commet_projection_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "commet_webhook_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "context_id_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "creem_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "database_hooks_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "dodo_payments_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "dodo_payments_lifecycle_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "dodo_payments_webhook_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "oauth_proxy_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "one_time_token_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "open_api_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "polar_http_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "stripe_http_contract"
+required-features = ["axum"]

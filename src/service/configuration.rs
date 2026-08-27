@@ -35,7 +35,6 @@ impl AuthService {
         self.database_schema().generic_schema()
     }
 
-    #[cfg(feature = "axum")]
     pub(crate) fn secondary_storage(&self) -> Option<Arc<dyn crate::SecondaryStorage>> {
         self.config.secondary_storage.clone()
     }

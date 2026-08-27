@@ -19,6 +19,7 @@ impl VerificationMode {
         load_user: false,
         migrate_metadata: true,
     };
+    #[cfg(feature = "axum")]
     const SESSION: Self = Self {
         run_validator: false,
         load_user: true,
@@ -54,6 +55,7 @@ impl AuthService {
         Ok(verified)
     }
 
+    #[cfg(feature = "axum")]
     pub(crate) async fn verify_api_key_after_custom_validation(
         &self,
         key: &str,
