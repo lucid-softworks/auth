@@ -23,6 +23,7 @@ mod dub;
 mod email;
 mod email_otp;
 mod error;
+mod expo;
 mod exports;
 mod generic_oauth;
 mod guest_capability;

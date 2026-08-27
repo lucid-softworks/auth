@@ -98,18 +98,73 @@ standard browser client does not silently become a bearer-token client.
 
 ## Expo and React Native
 
-The official `@better-auth/expo` integration is **not yet compatible**. Its
-`expoClient()` requires a matching Better Auth server plugin for native cookie
-transport and deep-link behavior; installing only the client package would
-overclaim support. This is tracked in
-[#77](https://github.com/lucid-softworks/auth/issues/77).
+Pin the official packages and let Expo select SDK-compatible peer versions:
 
-Direct calls made with `better-auth/client` and a custom fetch implementation
-can reach supported core endpoints, but the host application is then entirely
-responsible for secure cookie storage, request cookie headers, refresh, and
-deep-link handling. That is an application integration, not Expo-plugin
-compatibility. Do not expose session cookies through ordinary React Native
-state or logs.
+```sh
+npm install --save-exact better-auth@1.7.1 @better-auth/expo@1.7.1
+npx expo install expo-constants expo-linking expo-network expo-secure-store expo-web-browser
+```
+
+Enable only the matching server plugin and list every production scheme
+explicitly:
+
+```rust
+use lucid_auth::{ExpoOptions, ExpoPlugin};
+
+config.set_base_url("https://auth.example.com")?;
+config.trust_origin("myapp://")?;
+config.add_plugin(ExpoPlugin::new(ExpoOptions {
+    disable_origin_override: false,
+}))?;
+```
+
+```ts
+import { createAuthClient } from "better-auth/react";
+import { expoClient } from "@better-auth/expo/client";
+import * as SecureStore from "expo-secure-store";
+
+export const authClient = createAuthClient({
+  baseURL: "https://auth.example.com",
+  plugins: [
+    expoClient({
+      scheme: "myapp",
+      storagePrefix: "myapp",
+      storage: SecureStore,
+    }),
+  ],
+});
+```
+
+On iOS and Android, `expoClient()` uses `credentials: "omit"`, sends its stored
+cookie through the `cookie` header, sends `expo-origin` for non-ID-token
+requests, and always sends `x-skip-oauth-proxy: true`. The Rust plugin copies
+only `expo-origin` into a missing standard `Origin`; it never replaces an
+existing `Origin`, and core trusted-origin and CSRF checks still run. Set
+`disable_origin_override` only to reproduce upstream's
+`disableOriginOverride: true` option.
+
+Relative values of the exact `callbackURL`, `newUserCallbackURL`, and
+`errorCallbackURL` fields become Expo deep links. `callbackUrl` and other casing
+aliases are deliberately unsupported. Social and link redirects pass through
+the hidden `GET /expo-authorization-proxy`; the server accepts only external
+HTTPS URLs without fragments and uses the core 600-second `oauth_state` or
+300-second signed `state` cookie. Only callback, magic-link verification, and
+email-verification responses can append a complete `Set-Cookie` header to a
+trusted custom-scheme redirect. Never log those URLs or cookies.
+
+The plugin itself adds only `exp://` when `NODE_ENV=development`. Add `myapp://`
+and any broader development patterns with `AuthConfig::trust_origin`;
+production wildcards and local-network CIDRs are never inferred. Expo web
+remains the ordinary browser client: there is no header substitution,
+SecureStore cookie transport, deep-link rewrite, or native cache behavior.
+
+Cookie filtering, `__Secure-` handling, expiration/deletion, colon-normalized
+SecureStore keys, 1,800-character chunk commits, session-cache hydration,
+focus/network managers, and the `/plugins` `lastLoginMethodClient` export are
+provided by `@better-auth/expo` on the device. They are pinned by the executable
+oracle but are not reimplemented or persisted by the Rust server. The server
+plugin owns no schema, migration, rate limit, error dictionary, provider,
+device store, or retry behavior; see [#77](https://github.com/lucid-softworks/auth/issues/77).
 
 ## Electron
 

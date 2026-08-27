@@ -128,7 +128,21 @@ impl AuthService {
             .unwrap_or_else(|error| panic!("invalid authentication configuration: {error}"))
     }
 
-    pub fn try_new(store: Arc<dyn AuthStore>, config: AuthConfig) -> Result<Self, AuthError> {
+    pub fn try_new(store: Arc<dyn AuthStore>, mut config: AuthConfig) -> Result<Self, AuthError> {
+        let plugin_origins = config
+            .plugins
+            .iter()
+            .flat_map(|plugin| plugin.trusted_origins().into_owned())
+            .collect::<Vec<_>>();
+        for origin in plugin_origins {
+            if !config
+                .trusted_origins
+                .iter()
+                .any(|trusted| trusted.as_str() == origin)
+            {
+                config.trust_origin(origin)?;
+            }
+        }
         config.validate()?;
         let plugins = PluginRegistry::build(&config.plugins, &config)?;
         if let Some(provider) = plugins.oauth_provider() {

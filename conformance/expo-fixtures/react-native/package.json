@@ -1,0 +1,6 @@
+{
+  "name": "react-native",
+  "version": "0.74.0",
+  "type": "module",
+  "exports": "./index.js"
+}

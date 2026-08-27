@@ -1,0 +1,6 @@
+{
+  "name": "expo-constants",
+  "version": "17.0.0",
+  "type": "module",
+  "exports": "./index.js"
+}

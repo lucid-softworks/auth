@@ -169,6 +169,10 @@ name = "email_verification_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "expo_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "have_i_been_pwned_contract"
 required-features = ["axum"]
 

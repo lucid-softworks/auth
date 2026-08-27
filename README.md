@@ -57,6 +57,9 @@ The currently supported surface covers:
   built-in provider, with issuer-qualified accounts and optional provider-token encryption
 - preview/development OAuth through the production callback deployment with the
   optional OAuth Proxy server plugin and ordinary `signIn.social` client
+- Expo native cookie/deep-link transport through the pinned
+  `@better-auth/expo@1.7.1` client and optional `ExpoPlugin`, while Expo web
+  remains ordinary browser behavior
 - the complete official `oauthProviderClient` management surface plus the
   native OAuth 2.0/OIDC authorization-server protocol as an optional plugin
 - the `@better-auth/mcp` authorization preset, protected-resource discovery,
@@ -156,6 +159,49 @@ and the complete memory/PostgreSQL boundary. Existing installations that used
 the former UUID default must follow the
 [breaking database ID migration guide](docs/database-id-migration.md) before
 running migrations.
+
+### Expo and React Native
+
+Register the exact native server counterpart and explicitly trust the
+application's production scheme:
+
+```rust
+use lucid_auth::ExpoPlugin;
+
+config.set_base_url("https://auth.example.com")?;
+config.trust_origin("myapp://")?;
+config.add_plugin(ExpoPlugin::default())?;
+```
+
+Install the pinned official client in the Expo application:
+
+```sh
+npm install --save-exact better-auth@1.7.1 @better-auth/expo@1.7.1
+npx expo install expo-constants expo-linking expo-network expo-secure-store expo-web-browser
+```
+
+Use `expoClient()` from `@better-auth/expo/client` with SecureStore. On native,
+the client sends `expo-origin`, stored cookies, and `x-skip-oauth-proxy`; the
+server preserves a real `Origin`, substitutes only the exact `expo-origin`
+header when `Origin` is absent, and applies the normal trusted-origin/CSRF
+policy. Relative `callbackURL`, `newUserCallbackURL`, and `errorCallbackURL`
+values are deep-linked by the official client. Incorrect casing such as
+`callbackUrl` is unsupported.
+
+The plugin contributes only `exp://` when `NODE_ENV=development`. It never
+trusts `myapp://`, CIDR patterns, or production wildcards automatically. Its
+hidden `GET /expo-authorization-proxy` accepts external HTTPS authorization
+targets and uses core OAuth state cookies; callback, magic-link, and
+email-verification redirects hand cookies only to trusted non-HTTP(S) schemes.
+Do not log authorization URLs, redirect query strings, or cookie material.
+
+Expo web is pass-through browser behavior and does not use SecureStore headers,
+deep-link rewriting, or native session-cache hydration. SecureStore chunking,
+cookie filtering, focus/network managers, session caching, and
+`lastLoginMethodClient` remain client-side features of the pinned npm package;
+the Rust plugin owns no schema, migration, device state, or retry layer. See the
+ [framework guide](docs/frameworks.md#expo-and-react-native) for the complete
+ boundary.
 
 ### Stripe billing
 

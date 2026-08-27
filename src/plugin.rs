@@ -198,6 +198,15 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
         Vec::new()
     }
 
+    /// Trusted-origin patterns contributed by the plugin's initialization.
+    ///
+    /// This mirrors Better Auth plugins whose `init` result augments core
+    /// `trustedOrigins`; callers must still configure application-specific
+    /// production origins themselves.
+    fn trusted_origins(&self) -> Cow<'static, [&'static str]> {
+        Cow::Borrowed(&[])
+    }
+
     fn open_api_endpoints(&self) -> Vec<crate::OpenApiEndpoint> {
         crate::open_api::endpoints_from_descriptor(&self.descriptor())
     }
