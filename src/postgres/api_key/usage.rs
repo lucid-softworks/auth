@@ -6,6 +6,7 @@ pub(super) async fn claim_usage(
     store: &super::super::PostgresStore,
     api_key_id: &str,
     now: DateTime<Utc>,
+    rate_limit_enabled: bool,
 ) -> Result<ApiKeyUseOutcome, AuthError> {
     let model = store.api_key_model()?;
     let mut transaction = store
@@ -40,11 +41,11 @@ pub(super) async fn claim_usage(
     if let Some(remaining) = &mut api_key.remaining {
         *remaining -= 1;
     }
-    let retry = retry_after(&api_key, now);
+    let retry = retry_after(&api_key, now, rate_limit_enabled);
     if retry.is_none() {
-        record_request(&mut api_key, now);
+        record_request(&mut api_key, now, rate_limit_enabled);
+        api_key.updated_at = now;
     }
-    api_key.updated_at = now;
     let writes = codec::api_key_usage_writes(&model, &api_key)?;
     let mut update = super::super::rows::update_query(&model, writes);
     update.push(" WHERE \"id\" = ");
@@ -72,6 +73,9 @@ fn refill(api_key: &mut ApiKey, now: DateTime<Utc>) {
         api_key.refill_amount,
         api_key.remaining,
     ) {
+        if interval == 0 || amount == 0 {
+            return;
+        }
         let since = api_key.last_refill_at.unwrap_or(api_key.created_at);
         if since + Duration::milliseconds(interval) < now {
             api_key.remaining = Some(amount);
@@ -80,7 +84,7 @@ fn refill(api_key: &mut ApiKey, now: DateTime<Utc>) {
     }
 }
 
-fn retry_after(api_key: &ApiKey, now: DateTime<Utc>) -> Option<i64> {
+fn retry_after(api_key: &ApiKey, now: DateTime<Utc>, rate_limit_enabled: bool) -> Option<i64> {
     let (Some(window), Some(max), Some(last)) = (
         api_key.rate_limit_time_window,
         api_key.rate_limit_max,
@@ -88,15 +92,15 @@ fn retry_after(api_key: &ApiKey, now: DateTime<Utc>) -> Option<i64> {
     ) else {
         return None;
     };
-    if !api_key.rate_limit_enabled {
+    if !rate_limit_enabled || !api_key.rate_limit_enabled {
         return None;
     }
     let elapsed = (now - last).num_milliseconds();
     (elapsed <= window && api_key.request_count >= max).then_some((window - elapsed).max(0))
 }
 
-fn record_request(api_key: &mut ApiKey, now: DateTime<Utc>) {
-    if !api_key.rate_limit_enabled {
+fn record_request(api_key: &mut ApiKey, now: DateTime<Utc>, rate_limit_enabled: bool) {
+    if !rate_limit_enabled || !api_key.rate_limit_enabled {
         api_key.last_request = Some(now);
         return;
     }

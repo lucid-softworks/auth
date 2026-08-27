@@ -2001,22 +2001,37 @@ config.add_plugin(ApiKeyPlugin::new(api_keys))?;
 ```
 
 The official `apiKeyClient` create/get/list/update/delete methods work against
-the Better Auth 1.7.1 paths and schemas. The server-only verify and expired-key
-cleanup endpoints are also present. Secrets use Better Auth's 64-character
+the Better Auth 1.7.1 paths and schemas. Server-only verification and expired-key
+cleanup remain native `AuthService` methods and are not mounted as HTTP routes.
+Secrets use Better Auth's 64-character
 letter-only default generator, optional prefixes, and SHA-256 base64url hashing;
 only creation returns the plaintext key. Stored hashes never appear in get,
 list, update, or verify responses. Ownership and `configId` are enforced for
-management operations, while quota and rate-limit claims are atomic in both the
-memory and PostgreSQL stores.
+management operations. Quota and rate-limit claims are atomic in database and
+database-fallback modes in both the memory and PostgreSQL stores. Better Auth's
+secondary-storage-only mode deliberately uses a non-atomic read/merge/write
+snapshot, so concurrent processes can oversubscribe a quota or rate window.
 
 Set `enable_session_for_api_keys` to accept the configured headers (default
-`x-api-key`) as Better Auth sessions. Multiple named configurations, custom key
-generation, starting-character display, expiry bounds/defaults, metadata,
-permissions, refills, and per-key rate limits are supported. Set a named
+`x-api-key`) as Better Auth sessions. Header arrays, synchronous custom getters,
+async validators, callback order/count, multiple named configurations, custom
+key generation, starting-character display, expiry bounds/defaults, metadata,
+permissions, refills, and per-key rate limits match `@better-auth/api-key@1.7.1`.
+Set `storage` to `ApiKeyStorage::SecondaryStorage` for the exact secondary-only
+record keys and serialization; set `fallback_to_database` for Better Auth's
+database-authoritative read-through cache. `custom_storage` takes precedence
+over the service-wide secondary store, and `defer_updates` makes secondary-only
+usage writes and invalid-key deletion eventually consistent.
+
+`disable_key_hashing` stores bearer secrets in plaintext and materially worsens
+the impact of a database or cache breach. API-key-backed sessions impersonate
+the owning user and are not recommended as a general production session
+mechanism. Deferred updates can expose stale state, and the secondary-only
+reference-list lock is process-local rather than distributed. Set a named
 configuration's `reference` to `ApiKeyReference::Organization` to require the
 Organization plugin and enforce its `apiKey` create/read/update/delete
-permissions. Advanced request callbacks and secondary/custom-storage profiles are tracked in
-[#76](https://github.com/lucid-softworks/auth/issues/76).
+permissions. The pinned oracle and native storage/request contracts are tracked
+by [#76](https://github.com/lucid-softworks/auth/issues/76).
 
 Native plugins implement `AuthPlugin` and are registered with
 `AuthConfig::add_plugin`. Construct plugin-enabled services with

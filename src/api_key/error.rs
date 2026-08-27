@@ -14,6 +14,18 @@ pub enum ApiKeyError {
     RateLimited { retry_after_milliseconds: i64 },
     #[error("Invalid API key")]
     Invalid,
+    #[error("Invalid API key")]
+    SessionInvalid,
+    #[error("API-key verification validator rejected the key")]
+    VerificationValidatorRejected,
+    #[error("API-key verification validator failed")]
+    VerificationValidatorFailed,
+    #[error("API Key getter returned an invalid key type. Expected string")]
+    InvalidGetterReturnType,
+    #[error("Failed to update API key")]
+    FailedToUpdate,
+    #[error("No default API-key configuration found")]
+    NoDefaultConfiguration,
     #[error("The property you're trying to set can only be set from the server auth instance only")]
     ServerOnlyProperty,
     #[error("No values to update")]

@@ -61,25 +61,18 @@ pub(super) struct DeleteRequest {
     pub key_id: String,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct VerifyRequest {
-    pub config_id: Option<String>,
-    pub key: String,
-    pub permissions: Option<BTreeMap<String, Vec<String>>>,
-}
-
 pub(super) fn resolve_configuration<'a>(
     configurations: &'a [ApiKeyConfiguration],
     config_id: Option<&str>,
-) -> &'a ApiKeyConfiguration {
+) -> Result<&'a ApiKeyConfiguration, AuthError> {
     let default = configurations
         .iter()
         .find(|config| config.config_id == "default")
-        .expect("validated API-key configuration");
-    config_id
+        .ok_or(super::ApiKeyError::NoDefaultConfiguration)?;
+    Ok(config_id
+        .filter(|id| !id.is_empty())
         .and_then(|id| configurations.iter().find(|config| config.config_id == id))
-        .unwrap_or(default)
+        .unwrap_or(default))
 }
 
 pub(super) fn client_update(

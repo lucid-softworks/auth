@@ -89,8 +89,10 @@ pub use anonymous::{
     AnonymousNameGenerator, AnonymousPlugin, AnonymousPluginConfig, AnonymousSignInContext,
 };
 pub use api_key::{
-    ApiKeyConfiguration, ApiKeyError, ApiKeyExpirationConfig, ApiKeyGenerator, ApiKeyOptions,
-    ApiKeyPlugin, ApiKeyRateLimitConfig, ApiKeyReference, ApiKeyStartingCharactersConfig,
+    ApiKeyConfiguration, ApiKeyError, ApiKeyExpirationConfig, ApiKeyGenerator, ApiKeyGetter,
+    ApiKeyGetterValue, ApiKeyOptions, ApiKeyPlugin, ApiKeyRateLimitConfig, ApiKeyReference,
+    ApiKeySecondaryStorage, ApiKeySecondaryStorageMode, ApiKeyStartingCharactersConfig,
+    ApiKeyStorage, ApiKeyValidator,
 };
 pub use database_hooks::{
     BeforeDatabaseCreateHook, BeforeDatabaseHook, DatabaseCreatePatch, DatabaseCreateRecord,

@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+mod api_key_date;
+
 /// Neutral provenance for the credential that created a core session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -153,6 +155,7 @@ pub struct ApiKey {
     pub reference_id: String,
     pub refill_interval: Option<i64>,
     pub refill_amount: Option<i64>,
+    #[serde(with = "api_key_date::optional")]
     pub last_refill_at: Option<DateTime<Utc>>,
     pub enabled: bool,
     pub rate_limit_enabled: bool,
@@ -160,11 +163,15 @@ pub struct ApiKey {
     pub rate_limit_max: Option<i64>,
     pub request_count: i64,
     pub remaining: Option<i64>,
+    #[serde(with = "api_key_date::optional")]
     pub last_request: Option<DateTime<Utc>>,
+    #[serde(with = "api_key_date::optional")]
     pub expires_at: Option<DateTime<Utc>>,
     pub permissions: Option<BTreeMap<String, Vec<String>>>,
     pub metadata: Option<serde_json::Value>,
+    #[serde(with = "api_key_date")]
     pub created_at: DateTime<Utc>,
+    #[serde(with = "api_key_date")]
     pub updated_at: DateTime<Utc>,
 }
 

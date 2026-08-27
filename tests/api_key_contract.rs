@@ -12,17 +12,18 @@ use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
 use tower::ServiceExt;
 
-async fn application() -> Router {
+async fn application() -> (Router, Arc<AuthService>, ApiKeyConfiguration) {
     let mut config = AuthConfig::new([121_u8; 32]).unwrap();
     config.set_base_url("http://localhost").unwrap();
     config.add_plugin(UsernamePlugin::default()).unwrap();
+    let api_keys = ApiKeyConfiguration {
+        enable_metadata: true,
+        enable_session_for_api_keys: true,
+        default_permissions: Some(BTreeMap::from([("documents".into(), vec!["read".into()])])),
+        ..ApiKeyConfiguration::default()
+    };
     config
-        .add_plugin(ApiKeyPlugin::new(ApiKeyConfiguration {
-            enable_metadata: true,
-            enable_session_for_api_keys: true,
-            default_permissions: Some(BTreeMap::from([("documents".into(), vec!["read".into()])])),
-            ..ApiKeyConfiguration::default()
-        }))
+        .add_plugin(ApiKeyPlugin::new(api_keys.clone()))
         .unwrap();
     let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
     service
@@ -35,7 +36,7 @@ async fn application() -> Router {
         })
         .await
         .unwrap();
-    lucid_auth::axum::router(service)
+    (lucid_auth::axum::router(service.clone()), service, api_keys)
 }
 
 async fn json_request(
@@ -100,12 +101,12 @@ async fn owner_cookie(app: &Router) -> String {
 
 #[tokio::test]
 async fn official_api_key_http_lifecycle_and_header_session_match() {
-    let app = application().await;
+    let (app, service, configuration) = application().await;
     let cookie = owner_cookie(&app).await;
     let (id, key) = create_api_key(&app, &cookie).await;
     assert_lookup_and_pagination(&app, &cookie, &id).await;
-    assert_verification_and_header_session(&app, &id, &key).await;
-    assert_update_disable_and_delete(&app, &cookie, &id, &key).await;
+    assert_verification_and_header_session(&app, &service, &configuration, &id, &key).await;
+    assert_update_disable_and_delete(&app, &service, &configuration, &cookie, &id, &key).await;
 }
 
 async fn create_api_key(app: &Router, cookie: &str) -> (String, String) {
@@ -166,39 +167,35 @@ async fn assert_lookup_and_pagination(app: &Router, cookie: &str, id: &str) {
     assert!(listed["apiKeys"][0].get("key").is_none());
 }
 
-async fn assert_verification_and_header_session(app: &Router, id: &str, key: &str) {
-    let (status, _, verified) = json_request(
-        app,
-        "POST",
-        "/api/auth/api-key/verify",
-        Some(json!({
-            "key": key,
-            "permissions": { "documents": ["read"] }
-        })),
-        None,
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(verified["valid"], true);
-    assert_eq!(verified["error"], Value::Null);
-    assert!(verified["key"].get("key").is_none());
-
-    let (status, _, denied) = json_request(
-        app,
-        "POST",
-        "/api/auth/api-key/verify",
-        Some(json!({
-            "key": key,
-            "permissions": { "documents": ["write"] }
-        })),
-        None,
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(denied["valid"], false);
-    assert_eq!(denied["error"]["code"], "KEY_NOT_FOUND");
+async fn assert_verification_and_header_session(
+    app: &Router,
+    service: &AuthService,
+    configuration: &ApiKeyConfiguration,
+    id: &str,
+    key: &str,
+) {
+    let allowed = BTreeMap::from([("documents".into(), vec!["read".into()])]);
+    service
+        .verify_api_key(
+            key,
+            std::slice::from_ref(configuration),
+            None,
+            Some(&allowed),
+        )
+        .await
+        .unwrap();
+    let denied = BTreeMap::from([("documents".into(), vec!["write".into()])]);
+    assert!(matches!(
+        service
+            .verify_api_key(
+                key,
+                std::slice::from_ref(configuration),
+                None,
+                Some(&denied)
+            )
+            .await,
+        Err(AuthError::ApiKey(ApiKeyError::PermissionDenied))
+    ));
 
     let (status, _, session) =
         json_request(app, "GET", "/api/auth/get-session", None, None, Some(key)).await;
@@ -207,7 +204,14 @@ async fn assert_verification_and_header_session(app: &Router, id: &str, key: &st
     assert_eq!(session["session"]["id"], id);
 }
 
-async fn assert_update_disable_and_delete(app: &Router, cookie: &str, id: &str, key: &str) {
+async fn assert_update_disable_and_delete(
+    app: &Router,
+    service: &AuthService,
+    configuration: &ApiKeyConfiguration,
+    cookie: &str,
+    id: &str,
+    key: &str,
+) {
     let (status, _, updated) = json_request(
         app,
         "POST",
@@ -221,16 +225,12 @@ async fn assert_update_disable_and_delete(app: &Router, cookie: &str, id: &str, 
     assert_eq!(updated["name"], "Updated");
     assert_eq!(updated["enabled"], false);
 
-    let (_, _, disabled) = json_request(
-        app,
-        "POST",
-        "/api/auth/api-key/verify",
-        Some(json!({ "key": key })),
-        None,
-        None,
-    )
-    .await;
-    assert_eq!(disabled["error"]["code"], "KEY_DISABLED");
+    assert!(matches!(
+        service
+            .verify_api_key(key, std::slice::from_ref(configuration), None, None)
+            .await,
+        Err(AuthError::ApiKey(ApiKeyError::Disabled))
+    ));
 
     let (status, _, _) = json_request(
         app,
@@ -246,7 +246,7 @@ async fn assert_update_disable_and_delete(app: &Router, cookie: &str, id: &str, 
 
 #[tokio::test]
 async fn client_requests_cannot_set_server_only_api_key_fields() {
-    let app = application().await;
+    let (app, _, _) = application().await;
     let cookie = owner_cookie(&app).await;
     let (status, _, body) = json_request(
         &app,
@@ -263,35 +263,23 @@ async fn client_requests_cannot_set_server_only_api_key_fields() {
 
 #[tokio::test]
 async fn rate_limit_verification_returns_compatible_retry_metadata() {
-    let app = application().await;
+    let (app, service, configuration) = application().await;
     let cookie = owner_cookie(&app).await;
     let (_, key) = create_api_key(&app, &cookie).await;
     for _ in 0..10 {
-        let (status, _, body) = json_request(
-            &app,
-            "POST",
-            "/api/auth/api-key/verify",
-            Some(json!({ "key": key })),
-            None,
-            None,
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["valid"], true);
+        service
+            .verify_api_key(&key, std::slice::from_ref(&configuration), None, None)
+            .await
+            .unwrap();
     }
-    let (status, _, body) = json_request(
-        &app,
-        "POST",
-        "/api/auth/api-key/verify",
-        Some(json!({ "key": key })),
-        None,
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["valid"], false);
-    assert_eq!(body["error"]["code"], "RATE_LIMITED");
-    assert!(body["error"]["details"]["tryAgainIn"].as_i64().unwrap() > 0);
+    assert!(matches!(
+        service
+            .verify_api_key(&key, std::slice::from_ref(&configuration), None, None)
+            .await,
+        Err(AuthError::ApiKey(ApiKeyError::RateLimited {
+            retry_after_milliseconds
+        })) if retry_after_milliseconds > 0
+    ));
 }
 
 #[tokio::test]

@@ -26,10 +26,16 @@ pub(crate) fn api_key_error(error: &ApiKeyError) -> Response {
             "KEY_EXPIRED",
             "API Key has expired",
         ),
-        Invalid => details(
+        Invalid | VerificationValidatorRejected => details(
             StatusCode::UNAUTHORIZED,
             "INVALID_API_KEY",
             "Invalid API key.",
+        ),
+        SessionInvalid => details(StatusCode::FORBIDDEN, "INVALID_API_KEY", "Invalid API key."),
+        InvalidGetterReturnType => details(
+            StatusCode::BAD_REQUEST,
+            "INVALID_API_KEY_GETTER_RETURN_TYPE",
+            "API Key getter returned an invalid key type. Expected string.",
         ),
         UsageExceeded => details(
             StatusCode::TOO_MANY_REQUESTS,
@@ -57,6 +63,9 @@ pub(crate) fn api_key_error(error: &ApiKeyError) -> Response {
 fn request_error_details(error: &ApiKeyError) -> (StatusCode, &'static str, &'static str) {
     use ApiKeyError::*;
     if let Some(details) = organization_error_details(error) {
+        return details;
+    }
+    if let Some(details) = configuration_error_details(error) {
         return details;
     }
     match error {
@@ -126,6 +135,25 @@ fn request_error_details(error: &ApiKeyError) -> (StatusCode, &'static str, &'st
             "Authentication failed",
         ),
     }
+}
+
+fn configuration_error_details(
+    error: &ApiKeyError,
+) -> Option<(StatusCode, &'static str, &'static str)> {
+    use ApiKeyError::*;
+    Some(match error {
+        NoDefaultConfiguration => details(
+            StatusCode::BAD_REQUEST,
+            "NO_DEFAULT_API_KEY_CONFIGURATION_FOUND",
+            "No default api-key configuration found.",
+        ),
+        FailedToUpdate => details(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "FAILED_TO_UPDATE_API_KEY",
+            "Failed to update API key.",
+        ),
+        _ => return None,
+    })
 }
 
 fn organization_error_details(

@@ -327,6 +327,7 @@ pub trait ApiKeyStore: Send + Sync {
         &self,
         api_key_id: &str,
         now: chrono::DateTime<chrono::Utc>,
+        rate_limit_enabled: bool,
     ) -> Result<ApiKeyUseOutcome, AuthError>;
 }
 

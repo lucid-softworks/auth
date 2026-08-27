@@ -1,13 +1,12 @@
 use super::{
     AuthService,
     api_key_policy::{
-        apply_update, normalize_permissions, permits_all, sort_api_keys, validate_create,
-        validate_update,
+        apply_update, normalize_permissions, sort_api_keys, validate_create, validate_update,
     },
 };
 use crate::{
-    ApiKey, ApiKeyConfiguration, ApiKeyError, ApiKeyReference, ApiKeyUseOutcome, AuthError,
-    IssuedApiKey, NewApiKey, SessionWithUser, VerifiedApiKey,
+    ApiKey, ApiKeyConfiguration, ApiKeyError, ApiKeyReference, AuthError, IssuedApiKey, NewApiKey,
+    SessionWithUser,
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::Utc;
@@ -78,6 +77,7 @@ impl AuthService {
         };
         validate_create(config, &input)?;
         normalize_permissions(&mut input.permissions);
+        self.schedule_api_key_cleanup();
         let expires_at = input.expires_at.or_else(|| {
             config
                 .expiration
@@ -101,7 +101,7 @@ impl AuthService {
                         .collect()
                 }),
                 prefix: input.prefix.or_else(|| config.default_prefix.clone()),
-                key_hash: hash_key(&key),
+                key_hash: stored_key(config, &key),
                 reference_id,
                 refill_interval: input.refill_interval,
                 refill_amount: input.refill_amount,
@@ -122,7 +122,7 @@ impl AuthService {
                 updated_at: now,
             },
         )?;
-        let api_key = self.store.create_api_key(api_key).await?;
+        let api_key = self.create_api_key_record(config, api_key).await?;
         Ok(IssuedApiKey { api_key, key })
     }
 
@@ -133,23 +133,29 @@ impl AuthService {
         api_key_id: &str,
     ) -> Result<ApiKey, AuthError> {
         self.plugins.authorize_application_access(actor).await?;
-        self.owned_api_key(actor, config, api_key_id, "read").await
+        let api_key = self
+            .owned_api_key(actor, config, api_key_id, "read")
+            .await?;
+        self.schedule_api_key_cleanup();
+        Ok(self.migrate_api_key_metadata(config, api_key).await)
     }
 
     pub async fn list_api_keys(
         &self,
         actor: &SessionWithUser,
+        config: &ApiKeyConfiguration,
         config_id: Option<&str>,
         sort_by: Option<&str>,
         direction: ApiKeySortDirection,
     ) -> Result<Vec<ApiKey>, AuthError> {
-        self.list_api_keys_for_reference(actor, config_id, sort_by, direction, None)
+        self.list_api_keys_for_reference(actor, config, config_id, sort_by, direction, None)
             .await
     }
 
     pub async fn list_organization_api_keys(
         &self,
         actor: &SessionWithUser,
+        config: &ApiKeyConfiguration,
         config_id: Option<&str>,
         sort_by: Option<&str>,
         direction: ApiKeySortDirection,
@@ -157,6 +163,7 @@ impl AuthService {
     ) -> Result<Vec<ApiKey>, AuthError> {
         self.list_api_keys_for_reference(
             actor,
+            config,
             config_id,
             sort_by,
             direction,
@@ -168,6 +175,7 @@ impl AuthService {
     async fn list_api_keys_for_reference(
         &self,
         actor: &SessionWithUser,
+        config: &ApiKeyConfiguration,
         config_id: Option<&str>,
         sort_by: Option<&str>,
         direction: ApiKeySortDirection,
@@ -181,7 +189,9 @@ impl AuthService {
         let reference_id = organization_id
             .map(|id| id.to_string())
             .unwrap_or_else(|| actor.user.id.clone());
-        let mut keys = self.store.list_api_keys(&reference_id, config_id).await?;
+        let mut keys = self
+            .list_api_key_records(config, &reference_id, config_id)
+            .await?;
         if let Some(sort_by) = sort_by {
             sort_api_keys(&mut keys, sort_by, direction);
         }
@@ -202,10 +212,12 @@ impl AuthService {
         validate_update(config, &update)?;
         apply_update(&mut api_key, update);
         api_key.updated_at = Utc::now();
-        self.store
-            .update_api_key(api_key)
+        let api_key = self
+            .update_api_key_record(config, api_key)
             .await?
-            .ok_or_else(|| ApiKeyError::NotFound.into())
+            .ok_or(ApiKeyError::NotFound)?;
+        self.schedule_api_key_cleanup();
+        Ok(self.migrate_api_key_metadata(config, api_key).await)
     }
 
     pub async fn delete_api_key(
@@ -215,79 +227,14 @@ impl AuthService {
         api_key_id: &str,
     ) -> Result<(), AuthError> {
         self.plugins.authorize_application_access(actor).await?;
-        self.owned_api_key(actor, config, api_key_id, "delete")
+        let api_key = self
+            .owned_api_key(actor, config, api_key_id, "delete")
             .await?;
-        if !self.store.delete_api_key(api_key_id).await? {
+        if !self.delete_api_key_record(config, &api_key).await? {
             return Err(ApiKeyError::NotFound.into());
         }
+        self.schedule_api_key_cleanup();
         Ok(())
-    }
-
-    pub async fn verify_api_key(
-        &self,
-        key: &str,
-        configurations: &[ApiKeyConfiguration],
-        expected_config_id: Option<&str>,
-        permissions: Option<&BTreeMap<String, Vec<String>>>,
-    ) -> Result<VerifiedApiKey, AuthError> {
-        let stored = self
-            .store
-            .find_api_key_by_hash(&hash_key(key))
-            .await?
-            .ok_or(ApiKeyError::Invalid)?;
-        if expected_config_id.is_some_and(|expected| stored.config_id != expected) {
-            return Err(ApiKeyError::Invalid.into());
-        }
-        let configuration = configurations
-            .iter()
-            .find(|config| config.config_id == stored.config_id)
-            .ok_or(ApiKeyError::Invalid)?;
-        if !stored.enabled {
-            return Err(ApiKeyError::Disabled.into());
-        }
-        if stored
-            .expires_at
-            .is_some_and(|expires_at| expires_at < Utc::now())
-        {
-            self.store.delete_api_key(&stored.id).await?;
-            return Err(ApiKeyError::Expired.into());
-        }
-        if permissions.is_some_and(|required| !permits_all(&stored, required)) {
-            return Err(ApiKeyError::PermissionDenied.into());
-        }
-        let api_key = match self
-            .store
-            .record_api_key_use(&stored.id, Utc::now())
-            .await?
-        {
-            ApiKeyUseOutcome::Allowed(api_key) => *api_key,
-            ApiKeyUseOutcome::Invalid => return Err(ApiKeyError::Invalid.into()),
-            ApiKeyUseOutcome::UsageExceeded => {
-                if stored.refill_amount.is_none() {
-                    self.store.delete_api_key(&stored.id).await?;
-                }
-                return Err(ApiKeyError::UsageExceeded.into());
-            }
-            ApiKeyUseOutcome::RateLimited {
-                retry_after_milliseconds,
-            } => {
-                return Err(ApiKeyError::RateLimited {
-                    retry_after_milliseconds,
-                }
-                .into());
-            }
-        };
-        let user = if configuration.reference == ApiKeyReference::User {
-            Some(
-                self.store
-                    .find_user_by_id(&api_key.reference_id)
-                    .await?
-                    .ok_or(ApiKeyError::Invalid)?,
-            )
-        } else {
-            None
-        };
-        Ok(VerifiedApiKey { api_key, user })
     }
 
     pub async fn delete_expired_api_keys(&self) -> Result<u64, AuthError> {
@@ -302,10 +249,11 @@ impl AuthService {
         action: &str,
     ) -> Result<ApiKey, AuthError> {
         let api_key = self
-            .store
-            .find_api_key(api_key_id)
+            .find_api_key_record(config, api_key_id)
             .await?
-            .filter(|api_key| api_key.config_id == config.config_id)
+            .filter(|api_key| {
+                crate::api_key::config_ids_match(&api_key.config_id, &config.config_id)
+            })
             .ok_or(ApiKeyError::NotFound)?;
         match config.reference {
             ApiKeyReference::User if api_key.reference_id != actor.user.id => {
@@ -355,13 +303,17 @@ async fn generate_key(
     config: &ApiKeyConfiguration,
     requested_prefix: Option<&str>,
 ) -> Result<String, AuthError> {
-    let prefix = requested_prefix.or(config.default_prefix.as_deref());
+    let prefix = requested_prefix
+        .filter(|prefix| !prefix.is_empty())
+        .or(config.default_prefix.as_deref());
     if let Some(generator) = &config.key_generator {
-        return generator.generate(config.default_key_length, prefix).await;
+        return generator
+            .generate(config.effective_key_length(), prefix)
+            .await;
     }
     const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let mut rng = rand::rng();
-    let value: String = (0..config.default_key_length)
+    let value: String = (0..config.effective_key_length())
         .map(|_| ALPHABET[rng.random_range(0..ALPHABET.len())] as char)
         .collect();
     Ok(format!("{}{value}", prefix.unwrap_or_default()))
@@ -369,4 +321,12 @@ async fn generate_key(
 
 fn hash_key(key: &str) -> String {
     URL_SAFE_NO_PAD.encode(Sha256::digest(key.as_bytes()))
+}
+
+pub(super) fn stored_key(config: &ApiKeyConfiguration, key: &str) -> String {
+    if config.disable_key_hashing {
+        key.into()
+    } else {
+        hash_key(key)
+    }
 }

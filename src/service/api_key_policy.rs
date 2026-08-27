@@ -120,6 +120,9 @@ fn validate_name(config: &ApiKeyConfiguration, name: Option<&str>) -> Result<(),
 
 fn validate_prefix(config: &ApiKeyConfiguration, prefix: Option<&str>) -> Result<(), AuthError> {
     let Some(prefix) = prefix else { return Ok(()) };
+    if prefix.is_empty() {
+        return Ok(());
+    }
     if !(config.minimum_prefix_length..=config.maximum_prefix_length).contains(&prefix.len()) {
         return Err(ApiKeyError::InvalidPrefixLength.into());
     }
@@ -161,8 +164,12 @@ fn validate_metadata(
 
 fn validate_refill(amount: Option<i64>, interval: Option<i64>) -> Result<(), AuthError> {
     match (amount, interval) {
-        (Some(_), None) => Err(ApiKeyError::RefillAmountRequired.into()),
-        (None, Some(_)) => Err(ApiKeyError::RefillIntervalRequired.into()),
+        (Some(amount), interval) if amount != 0 && interval.unwrap_or_default() == 0 => {
+            Err(ApiKeyError::RefillAmountRequired.into())
+        }
+        (amount, Some(interval)) if interval != 0 && amount.unwrap_or_default() == 0 => {
+            Err(ApiKeyError::RefillIntervalRequired.into())
+        }
         _ => Ok(()),
     }
 }

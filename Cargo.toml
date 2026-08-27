@@ -90,6 +90,14 @@ name = "api_key_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "api_key_advanced_contract"
+required-features = ["axum"]
+
+[[test]]
+name = "api_key_defer_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "admin_lifecycle_contract"
 required-features = ["axum"]
 

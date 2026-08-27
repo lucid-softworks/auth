@@ -117,8 +117,9 @@ impl ApiKeyStore for PostgresStore {
         &self,
         api_key_id: &str,
         now: DateTime<Utc>,
+        rate_limit_enabled: bool,
     ) -> Result<ApiKeyUseOutcome, AuthError> {
-        usage::claim_usage(self, api_key_id, now).await
+        usage::claim_usage(self, api_key_id, now, rate_limit_enabled).await
     }
 }
 

@@ -82,6 +82,7 @@ impl ApiKeyStore for MemoryStore {
         &self,
         api_key_id: &str,
         now: DateTime<Utc>,
+        rate_limit_enabled: bool,
     ) -> Result<ApiKeyUseOutcome, AuthError> {
         let mut state = self.state.write().await;
         let Some(api_key) = state.api_keys.get_mut(api_key_id) else {
@@ -101,12 +102,12 @@ impl ApiKeyStore for MemoryStore {
         if let Some(remaining) = &mut api_key.remaining {
             *remaining -= 1;
         }
-        if let Some(retry_after_milliseconds) = rate_limit_retry(api_key, now) {
+        if let Some(retry_after_milliseconds) = rate_limit_retry(api_key, now, rate_limit_enabled) {
             return Ok(ApiKeyUseOutcome::RateLimited {
                 retry_after_milliseconds,
             });
         }
-        record_rate_limit(api_key, now);
+        record_rate_limit(api_key, now, rate_limit_enabled);
         api_key.updated_at = now;
         Ok(ApiKeyUseOutcome::Allowed(Box::new(api_key.clone())))
     }
@@ -120,6 +121,9 @@ fn refill_remaining(api_key: &mut ApiKey, now: DateTime<Utc>) {
     ) else {
         return;
     };
+    if interval == 0 || amount == 0 {
+        return;
+    }
     let since = api_key.last_refill_at.unwrap_or(api_key.created_at);
     if since + Duration::milliseconds(interval) < now {
         api_key.remaining = Some(amount);
@@ -127,8 +131,8 @@ fn refill_remaining(api_key: &mut ApiKey, now: DateTime<Utc>) {
     }
 }
 
-fn rate_limit_retry(api_key: &ApiKey, now: DateTime<Utc>) -> Option<i64> {
-    if !api_key.rate_limit_enabled {
+fn rate_limit_retry(api_key: &ApiKey, now: DateTime<Utc>, rate_limit_enabled: bool) -> Option<i64> {
+    if !rate_limit_enabled || !api_key.rate_limit_enabled {
         return None;
     }
     let (Some(window), Some(max), Some(last_request)) = (
@@ -142,8 +146,8 @@ fn rate_limit_retry(api_key: &ApiKey, now: DateTime<Utc>) -> Option<i64> {
     (elapsed <= window && api_key.request_count >= max).then_some((window - elapsed).max(0))
 }
 
-fn record_rate_limit(api_key: &mut ApiKey, now: DateTime<Utc>) {
-    if !api_key.rate_limit_enabled {
+fn record_rate_limit(api_key: &mut ApiKey, now: DateTime<Utc>, rate_limit_enabled: bool) {
+    if !rate_limit_enabled || !api_key.rate_limit_enabled {
         api_key.last_request = Some(now);
         return;
     }

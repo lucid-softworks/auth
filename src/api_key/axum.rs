@@ -1,7 +1,7 @@
 use super::ApiKeyConfiguration;
 use super::{
     http_input::{
-        CreateRequest, DeleteRequest, GetRequest, ListRequest, VerifyRequest, client_update,
+        CreateRequest, DeleteRequest, GetRequest, ListRequest, client_update,
         resolve_configuration, valid_prefix,
     },
     http_response,
@@ -32,12 +32,6 @@ pub(super) fn routes(
         route("/api-key/list", get(list), configurations.clone()),
         route("/api-key/update", post(update), configurations.clone()),
         route("/api-key/delete", post(delete), configurations.clone()),
-        route("/api-key/verify", post(verify), configurations.clone()),
-        route(
-            "/api-key/delete-all-expired-api-keys",
-            post(delete_expired),
-            configurations,
-        ),
     ]
 }
 
@@ -74,7 +68,10 @@ async fn create(
                 .into(),
         ));
     }
-    let config = resolve_configuration(&configurations, input.config_id.as_deref());
+    let config = match resolve_configuration(&configurations, input.config_id.as_deref()) {
+        Ok(config) => config,
+        Err(error) => return auth_error(error),
+    };
     let expires_at = input
         .expires_in
         .map(|seconds| Utc::now() + Duration::seconds(seconds));
@@ -121,7 +118,10 @@ async fn get_one(
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(ApiKeyError::UnauthorizedSession.into());
     };
-    let config = resolve_configuration(&configurations, input.config_id.as_deref());
+    let config = match resolve_configuration(&configurations, input.config_id.as_deref()) {
+        Ok(config) => config,
+        Err(error) => return auth_error(error),
+    };
     match service.get_api_key(&actor, config, &input.id).await {
         Ok(api_key) => Json(api_key).into_response(),
         Err(error) => auth_error(error),
@@ -130,6 +130,7 @@ async fn get_one(
 
 async fn list(
     Extension(service): Extension<Arc<AuthService>>,
+    Extension(configurations): Extension<Arc<Vec<ApiKeyConfiguration>>>,
     headers: HeaderMap,
     Query(input): Query<ListRequest>,
 ) -> Response {
@@ -141,32 +142,21 @@ async fn list(
         Some("asc") | None => ApiKeySortDirection::Ascending,
         Some(_) => return auth_error(AuthError::InvalidRequest("invalid sortDirection".into())),
     };
-    let result = match input.organization_id.as_deref() {
-        Some(id) => match Uuid::parse_str(id) {
-            Ok(id) => {
-                service
-                    .list_organization_api_keys(
-                        &actor,
-                        input.config_id.as_deref(),
-                        input.sort_by.as_deref(),
-                        direction,
-                        id,
-                    )
-                    .await
-            }
-            Err(_) => Err(ApiKeyError::UserNotOrganizationMember.into()),
-        },
-        None => {
-            service
-                .list_api_keys(
-                    &actor,
-                    input.config_id.as_deref(),
-                    input.sort_by.as_deref(),
-                    direction,
-                )
-                .await
-        }
+    let organization_id = match input.organization_id.as_deref().map(Uuid::parse_str) {
+        Some(Ok(id)) => Some(id),
+        Some(Err(_)) => return auth_error(ApiKeyError::UserNotOrganizationMember.into()),
+        None => None,
     };
+    let result = super::listing::list_records(
+        &service,
+        &actor,
+        &configurations,
+        input.config_id.as_deref(),
+        input.sort_by.as_deref(),
+        direction,
+        organization_id,
+    )
+    .await;
     match result {
         Ok(api_keys) => {
             let total = api_keys.len();
@@ -176,6 +166,9 @@ async fn list(
                 .skip(offset)
                 .take(input.limit.unwrap_or(usize::MAX))
                 .collect::<Vec<_>>();
+            let api_keys = service
+                .migrate_list_api_key_metadata(&configurations, api_keys)
+                .await;
             http_response::list(api_keys, total, input.limit, input.offset)
         }
         Err(error) => auth_error(error),
@@ -212,7 +205,10 @@ async fn update(
         return auth_error(ApiKeyError::NotFound.into());
     };
     let config_id = input.get("configId").and_then(Value::as_str);
-    let config = resolve_configuration(&configurations, config_id);
+    let config = match resolve_configuration(&configurations, config_id) {
+        Ok(config) => config,
+        Err(error) => return auth_error(error),
+    };
     let update = match client_update(&input, config) {
         Ok(update) => update,
         Err(error) => return auth_error(error),
@@ -232,41 +228,12 @@ async fn delete(
     let Some(actor) = current_session(&service, &headers).await else {
         return auth_error(ApiKeyError::UnauthorizedSession.into());
     };
-    let config = resolve_configuration(&configurations, input.config_id.as_deref());
+    let config = match resolve_configuration(&configurations, input.config_id.as_deref()) {
+        Ok(config) => config,
+        Err(error) => return auth_error(error),
+    };
     match service.delete_api_key(&actor, config, &input.key_id).await {
         Ok(()) => Json(json!({ "success": true })).into_response(),
-        Err(error) => auth_error(error),
-    }
-}
-
-async fn verify(
-    Extension(service): Extension<Arc<AuthService>>,
-    Extension(configurations): Extension<Arc<Vec<ApiKeyConfiguration>>>,
-    Json(input): Json<VerifyRequest>,
-) -> Response {
-    match service
-        .verify_api_key(
-            &input.key,
-            &configurations,
-            input.config_id.as_deref(),
-            input.permissions.as_ref(),
-        )
-        .await
-    {
-        Ok(verified) => Json(json!({
-            "valid": true,
-            "error": null,
-            "key": verified.api_key,
-        }))
-        .into_response(),
-        Err(AuthError::ApiKey(error)) => http_response::invalid_verification(error),
-        Err(_) => http_response::invalid_verification(ApiKeyError::Invalid),
-    }
-}
-
-async fn delete_expired(Extension(service): Extension<Arc<AuthService>>) -> Response {
-    match service.delete_expired_api_keys().await {
-        Ok(_) => Json(json!({ "success": true, "error": null })).into_response(),
         Err(error) => auth_error(error),
     }
 }

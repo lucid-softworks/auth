@@ -9,6 +9,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 #[cfg(feature = "axum")]
 mod axum;
+mod config_id;
 mod error;
 #[cfg(feature = "axum")]
 mod http_error;
@@ -16,11 +17,18 @@ mod http_error;
 mod http_input;
 #[cfg(feature = "axum")]
 mod http_response;
+#[cfg(feature = "axum")]
+mod listing;
+#[cfg(feature = "axum")]
+mod request_key;
 mod schema_catalog;
+mod secondary_storage;
 
+pub(crate) use config_id::config_ids_match;
 pub use error::ApiKeyError;
 #[cfg(feature = "axum")]
 pub(crate) use http_error::api_key_error;
+pub use secondary_storage::{ApiKeySecondaryStorage, ApiKeySecondaryStorageMode};
 
 const ENDPOINTS: &[PluginEndpoint] = &[
     endpoint(PluginHttpMethod::Post, "/api-key/create", "apiKey.create"),
@@ -28,12 +36,6 @@ const ENDPOINTS: &[PluginEndpoint] = &[
     endpoint(PluginHttpMethod::Get, "/api-key/list", "apiKey.list"),
     endpoint(PluginHttpMethod::Post, "/api-key/update", "apiKey.update"),
     endpoint(PluginHttpMethod::Post, "/api-key/delete", "apiKey.delete"),
-    endpoint(PluginHttpMethod::Post, "/api-key/verify", "verifyApiKey"),
-    endpoint(
-        PluginHttpMethod::Post,
-        "/api-key/delete-all-expired-api-keys",
-        "deleteAllExpiredApiKeys",
-    ),
 ];
 
 const fn endpoint(
@@ -52,6 +54,32 @@ const fn endpoint(
 pub enum ApiKeyReference {
     User,
     Organization,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApiKeyStorage {
+    Database,
+    SecondaryStorage,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApiKeyGetterValue {
+    Missing,
+    Key(String),
+    Invalid,
+}
+
+pub trait ApiKeyGetter: Send + Sync {
+    fn get(&self, context: &crate::PluginRequestContext) -> ApiKeyGetterValue;
+}
+
+#[async_trait]
+pub trait ApiKeyValidator: Send + Sync {
+    async fn validate(
+        &self,
+        context: &crate::PluginRequestContext,
+        key: &str,
+    ) -> Result<bool, AuthError>;
 }
 
 #[derive(Debug, Clone)]
@@ -122,8 +150,15 @@ pub struct ApiKeyConfiguration {
     pub expiration: ApiKeyExpirationConfig,
     pub rate_limit: ApiKeyRateLimitConfig,
     pub enable_session_for_api_keys: bool,
+    pub disable_key_hashing: bool,
+    pub storage: ApiKeyStorage,
+    pub fallback_to_database: bool,
+    pub custom_storage: Option<Arc<dyn crate::SecondaryStorage>>,
+    pub defer_updates: bool,
     pub default_permissions: Option<BTreeMap<String, Vec<String>>>,
     pub key_generator: Option<Arc<dyn ApiKeyGenerator>>,
+    pub key_getter: Option<Arc<dyn ApiKeyGetter>>,
+    pub key_validator: Option<Arc<dyn ApiKeyValidator>>,
 }
 
 impl Default for ApiKeyConfiguration {
@@ -144,8 +179,25 @@ impl Default for ApiKeyConfiguration {
             expiration: ApiKeyExpirationConfig::default(),
             rate_limit: ApiKeyRateLimitConfig::default(),
             enable_session_for_api_keys: false,
+            disable_key_hashing: false,
+            storage: ApiKeyStorage::Database,
+            fallback_to_database: false,
+            custom_storage: None,
+            defer_updates: false,
             default_permissions: None,
             key_generator: None,
+            key_getter: None,
+            key_validator: None,
+        }
+    }
+}
+
+impl ApiKeyConfiguration {
+    pub(crate) fn effective_key_length(&self) -> usize {
+        if self.default_key_length == 0 {
+            64
+        } else {
+            self.default_key_length
         }
     }
 }
@@ -159,6 +211,7 @@ pub trait ApiKeyGenerator: Send + Sync {
 pub struct ApiKeyPlugin {
     configurations: Arc<Vec<ApiKeyConfiguration>>,
     options: ApiKeyOptions,
+    configuration_array: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -172,7 +225,7 @@ impl ApiKeyPlugin {
     }
 
     pub fn with_options(configuration: ApiKeyConfiguration, options: ApiKeyOptions) -> Self {
-        Self::with_configurations_and_options(vec![configuration], options)
+        Self::build(vec![configuration], options, false)
     }
 
     pub fn with_configurations(configurations: Vec<ApiKeyConfiguration>) -> Self {
@@ -183,9 +236,24 @@ impl ApiKeyPlugin {
         configurations: Vec<ApiKeyConfiguration>,
         options: ApiKeyOptions,
     ) -> Self {
+        Self::build(configurations, options, true)
+    }
+
+    fn build(
+        mut configurations: Vec<ApiKeyConfiguration>,
+        options: ApiKeyOptions,
+        configuration_array: bool,
+    ) -> Self {
+        if !configuration_array
+            && let Some(configuration) = configurations.first_mut()
+            && configuration.config_id.is_empty()
+        {
+            configuration.config_id = "default".into();
+        }
         Self {
             configurations: Arc::new(configurations),
             options,
+            configuration_array,
         }
     }
 }
@@ -226,7 +294,7 @@ impl AuthPlugin for ApiKeyPlugin {
     }
 
     fn validate(&self, _config: &AuthConfig) -> Result<(), AuthError> {
-        validate_configurations(&self.configurations)
+        validate_configurations(&self.configurations, self.configuration_array)
     }
 
     fn schema(&self) -> Vec<crate::PluginSchemaTable> {
@@ -252,28 +320,33 @@ impl AuthPlugin for ApiKeyPlugin {
         use crate::{AuthSession, AuthenticationMethod, SessionWithUser};
         use chrono::Utc;
 
-        let Some((configuration, key)) = self.configurations.iter().find_map(|configuration| {
-            if !configuration.enable_session_for_api_keys {
-                return None;
-            }
-            configuration.headers.iter().find_map(|header| {
-                headers
-                    .get(header)
-                    .and_then(|value| value.to_str().ok())
-                    .map(|key| (configuration, key.to_owned()))
-            })
-        }) else {
+        let Some(context) = request_key::marked_context(headers) else {
             return Ok(None);
         };
-        if key.len() < configuration.default_key_length {
-            return Err(ApiKeyError::Invalid.into());
+        let Some((configuration, key)) = request_key::find(&self.configurations, &context) else {
+            return Err(ApiKeyError::InvalidGetterReturnType.into());
+        };
+        let key = match key {
+            ApiKeyGetterValue::Key(key) => key,
+            ApiKeyGetterValue::Invalid | ApiKeyGetterValue::Missing => {
+                return Err(ApiKeyError::InvalidGetterReturnType.into());
+            }
+        };
+        if key.len() < configuration.effective_key_length() {
+            return Err(ApiKeyError::SessionInvalid.into());
+        }
+        if let Some(validator) = &configuration.key_validator
+            && !validator.validate(&context, &key).await?
+        {
+            return Err(ApiKeyError::SessionInvalid.into());
         }
         let verified = service
-            .verify_api_key(
+            .verify_api_key_after_custom_validation(
                 &key,
                 &self.configurations,
                 Some(&configuration.config_id),
                 None,
+                &context,
             )
             .await?;
         let user = verified.user.ok_or(ApiKeyError::InvalidReferenceId)?;
@@ -282,16 +355,15 @@ impl AuthPlugin for ApiKeyPlugin {
             session: AuthSession {
                 id: verified.api_key.id,
                 user_id: user.id.clone(),
-                token: String::new(),
+                token: key.clone(),
                 actor_user_id: None,
                 authentication_method: Some(AuthenticationMethod::Password),
-                expires_at: verified
-                    .api_key
-                    .expires_at
-                    .unwrap_or_else(|| now + service.session_ttl()),
+                expires_at: verified.api_key.expires_at.unwrap_or_else(|| {
+                    now + chrono::Duration::milliseconds(service.session_ttl().num_seconds())
+                }),
                 created_at: now,
                 updated_at: now,
-                ip_address: None,
+                ip_address: service.resolve_client_ip(|name| context.headers.get(name).cloned()),
                 user_agent: headers
                     .get(::axum::http::header::USER_AGENT)
                     .and_then(|value| value.to_str().ok())
@@ -305,34 +377,42 @@ impl AuthPlugin for ApiKeyPlugin {
             token: key,
         }))
     }
+
+    #[cfg(feature = "axum")]
+    async fn on_request(
+        &self,
+        service: &AuthService,
+        mut request: ::axum::extract::Request,
+    ) -> Result<::axum::extract::Request, ::axum::response::Response> {
+        let context = request_key::context(service, &request);
+        if request_key::find(&self.configurations, &context).is_some() {
+            request_key::mark(request.headers_mut(), &context);
+        }
+        Ok(request)
+    }
 }
 
-fn validate_configurations(configurations: &[ApiKeyConfiguration]) -> Result<(), AuthError> {
-    if configurations.is_empty() {
-        return invalid("at least one API-key configuration is required");
+fn validate_configurations(
+    configurations: &[ApiKeyConfiguration],
+    configuration_array: bool,
+) -> Result<(), AuthError> {
+    if configuration_array
+        && !configurations.is_empty()
+        && configurations
+            .iter()
+            .any(|config| config.config_id.is_empty())
+    {
+        return invalid(
+            "configId is required for each API key configuration in the api-key plugin.",
+        );
     }
     let mut ids = std::collections::HashSet::new();
     for config in configurations {
         if !ids.insert(config.config_id.as_str()) {
-            return invalid("API-key configuration IDs must be unique");
+            return invalid(
+                "configId must be unique for each API key configuration in the api-key plugin.",
+            );
         }
-        if config.default_key_length == 0
-            || config.minimum_prefix_length > config.maximum_prefix_length
-            || config.minimum_name_length > config.maximum_name_length
-            || config.starting_characters.length == 0
-            || config.rate_limit.time_window_milliseconds <= 0
-            || config.rate_limit.max_requests <= 0
-            || config.headers.is_empty()
-            || config.headers.iter().any(|header| header.trim().is_empty())
-        {
-            return invalid("API-key configuration values are invalid");
-        }
-    }
-    if !configurations
-        .iter()
-        .any(|config| config.config_id == "default")
-    {
-        return invalid("a default API-key configuration is required");
     }
     Ok(())
 }

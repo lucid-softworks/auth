@@ -1744,23 +1744,6 @@ async function conformance(origin) {
     );
     assert.equal(updated.name, "Updated client key");
 
-    const verifiedResponse = await transport.fetch(
-      `${origin}/api/auth/api-key/verify`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          key: created.key,
-          permissions: { documents: ["read"] },
-        }),
-      },
-    );
-    assert.equal(verifiedResponse.status, 200);
-    const verified = await verifiedResponse.json();
-    assert.equal(verified.valid, true);
-    assert.equal(verified.error, null);
-    assert.equal("key" in verified.key, false);
-
     transport.clearCookies();
     const sessionResponse = await transport.fetch(`${origin}/api/auth/get-session`, {
       headers: { "x-api-key": created.key },
@@ -1949,16 +1932,6 @@ async function conformance(origin) {
         "organization-owned apiKey.list",
       ).apiKeys.some((key) => key.id === organizationKey.id),
     );
-    const verifiedOrganizationKey = await transport.fetch(
-      `${origin}/api/auth/api-key/verify`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ key: organizationKey.key, configId: "organization" }),
-      },
-    );
-    assert.equal(verifiedOrganizationKey.status, 200);
-    assert.equal((await verifiedOrganizationKey.json()).valid, true);
     success(await client.apiKey.delete({ keyId: organizationKey.id, configId: "organization" }), "organization-owned apiKey.delete");
 
     success(await client.signOut(), "signOut before invitation acceptance");

@@ -1342,6 +1342,8 @@ dependencies = [
  "ipnet",
  "josekit",
  "jsonwebtoken",
+ "num-bigint",
+ "num-traits",
  "percent-encoding",
  "rand 0.10.2",
  "rand_core 0.6.4",
