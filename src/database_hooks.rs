@@ -8,8 +8,10 @@ use std::{
 };
 
 mod create;
+mod update;
 
 pub use create::{BeforeDatabaseCreateHook, DatabaseCreatePatch, DatabaseCreateRecord};
+pub use update::{BeforeDatabaseUpdateHook, DatabaseUpdatePatch, DatabaseUpdateRecord};
 
 /// Better Auth core database models that support schema fields and hooks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -63,12 +65,38 @@ pub struct DatabaseHookRequest {
     pub headers: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Default)]
 pub struct DatabaseHookContext {
     pub request: Option<DatabaseHookRequest>,
     /// Internal-adapter creation source, such as Test Utils' `test` method.
     pub creation_method: Option<&'static str>,
+    /// Active adapter transaction for reentrant hook reads and writes.
+    ///
+    /// This is `None` outside an adapter transaction; callers must not fall
+    /// back to the base store when transactional visibility is required.
+    pub transaction: Option<Arc<dyn crate::DatabaseTransaction>>,
 }
+
+impl std::fmt::Debug for DatabaseHookContext {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("DatabaseHookContext")
+            .field("request", &self.request)
+            .field("creation_method", &self.creation_method)
+            .field("has_transaction", &self.transaction.is_some())
+            .finish()
+    }
+}
+
+impl PartialEq for DatabaseHookContext {
+    fn eq(&self, other: &Self) -> bool {
+        self.request == other.request
+            && self.creation_method == other.creation_method
+            && self.transaction.is_some() == other.transaction.is_some()
+    }
+}
+
+impl Eq for DatabaseHookContext {}
 
 /// Response changes produced by work deferred until an HTTP request has
 /// finished its database operations.
@@ -122,21 +150,6 @@ impl DatabaseHookContext {
     }
 }
 
-/// Better Auth before-update result: continue, replace the typed candidate,
-/// or return `false` and cancel the database operation.
-#[derive(Debug, Clone, PartialEq)]
-pub enum BeforeDatabaseHook {
-    Continue,
-    Replace(Box<DatabaseRecord>),
-    Cancel,
-}
-
-impl BeforeDatabaseHook {
-    pub fn replace(record: DatabaseRecord) -> Self {
-        Self::Replace(Box::new(record))
-    }
-}
-
 #[async_trait]
 pub trait DatabaseHooks: Send + Sync {
     async fn before_create(
@@ -157,10 +170,10 @@ pub trait DatabaseHooks: Send + Sync {
 
     async fn before_update(
         &self,
-        _record: &DatabaseRecord,
+        _record: &DatabaseUpdateRecord,
         _context: &DatabaseHookContext,
-    ) -> Result<BeforeDatabaseHook, AuthError> {
-        Ok(BeforeDatabaseHook::Continue)
+    ) -> Result<BeforeDatabaseUpdateHook, AuthError> {
+        Ok(BeforeDatabaseUpdateHook::Continue)
     }
 
     async fn after_update(
@@ -192,6 +205,7 @@ tokio::task_local! {
     static REQUEST_CONTEXT: DatabaseHookRequest;
     static CREATION_METHOD: &'static str;
     static DEFERRED_AFTER_COMMIT: DeferredHookQueue;
+    static ACTIVE_DATABASE_TRANSACTION: Arc<dyn crate::DatabaseTransaction>;
 }
 
 type DeferredHookFuture =
@@ -221,7 +235,22 @@ pub(crate) fn current_context() -> DatabaseHookContext {
     DatabaseHookContext {
         request: REQUEST_CONTEXT.try_with(Clone::clone).ok(),
         creation_method: CREATION_METHOD.try_with(|method| *method).ok(),
+        transaction: ACTIVE_DATABASE_TRANSACTION.try_with(Clone::clone).ok(),
     }
+}
+
+pub(crate) fn current_transaction() -> Option<Arc<dyn crate::DatabaseTransaction>> {
+    ACTIVE_DATABASE_TRANSACTION.try_with(Clone::clone).ok()
+}
+
+pub(crate) async fn scope_transaction<F>(
+    transaction: Arc<dyn crate::DatabaseTransaction>,
+    future: F,
+) -> F::Output
+where
+    F: Future,
+{
+    ACTIVE_DATABASE_TRANSACTION.scope(transaction, future).await
 }
 
 pub(crate) async fn scope_creation_method<F>(method: &'static str, future: F) -> F::Output

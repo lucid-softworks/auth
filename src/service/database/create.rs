@@ -5,35 +5,41 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 
-pub(in crate::service) struct CredentialAccountCreate {
-    pub(super) service: AuthService,
-    pub(super) password_hash: String,
-    pub(super) now: DateTime<Utc>,
-}
-
 pub(in crate::service) struct OAuthAccountCreate {
     pub(super) service: AuthService,
     pub(super) account: crate::OAuthAccount,
 }
 
-#[async_trait::async_trait]
-impl crate::DependentAccountPreparer for CredentialAccountCreate {
-    fn pending_account_key(&self, user: &crate::AuthUser) -> Option<(String, String)> {
-        Some(("local:credential".to_owned(), user.id.clone()))
-    }
+pub(in crate::service) enum UserAccountCreate {
+    Credential {
+        password_hash: String,
+        now: DateTime<Utc>,
+    },
+    OAuth(Box<crate::OAuthAccount>),
+}
 
-    async fn prepare_account(
-        &self,
-        context: crate::DependentAccountContext<'_>,
-    ) -> Result<DatabaseWrite<crate::OAuthAccount>, AuthError> {
-        self.service
-            .prepare_credential_account(
-                context.user.id.clone(),
-                self.password_hash.clone(),
-                self.now,
-                context.existing_account,
-            )
-            .await
+impl UserAccountCreate {
+    pub(super) async fn prepare(
+        self,
+        service: &AuthService,
+        user: &crate::AuthUser,
+    ) -> Result<crate::DatabaseCreate<crate::OAuthAccount>, AuthError> {
+        match self {
+            Self::Credential { password_hash, now } => service
+                .prepare_credential_account(user.id.clone(), password_hash, now, None)
+                .await
+                .and_then(|write| match write {
+                    DatabaseWrite::Create(create) => Ok(create),
+                    DatabaseWrite::Update(_) => Err(AuthError::Storage(
+                        "fresh credential account preparation returned an update".into(),
+                    )),
+                }),
+            Self::OAuth(account) => {
+                let mut account = *account;
+                account.user_id = user.id.clone();
+                service.prepare_account_create(account).await
+            }
+        }
     }
 }
 
@@ -113,7 +119,8 @@ pub(super) fn decode_create_hook_record(
     record: DatabaseCreateRecord,
     authentication_method: Option<crate::AuthenticationMethod>,
 ) -> Result<(DatabaseRecord, DatabaseIdInput, bool), AuthError> {
-    let (model, id, id_present, mut fields) = record.into_parts();
+    let (model, id, id_present, mut fields, undefined) = record.into_adapter_parts();
+    apply_core_create_defaults(model, &undefined, &mut fields);
     fields.insert("id".into(), serde_json::Value::String(String::new()));
     let value = serde_json::Value::Object(fields);
     let record = match model {
@@ -140,6 +147,61 @@ pub(super) fn decode_create_hook_record(
         ))
     })?;
     Ok((record, id, id_present))
+}
+
+fn apply_core_create_defaults(
+    model: DatabaseModel,
+    undefined: &std::collections::BTreeSet<String>,
+    fields: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    let now = || serde_json::Value::String(Utc::now().to_rfc3339());
+    let mut default = |name: &str, value: serde_json::Value| {
+        if undefined.contains(name) {
+            fields.insert(name.into(), value);
+        }
+    };
+    match model {
+        DatabaseModel::User => {
+            default("emailVerified", serde_json::Value::Bool(false));
+            default("image", serde_json::Value::Null);
+            default("username", serde_json::Value::Null);
+            default("displayUsername", serde_json::Value::Null);
+            default("role", serde_json::Value::String("user".into()));
+            default("isAnonymous", serde_json::Value::Bool(false));
+            default("banned", serde_json::Value::Bool(false));
+            default("banReason", serde_json::Value::Null);
+            default("banExpires", serde_json::Value::Null);
+            default("createdAt", now());
+            default("updatedAt", now());
+        }
+        DatabaseModel::Session => {
+            default("ipAddress", serde_json::Value::Null);
+            default("userAgent", serde_json::Value::Null);
+            default("impersonatedBy", serde_json::Value::Null);
+            default("createdAt", now());
+            default("updatedAt", now());
+        }
+        DatabaseModel::Account => {
+            for field in [
+                "accessToken",
+                "refreshToken",
+                "idToken",
+                "accessTokenExpiresAt",
+                "refreshTokenExpiresAt",
+                "scope",
+                "password",
+            ] {
+                default(field, serde_json::Value::Null);
+            }
+            default("createdAt", now());
+            default("updatedAt", now());
+        }
+        DatabaseModel::Verification => {
+            default("createdAt", now());
+            default("updatedAt", now());
+        }
+        DatabaseModel::Organization => {}
+    }
 }
 
 pub(super) fn apply_create_before(

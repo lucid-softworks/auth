@@ -1682,8 +1682,9 @@ models are explicit and typed. Plugin schema descriptors are merged in the order
 plugins are supplied; each core model then applies its core fields, those merged
 plugin fields, and finally the host's additional fields. The result is available
 through `AuthService::database_schema_fields`.
-Creation applies required/default rules plus input validators and transforms;
-updates also apply `on_update_with`; responses apply returned/output policy.
+Client input validation runs before hooks. The adapter phase then applies
+defaults and input transforms once to the final shallow-patched data; updates
+also apply `on_update_with`. Responses apply returned/output policy.
 Core IDs, tokens, ownership, timestamps, expiry, and input-disabled fields are
 never writable. Set `returned(false)` for persisted server-only values:
 
@@ -1715,13 +1716,27 @@ catch-all JSONB persistence column or legacy fallback.
 
 Set `AuthConfig::database_hooks` for host hooks or implement
 `AuthPlugin::database_hooks` for plugin hooks. Before hooks run in plugin
-dependency order and then host order; they can continue, replace a typed record,
-or cancel. A cancellation or error prevents the authoritative write. After
-hooks run in the same order after persistence has committed, so an after-hook
-error is reported but does not roll the write back. HTTP calls include method,
-path, query, and headers in `DatabaseHookContext`; native calls have no request.
-`run_in_background` schedules non-authoritative follow-up work. Update hooks may
-not change protected identity, ownership, or creation fields.
+dependency order and then host order; they can continue, shallow-merge a
+partial top-level patch, or cancel. Explicit null and undefined values overwrite
+earlier values, while nested objects replace instead of recursively merging.
+There is no whole-record replacement alias. A cancellation or error prevents
+the authoritative write. After hooks run in the same order only after
+persistence has committed, so an after-hook error is reported but does not roll
+the write back.
+
+`DatabaseHookContext::transaction` exposes the active canonical-logical adapter
+view for reentrant reads and writes. User/account creation inserts the user,
+passes its adapter-returned string ID to the account hook, inserts the account,
+and commits both before either after hook runs. Memory stages an isolated copy;
+PostgreSQL reuses the current SQL transaction and connection, including with a
+one-connection pool. Neither adapter retries after hook execution begins.
+Custom `AuthStore` implementations provide this boundary through
+`AuthStore::transaction`, `DatabaseTransaction`, and
+`DatabaseTransactionOperation`; `run_database_transaction` is the typed helper.
+HTTP calls include method, path, query, and headers in `DatabaseHookContext`;
+native calls have no request. `run_in_background` schedules non-authoritative
+follow-up work outside the authoritative transaction. Update hooks may not
+change protected identity, ownership, or creation fields.
 
 Email changes are disabled by default, matching Better Auth. Enable the
 verified flow with the existing verification-email sender:

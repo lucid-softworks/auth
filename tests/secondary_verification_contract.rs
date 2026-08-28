@@ -276,7 +276,7 @@ async fn database_mirroring_survives_restart_and_enables_atomic_reservations() {
             .unwrap()
     );
 
-    let secondary_only = service(store, secondary, false, false);
+    let secondary_only = service(Arc::new(MemoryStore::default()), secondary, false, false);
     let error = secondary_only
         .reserve_verification_value(value("reservation:blocked", now + Duration::minutes(2)))
         .await

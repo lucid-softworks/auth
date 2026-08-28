@@ -5,11 +5,16 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 mod database_id;
+mod transaction;
 
 pub use database_id::{
     DatabaseAccountCreate, DatabaseAccountOwnerWrite, DatabaseCreate, DatabaseIdInput,
     DatabaseIdPlan, DatabaseIdSupplier, DatabaseIdValue, DatabaseWrite, DatabaseWriteOperation,
     DependentAccountContext, DependentAccountPreparer, PreparedDatabaseId,
+};
+pub use transaction::{
+    DatabaseCreateOperation, DatabaseTransaction, DatabaseTransactionFuture,
+    DatabaseTransactionOperation, run_database_transaction,
 };
 
 /// Result of atomically removing a passkey while preserving a configured minimum.
@@ -55,6 +60,16 @@ pub enum OAuthTokenUpdateOutcome {
 pub trait AuthStore:
     AccessStore + ApiKeyStore + OAuthAccountStore + SecurityStore + VerificationStore + Send + Sync
 {
+    /// Runs one Better Auth adapter transaction without retries.
+    ///
+    /// Implementations must expose the same staged view to the operation and
+    /// to reentrant database hooks, commit only after the operation succeeds,
+    /// and roll back on every error.
+    async fn transaction(
+        &self,
+        operation: Box<dyn DatabaseTransactionOperation>,
+    ) -> Result<Box<dyn std::any::Any + Send>, AuthError>;
+
     fn database_adapter_name(&self) -> &str {
         "Auth Adapter"
     }

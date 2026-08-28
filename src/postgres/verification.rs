@@ -12,6 +12,15 @@ impl VerificationStore for PostgresStore {
         &self,
         value: DatabaseCreate<VerificationValue>,
     ) -> Result<VerificationValue, AuthError> {
+        if let Some(transaction) = crate::database_hooks::current_transaction() {
+            return match transaction
+                .create(crate::DatabaseCreateOperation::Verification(value))
+                .await?
+            {
+                crate::DatabaseRecord::Verification(value) => Ok(value),
+                _ => unreachable!("transaction create preserves its model"),
+            };
+        }
         let (value, id) = value.into_parts(self)?;
         let model = self.physical_model("verification")?;
         let writes = verification_writes(&model, &value, &id)?;
@@ -165,7 +174,7 @@ impl VerificationStore for PostgresStore {
     }
 }
 
-fn verification_writes<'a>(
+pub(in crate::postgres) fn verification_writes<'a>(
     model: &'a PostgresModel<'a>,
     value: &VerificationValue,
     id: &crate::store::PreparedDatabaseId,
@@ -224,7 +233,7 @@ async fn delete_identifier(
         .map_err(storage_error)
 }
 
-fn decode_verification(
+pub(in crate::postgres) fn decode_verification(
     model: &PostgresModel<'_>,
     row: &PgRow,
 ) -> Result<VerificationValue, AuthError> {

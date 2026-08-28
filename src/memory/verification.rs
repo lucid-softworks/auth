@@ -10,6 +10,15 @@ impl VerificationStore for MemoryStore {
         &self,
         value: DatabaseCreate<VerificationValue>,
     ) -> Result<VerificationValue, AuthError> {
+        if let Some(transaction) = crate::database_hooks::current_transaction() {
+            return match transaction
+                .create(crate::DatabaseCreateOperation::Verification(value))
+                .await?
+            {
+                crate::DatabaseRecord::Verification(value) => Ok(value),
+                _ => unreachable!("transaction create preserves its model"),
+            };
+        }
         let mut state = self.state.write().await;
         let (mut value, id) = value.into_parts(self)?;
         value.id = self.create_id("verification", id, state.verifications.len())?;

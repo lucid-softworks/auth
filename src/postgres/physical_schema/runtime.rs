@@ -32,6 +32,10 @@ impl<'a> PostgresModel<'a> {
         &self.physical.quoted_table
     }
 
+    pub(crate) const fn logical_name(&self) -> &str {
+        self.logical_name
+    }
+
     pub(crate) fn has_field(&self, logical: &str) -> bool {
         logical == "id" || self.logical.columns.contains_key(logical)
     }

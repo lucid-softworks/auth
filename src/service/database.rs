@@ -2,17 +2,19 @@ use super::AuthService;
 use crate::store::{
     DatabaseCreate, DatabaseIdInput, DatabaseIdPlan, DatabaseWrite, PreparedDatabaseId,
 };
-use crate::{AuthError, BeforeDatabaseHook, DatabaseCreateRecord, DatabaseModel, DatabaseRecord};
+use crate::{AuthError, DatabaseCreateRecord, DatabaseModel, DatabaseRecord, DatabaseUpdateRecord};
 use chrono::{DateTime, Utc};
 
 mod create;
 mod delete;
+mod transaction;
+mod update;
 mod user;
 
 use create::{
-    CredentialAccountCreate, OAuthAccountCreate, apply_create_before, create_hook_record,
-    decode_create_hook_record,
+    OAuthAccountCreate, apply_create_before, create_hook_record, decode_create_hook_record,
 };
+use update::{apply_before, cancelled};
 
 impl AuthService {
     pub(crate) fn database_id_plan(
@@ -48,18 +50,6 @@ impl AuthService {
         store.create_device_code(create, self.store.as_ref()).await
     }
 
-    pub(super) fn credential_account_create(
-        &self,
-        password_hash: String,
-        now: DateTime<Utc>,
-    ) -> CredentialAccountCreate {
-        CredentialAccountCreate {
-            service: self.clone(),
-            password_hash,
-            now,
-        }
-    }
-
     pub(super) fn oauth_account_create(&self, account: crate::OAuthAccount) -> OAuthAccountCreate {
         OAuthAccountCreate {
             service: self.clone(),
@@ -72,7 +62,10 @@ impl AuthService {
         model: DatabaseModel,
         supplied: serde_json::Map<String, serde_json::Value>,
     ) -> Result<serde_json::Map<String, serde_json::Value>, AuthError> {
-        crate::additional_fields::parse_create_fields(self.database_schema_fields(model), supplied)
+        crate::additional_fields::validate_create_fields(
+            self.database_schema_fields(model),
+            supplied,
+        )
     }
 
     pub(super) fn update_additional_fields(
@@ -98,6 +91,24 @@ impl AuthService {
         Ok(record)
     }
 
+    fn transform_create_record(&self, record: &mut DatabaseRecord) -> Result<(), AuthError> {
+        let (model, additional_fields) = match record {
+            DatabaseRecord::User(record) => (DatabaseModel::User, &mut record.additional_fields),
+            DatabaseRecord::Session(record) => {
+                (DatabaseModel::Session, &mut record.additional_fields)
+            }
+            DatabaseRecord::Account(record) => {
+                (DatabaseModel::Account, &mut record.additional_fields)
+            }
+            DatabaseRecord::Verification(_) => return Ok(()),
+        };
+        *additional_fields = crate::additional_fields::transform_create_fields(
+            self.database_schema_fields(model),
+            std::mem::take(additional_fields),
+        )?;
+        Ok(())
+    }
+
     pub(super) async fn after_database_create(
         &self,
         record: &DatabaseRecord,
@@ -117,18 +128,15 @@ impl AuthService {
         record: DatabaseRecord,
     ) -> Result<DatabaseRecord, AuthError> {
         let context = crate::database_hooks::current_context();
-        let record = self
+        let mut record = self
             .plugins
-            .before_database_update(record, &context)
+            .before_database_update(DatabaseUpdateRecord::new(record)?, &context)
             .await?;
-        match &self.config.database_hooks {
-            Some(hooks) => apply_before(
-                hooks.before_update(&record, &context).await?,
-                record,
-                "update",
-            ),
-            None => Ok(record),
+        if let Some(hooks) = &self.config.database_hooks {
+            apply_before(hooks.before_update(&record, &context).await?, &mut record)?;
         }
+        record.apply_additional_fields(self.database_schema_fields(record.model()))?;
+        record.into_record()
     }
 
     pub(super) async fn after_database_update(
@@ -180,13 +188,12 @@ impl AuthService {
 
     pub(super) async fn prepare_account_create(
         &self,
-        mut account: crate::OAuthAccount,
+        account: crate::OAuthAccount,
     ) -> Result<DatabaseCreate<crate::OAuthAccount>, AuthError> {
-        account.additional_fields =
-            self.create_additional_fields(DatabaseModel::Account, account.additional_fields)?;
         let draft = create_hook_record(DatabaseRecord::Account(account))?;
-        let (record, id, id_present) =
-            decode_create_hook_record(self.before_database_create(draft).await?, None)?;
+        let draft = self.before_database_create(draft).await?;
+        let (mut record, id, id_present) = decode_create_hook_record(draft, None)?;
+        self.transform_create_record(&mut record)?;
         match record {
             DatabaseRecord::Account(account) => self.prepare_database_create(
                 DatabaseModel::Account.as_str(),
@@ -204,10 +211,9 @@ impl AuthService {
     ) -> Result<DatabaseCreate<crate::AuthSession>, AuthError> {
         let authentication_method = session.authentication_method;
         let draft = create_hook_record(DatabaseRecord::Session(session))?;
-        let (record, id, id_present) = decode_create_hook_record(
-            self.before_database_create(draft).await?,
-            authentication_method,
-        )?;
+        let draft = self.before_database_create(draft).await?;
+        let (mut record, id, id_present) = decode_create_hook_record(draft, authentication_method)?;
+        self.transform_create_record(&mut record)?;
         match record {
             DatabaseRecord::Session(session) => self.prepare_database_create(
                 DatabaseModel::Session.as_str(),
@@ -224,8 +230,9 @@ impl AuthService {
         value: crate::VerificationValue,
     ) -> Result<DatabaseCreate<crate::VerificationValue>, AuthError> {
         let draft = create_hook_record(DatabaseRecord::Verification(value))?;
-        let (record, id, id_present) =
-            decode_create_hook_record(self.before_database_create(draft).await?, None)?;
+        let draft = self.before_database_create(draft).await?;
+        let (mut record, id, id_present) = decode_create_hook_record(draft, None)?;
+        self.transform_create_record(&mut record)?;
         match record {
             DatabaseRecord::Verification(value) => self.prepare_database_create(
                 DatabaseModel::Verification.as_str(),
@@ -336,29 +343,5 @@ impl AuthService {
     ) -> Result<(), AuthError> {
         self.after_database_update(&DatabaseRecord::Account(account.clone()))
             .await
-    }
-}
-
-fn apply_before(
-    result: BeforeDatabaseHook,
-    current: DatabaseRecord,
-    operation: &'static str,
-) -> Result<DatabaseRecord, AuthError> {
-    match result {
-        BeforeDatabaseHook::Continue => Ok(current),
-        BeforeDatabaseHook::Replace(replacement) if replacement.model() == current.model() => {
-            Ok(*replacement)
-        }
-        BeforeDatabaseHook::Replace(_) => Err(AuthError::InvalidConfiguration(
-            "a database hook replaced a record with a different model".into(),
-        )),
-        BeforeDatabaseHook::Cancel => Err(cancelled(&current, operation)),
-    }
-}
-
-fn cancelled(record: &DatabaseRecord, operation: &'static str) -> AuthError {
-    AuthError::DatabaseHookCancelled {
-        model: record.model().as_str(),
-        operation,
     }
 }

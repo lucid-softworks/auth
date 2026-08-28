@@ -5,9 +5,13 @@ use lucid_auth::{
 use std::sync::Arc;
 
 pub(crate) async fn assert_persistence(
-    store: &Arc<PostgresStore>,
+    _store: &Arc<PostgresStore>,
     pool: &sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let store = Arc::new(PostgresStore::new(
+        pool.clone(),
+        lucid_auth::postgres::PostgresAdapterConfig::default(),
+    ));
     let mut config = AuthConfig::new([91_u8; 32])?;
     config.set_base_url("https://test-utils.example.com")?;
     config.add_plugin(OrganizationPlugin::new(store.clone()))?;

@@ -106,14 +106,10 @@ async fn assert_subscriptions_and_items(
     let plan = ChargebeeSubscriptionItem::new(first.id, "price_plan", ChargebeeItemType::Plan, 3.0);
     store.create_subscription_item(addon.clone()).await?;
     store.create_subscription_item(plan.clone()).await?;
-    assert_eq!(
-        store.list_subscription_items(first.id).await?,
-        [addon.clone(), plan.clone()]
-    );
-    assert_eq!(
-        store.delete_subscription_items(first.id).await?,
-        [addon, plan]
-    );
+    let mut expected = vec![addon, plan];
+    expected.sort_by_key(|item| item.id);
+    assert_eq!(store.list_subscription_items(first.id).await?, expected);
+    assert_eq!(store.delete_subscription_items(first.id).await?, expected);
     let replacement =
         ChargebeeSubscriptionItem::new(first.id, "price_replacement", ChargebeeItemType::Plan, 5.0);
     store.create_subscription_item(replacement.clone()).await?;
@@ -153,7 +149,7 @@ fn subscription(reference: &str, provider_id: &str) -> ChargebeeSubscription {
 
 async fn item_count(pool: &PgPool, subscription_id: Uuid) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar("SELECT COUNT(*) FROM \"subscriptionItem\" WHERE \"subscriptionId\" = $1")
-        .bind(subscription_id)
+        .bind(subscription_id.to_string())
         .fetch_one(pool)
         .await
 }

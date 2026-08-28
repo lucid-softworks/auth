@@ -62,39 +62,16 @@ impl AuthService {
             updated_at: now,
         };
         let existing = self.store.find_user_by_username(&username).await?;
-        let user = if let Some(existing) = existing {
-            user.id = existing.id;
+        if let Some(existing) = &existing {
+            user.id.clone_from(&existing.id);
             user.created_at = existing.created_at;
-            user.additional_fields = existing.additional_fields;
-            match self
-                .before_database_update(crate::DatabaseRecord::User(user))
-                .await?
-            {
-                crate::DatabaseRecord::User(user) => crate::DatabaseWrite::Update(user),
-                _ => unreachable!("database hook model was validated"),
-            }
-        } else {
-            crate::DatabaseWrite::Create(self.prepare_user_create(user).await?)
-        };
-        let created_at = match &user {
-            crate::DatabaseWrite::Create(user) => user.record.created_at,
-            crate::DatabaseWrite::Update(user) => user.created_at,
-        };
-        let credential = self.credential_account_create(input.password_hash, created_at);
-        let write = self.store.upsert_password_user(user, &credential).await?;
+            user.additional_fields
+                .clone_from(&existing.additional_fields);
+        }
+        let write = self
+            .upsert_user_and_credential_account(existing, user, input.password_hash)
+            .await?;
         let user = write.owner.user;
-        let account = write.owner.account;
-        match write.user_operation {
-            crate::DatabaseWriteOperation::Create => self.finish_user_create(&user).await?,
-            crate::DatabaseWriteOperation::Update => {
-                self.after_database_update(&crate::DatabaseRecord::User(user.clone()))
-                    .await?
-            }
-        }
-        match write.account_operation {
-            crate::DatabaseWriteOperation::Create => self.finish_account_create(&account).await?,
-            crate::DatabaseWriteOperation::Update => self.finish_account_update(&account).await?,
-        }
         self.plugins
             .password_credential_changed(&PasswordCredentialChanged {
                 user_id: user.id.clone(),

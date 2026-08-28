@@ -208,5 +208,6 @@ pub(super) fn context() -> DatabaseHookContext {
             headers: Default::default(),
         }),
         creation_method: None,
+        transaction: None,
     }
 }

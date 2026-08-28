@@ -25,6 +25,7 @@ mod security;
 mod session;
 mod siwe;
 mod step_up;
+mod transaction;
 mod two_factor;
 mod user;
 mod verification;
@@ -49,6 +50,13 @@ impl PostgresStore {
 
 #[async_trait]
 impl AuthStore for PostgresStore {
+    async fn transaction(
+        &self,
+        operation: Box<dyn crate::DatabaseTransactionOperation>,
+    ) -> Result<Box<dyn std::any::Any + Send>, AuthError> {
+        transaction::run(self, operation).await
+    }
+
     fn database_adapter_name(&self) -> &str {
         "PostgreSQL Adapter"
     }
@@ -95,6 +103,15 @@ impl AuthStore for PostgresStore {
         &self,
         user: crate::store::DatabaseCreate<AuthUser>,
     ) -> Result<AuthUser, AuthError> {
+        if let Some(transaction) = crate::database_hooks::current_transaction() {
+            return match transaction
+                .create(crate::DatabaseCreateOperation::User(user))
+                .await?
+            {
+                crate::DatabaseRecord::User(user) => Ok(user),
+                _ => unreachable!("transaction create preserves its model"),
+            };
+        }
         user::create_without_account(self, user).await
     }
 
@@ -209,6 +226,17 @@ impl AuthStore for PostgresStore {
     }
 
     async fn find_user_by_id(&self, user_id: &str) -> Result<Option<AuthUser>, AuthError> {
+        if let Some(transaction) = crate::database_hooks::current_transaction() {
+            return transaction
+                .find_by_id(crate::DatabaseModel::User, user_id)
+                .await
+                .map(|record| {
+                    record.map(|record| match record {
+                        crate::DatabaseRecord::User(user) => user,
+                        _ => unreachable!("transaction lookup preserves its model"),
+                    })
+                });
+        }
         self.load_user_by_id(user_id).await
     }
 

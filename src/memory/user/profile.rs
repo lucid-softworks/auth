@@ -17,7 +17,7 @@ pub(in crate::memory) async fn create_without_account(
     ensure_phone_number_available(&state, &user, None)?;
     if let Some(username) = &user.username {
         if state.usernames.contains_key(username) || state.pending_usernames.contains(username) {
-            return Err(AuthError::UserAlreadyExists);
+            return Err(UsernameError::AlreadyTaken.into());
         }
         state.usernames.insert(username.clone(), user.id.clone());
     }

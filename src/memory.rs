@@ -23,10 +23,11 @@ mod phone_number;
 mod security;
 mod session;
 mod siwe;
+mod transaction;
 mod user;
 mod verification;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct MemoryState {
     users: HashMap<String, AuthUser>,
     usernames: HashMap<String, String>,
@@ -49,6 +50,7 @@ struct MemoryState {
     jwks: Vec<crate::StoredJwk>,
 }
 
+#[derive(Clone)]
 struct RateLimitWindow {
     _id: String,
     count: u32,
@@ -60,6 +62,7 @@ struct RateLimitWindow {
 pub struct MemoryStore {
     state: Arc<RwLock<MemoryState>>,
     siwe_identity_write: Arc<Mutex<()>>,
+    transaction_gate: Arc<Mutex<()>>,
 }
 
 impl MemoryStore {
@@ -83,6 +86,13 @@ impl MemoryStore {
 
 #[async_trait]
 impl AuthStore for MemoryStore {
+    async fn transaction(
+        &self,
+        operation: Box<dyn crate::DatabaseTransactionOperation>,
+    ) -> Result<Box<dyn std::any::Any + Send>, AuthError> {
+        transaction::run(self, operation).await
+    }
+
     fn database_adapter_name(&self) -> &str {
         "Memory Adapter"
     }
@@ -127,6 +137,15 @@ impl AuthStore for MemoryStore {
         &self,
         user: crate::store::DatabaseCreate<AuthUser>,
     ) -> Result<AuthUser, AuthError> {
+        if let Some(transaction) = crate::database_hooks::current_transaction() {
+            return match transaction
+                .create(crate::DatabaseCreateOperation::User(user))
+                .await?
+            {
+                crate::DatabaseRecord::User(user) => Ok(user),
+                _ => unreachable!("transaction create preserves its model"),
+            };
+        }
         user::create_without_account(self, user).await
     }
 
@@ -307,6 +326,17 @@ impl AuthStore for MemoryStore {
     }
 
     async fn find_user_by_id(&self, user_id: &str) -> Result<Option<AuthUser>, AuthError> {
+        if let Some(transaction) = crate::database_hooks::current_transaction() {
+            return transaction
+                .find_by_id(crate::DatabaseModel::User, user_id)
+                .await
+                .map(|record| {
+                    record.map(|record| match record {
+                        crate::DatabaseRecord::User(user) => user,
+                        _ => unreachable!("transaction lookup preserves its model"),
+                    })
+                });
+        }
         user::find_by_id(self, user_id).await
     }
 
