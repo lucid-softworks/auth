@@ -20,12 +20,26 @@ pub struct MemoryAgentAuthStore {
     state: RwLock<State>,
 }
 
-#[derive(Debug, Default)]
-pub(super) struct State {
-    pub(super) hosts: HashMap<String, AgentHost>,
-    pub(super) agents: HashMap<String, AgentIdentity>,
-    pub(super) grants: HashMap<String, AgentCapabilityGrant>,
-    pub(super) approvals: HashMap<String, AgentApprovalRequest>,
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct AgentAuthSnapshot {
+    pub(crate) hosts: HashMap<String, AgentHost>,
+    pub(crate) agents: HashMap<String, AgentIdentity>,
+    pub(crate) grants: HashMap<String, AgentCapabilityGrant>,
+    pub(crate) approvals: HashMap<String, AgentApprovalRequest>,
+}
+
+type State = AgentAuthSnapshot;
+
+impl MemoryAgentAuthStore {
+    pub(crate) fn from_snapshot(snapshot: AgentAuthSnapshot) -> Self {
+        Self {
+            state: RwLock::new(snapshot),
+        }
+    }
+
+    pub(crate) fn snapshot(&self) -> Result<AgentAuthSnapshot, AuthError> {
+        Ok(read(&self.state)?.clone())
+    }
 }
 
 pub(super) fn read(state: &RwLock<State>) -> Result<RwLockReadGuard<'_, State>, AuthError> {

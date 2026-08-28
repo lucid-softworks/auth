@@ -14,6 +14,7 @@ plugin: the client plugin and the native server plugin must both be supported.
 | Rust | `1.90` or newer |
 | Axum | `0.8` |
 | PostgreSQL | `16` in CI |
+| SQLite adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1` |
 
 The crate is not currently published to crates.io. Pin a reviewed Git commit;
 do not use a moving branch in production:
@@ -25,12 +26,13 @@ lucid-auth = { git = "https://github.com/lucid-softworks/auth", rev = "d4d0e9961
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
 ```
 
-Enable `postgres` as well for the bundled SQLx/PostgreSQL store. The feature
+Enable `sqlite` or `postgres` for a bundled SQLx store. The feature
 surface is intentionally small:
 
 | Cargo feature | Default | Adds |
 | --- | --- | --- |
 | `axum` | yes | Better Auth HTTP router, cookies, browser security, CORS |
+| `sqlite` | no | Native local `SqliteStore` and additive schema migration |
 | `postgres` | no | `PostgresStore`, bound-schema migration, Lucid extension operations |
 
 `--no-default-features` is useful only for native in-process service calls; it
@@ -85,6 +87,42 @@ Then read the cookie-bound session:
 curl --fail-with-body -b cookies.txt \
   http://localhost:3000/api/auth/get-session
 ```
+
+## SQLite quickstart
+
+SQLite is a native in-process backend; it does not run Node, Bun,
+`better-sqlite3`, or a helper process. The JavaScript driver families are
+conformance references for `@better-auth/kysely-adapter@1.7.1`, not Rust APIs.
+
+```sh
+export DATABASE_URL="sqlite://lucid-auth.db"
+cargo run --example http_sqlite --features axum,sqlite
+```
+
+The [SQLite HTTP example](../examples/http_sqlite.rs) creates the file if it is
+missing, binds the store to `AuthService::database_schema()`, and executes the
+derived additive plan before serving. You may instead supply an existing
+`sqlx::SqlitePool`, call `SqliteStore::connect`, or call
+`SqliteStore::connect_with` with your own pool and connection options.
+
+For a process-local ephemeral database, use `DATABASE_URL=sqlite::memory:`.
+That ordinary URL names a separate database per connection, so the example
+limits it to one connection. A file database supports a normal multi-connection
+pool; an explicitly selected shared-memory URI is also the caller's choice.
+
+The store intentionally does not change `foreign_keys`, `journal_mode`,
+`synchronous`, `busy_timeout`, shared-cache, retry, checkpoint, or vacuum
+policy. Configure those through SQLx for the deployment. Foreign-key DDL is
+generated exactly, but SQLite enforces it only when the supplied connection
+configuration enables enforcement. Migrations inspect ordinary tables only;
+this matches the pinned Node and Bun dialects, while the pinned standard Kysely
+SQLite introspector also reports views.
+
+Migration planning is additive: it creates missing tables, columns, and the
+indexes supported by the pinned adapter, reports drift/conflicts, and never
+renames, drops, rewrites, or backfills existing objects. It uses no migration
+ledger. Review `unsafe_changes` from compile mode before manually resolving a
+required-column addition on a populated table.
 
 ## PostgreSQL quickstart
 

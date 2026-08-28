@@ -9,10 +9,10 @@ use serde_json::{Value, json};
 use tower::ServiceExt as _;
 
 pub(super) async fn assert_round_trip(
-    store: &Arc<PostgresStore>,
     pool: &sqlx::PgPool,
     user_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let store = Arc::new(PostgresStore::new(pool.clone(), Default::default()));
     let mut config = AuthConfig::new([78; 32])?;
     config.set_base_url("http://localhost:3000")?;
     config.trust_origin("http://localhost:3000")?;
