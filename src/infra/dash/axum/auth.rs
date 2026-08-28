@@ -8,7 +8,9 @@ use serde::de::DeserializeOwned;
 use serde_json::json;
 
 pub(super) fn authorization(headers: &HeaderMap) -> Option<&str> {
-    headers.get("authorization").and_then(|value| value.to_str().ok())
+    headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
 }
 
 pub(super) async fn regular<T: DeserializeOwned>(

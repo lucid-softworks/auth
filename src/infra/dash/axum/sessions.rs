@@ -108,11 +108,9 @@ async fn revoke(
         .await
     {
         Ok(()) => Json(json!({"success": true})).into_response(),
-        Err(crate::AuthError::NotFound) => crate::axum::api_error(
-            StatusCode::NOT_FOUND,
-            "NOT_FOUND",
-            "Session not found",
-        ),
+        Err(crate::AuthError::NotFound) => {
+            crate::axum::api_error(StatusCode::NOT_FOUND, "NOT_FOUND", "Session not found")
+        }
         Err(error) => route_error(error),
     }
 }
@@ -159,7 +157,8 @@ async fn impersonate(
     headers: HeaderMap,
     Query(query): Query<ImpersonationQuery>,
 ) -> Response {
-    let claims = match auth::token::<ImpersonationClaim>(&plugin, &query.impersonation_token).await {
+    let claims = match auth::token::<ImpersonationClaim>(&plugin, &query.impersonation_token).await
+    {
         Ok(claims) => claims,
         Err(response) => return response,
     };

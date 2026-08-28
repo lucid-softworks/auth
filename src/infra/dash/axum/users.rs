@@ -2,7 +2,7 @@ use super::{auth, input, route, route_error};
 use crate::{AuthService, AxumPluginRoute, DashPlugin};
 use axum::{
     Extension, Json,
-    body::Body,
+    body::{Body, Bytes},
     extract::Query,
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
@@ -10,7 +10,8 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
-use std::sync::Arc;
+use std::{convert::Infallible, sync::Arc, time::Duration};
+use tokio_stream::wrappers::ReceiverStream;
 
 pub(super) fn routes(plugin: Arc<DashPlugin>) -> Vec<AxumPluginRoute> {
     vec![
@@ -34,10 +35,7 @@ pub(super) fn routes(plugin: Arc<DashPlugin>) -> Vec<AxumPluginRoute> {
             "/dash/delete-many-users",
             post(delete_many).layer(Extension(plugin.clone())),
         ),
-        route(
-            "/dash/user",
-            get(details).layer(Extension(plugin.clone())),
-        ),
+        route("/dash/user", get(details).layer(Extension(plugin.clone()))),
         route(
             "/dash/user-organizations",
             get(organizations).layer(Extension(plugin.clone())),
@@ -112,10 +110,13 @@ async fn list(
     }
     let query = match query.into_domain() {
         Ok(query) => query,
-        Err(_) => return crate::axum::api_error(StatusCode::BAD_REQUEST, "BAD_REQUEST", "Invalid query"),
+        Err(_) => {
+            return crate::axum::api_error(StatusCode::BAD_REQUEST, "BAD_REQUEST", "Invalid query");
+        }
     };
     match service.dash_list_users(&query).await {
         Ok((users, total)) => {
+            let online_users = service.dash_online_users().await.unwrap_or(0);
             let mut output = Vec::with_capacity(users.len());
             for user in users {
                 match service.dash_user_json(&user).await {
@@ -128,7 +129,7 @@ async fn list(
                 "total": total,
                 "offset": query.response_offset(),
                 "limit": query.response_limit(),
-                "onlineUsers": 0,
+                "onlineUsers": online_users,
                 "activityTrackingEnabled": plugin.options().activity_tracking.enabled,
             }))
             .into_response()
@@ -148,59 +149,94 @@ async fn export(
     }
     let query = match query.into_domain() {
         Ok(query) => query,
-        Err(_) => return crate::axum::api_error(StatusCode::BAD_REQUEST, "BAD_REQUEST", "Invalid query"),
+        Err(_) => {
+            return crate::axum::api_error(StatusCode::BAD_REQUEST, "BAD_REQUEST", "Invalid query");
+        }
     };
     let user_limit = query.limit.map(|limit| limit.max(0.0).floor() as usize);
-    let mut page = 0_usize;
-    let mut total = 0_usize;
-    let mut bytes = Vec::new();
-    loop {
-        let remaining = user_limit.map(|limit| limit.saturating_sub(total));
-        if remaining == Some(0) {
-            break;
-        }
-        let mut batch_query = query.clone();
-        batch_query.limit = Some(remaining.unwrap_or(10_000).min(10_000) as f64);
-        batch_query.offset = Some(query.adapter_offset().saturating_add(page * 10_000) as f64);
-        let users = match tokio::time::timeout(
-            std::time::Duration::from_millis(300_000),
-            service.dash_list_users(&batch_query),
-        )
-        .await
-        {
-            Ok(Ok((users, _))) => users,
-            Ok(Err(error)) => return route_error(error),
-            Err(_) => break,
-        };
-        if users.is_empty() {
-            if page == 0 {
-                return crate::axum::api_error(
-                    StatusCode::FAILED_DEPENDENCY,
-                    "FAILED_DEPENDENCY",
-                    "Nothing found to export",
-                );
-            }
-            break;
-        }
-        for user in users {
-            let value = match service.dash_user_json(&user).await {
-                Ok(value) => value,
-                Err(error) => return route_error(error),
-            };
-            if serde_json::to_writer(&mut bytes, &value).is_err() {
-                return route_error(crate::AuthError::Storage("failed to serialize export".into()));
-            }
-            bytes.push(b'\n');
-            total += 1;
-        }
-        page += 1;
+    let first_limit = user_limit.unwrap_or(10_000).min(10_000);
+    if first_limit == 0 {
+        return crate::axum::api_error(
+            StatusCode::FAILED_DEPENDENCY,
+            "FAILED_DEPENDENCY",
+            "Nothing found to export",
+        );
     }
-    let mut response = Response::new(Body::from(bytes));
+    let first = match service
+        .dash_export_users(&query, first_limit, query.adapter_offset())
+        .await
+    {
+        Ok(users) if !users.is_empty() => users,
+        Ok(_) => {
+            return crate::axum::api_error(
+                StatusCode::FAILED_DEPENDENCY,
+                "FAILED_DEPENDENCY",
+                "Nothing found to export",
+            );
+        }
+        Err(error) => return route_error(error),
+    };
+    let (sender, receiver) = tokio::sync::mpsc::channel::<Result<Bytes, Infallible>>(1);
+    tokio::spawn(stream_export(service, query, user_limit, first, sender));
+    let mut response = Response::new(Body::from_stream(ReceiverStream::new(receiver)));
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         axum::http::HeaderValue::from_static("application/x-ndjson"),
     );
     response
+}
+
+async fn stream_export(
+    service: Arc<AuthService>,
+    query: crate::DashUserListQuery,
+    user_limit: Option<usize>,
+    first: Vec<crate::AuthUser>,
+    sender: tokio::sync::mpsc::Sender<Result<Bytes, Infallible>>,
+) {
+    let mut users = first;
+    let mut exported = 0_usize;
+    loop {
+        let batch_len = users.len();
+        let Some(bytes) = serialize_export_batch(&service, users).await else {
+            return;
+        };
+        exported += batch_len;
+        if !matches!(
+            tokio::time::timeout(Duration::from_millis(300_000), sender.send(Ok(bytes))).await,
+            Ok(Ok(()))
+        ) {
+            return;
+        }
+        let remaining = user_limit.map(|limit| limit.saturating_sub(exported));
+        if remaining == Some(0) || (batch_len < 10_000 && user_limit.is_none()) {
+            return;
+        }
+        let limit = remaining.unwrap_or(10_000).min(10_000);
+        match service
+            .dash_export_users(
+                &query,
+                limit,
+                query.adapter_offset().saturating_add(exported),
+            )
+            .await
+        {
+            Ok(next) if !next.is_empty() => users = next,
+            _ => return,
+        }
+    }
+}
+
+async fn serialize_export_batch(
+    service: &AuthService,
+    users: Vec<crate::AuthUser>,
+) -> Option<Bytes> {
+    let mut bytes = Vec::new();
+    for user in users {
+        let value = service.dash_user_json(&user).await.ok()?;
+        serde_json::to_writer(&mut bytes, &value).ok()?;
+        bytes.push(b'\n');
+    }
+    Some(Bytes::from(bytes))
 }
 
 async fn create(
@@ -219,11 +255,14 @@ async fn create(
     match service.dash_create_user_body(body).await {
         Ok(user) => {
             if send_verification && !user.email_verified {
-                let _ = service
-                    .dash_send_verification_email(&user.id, "/")
-                    .await;
+                if let Err(error) = service
+                    .dash_send_create_verification_email(user.clone())
+                    .await
+                {
+                    return route_error(error);
+                }
             }
-            match service.dash_user_json(&user).await {
+            match service.dash_plain_user_json(&user).await {
                 Ok(value) => Json(value).into_response(),
                 Err(error) => route_error(error),
             }
@@ -326,7 +365,10 @@ async fn update(
         Err(response) => return response,
     };
     match service.dash_update_user_body(&claims.user_id, body).await {
-        Ok(user) => Json(user).into_response(),
+        Ok(user) => match service.dash_plain_user_json(&user).await {
+            Ok(user) => Json(user).into_response(),
+            Err(error) => route_error(error),
+        },
         Err(error) => route_error(error),
     }
 }

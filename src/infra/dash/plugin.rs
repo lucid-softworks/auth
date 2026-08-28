@@ -11,9 +11,21 @@ const ENDPOINTS: &[PluginEndpoint] = &[
     endpoint(PluginHttpMethod::Get, "/dash/config", "getDashConfig"),
     endpoint(PluginHttpMethod::Get, "/dash/validate", "getDashValidate"),
     endpoint(PluginHttpMethod::Get, "/dash/list-users", "getDashUsers"),
-    endpoint(PluginHttpMethod::Get, "/dash/export-users", "exportDashUsers"),
-    endpoint(PluginHttpMethod::Post, "/dash/create-user", "createDashUser"),
-    endpoint(PluginHttpMethod::Post, "/dash/delete-user", "deleteDashUser"),
+    endpoint(
+        PluginHttpMethod::Get,
+        "/dash/export-users",
+        "exportDashUsers",
+    ),
+    endpoint(
+        PluginHttpMethod::Post,
+        "/dash/create-user",
+        "createDashUser",
+    ),
+    endpoint(
+        PluginHttpMethod::Post,
+        "/dash/delete-user",
+        "deleteDashUser",
+    ),
     endpoint(
         PluginHttpMethod::Post,
         "/dash/delete-many-users",
@@ -25,13 +37,21 @@ const ENDPOINTS: &[PluginEndpoint] = &[
         "/dash/user-organizations",
         "getDashUserOrganizations",
     ),
-    endpoint(PluginHttpMethod::Post, "/dash/update-user", "updateDashUser"),
+    endpoint(
+        PluginHttpMethod::Post,
+        "/dash/update-user",
+        "updateDashUser",
+    ),
     endpoint(
         PluginHttpMethod::Post,
         "/dash/unlink-account",
         "unlinkDashAccount",
     ),
-    endpoint(PluginHttpMethod::Post, "/dash/set-password", "setDashPassword"),
+    endpoint(
+        PluginHttpMethod::Post,
+        "/dash/set-password",
+        "setDashPassword",
+    ),
     endpoint(
         PluginHttpMethod::Post,
         "/dash/sessions/revoke",
@@ -52,7 +72,11 @@ const ENDPOINTS: &[PluginEndpoint] = &[
         "/dash/impersonate-user",
         "dashImpersonateUser",
     ),
-    endpoint(PluginHttpMethod::Get, "/dash/user-stats", "dashGetUserStats"),
+    endpoint(
+        PluginHttpMethod::Get,
+        "/dash/user-stats",
+        "dashGetUserStats",
+    ),
     endpoint(
         PluginHttpMethod::Get,
         "/dash/user-graph-data",
@@ -153,6 +177,10 @@ impl DashPlugin {
     pub(crate) fn verifier(&self) -> &DashJwtVerifier {
         &self.verifier
     }
+
+    pub(crate) fn resolved_connection(&self) -> &ResolvedConnectionOptions {
+        &self.connection
+    }
 }
 
 impl Default for DashPlugin {
@@ -208,9 +236,7 @@ impl AuthPlugin for DashPlugin {
             .then(|| {
                 PluginSchemaTable::new("user").field(
                     "lastActiveAt",
-                    AdditionalField::new(AdditionalFieldType::Date)
-                        .optional()
-                        .input(false),
+                    AdditionalField::new(AdditionalFieldType::Date).optional(),
                 )
             })
             .into_iter()
@@ -245,7 +271,7 @@ impl AuthPlugin for DashPlugin {
         if self.options.activity_tracking.enabled
             && let DatabaseRecord::Session(session) = record
         {
-            service.dash_touch_user_activity(&session.user_id).await?;
+            let _ = service.dash_touch_user_activity(&session.user_id).await;
         }
         Ok(())
     }
@@ -277,17 +303,11 @@ impl AuthPlugin for DashPlugin {
         let Ok(Some(session)) = service.plugin_session(&headers).await else {
             return response;
         };
-        let recently_active = session
-            .session
-            .user
-            .additional_fields
-            .get("lastActiveAt")
-            .and_then(ValueExt::date_time)
-            .is_some_and(|last_active| {
-                chrono::Utc::now().signed_duration_since(last_active)
-                    < chrono::Duration::from_std(tracking.update_interval)
-                        .unwrap_or(chrono::Duration::MAX)
-            });
+        let recently_active = activity_was_recent(
+            session.session.user.additional_fields.get("lastActiveAt"),
+            tracking.update_interval,
+            chrono::Utc::now(),
+        );
         if !recently_active {
             let _ = service
                 .dash_touch_user_activity(&session.session.user.id)
@@ -312,6 +332,20 @@ impl ValueExt for serde_json::Value {
     fn date_time(&self) -> Option<chrono::DateTime<chrono::Utc>> {
         self.as_str()?.parse().ok()
     }
+}
+
+#[cfg(feature = "axum")]
+fn activity_was_recent(
+    value: Option<&serde_json::Value>,
+    interval: Duration,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    value
+        .and_then(ValueExt::date_time)
+        .is_some_and(|last_active| {
+            now.signed_duration_since(last_active)
+                < chrono::Duration::from_std(interval).unwrap_or(chrono::Duration::MAX)
+        })
 }
 
 #[cfg(test)]
@@ -364,5 +398,23 @@ mod tests {
             DashActivityTracking::default().update_interval,
             Duration::from_millis(300_000)
         );
+    }
+
+    #[cfg(feature = "axum")]
+    #[test]
+    fn activity_interval_uses_the_pinned_strict_boundary() {
+        let now = chrono::Utc::now();
+        let interval = Duration::from_secs(300);
+        assert!(activity_was_recent(
+            Some(&serde_json::json!(now - chrono::Duration::seconds(299))),
+            interval,
+            now,
+        ));
+        assert!(!activity_was_recent(
+            Some(&serde_json::json!(now - chrono::Duration::seconds(300))),
+            interval,
+            now,
+        ));
+        assert!(!activity_was_recent(None, interval, now));
     }
 }

@@ -25,18 +25,12 @@ pub(super) fn routes(plugin: Arc<DashPlugin>) -> Vec<AxumPluginRoute> {
             "/dash/user-retention-data",
             get(retention).layer(Extension(plugin.clone())),
         ),
-        route(
-            "/dash/ban-user",
-            post(ban).layer(Extension(plugin.clone())),
-        ),
+        route("/dash/ban-user", post(ban).layer(Extension(plugin.clone()))),
         route(
             "/dash/ban-many-users",
             post(ban_many).layer(Extension(plugin.clone())),
         ),
-        route(
-            "/dash/unban-user",
-            post(unban).layer(Extension(plugin)),
-        ),
+        route("/dash/unban-user", post(unban).layer(Extension(plugin))),
     ]
 }
 
@@ -120,11 +114,13 @@ async fn ban(
     let expires = match body.ban_expires {
         Some(value) => match chrono::DateTime::from_timestamp_millis(value) {
             Some(value) => Some(value),
-            None => return crate::axum::api_error(
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "INTERNAL_SERVER_ERROR",
-            "Authentication failed",
-            ),
+            None => {
+                return crate::axum::api_error(
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    "INTERNAL_SERVER_ERROR",
+                    "Authentication failed",
+                );
+            }
         },
         None => None,
     };

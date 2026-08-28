@@ -89,8 +89,8 @@ The currently supported surface covers:
   `@dub/better-auth@0.0.6`
 - the standalone managed email client from `@better-auth/infra@0.4.3`
 - the standalone managed SMS client from `@better-auth/infra@0.4.3`
-- the shared `@better-auth/infra@0.4.3` Dash connection, hosted-JWT, and
-  request-identification substrate
+- the 26 core `@better-auth/infra@0.4.3` Dash routes plus their shared
+  connection, hosted-JWT, and request-identification substrate
 
 The library keeps authentication protocol details separate from host-product
 authorization. Core principals contain actor, subject, session, and credential
@@ -764,26 +764,40 @@ empty 500. Lucid-auth reproduces those observable outcomes and does not invent
 a callback route or repaired client contract. See the
 [Dub compatibility details](COMPATIBILITY.md#dub-006).
 
-### Better Auth Infrastructure Dash substrate
+### Better Auth Infrastructure Dash
 
-The framework-neutral `infra::dash` layer matches the shared connection,
-hosted-JWT, JTI, and request-identification behavior used by
-`@better-auth/infra@0.4.3`'s `dash()` plugin. Endpoint and audit-event families
-are tracked separately; constructing these clients alone adds no route, schema,
-migration, session fallback, or local audit store.
+`DashPlugin` installs the 26 core `/dash/*` routes published by
+`@better-auth/infra@0.4.3`, including configuration/validation, user CRUD and
+NDJSON export, account/password/session management, impersonation, moderation,
+analytics, email actions, and the five-action raw adapter endpoint. Managed
+JWT authorization is mandatory; `/dash/validate` alone skips the JTI lookup,
+matching the pinned plugin.
 
 ```rust
-use lucid_auth::{DashJwtVerifier, IdentificationService, InfraConnectionOptions};
+use lucid_auth::{
+    AuthConfig, DashActivityTracking, DashOptions, DashPlugin,
+    InfraConnectionOptions,
+};
+use std::time::Duration;
 
-let options = InfraConnectionOptions {
-    api_key: Some(std::env::var("BETTER_AUTH_API_KEY")?),
-    ..InfraConnectionOptions::default()
-}
-.resolve();
-
-let hosted_jwt = DashJwtVerifier::new(&options);
-let identification = IdentificationService::new(&options);
+let mut auth = AuthConfig::new([42_u8; 32])?;
+auth.add_plugin(DashPlugin::new(DashOptions {
+    connection: InfraConnectionOptions {
+        api_key: Some(std::env::var("BETTER_AUTH_API_KEY")?),
+        ..InfraConnectionOptions::default()
+    },
+    activity_tracking: DashActivityTracking {
+        enabled: true,
+        update_interval: Duration::from_secs(300),
+    },
+}))?;
 ```
+
+Activity tracking is opt-in and adds the optional `lastActiveAt` user field.
+The verification and reset-email routes reuse the application's configured
+Better Auth email callbacks; they do not silently install a second provider.
+The shared `DashJwtVerifier` and `IdentificationService` remain available for
+applications that need the lower-level hosted-JWT and identification substrate.
 
 The API client sends the configured credential to `BETTER_AUTH_API_URL` or
 `https://dash.better-auth.com`; the KV lookup client uses
@@ -791,7 +805,7 @@ The API client sends the configured credential to `BETTER_AUTH_API_URL` or
 sends JWT/JTI data and fetches JWKS. Identification lookups send request IDs and
 can return visitor, IP, location, browser, confidence, incognito, and bot data.
 Keep credentials server-side and configure only origins trusted with that data.
-See the [exact Dash substrate compatibility boundary](COMPATIBILITY.md#dash-substrate-043).
+See the [exact Dash core and substrate compatibility boundary](COMPATIBILITY.md#dash-core-routes-043).
 
 ### Better Auth Infrastructure managed email
 

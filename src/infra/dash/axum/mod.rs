@@ -17,16 +17,10 @@ mod input;
 mod sessions;
 mod users;
 
-pub(super) fn routes(
-    _service: Arc<AuthService>,
-    plugin: DashPlugin,
-) -> Vec<AxumPluginRoute> {
+pub(super) fn routes(_service: Arc<AuthService>, plugin: DashPlugin) -> Vec<AxumPluginRoute> {
     let plugin = Arc::new(plugin);
     let mut routes = vec![
-        route(
-            "/dash/config",
-            get(config).layer(Extension(plugin.clone())),
-        ),
+        route("/dash/config", get(config).layer(Extension(plugin.clone()))),
         route(
             "/dash/validate",
             get(validate).layer(Extension(plugin.clone())),
@@ -55,10 +49,7 @@ async fn config(
     Json(service.dash_config_snapshot()).into_response()
 }
 
-async fn validate(
-    Extension(plugin): Extension<Arc<DashPlugin>>,
-    headers: HeaderMap,
-) -> Response {
+async fn validate(Extension(plugin): Extension<Arc<DashPlugin>>, headers: HeaderMap) -> Response {
     match plugin
         .verifier()
         .validate_authorization(auth::authorization(&headers))
