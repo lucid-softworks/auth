@@ -16,6 +16,9 @@ pub use crate::cookie::{CookieAttributes, CookieConfig, CookieOptions, SameSite}
 pub use crate::infra::dash::{
     ApiOptions as DashApiOptions, DashApiClient, DashAuthorizationError, DashClientError,
     DashClientResponse, DashJwtVerifier, DashKvClient, DashRequest, DashVerifiedClaims,
+    DashActivityTracking, DashAdapterAction, DashAdapterConnector, DashAdapterOperator,
+    DashAdapterSort, DashAdapterWhere, DashOptions, DashPeriod, DashPlugin, DashSortDirection,
+    DashUserListQuery,
     Identification, IdentificationContext, IdentificationCookie, IdentificationCountry,
     IdentificationGeo, IdentificationIpOptions, IdentificationLocation, IdentificationRequest,
     IdentificationService, InfraConnectionOptions, KvOptions as DashKvOptions,

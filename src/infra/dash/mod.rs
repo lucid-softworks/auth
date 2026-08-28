@@ -10,6 +10,11 @@ mod client;
 mod config;
 mod identification;
 mod jwt;
+mod model;
+mod plugin;
+
+#[cfg(feature = "axum")]
+mod axum;
 
 pub use client::{DashApiClient, DashClientError, DashClientResponse, DashKvClient, DashRequest};
 pub use config::{
@@ -22,6 +27,11 @@ pub use identification::{
     IdentificationService,
 };
 pub use jwt::{DashAuthorizationError, DashJwtVerifier, DashVerifiedClaims};
+pub use model::{
+    DashAdapterAction, DashAdapterConnector, DashAdapterOperator, DashAdapterSort,
+    DashAdapterWhere, DashPeriod, DashSortDirection, DashUserListQuery,
+};
+pub use plugin::{DashActivityTracking, DashOptions, DashPlugin};
 
 /// Published `@better-auth/infra` compatibility target.
 pub const VERSION: &str = "0.4.3";

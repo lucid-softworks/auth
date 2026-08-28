@@ -88,7 +88,7 @@ impl AuthService {
         Ok(user)
     }
 
-    async fn persist_admin_user(
+    pub(in crate::service) async fn persist_admin_user(
         &self,
         user: AuthUser,
         password: Option<String>,
@@ -184,7 +184,10 @@ impl AuthService {
     }
 }
 
-fn admin_user_from_input(input: &mut AdminCreateUser, role: String) -> Result<AuthUser, AuthError> {
+pub(in crate::service) fn admin_user_from_input(
+    input: &mut AdminCreateUser,
+    role: String,
+) -> Result<AuthUser, AuthError> {
     let raw_username = input
         .data
         .remove("username")

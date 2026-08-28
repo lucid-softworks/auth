@@ -254,7 +254,7 @@ impl AuthService {
         }
     }
 
-    pub(super) async fn deliver_verification_email(
+    pub(in crate::service) async fn deliver_verification_email(
         &self,
         user: AuthUser,
         callback_url: Option<&str>,

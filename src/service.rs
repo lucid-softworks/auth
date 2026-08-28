@@ -17,6 +17,7 @@ mod configuration;
 mod context_id;
 mod cookie_signing;
 mod database;
+mod dash;
 #[cfg(feature = "axum")]
 mod device_authorization;
 #[cfg(feature = "axum")]
