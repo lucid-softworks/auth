@@ -10,6 +10,11 @@ pub(super) enum ContextIdFallback {
 }
 
 impl AuthService {
+    #[cfg(feature = "axum")]
+    pub(crate) fn generate_plugin_database_id(&self, model: &str) -> Result<String, AuthError> {
+        self.generate_special_database_id(model, ContextIdFallback::Falsey, 32.0)
+    }
+
     pub(super) fn generate_special_database_id(
         &self,
         model: &str,

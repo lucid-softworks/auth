@@ -1,4 +1,5 @@
 mod management;
+mod registration;
 mod sanitize;
 mod support;
 
@@ -18,7 +19,11 @@ pub(super) fn routes(
         ),
         AxumPluginRoute::new(
             "/sso/get-provider",
-            get(management::get).layer(Extension(plugin)),
+            get(management::get).layer(Extension(plugin.clone())),
+        ),
+        AxumPluginRoute::new(
+            "/sso/register",
+            axum::routing::post(registration::register).layer(Extension(plugin)),
         ),
     ]
 }
