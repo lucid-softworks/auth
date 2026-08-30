@@ -1,8 +1,9 @@
 #![cfg(all(feature = "axum", feature = "sqlite"))]
 
 use lucid_auth::{
-    AuthConfig, AuthService, DatabaseSsoStore, EmailSignUpInput, NewSsoProvider, SsoOptions,
-    SsoPlugin, SsoProviderUpdate, SsoStore,
+    AuthConfig, AuthService, DatabaseCreate, DatabaseIdGeneration, DatabaseIdInput, DatabaseIdPlan,
+    DatabaseSsoStore, EmailSignUpInput, NewSsoProvider, OAuthAccount, OAuthAccountStore,
+    SsoOptions, SsoPlugin, SsoProviderUpdate, SsoStore, SsoStoreError,
     sqlite::{SqliteAdapterConfig, SqliteStore},
 };
 use sqlx::sqlite::SqlitePoolOptions;
@@ -57,7 +58,7 @@ async fn provider_catalog_round_trips_through_native_sqlite_transactions() {
                 "clientSecret": "plaintext-upstream"
             })),
             saml_config: None,
-            user_id: owner.id,
+            user_id: owner.id.clone(),
             provider_id: "workforce".into(),
             organization_id: Some("organization".into()),
             domain: "example.com".into(),
@@ -71,18 +72,77 @@ async fn provider_catalog_round_trips_through_native_sqlite_transactions() {
         Some(created.clone())
     );
 
+    let now = chrono::Utc::now();
+    auth_store
+        .link_oauth_account(DatabaseCreate::new(
+            OAuthAccount {
+                id: String::new(),
+                user_id: owner.id.clone(),
+                issuer: "https://idp.example".into(),
+                account_id: "subject-1".into(),
+                provider_id: "workforce".into(),
+                access_token: None,
+                refresh_token: None,
+                id_token: None,
+                access_token_expires_at: None,
+                refresh_token_expires_at: None,
+                scope: None,
+                password: None,
+                additional_fields: serde_json::Map::new(),
+                created_at: now,
+                updated_at: now,
+            },
+            DatabaseIdPlan::new(
+                DatabaseIdGeneration::Default,
+                "account",
+                DatabaseIdInput::Absent,
+                false,
+            ),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        sso_store
+            .update_guarded(
+                "sso-row",
+                "workforce",
+                SsoProviderUpdate {
+                    issuer: Some("https://replacement.example".into()),
+                    ..SsoProviderUpdate::default()
+                },
+                true,
+            )
+            .await,
+        Err(SsoStoreError::LinkedAccounts)
+    );
+
     let updated = sso_store
-        .update(
+        .update_guarded(
             "sso-row",
+            "workforce",
             SsoProviderUpdate {
                 domain: Some("login.example.com".into()),
                 ..SsoProviderUpdate::default()
             },
+            false,
         )
         .await
         .unwrap();
     assert_eq!(updated.domain, "login.example.com");
     assert_eq!(sso_store.list().await.unwrap(), vec![updated.clone()]);
-    assert_eq!(sso_store.delete("sso-row").await.unwrap(), Some(updated));
+    assert!(
+        sso_store
+            .delete_with_accounts("sso-row", "workforce")
+            .await
+            .unwrap()
+    );
     assert!(sso_store.list().await.unwrap().is_empty());
+    assert!(
+        auth_store
+            .list_user_accounts(&owner.id)
+            .await
+            .unwrap()
+            .iter()
+            .all(|account| account.provider_id != "workforce")
+    );
 }

@@ -1,5 +1,5 @@
 use super::{sanitize, support};
-use crate::{AuthService, SsoPlugin, SsoProvider};
+use crate::{AuthService, SsoPlugin};
 use axum::{
     Extension, Json,
     extract::Query,
@@ -29,10 +29,10 @@ pub(super) async fn list(
         Ok(providers) => providers,
         Err(error) => return support::storage(error),
     };
-    let base_url = base_url(&service);
+    let base_url = support::base_url(&service);
     let mut accessible = Vec::new();
     for provider in providers {
-        if has_access(&service, &provider, &session.user.id).await {
+        if support::has_access(&service, &provider, &session.user.id).await {
             accessible.push(sanitize::provider(&provider, &base_url));
         }
     }
@@ -60,40 +60,12 @@ pub(super) async fn get(
         }
         Err(error) => return support::storage(error),
     };
-    if !has_access(&service, &provider, &session.user.id).await {
+    if !support::has_access(&service, &provider, &session.user.id).await {
         return support::error(
             StatusCode::FORBIDDEN,
             "FORBIDDEN",
             "You don't have access to this provider",
         );
     }
-    Json(sanitize::provider(&provider, &base_url(&service))).into_response()
-}
-
-async fn has_access(service: &AuthService, provider: &SsoProvider, user_id: &str) -> bool {
-    let Some(organization_id) = provider.organization_id.as_deref() else {
-        return provider.user_id == user_id;
-    };
-    let Ok(organization) = service.organization_plugin() else {
-        return provider.user_id == user_id;
-    };
-    organization
-        .store
-        .find_member(organization_id, user_id)
-        .await
-        .ok()
-        .flatten()
-        .is_some_and(|member| {
-            member
-                .role
-                .split(',')
-                .any(|role| matches!(role.trim(), "owner" | "admin"))
-        })
-}
-
-fn base_url(service: &AuthService) -> String {
-    service
-        .auth_base_url()
-        .map(|url| url.to_string().trim_end_matches('/').to_owned())
-        .unwrap_or_else(|| service.base_path().trim_end_matches('/').to_owned())
+    Json(sanitize::provider(&provider, &support::base_url(&service))).into_response()
 }

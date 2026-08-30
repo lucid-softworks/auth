@@ -81,6 +81,38 @@ pub(super) async fn update(
     .map_err(store_error)
 }
 
+pub(super) async fn update_guarded(
+    database: &super::DatabaseSsoStore,
+    id: &str,
+    provider_id: &str,
+    update: SsoProviderUpdate,
+    identity_boundary_changed: bool,
+) -> Result<SsoProvider, SsoStoreError> {
+    let store = database.store.clone();
+    let id = id.to_owned();
+    let provider_id = provider_id.to_owned();
+    run_database_transaction(store.as_ref(), move |transaction| {
+        Box::pin(async move {
+            if identity_boundary_changed
+                && transaction
+                    .count_records("account", &[equal("providerId", json!(provider_id))])
+                    .await?
+                    > 0
+            {
+                return Err(auth_error(SsoStoreError::LinkedAccounts));
+            }
+            let update = super::codec::update_record(update).map_err(auth_error)?;
+            let record = transaction
+                .update_record("ssoProvider", &[equal("id", json!(id))], update)
+                .await?
+                .ok_or_else(|| auth_error(SsoStoreError::NotFound))?;
+            super::codec::decode(&record).map_err(auth_error)
+        })
+    })
+    .await
+    .map_err(store_error)
+}
+
 pub(super) async fn delete(
     database: &super::DatabaseSsoStore,
     id: &str,
@@ -95,6 +127,36 @@ pub(super) async fn delete(
                 transaction.delete_records("ssoProvider", &filter).await?;
             }
             Ok(found)
+        })
+    })
+    .await
+    .map_err(store_error)
+}
+
+pub(super) async fn delete_with_accounts(
+    database: &super::DatabaseSsoStore,
+    id: &str,
+    provider_id: &str,
+) -> Result<bool, SsoStoreError> {
+    let store = database.store.clone();
+    let id = id.to_owned();
+    let provider_id = provider_id.to_owned();
+    run_database_transaction(store.as_ref(), move |transaction| {
+        Box::pin(async move {
+            let provider_filter = [
+                equal("id", json!(id)),
+                equal("providerId", json!(provider_id)),
+            ];
+            if find_one(&transaction, &provider_filter).await?.is_none() {
+                return Ok(false);
+            }
+            transaction
+                .delete_records("account", &[equal("providerId", json!(provider_id))])
+                .await?;
+            transaction
+                .delete_records("ssoProvider", &provider_filter)
+                .await?;
+            Ok(true)
         })
     })
     .await
@@ -138,6 +200,8 @@ fn store_error(error: AuthError) -> SsoStoreError {
         SsoStoreError::DuplicateProviderId
     } else if detail.contains("lucid-sso-store:NotFound") {
         SsoStoreError::NotFound
+    } else if detail.contains("lucid-sso-store:LinkedAccounts") {
+        SsoStoreError::LinkedAccounts
     } else {
         SsoStoreError::Storage(detail)
     }

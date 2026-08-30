@@ -1,4 +1,4 @@
-use crate::{AuthService, SessionWithUser};
+use crate::{AuthService, SessionWithUser, SsoProvider};
 use axum::{
     http::{HeaderMap, StatusCode},
     response::Response,
@@ -32,4 +32,36 @@ pub(super) fn storage(error: super::super::SsoStoreError) -> Response {
         "INTERNAL_SERVER_ERROR",
         "Failed to read SSO providers",
     )
+}
+
+pub(super) async fn has_access(
+    service: &AuthService,
+    provider: &SsoProvider,
+    user_id: &str,
+) -> bool {
+    let Some(organization_id) = provider.organization_id.as_deref() else {
+        return provider.user_id == user_id;
+    };
+    let Ok(organization) = service.organization_plugin() else {
+        return provider.user_id == user_id;
+    };
+    organization
+        .store
+        .find_member(organization_id, user_id)
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|member| {
+            member
+                .role
+                .split(',')
+                .any(|role| matches!(role.trim(), "owner" | "admin"))
+        })
+}
+
+pub(super) fn base_url(service: &AuthService) -> String {
+    service
+        .auth_base_url()
+        .map(|url| url.to_string().trim_end_matches('/').to_owned())
+        .unwrap_or_else(|| service.base_path().trim_end_matches('/').to_owned())
 }
