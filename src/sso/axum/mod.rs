@@ -1,4 +1,5 @@
 mod domain;
+mod callback;
 mod management;
 mod mutation;
 mod registration;
@@ -20,6 +21,14 @@ pub(super) fn routes(
         AxumPluginRoute::new(
             "/sign-in/sso",
             axum::routing::post(sign_in::sign_in).layer(Extension(plugin.clone())),
+        ),
+        AxumPluginRoute::new(
+            "/sso/callback/{provider_id}",
+            get(callback::provider).layer(Extension(plugin.clone())),
+        ),
+        AxumPluginRoute::new(
+            "/sso/callback",
+            get(callback::shared).layer(Extension(plugin.clone())),
         ),
         AxumPluginRoute::new(
             "/sso/saml2/sp/metadata",
