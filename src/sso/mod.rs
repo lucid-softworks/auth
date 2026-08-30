@@ -8,6 +8,7 @@ mod discovery;
 #[cfg(feature = "axum")]
 mod axum;
 mod plugin;
+mod provider_reference;
 mod schema;
 mod store;
 mod timestamp;
