@@ -1,6 +1,7 @@
 mod authorization;
 mod oidc;
 mod provider;
+mod saml;
 
 use super::support;
 use crate::{AuthService, SsoPlugin};
@@ -78,17 +79,8 @@ pub(super) async fn sign_in(
         };
         return oidc::start(&service, &plugin, &provider, &config, body).await;
     }
-    if provider.saml_config.is_some() {
-        let message = if body.additional_params.is_some() {
-            "additionalParams is not supported for SAML providers; the SAML AuthnRequest is signed and cannot carry caller-supplied query parameters."
-        } else {
-            "Invalid SAML request"
-        };
-        return support::error(
-            axum::http::StatusCode::BAD_REQUEST,
-            "BAD_REQUEST",
-            message,
-        );
+    if let Some(config) = provider.saml_config.as_ref().and_then(Value::as_object) {
+        return saml::start(&service, &provider, config, body).await;
     }
     support::error(
         axum::http::StatusCode::BAD_REQUEST,
