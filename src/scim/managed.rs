@@ -7,6 +7,31 @@ use chrono::{DateTime, Utc};
 use std::collections::HashSet;
 
 impl ScimPlugin {
+    pub async fn reconcile_projection(
+        &self,
+        provisioning_domain_id: &str,
+    ) -> Result<super::ScimProjectionReconciliation, ScimError> {
+        validate_text(provisioning_domain_id, 1, "provisioningDomainId")?;
+        if self.options.projection.is_none() {
+            return Err(ScimError::new(
+                500,
+                "SCIM projection reconciliation requires projection.reconcileUser to be configured.",
+            ));
+        }
+        let store = self.store.backing_auth_store().ok_or_else(|| {
+            ScimError::new(
+                500,
+                "SCIM projection reconciliation requires native transaction storage",
+            )
+        })?;
+        super::database::reconcile::run(
+            store,
+            self.options.clone(),
+            provisioning_domain_id,
+        )
+        .await
+    }
+
     pub async fn create_managed_connection(
         &self,
         creation_request_id: &str,

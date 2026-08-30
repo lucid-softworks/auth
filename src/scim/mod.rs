@@ -38,7 +38,8 @@ pub use model::{
 pub use plugin::ScimPlugin;
 pub use projection::{
     ScimAuthorizationSource, ScimProjectedRoleGrant, ScimProjectedUserState, ScimProjection,
-    ScimRoleExistenceInput, ScimRoleMappingInput, ScimRoleProjection,
+    ScimProjectionReconciliation, ScimRoleExistenceInput, ScimRoleMappingInput,
+    ScimRoleProjection,
 };
 pub use store::{ScimConnectionBinding, ScimStore, ScimStoreError};
 

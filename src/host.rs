@@ -236,8 +236,9 @@ pub use scim::{
     ScimManagedConnection, ScimManagedConnectionEvent, ScimManagedConnectionOptions,
     ScimManagedCredential, ScimManager, ScimName, ScimOptions, ScimPatchOperation,
     ScimPatchRequest, ScimPhoneNumber, ScimPlugin, ScimProjectedRoleGrant, ScimProjectedUserState,
-    ScimProjection, ScimRole, ScimRoleExistenceInput, ScimRoleMappingInput, ScimRoleProjection,
-    ScimScope, ScimStore, ScimStoreError, ScimTransactionContext, ScimUser, ScimVerifiedBearer,
+    ScimProjection, ScimProjectionReconciliation, ScimRole, ScimRoleExistenceInput,
+    ScimRoleMappingInput, ScimRoleProjection, ScimScope, ScimStore, ScimStoreError,
+    ScimTransactionContext, ScimUser, ScimVerifiedBearer,
     ScimAuthorizationSource, ScimUserExternalIdReference, acquire_active_scim_user_link,
 };
 pub use service::account_types::{

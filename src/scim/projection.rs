@@ -32,6 +32,13 @@ pub struct ScimProjectedUserState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScimProjectionReconciliation {
+    pub provisioning_domain_id: String,
+    pub reconciled_users: usize,
+    pub batches: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScimRoleMappingInput {
     pub connection_id: String,
     pub provisioning_domain_id: String,

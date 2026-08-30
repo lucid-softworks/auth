@@ -1,4 +1,6 @@
-use super::{auth_error, ensure_active_binding, equal, find_one, store_error};
+use super::{
+    auth_error, ensure_active_binding, equal, fence_active_binding, find_one, store_error,
+};
 use crate::{AuthError, DashAdapterSort, DashSortDirection, DatabaseTransaction, run_database_transaction};
 use crate::scim::{ScimGroup, ScimGroupMember, ScimStoreError, store::StoredScimGroup};
 use chrono::{DateTime, Utc};
@@ -18,7 +20,9 @@ pub(in crate::scim::database) async fn create_group(
             let record = super::super::codec::group_record(&group).map_err(auth_error)?;
             let record = transaction.create_record("scimGroup", record).await?;
             create_memberships(&transaction, &group.connection_id, group.resource.id.as_deref().unwrap_or_default(), &group.resource.members, group.created_at).await?;
-            decode(&transaction, record).await
+            let created = decode(&transaction, record).await?;
+            fence_active_binding(&transaction, &group.connection_id).await?;
+            Ok(created)
         })
     })
     .await
@@ -107,7 +111,9 @@ pub(in crate::scim::database) async fn replace_group(
                 .ok_or_else(|| auth_error(ScimStoreError::ConcurrentMutation))?;
             transaction.delete_records("scimGroupMember", &[equal("groupId", json!(resource_id))]).await?;
             create_memberships(&transaction, &connection_id, &resource_id, &resource.members, now).await?;
-            decode(&transaction, record).await
+            let replaced = decode(&transaction, record).await?;
+            fence_active_binding(&transaction, &connection_id).await?;
+            Ok(replaced)
         })
     })
     .await
@@ -124,6 +130,7 @@ pub(in crate::scim::database) async fn delete_group(
     let resource_id = resource_id.to_owned();
     run_database_transaction(store.as_ref(), move |transaction| {
         Box::pin(async move {
+            ensure_active_binding(&transaction, &connection_id).await?;
             let filter = resource_filter(&connection_id, &resource_id);
             let Some(record) = find_one(&transaction, "scimGroup", &filter).await? else {
                 return Ok(None);
@@ -132,6 +139,7 @@ pub(in crate::scim::database) async fn delete_group(
             transaction.delete_records("scimGroupMember", &[equal("groupId", json!(resource_id))]).await?;
             transaction.delete_records("scimProjectionGrant", &[equal("sourceId", json!(resource_id))]).await?;
             transaction.delete_records("scimGroup", &filter).await?;
+            fence_active_binding(&transaction, &connection_id).await?;
             Ok(Some(group))
         })
     })

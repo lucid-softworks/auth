@@ -1,4 +1,6 @@
-use super::{auth_error, ensure_active_binding, equal, find_one, store_error};
+use super::{
+    auth_error, ensure_active_binding, equal, fence_active_binding, find_one, store_error,
+};
 use crate::{AuthError, DashAdapterSort, DashSortDirection, DatabaseTransaction, run_database_transaction};
 use crate::scim::{ScimStoreError, ScimUser, store::StoredScimUser};
 use chrono::{DateTime, Utc};
@@ -18,7 +20,9 @@ pub(in crate::scim::database) async fn create_user(
             upsert_subject(&transaction, &user).await?;
             let record = super::super::codec::user_record(&user).map_err(auth_error)?;
             let record = transaction.create_record("scimUser", record).await?;
-            decode(&transaction, record).await
+            let created = decode(&transaction, record).await?;
+            fence_active_binding(&transaction, &user.connection_id).await?;
+            Ok(created)
         })
     })
     .await
@@ -104,7 +108,9 @@ pub(in crate::scim::database) async fn replace_user(
                 .await?
                 .ok_or_else(|| auth_error(ScimStoreError::NotFound))?;
             touch_managed_subject(&transaction, &existing, &resource_id, now).await?;
-            decode(&transaction, record).await
+            let replaced = decode(&transaction, record).await?;
+            fence_active_binding(&transaction, &connection_id).await?;
+            Ok(replaced)
         })
     })
     .await
@@ -122,6 +128,7 @@ pub(in crate::scim::database) async fn delete_user(
     let resource_id = resource_id.to_owned();
     run_database_transaction(store.as_ref(), move |transaction| {
         Box::pin(async move {
+            ensure_active_binding(&transaction, &connection_id).await?;
             let filter = resource_filter(&connection_id, &resource_id);
             let Some(record) = find_one(&transaction, "scimUser", &filter).await? else {
                 return Ok(None);
@@ -138,6 +145,7 @@ pub(in crate::scim::database) async fn delete_user(
                 transaction.create_record("scimIdentityTombstone", tombstone).await?;
             }
             clear_subject(&transaction, &user, now).await?;
+            fence_active_binding(&transaction, &connection_id).await?;
             Ok(Some(user))
         })
     })

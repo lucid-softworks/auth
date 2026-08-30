@@ -50,6 +50,29 @@ pub(super) async fn ensure_active_binding(
     Ok(())
 }
 
+pub(super) async fn fence_active_binding(
+    transaction: &Arc<dyn DatabaseTransaction>,
+    connection_id: &str,
+) -> Result<(), AuthError> {
+    transaction
+        .increment_record(
+            "scimConnectionBinding",
+            &[
+                equal(
+                    "connectionKey",
+                    serde_json::json!(super::keys::connection(connection_id)),
+                ),
+                equal("connectionId", serde_json::json!(connection_id)),
+                equal("decommissionStatus", serde_json::json!("active")),
+            ],
+            super::codec::object(serde_json::json!({"decommissionRevision": 1})),
+            serde_json::Map::new(),
+        )
+        .await?
+        .ok_or_else(|| auth_error(crate::scim::ScimStoreError::Decommissioned))?;
+    Ok(())
+}
+
 pub(super) fn auth_error(error: crate::scim::ScimStoreError) -> AuthError {
     AuthError::Storage(format!("{ERROR_PREFIX}{error:?}"))
 }

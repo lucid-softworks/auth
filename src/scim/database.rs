@@ -12,6 +12,7 @@ mod core;
 pub(super) mod decommission;
 pub(super) mod keys;
 mod managed;
+pub(super) mod reconcile;
 
 /// SCIM persistence backed by the application's native Better Auth adapter.
 #[derive(Clone)]

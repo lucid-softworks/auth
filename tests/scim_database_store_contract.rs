@@ -358,6 +358,11 @@ async fn core_resources_round_trip_through_native_sqlite_transactions() {
             .is_empty()
     );
 
+    let replayed = plugin.reconcile_projection("directory-1").await.unwrap();
+    assert_eq!(replayed.provisioning_domain_id, "directory-1");
+    assert_eq!(replayed.reconciled_users, 1);
+    assert_eq!(replayed.batches, 1);
+
     let response = app
         .clone()
         .oneshot(
