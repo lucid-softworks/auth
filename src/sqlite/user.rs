@@ -13,6 +13,47 @@ use std::sync::Arc;
 
 #[async_trait]
 impl AuthStore for SqliteStore {
+    async fn dash_find_records(
+        &self,
+        model: &str,
+        where_clause: &[crate::DashAdapterWhere],
+        limit: Option<usize>,
+        offset: usize,
+        sort: Option<&crate::DashAdapterSort>,
+        select: &[String],
+    ) -> Result<Option<Vec<Map<String, Value>>>, AuthError> {
+        super::dash::find(self, model, where_clause, limit, offset, sort, select)
+            .await
+            .map(Some)
+    }
+
+    async fn dash_create_record(
+        &self,
+        model: &str,
+        data: Map<String, Value>,
+    ) -> Result<Option<Map<String, Value>>, AuthError> {
+        self.insert_record(model, data).await.map(Some)
+    }
+
+    async fn dash_update_record(
+        &self,
+        model: &str,
+        where_clause: &[crate::DashAdapterWhere],
+        update: Map<String, Value>,
+    ) -> Result<Option<Option<Map<String, Value>>>, AuthError> {
+        let filters = super::dash::filters(where_clause);
+        self.update_record(model, &filters, update).await.map(Some)
+    }
+
+    async fn dash_count_records(
+        &self,
+        model: &str,
+        where_clause: &[crate::DashAdapterWhere],
+    ) -> Result<Option<u64>, AuthError> {
+        let filters = super::dash::filters(where_clause);
+        self.count_records(model, &filters).await.map(Some)
+    }
+
     async fn transaction(
         &self,
         operation: Box<dyn crate::DatabaseTransactionOperation>,

@@ -93,7 +93,10 @@ impl AuthService {
     }
 }
 
-fn admin_update_candidate(target: &AuthUser, update: &AdminUserUpdate) -> AuthUser {
+pub(in crate::service) fn admin_update_candidate(
+    target: &AuthUser,
+    update: &AdminUserUpdate,
+) -> AuthUser {
     let mut user = target.clone();
     if let Some(value) = &update.name {
         user.name.clone_from(value);
@@ -124,7 +127,7 @@ fn admin_update_candidate(target: &AuthUser, update: &AdminUserUpdate) -> AuthUs
     user
 }
 
-fn admin_update_from_candidate(user: AuthUser) -> AdminUserUpdate {
+pub(in crate::service) fn admin_update_from_candidate(user: AuthUser) -> AdminUserUpdate {
     AdminUserUpdate {
         name: Some(user.name),
         email: Some(user.email),

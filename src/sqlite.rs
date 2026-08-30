@@ -9,6 +9,7 @@ mod adapter;
 mod agent_auth;
 mod api_key;
 mod codec;
+mod dash;
 mod device_authorization;
 mod jwt;
 mod migration;

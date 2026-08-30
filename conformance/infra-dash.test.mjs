@@ -3,6 +3,35 @@ import { dash } from "@better-auth/infra";
 import { infraText, packageJson, packageLock } from "./infra-email.helpers.mjs";
 
 describe("@better-auth/infra@0.4.3 Dash substrate oracle", () => {
+  const coreEndpointInventory = [
+    ["getDashConfig", "GET", "/dash/config"],
+    ["getDashValidate", "GET", "/dash/validate"],
+    ["dashExecuteAdapter", "POST", "/dash/execute-adapter"],
+    ["getDashUsers", "GET", "/dash/list-users"],
+    ["exportDashUsers", "GET", "/dash/export-users"],
+    ["createDashUser", "POST", "/dash/create-user"],
+    ["deleteDashUser", "POST", "/dash/delete-user"],
+    ["deleteManyDashUsers", "POST", "/dash/delete-many-users"],
+    ["getDashUser", "GET", "/dash/user"],
+    ["getDashUserOrganizations", "GET", "/dash/user-organizations"],
+    ["updateDashUser", "POST", "/dash/update-user"],
+    ["unlinkDashAccount", "POST", "/dash/unlink-account"],
+    ["setDashPassword", "POST", "/dash/set-password"],
+    ["dashRevokeSession", "POST", "/dash/sessions/revoke"],
+    ["dashRevokeAllSessions", "POST", "/dash/sessions/revoke-all"],
+    ["dashRevokeManySessions", "POST", "/dash/sessions/revoke-many"],
+    ["dashImpersonateUser", "GET", "/dash/impersonate-user"],
+    ["dashGetUserStats", "GET", "/dash/user-stats"],
+    ["dashGetUserGraphData", "GET", "/dash/user-graph-data"],
+    ["dashGetUserRetentionData", "GET", "/dash/user-retention-data"],
+    ["dashBanUser", "POST", "/dash/ban-user"],
+    ["dashBanManyUsers", "POST", "/dash/ban-many-users"],
+    ["dashUnbanUser", "POST", "/dash/unban-user"],
+    ["dashSendVerificationEmail", "POST", "/dash/send-verification-email"],
+    ["dashSendManyVerificationEmails", "POST", "/dash/send-many-verification-emails"],
+    ["dashSendResetPasswordEmail", "POST", "/dash/send-reset-password-email"],
+  ];
+
   test("pins the immutable package and peer runtime", async () => {
     const pkg = await packageJson("@better-auth/infra");
     const lock = await packageLock();
@@ -89,5 +118,106 @@ describe("@better-auth/infra@0.4.3 Dash substrate oracle", () => {
     expect(Object.values(plugin.endpoints).map((endpoint) => endpoint.path)).not.toContain(
       "/identify/:requestId",
     );
+  });
+
+  test("contributes activity storage only when explicitly enabled", () => {
+    expect(dash().schema).toEqual({});
+    expect(dash({ activityTracking: { enabled: true, updateInterval: 0 } }).schema).toEqual({
+      user: {
+        fields: {
+          lastActiveAt: { type: "date", required: false },
+        },
+      },
+    });
+  });
+
+  test("publishes the exact 26 core route descriptors with a 10/16 split", () => {
+    const endpoints = dash().endpoints;
+    const actual = coreEndpointInventory.map(([key]) => [
+      key,
+      endpoints[key]?.options.method,
+      endpoints[key]?.path,
+    ]);
+    expect(actual).toEqual(coreEndpointInventory);
+    expect(actual.filter(([, method]) => method === "GET")).toHaveLength(10);
+    expect(actual.filter(([, method]) => method === "POST")).toHaveLength(16);
+    expect(new Set(actual.map(([, , path]) => path)).size).toBe(26);
+  });
+
+  test("pins exposed query and body coercion, defaults, and strict unions", () => {
+    const endpoints = dash().endpoints;
+    expect(
+      endpoints.getDashUsers.options.query.parse({
+        limit: "12.5",
+        offset: "-2",
+        where: '[{"field":"email","operator":"contains","value":"@"}]',
+        countWhere: "{}",
+      }),
+    ).toEqual({
+      limit: 12.5,
+      offset: -2,
+      where: [{ field: "email", operator: "contains", value: "@" }],
+      countWhere: [],
+    });
+    expect(
+      endpoints.dashGetUserGraphData.options.query.parse({}),
+    ).toEqual({ period: "daily" });
+    expect(
+      endpoints.dashGetUserRetentionData.options.query.parse({}),
+    ).toEqual({ period: "weekly" });
+    expect(
+      endpoints.getDashUser.options.query.parse({ minimal: "false" }),
+    ).toEqual({ minimal: false });
+    expect(
+      endpoints.dashBanUser.options.body.parse({}),
+    ).toEqual({ deleteAllSessions: true });
+    expect(
+      endpoints.setDashPassword.options.body.safeParse({ password: "1234567" }).success,
+    ).toBe(false);
+
+    const adapter = endpoints.dashExecuteAdapter.options.body;
+    expect(
+      adapter.parse({
+        action: "findOne",
+        model: "user",
+        where: [{ field: "id", value: "u1", operator: "eq", connector: "AND" }],
+        select: ["id"],
+        join: { session: true },
+      }),
+    ).toEqual({
+      action: "findOne",
+      model: "user",
+      where: [{ field: "id", value: "u1", operator: "eq", connector: "AND" }],
+      select: ["id"],
+      join: { session: true },
+    });
+    expect(adapter.safeParse({ action: "delete", model: "user" }).success).toBe(false);
+    expect(
+      adapter.safeParse({
+        action: "findMany",
+        model: "user",
+        where: [{ field: "id", value: "u1", operator: "not_in" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  test("pins the endpoint authorization, redaction, export, and activity contracts", async () => {
+    const source = await infraText("dist/index.mjs");
+    for (const fragment of [
+      'createAuthEndpoint("/dash/validate",',
+      "use: [jwtValidateMiddleware(options)]",
+      "use: [jwtMiddleware(options, getUserDetailsJwtSchema)]",
+      "return redactDashSettings({",
+      "secretEntropy: ctx.context.secret === \"better-auth-secret-12345678901234567890\"",
+      "const batchSize = options?.batchSize || 1e4",
+      "const staleMs = options?.staleMs || 3e5",
+      '"Content-Type": "application/x-ndjson"',
+      "updateInterval: options?.activityTracking?.updateInterval ?? 3e5",
+      "if (activityUpdateInterval === 0) return",
+      'matcher: (ctx) => ctx.request?.method !== "GET"',
+      "const { token: _token, ...rest } = session",
+    ]) {
+      expect(source).toContain(fragment);
+    }
   });
 });
