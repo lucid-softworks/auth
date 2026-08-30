@@ -26,6 +26,7 @@ pub use callbacks::*;
 pub use config::*;
 pub use error::*;
 pub use event::*;
+#[cfg(feature = "sqlite")]
 pub(crate) use memory::AgentAuthSnapshot;
 pub use memory::MemoryAgentAuthStore;
 pub use model::*;

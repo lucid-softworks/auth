@@ -100,7 +100,7 @@ proxy trust.
 
 ## Database storage and migrations
 
-- Use SQLite for a local single-host database or PostgreSQL for conventional
+- Use D1 for Cloudflare, SQLite for a local single-host database, or PostgreSQL for conventional
   multi-instance deployments. `MemoryStore` is
   process-local and loses users, sessions, challenges, and rate limits on exit.
 - For SQLite, construct `SqliteStore` with the same resolved service schema and

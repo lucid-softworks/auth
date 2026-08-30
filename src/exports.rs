@@ -41,6 +41,11 @@ pub use crate::two_factor::{
     TwoFactorConfig, TwoFactorError, TwoFactorOtp, TwoFactorOtpSender, TwoFactorPlugin,
     TwoFactorRecord, TwoFactorSchema, TwoFactorStore,
 };
+pub use crate::user_deletion::{
+    ChangeEmailConfig, ChangeEmailConfirmation, ChangeEmailConfirmationSender,
+    DeleteAccountVerification, DeleteAccountVerificationSender, DeleteUserConfig, UserConfig,
+    UserDeletionCallback,
+};
 pub use crate::username::{
     UsernameConfig, UsernameError, UsernameNormalizer, UsernamePlugin, UsernameValidationOrder,
     UsernameValidationTiming, UsernameValidator,

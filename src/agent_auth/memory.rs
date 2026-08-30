@@ -31,12 +31,14 @@ pub(crate) struct AgentAuthSnapshot {
 type State = AgentAuthSnapshot;
 
 impl MemoryAgentAuthStore {
+    #[cfg(feature = "sqlite")]
     pub(crate) fn from_snapshot(snapshot: AgentAuthSnapshot) -> Self {
         Self {
             state: RwLock::new(snapshot),
         }
     }
 
+    #[cfg(feature = "sqlite")]
     pub(crate) fn snapshot(&self) -> Result<AgentAuthSnapshot, AuthError> {
         Ok(read(&self.state)?.clone())
     }

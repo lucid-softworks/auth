@@ -15,6 +15,7 @@ plugin: the client plugin and the native server plugin must both be supported.
 | Axum | `0.8` |
 | PostgreSQL | `16` in CI |
 | SQLite adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1` |
+| Cloudflare D1 adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1` |
 
 The crate is not currently published to crates.io. Pin a reviewed Git commit;
 do not use a moving branch in production:
@@ -33,6 +34,7 @@ surface is intentionally small:
 | --- | --- | --- |
 | `axum` | yes | Better Auth HTTP router, cookies, browser security, CORS |
 | `sqlite` | no | Native local `SqliteStore` and additive schema migration |
+| `d1` | no | Native non-transactional `D1Store` and Workers D1 binding |
 | `postgres` | no | `PostgresStore`, bound-schema migration, Lucid extension operations |
 
 `--no-default-features` is useful only for native in-process service calls; it
@@ -123,6 +125,61 @@ indexes supported by the pinned adapter, reports drift/conflicts, and never
 renames, drops, rewrites, or backfills existing objects. It uses no migration
 ledger. Review `unsafe_changes` from compile mode before manually resolving a
 required-column addition on a populated table.
+
+## Cloudflare D1 quickstart
+
+D1 is a separate backend, not a `SqliteStore` mode. Enable only `d1` for the
+adapter; it does not enable SQLx or a local SQLite driver:
+
+```toml
+[dependencies]
+lucid-auth = { git = "https://github.com/lucid-softworks/auth", rev = "REVIEWED_COMMIT", default-features = false, features = ["d1"] }
+worker = { version = "0.8.5", features = ["d1"] }
+```
+
+Declare the binding in `wrangler.toml`:
+
+```toml
+[[d1_databases]]
+binding = "AUTH_DB"
+database_name = "auth-production"
+database_id = "YOUR_DATABASE_ID"
+```
+
+Construct the adapter directly from the environment binding:
+
+```rust,no_run
+use lucid_auth::{AuthSchemaCatalog, d1::{D1AdapterConfig, D1Store, WorkersD1Database}};
+use std::sync::Arc;
+use worker::{Env, Result};
+
+async fn d1_store(env: &Env, schema: Arc<AuthSchemaCatalog>) -> Result<D1Store> {
+    let binding = env.d1("AUTH_DB")?;
+    let store = D1Store::new(
+        Arc::new(WorkersD1Database::new(binding)),
+        D1AdapterConfig::default(),
+    );
+    store.bind_schema(schema)
+        .map_err(|error| worker::Error::RustError(error.to_string()))?;
+    Ok(store)
+}
+```
+
+The schema argument is the complete ordered Better Auth catalog for the core and
+enabled plugin models in that deployment. A native `AuthService` integration
+passes `service.database_schema()`; a Workers-only integration constructs the
+same catalog with `AuthSchemaCatalog::new`. No built-in or legacy model aliases
+are added. Bind one catalog before adapter calls and run `migrate` with it during
+deployment.
+`migration_plan` introspects tables and views while excluding `sqlite_%`,
+`_cf_%`, and Kysely migration tables. It batches only the finite
+`pragma_table_info` set, then executes approved migration statements one at a
+time. D1 has no interactive transaction or streaming API; those attempts fail
+explicitly. `consume_record` and `increment_record` remain one bound statement.
+
+Do not log D1 credentials, tokens, cookies, or bound values. SCIM is not
+supported on D1; its separate work is tracked in
+[#32](https://github.com/lucid-softworks/auth/issues/32).
 
 ## PostgreSQL quickstart
 
