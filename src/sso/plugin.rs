@@ -126,4 +126,9 @@ impl AuthPlugin for SsoPlugin {
     fn schema(&self) -> Vec<crate::PluginSchemaTable> {
         vec![super::schema::table(self.options.domain_verification)]
     }
+
+    #[cfg(feature = "axum")]
+    fn routes(&self, service: Arc<crate::AuthService>) -> Vec<crate::AxumPluginRoute> {
+        super::axum::routes(service, Arc::new(self.clone()))
+    }
 }

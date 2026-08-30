@@ -3,6 +3,8 @@
 mod config;
 mod database;
 mod discovery;
+#[cfg(feature = "axum")]
+mod axum;
 mod plugin;
 mod schema;
 mod store;

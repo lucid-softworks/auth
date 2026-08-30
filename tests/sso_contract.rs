@@ -61,6 +61,7 @@ fn schema_and_domain_verification_are_conditional() {
 
     let enabled = SsoPlugin::new(SsoOptions {
         domain_verification: true,
+        ..SsoOptions::default()
     });
     let enabled_schema = enabled.schema();
     let verified = &enabled_schema[0].fields["domainVerified"];
