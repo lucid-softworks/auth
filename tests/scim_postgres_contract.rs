@@ -67,7 +67,7 @@ async fn managed_scim_catalog_is_transactional_on_postgres()
         .into_iter()
         .filter(|result| result.as_ref().is_err_and(|error| error.status == 409))
         .count();
-    assert_eq!(conflicts, 1);
+    assert_eq!(conflicts, 1, "first={first:?}, second={second:?}");
     let (connection, credential, _) = first
         .ok()
         .or_else(|| second.ok())

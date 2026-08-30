@@ -56,7 +56,21 @@ pub(in crate::scim::database) async fn create_connection(
         })
     })
     .await
-    .map_err(super::super::core::store_error)
+    .map_err(creation_error)
+}
+
+fn creation_error(error: AuthError) -> ScimStoreError {
+    let detail = error.to_string();
+    let normalized = detail.to_ascii_lowercase();
+    if normalized.contains("creationrequestid")
+        || normalized.contains("creation_request_id")
+        || (normalized.contains("duplicate key")
+            && normalized.contains("scimmanagedconnection"))
+    {
+        ScimStoreError::CreationRequestConflict
+    } else {
+        super::super::core::store_error(error)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
