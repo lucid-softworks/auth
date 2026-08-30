@@ -181,6 +181,11 @@ impl AuthPlugin for OneTimeTokenPlugin {
     ) -> ::axum::response::Response {
         axum::after_response(service, &self.config, request, response).await
     }
+
+    #[cfg(feature = "axum")]
+    fn contributes_on_response(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

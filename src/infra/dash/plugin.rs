@@ -297,6 +297,11 @@ impl AuthPlugin for DashPlugin {
         super::axum::capture_request_body(request).await
     }
 
+    #[cfg(feature = "axum")]
+    fn contributes_on_request(&self) -> bool {
+        true
+    }
+
     async fn after_database_create(
         &self,
         service: &crate::AuthService,
@@ -397,6 +402,11 @@ impl AuthPlugin for DashPlugin {
                 .await;
         }
         response
+    }
+
+    #[cfg(feature = "axum")]
+    fn contributes_on_response(&self) -> bool {
+        true
     }
 
     #[cfg(feature = "axum")]

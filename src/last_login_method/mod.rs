@@ -199,4 +199,9 @@ impl AuthPlugin for LastLoginMethodPlugin {
     ) -> ::axum::response::Response {
         axum::after_response(self, service, request, response).await
     }
+
+    #[cfg(feature = "axum")]
+    fn contributes_on_response(&self) -> bool {
+        true
+    }
 }

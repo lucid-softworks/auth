@@ -390,6 +390,11 @@ impl AuthPlugin for ApiKeyPlugin {
         }
         Ok(request)
     }
+
+    #[cfg(feature = "axum")]
+    fn contributes_on_request(&self) -> bool {
+        true
+    }
 }
 
 fn validate_configurations(

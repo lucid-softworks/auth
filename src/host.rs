@@ -32,6 +32,7 @@ mod guest_capability;
 mod have_i_been_pwned;
 mod i18n;
 pub mod infra;
+pub mod instrumentation;
 mod jwt;
 mod last_login_method;
 mod magic_link;

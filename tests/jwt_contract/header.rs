@@ -46,6 +46,10 @@ impl AuthPlugin for ExistingExposeHeader {
         }
         response
     }
+
+    fn contributes_on_response(&self) -> bool {
+        true
+    }
 }
 
 fn fixture_with_expose_header(jwt: JwtConfig) -> Fixture {

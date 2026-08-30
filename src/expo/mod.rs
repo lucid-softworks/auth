@@ -100,6 +100,11 @@ impl AuthPlugin for ExpoPlugin {
     }
 
     #[cfg(feature = "axum")]
+    fn contributes_on_request(&self) -> bool {
+        true
+    }
+
+    #[cfg(feature = "axum")]
     async fn after_response(
         &self,
         service: &crate::AuthService,
@@ -107,6 +112,11 @@ impl AuthPlugin for ExpoPlugin {
         response: ::axum::response::Response,
     ) -> ::axum::response::Response {
         axum::handoff_redirect_cookie(service, request, response)
+    }
+
+    #[cfg(feature = "axum")]
+    fn contributes_on_response(&self) -> bool {
+        true
     }
 }
 

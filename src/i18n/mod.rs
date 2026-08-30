@@ -81,6 +81,11 @@ impl AuthPlugin for I18nPlugin {
     ) -> ::axum::response::Response {
         axum::translate_response(service, &self.config, request, response).await
     }
+
+    #[cfg(feature = "axum")]
+    fn contributes_on_response(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

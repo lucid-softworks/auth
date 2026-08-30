@@ -1,5 +1,6 @@
 use crate::{AuthError, AuthSession, AuthUser, OAuthAccount, VerificationValue};
 use async_trait::async_trait;
+use opentelemetry::{Context, trace::FutureExt};
 use std::{
     collections::{BTreeMap, HashSet, VecDeque},
     future::Future,
@@ -138,9 +139,13 @@ impl DatabaseHookContext {
         F: Future<Output = Result<DeferredHookResponse, AuthError>> + Send + 'static,
     {
         let mut future = Some(future);
+        let parent = Context::current();
         let queued = DEFERRED_AFTER_COMMIT.try_with(|queue| {
             queue.push(Box::pin(
-                future.take().expect("deferred future is available"),
+                future
+                    .take()
+                    .expect("deferred future is available")
+                    .with_context(parent),
             ));
         });
         match queued {

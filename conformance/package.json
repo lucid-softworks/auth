@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "npm run test:schema-oracle && npm run test:id-strategy-oracle && npm run test:sqlite-adapter && npm run test:d1-adapter && npm run test:lifecycle-tokens && node run.mjs && npm run test:test-utils && npm run test:api-key && npm run test:expo && npm run test:electron && npm run test:have-i-been-pwned && npm run test:stripe && npm run test:polar && npm run test:autumn && npm run test:creem && npm run test:dodo-payments && npm run test:commet && npm run test:chargebee && npm run test:dub && npm run test:infra-email && npm run test:infra-sms && npm run test:infra-dash && npm run test:scim && npm run test:cimd",
+    "test": "npm run test:schema-oracle && npm run test:id-strategy-oracle && npm run test:sqlite-adapter && npm run test:d1-adapter && npm run test:lifecycle-tokens && node run.mjs && npm run test:test-utils && npm run test:api-key && npm run test:expo && npm run test:electron && npm run test:have-i-been-pwned && npm run test:stripe && npm run test:polar && npm run test:autumn && npm run test:creem && npm run test:dodo-payments && npm run test:commet && npm run test:chargebee && npm run test:dub && npm run test:infra-email && npm run test:infra-sms && npm run test:infra-dash && npm run test:scim && npm run test:cimd && npm run test:instrumentation",
     "test:schema-oracle": "vitest run schema-oracle.test.mjs",
     "test:id-strategy-oracle": "vitest run id-strategy-oracle.test.mjs",
     "test:sqlite-adapter": "vitest run sqlite-adapter.test.mjs",
@@ -22,6 +22,7 @@
     "test:infra-dash": "vitest run infra-dash.test.mjs",
     "test:scim": "vitest run scim.test.mjs",
     "test:cimd": "vitest run cimd.test.mjs",
+    "test:instrumentation": "vitest run instrumentation.test.mjs",
     "test:have-i-been-pwned": "vitest run have-i-been-pwned.test.mjs",
     "test:polar": "vitest run polar.test.mjs polar-schema.test.mjs && npm run check:polar-schema",
     "generate:polar-schema": "node generate-polar-schema.mjs",
@@ -55,6 +56,8 @@
     "@dodopayments/core": "0.3.14",
     "@dub/better-auth": "0.0.6",
     "@modelcontextprotocol/client": "2.0.0",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/semantic-conventions": "1.41.1",
     "@polar-sh/better-auth": "1.8.4",
     "@polar-sh/sdk": "0.47.1",
     "autumn-js": "1.2.53",
@@ -78,6 +81,8 @@
   },
   "devDependencies": {
     "@better-auth/cimd": "1.7.1",
+    "@opentelemetry/sdk-trace-base": "2.10.0",
+    "@opentelemetry/sdk-trace-node": "2.10.0",
     "typescript": "5.9.3",
     "vitest": "4.1.11"
   }

@@ -1,5 +1,8 @@
 use super::super::PluginRegistry;
-use crate::{AuthError, BeforeDatabaseCreateHook, DatabaseCreateRecord, DatabaseHookContext};
+use crate::{
+    AuthError, BeforeDatabaseCreateHook, DatabaseCreateRecord, DatabaseHookContext,
+    instrumentation::{DatabaseHookOperation, HookSource, with_span_result_async},
+};
 
 impl PluginRegistry {
     pub(crate) async fn before_database_create(
@@ -7,12 +10,16 @@ impl PluginRegistry {
         mut record: DatabaseCreateRecord,
         context: &DatabaseHookContext,
     ) -> Result<DatabaseCreateRecord, AuthError> {
-        for hooks in self
-            .plugins
-            .iter()
-            .filter_map(|plugin| plugin.database_hooks())
-        {
-            apply_before(hooks.before_create(&record, context).await?, &mut record)?;
+        for (plugin, descriptor) in self.plugins.iter().zip(&self.descriptors) {
+            let Some(hooks) = plugin.database_hooks() else {
+                continue;
+            };
+            let (name, attributes) = DatabaseHookOperation::CreateBefore
+                .span(record.model().as_str(), HookSource::Plugin(descriptor.id));
+            let result =
+                with_span_result_async(name, attributes, hooks.before_create(&record, context))
+                    .await?;
+            apply_before(result, &mut record)?;
         }
         Ok(record)
     }

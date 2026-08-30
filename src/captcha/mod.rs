@@ -74,6 +74,11 @@ impl AuthPlugin for CaptchaPlugin {
     ) -> Result<axum::extract::Request, axum::response::Response> {
         verify::intercept(service, &self.config, &self.endpoints, request).await
     }
+
+    #[cfg(feature = "axum")]
+    fn contributes_on_request(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

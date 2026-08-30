@@ -3,6 +3,7 @@ use crate::{
     AfterAuthEvent, AfterOrganizationEvent, AuthError, BeforeAuthEvent, BeforeDatabaseUpdateHook,
     DatabaseHookContext, DatabaseRecord, DatabaseUpdateRecord, PasswordCredentialChanged,
     SensitiveOperation, SessionWithUser, UserManagementDecision, UserManagementOperation,
+    instrumentation::{DatabaseHookOperation, HookSource, with_span_result_async},
 };
 
 mod create;
@@ -14,12 +15,15 @@ impl PluginRegistry {
         record: &DatabaseRecord,
         context: &DatabaseHookContext,
     ) -> Result<(), AuthError> {
-        for plugin in &self.plugins {
+        for (plugin, descriptor) in self.plugins.iter().zip(&self.descriptors) {
             plugin
                 .after_database_create(service, record, context)
                 .await?;
             if let Some(hooks) = plugin.database_hooks() {
-                hooks.after_create(record, context).await?;
+                let (name, attributes) = DatabaseHookOperation::CreateAfter
+                    .span(record.model().as_str(), HookSource::Plugin(descriptor.id));
+                with_span_result_async(name, attributes, hooks.after_create(record, context))
+                    .await?;
             }
         }
         Ok(())
@@ -30,12 +34,16 @@ impl PluginRegistry {
         mut record: DatabaseUpdateRecord,
         context: &DatabaseHookContext,
     ) -> Result<DatabaseUpdateRecord, AuthError> {
-        for hooks in self
-            .plugins
-            .iter()
-            .filter_map(|plugin| plugin.database_hooks())
-        {
-            apply_update_before(hooks.before_update(&record, context).await?, &mut record)?;
+        for (plugin, descriptor) in self.plugins.iter().zip(&self.descriptors) {
+            let Some(hooks) = plugin.database_hooks() else {
+                continue;
+            };
+            let (name, attributes) = DatabaseHookOperation::UpdateBefore
+                .span(record.model().as_str(), HookSource::Plugin(descriptor.id));
+            let result =
+                with_span_result_async(name, attributes, hooks.before_update(&record, context))
+                    .await?;
+            apply_update_before(result, &mut record)?;
         }
         Ok(record)
     }
@@ -46,12 +54,15 @@ impl PluginRegistry {
         record: &DatabaseRecord,
         context: &DatabaseHookContext,
     ) -> Result<(), AuthError> {
-        for plugin in &self.plugins {
+        for (plugin, descriptor) in self.plugins.iter().zip(&self.descriptors) {
             plugin
                 .after_database_update(service, record, context)
                 .await?;
             if let Some(hooks) = plugin.database_hooks() {
-                hooks.after_update(record, context).await?;
+                let (name, attributes) = DatabaseHookOperation::UpdateAfter
+                    .span(record.model().as_str(), HookSource::Plugin(descriptor.id));
+                with_span_result_async(name, attributes, hooks.after_update(record, context))
+                    .await?;
             }
         }
         Ok(())
@@ -63,12 +74,17 @@ impl PluginRegistry {
         record: &DatabaseRecord,
         context: &DatabaseHookContext,
     ) -> Result<(), AuthError> {
-        for plugin in &self.plugins {
+        for (plugin, descriptor) in self.plugins.iter().zip(&self.descriptors) {
             plugin
                 .before_database_delete(service, record, context)
                 .await?;
             if let Some(hooks) = plugin.database_hooks()
-                && !hooks.before_delete(record, context).await?
+                && {
+                    let (name, attributes) = DatabaseHookOperation::DeleteBefore
+                        .span(record.model().as_str(), HookSource::Plugin(descriptor.id));
+                    !with_span_result_async(name, attributes, hooks.before_delete(record, context))
+                        .await?
+                }
             {
                 return Err(cancelled(record.model(), "delete"));
             }
@@ -82,12 +98,15 @@ impl PluginRegistry {
         record: &DatabaseRecord,
         context: &DatabaseHookContext,
     ) -> Result<(), AuthError> {
-        for plugin in &self.plugins {
+        for (plugin, descriptor) in self.plugins.iter().zip(&self.descriptors) {
             plugin
                 .after_database_delete(service, record, context)
                 .await?;
             if let Some(hooks) = plugin.database_hooks() {
-                hooks.after_delete(record, context).await?;
+                let (name, attributes) = DatabaseHookOperation::DeleteAfter
+                    .span(record.model().as_str(), HookSource::Plugin(descriptor.id));
+                with_span_result_async(name, attributes, hooks.after_delete(record, context))
+                    .await?;
             }
         }
         Ok(())

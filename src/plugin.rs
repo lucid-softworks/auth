@@ -388,6 +388,12 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
         Ok(request)
     }
 
+    /// Whether this plugin actually contributes `onRequest` behavior.
+    #[cfg(feature = "axum")]
+    fn contributes_on_request(&self) -> bool {
+        false
+    }
+
     #[cfg(feature = "axum")]
     fn middleware(
         &self,
@@ -395,6 +401,12 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
         _service: Arc<AuthService>,
     ) -> axum::routing::MethodRouter {
         route
+    }
+
+    /// Whether this plugin actually contributes middleware behavior.
+    #[cfg(feature = "axum")]
+    fn contributes_middleware(&self) -> bool {
+        false
     }
 
     #[cfg(feature = "axum")]
@@ -405,5 +417,11 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
         response: axum::response::Response,
     ) -> axum::response::Response {
         response
+    }
+
+    /// Whether this plugin actually contributes `onResponse` behavior.
+    #[cfg(feature = "axum")]
+    fn contributes_on_response(&self) -> bool {
+        false
     }
 }

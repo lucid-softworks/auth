@@ -286,10 +286,35 @@ pub(crate) fn endpoints_from_descriptor(
     descriptor
         .endpoints
         .iter()
-        .map(|endpoint| {
-            let mut metadata = OpenApiEndpoint::new(endpoint.path.as_ref(), vec![endpoint.method]);
-            metadata.operation_id = Some(endpoint.client_method.replace('.', "_"));
-            metadata
-        })
+        .map(|endpoint| OpenApiEndpoint::new(endpoint.path.as_ref(), vec![endpoint.method]))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn descriptor_client_map_keys_are_not_invented_openapi_operation_ids() {
+        let descriptor = crate::PluginDescriptor {
+            id: "contract",
+            display_name: "Contract",
+            version: "1",
+            provenance: crate::PluginProvenance::lucid_extension(),
+            dependencies: &[],
+            conflicts: &[],
+            endpoints: std::borrow::Cow::Owned(vec![crate::PluginEndpoint {
+                method: PluginHttpMethod::Get,
+                path: std::borrow::Cow::Borrowed("/contract"),
+                client_method: "namespace.contract",
+            }]),
+            cookies: &[],
+            rate_limits: &[],
+            middleware: &[],
+            client: None,
+        };
+        let endpoints = endpoints_from_descriptor(&descriptor);
+        assert_eq!(endpoints.len(), 1);
+        assert_eq!(endpoints[0].operation_id, None);
+    }
 }

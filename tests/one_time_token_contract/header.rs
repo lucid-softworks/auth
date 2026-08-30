@@ -81,6 +81,10 @@ impl AuthPlugin for ExistingExposeHeader {
         }
         response
     }
+
+    fn contributes_on_response(&self) -> bool {
+        true
+    }
 }
 
 fn enabled_config() -> OneTimeTokenConfig {

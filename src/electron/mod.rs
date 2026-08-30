@@ -124,6 +124,11 @@ impl AuthPlugin for ElectronPlugin {
     ) -> ::axum::response::Response {
         axum::after_response(service, &self.options, request, response).await
     }
+
+    #[cfg(feature = "axum")]
+    fn contributes_on_response(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

@@ -73,4 +73,9 @@ impl AuthPlugin for OAuthPopupPlugin {
     ) -> ::axum::response::Response {
         axum::after_response(service, request, response).await
     }
+
+    #[cfg(feature = "axum")]
+    fn contributes_on_response(&self) -> bool {
+        true
+    }
 }

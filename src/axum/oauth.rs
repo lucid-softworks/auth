@@ -9,8 +9,8 @@ use crate::{AuthError, AuthService};
 use axum::{
     Extension, Router,
     extract::{Path, Query},
-    http::{HeaderMap, HeaderValue, StatusCode, header},
-    response::{IntoResponse, Response},
+    http::{HeaderMap, HeaderValue},
+    response::Response,
     routing::post,
 };
 use serde::{Deserialize, Serialize};
@@ -319,7 +319,7 @@ pub(crate) fn redirect_error(base: &str, error: &str, description: Option<&str>)
 
 pub(crate) fn redirect(location: &str) -> Response {
     match HeaderValue::from_str(location) {
-        Ok(location) => (StatusCode::FOUND, [(header::LOCATION, location)]).into_response(),
+        Ok(location) => super::api_redirect(location),
         Err(_) => auth_error(AuthError::InvalidCallbackUrl),
     }
 }

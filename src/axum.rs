@@ -18,6 +18,7 @@ mod database_hooks;
 mod email_password;
 mod error;
 pub(crate) mod http;
+mod instrumentation;
 mod oauth;
 pub(crate) mod oauth_proxy;
 mod oauth_sign_in;
@@ -33,6 +34,7 @@ pub(crate) use self::oauth::with_provider_account_cookie;
 pub(crate) use self::security::validate_trusted_origin_value;
 pub(crate) use error::ApiErrorResponse;
 pub(crate) use error::api_error_empty;
+pub(crate) use error::api_redirect;
 pub use error::{api_error, api_error_with_body};
 
 pub fn router<S>(service: Arc<AuthService>) -> Router<S>
@@ -55,12 +57,26 @@ where
     for plugin in service.plugins().plugins() {
         for route in plugin.routes(service.clone()) {
             let (path, route) = route.into_parts();
+            let middleware = plugin.descriptor().middleware;
             let route = plugin.middleware(route, service.clone());
+            let route = instrumentation::plugin_middleware(
+                route,
+                &path,
+                plugin.descriptor().id,
+                !middleware.is_empty() && plugin.contributes_middleware(),
+            );
             merge_method_route(&mut plugin_routes, path, route);
         }
         for route in plugin.root_routes(service.clone()) {
             let (path, route) = route.into_parts();
+            let middleware = plugin.descriptor().middleware;
             let route = plugin.middleware(route, service.clone());
+            let route = instrumentation::plugin_middleware(
+                route,
+                &path,
+                plugin.descriptor().id,
+                !middleware.is_empty() && plugin.contributes_middleware(),
+            );
             merge_method_route(&mut root_plugin_routes, path, route);
         }
     }
@@ -100,6 +116,10 @@ where
     S: Clone + Send + Sync + 'static,
 {
     routes
+        .layer(middleware::from_fn_with_state(
+            service.clone(),
+            instrumentation::endpoint,
+        ))
         .layer(middleware::from_fn_with_state(
             service.clone(),
             security::validate_browser_request,

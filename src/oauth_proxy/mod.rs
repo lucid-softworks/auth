@@ -87,4 +87,9 @@ impl AuthPlugin for OAuthProxyPlugin {
     ) -> axum::response::Response {
         crate::axum::oauth_proxy::after_response(service, self, request, response)
     }
+
+    #[cfg(feature = "axum")]
+    fn contributes_on_response(&self) -> bool {
+        true
+    }
 }
