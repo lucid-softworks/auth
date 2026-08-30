@@ -74,6 +74,8 @@ mod session_references;
 mod session_refresh;
 mod session_storage;
 mod session_update;
+#[cfg(feature = "axum")]
+mod scim;
 mod siwe;
 mod siwe_identity;
 #[cfg(test)]
