@@ -3,6 +3,7 @@ mod callback;
 mod management;
 mod mutation;
 mod registration;
+mod runtime_oidc;
 mod saml_metadata;
 mod sanitize;
 mod sign_in;

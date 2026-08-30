@@ -9,9 +9,12 @@ pub async fn fetch_discovery_document(
     timeout_ms: u64,
     is_trusted_origin: impl Fn(&str) -> bool + Sync,
 ) -> Result<OidcDiscoveryDocument, DiscoveryError> {
-    let normalized =
-        validate_oidc_endpoint_url("discoveryEndpoint", endpoint, &is_trusted_origin)?;
-    assert_endpoint_resolves_public(&normalized, &is_trusted_origin).await?;
+    let normalized = validate_oidc_endpoint_egress(
+        "discoveryEndpoint",
+        endpoint,
+        &is_trusted_origin,
+    )
+    .await?;
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_millis(timeout_ms))
@@ -76,36 +79,38 @@ pub async fn fetch_discovery_document(
     })
 }
 
-async fn assert_endpoint_resolves_public(
+pub async fn validate_oidc_endpoint_egress(
+    name: &str,
     endpoint: &str,
-    is_trusted_origin: &impl Fn(&str) -> bool,
-) -> Result<(), DiscoveryError> {
-    if is_trusted_origin(endpoint) {
-        return Ok(());
+    is_trusted_origin: impl Fn(&str) -> bool + Sync,
+) -> Result<String, DiscoveryError> {
+    let normalized = validate_oidc_endpoint_url(name, endpoint, &is_trusted_origin)?;
+    if is_trusted_origin(&normalized) {
+        return Ok(normalized);
     }
-    let parsed = Url::parse(endpoint).expect("validated discovery endpoint");
+    let parsed = Url::parse(&normalized).expect("validated OIDC endpoint");
     let Some(host) = parsed.host_str() else {
-        return Ok(());
+        return Ok(normalized);
     };
     if host.parse::<IpAddr>().is_ok() {
-        return Ok(());
+        return Ok(normalized);
     }
     let port = parsed.port_or_known_default().unwrap_or(443);
     let Ok(addresses) = tokio::net::lookup_host((host, port)).await else {
-        return Ok(());
+        return Ok(normalized);
     };
     for address in addresses {
         if !crate::network_address::public_routable_ip(address.ip()) {
             return Err(DiscoveryError::new(
                 DiscoveryErrorCode::PrivateHost,
                 format!(
-                    "The discoveryEndpoint host \"{host}\" resolves to a non-publicly-routable address ({}). If this is an internal IdP, add its origin to trustedOrigins.",
+                    "The {name} host \"{host}\" resolves to a non-publicly-routable address ({}). If this is an internal IdP, add its origin to trustedOrigins.",
                     address.ip()
                 ),
             ));
         }
     }
-    Ok(())
+    Ok(normalized)
 }
 
 fn unexpected(endpoint: &str, error: impl std::fmt::Display) -> DiscoveryError {
