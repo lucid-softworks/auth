@@ -339,6 +339,9 @@ async fn user_patch_is_ordered_case_insensitive_and_atomic_at_the_store_boundary
             { "op": "replace", "path": "emails[PRIMARY eq true].value", "value": "primary@example.com" },
             { "op": "remove", "path": format!("{SCIM_ENTERPRISE_USER_SCHEMA}:department") },
             { "op": "add", "path": format!("{SCIM_ENTERPRISE_USER_SCHEMA}:division"), "value": "Platform" },
+            { "op": "replace", "path": "title", "value": "true" },
+            { "op": "replace", "path": "userType", "value": "true" },
+            { "op": "replace", "path": "active", "value": "false" },
             { "op": "remove", "path": "title" }
         ]
     });
@@ -350,6 +353,8 @@ async fn user_patch_is_ordered_case_insensitive_and_atomic_at_the_store_boundary
     assert_eq!(changed["emails"].as_array().unwrap().len(), 2);
     assert_eq!(changed["emails"][0]["value"], "primary@example.com");
     assert_eq!(changed["emails"][0]["primary"], true);
+    assert_eq!(changed["active"], false);
+    assert_eq!(changed["userType"], "true");
     assert_eq!(
         changed[SCIM_ENTERPRISE_USER_SCHEMA],
         json!({ "division": "Platform" })

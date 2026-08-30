@@ -95,14 +95,71 @@ fn normalize_entra_booleans(value: &mut Value) {
     }
     if let Some(operations) = object.get_mut("Operations").and_then(Value::as_array_mut) {
         for operation in operations {
-            if let Some(value) = operation.get_mut("value") {
-                if value.is_object() {
-                    normalize_entra_booleans(value);
-                } else {
-                    normalize_boolean(value);
-                }
-            }
+            normalize_patch_operation(operation);
         }
+    }
+}
+
+fn normalize_patch_operation(operation: &mut Value) {
+    let Some(operation) = operation.as_object_mut() else {
+        return;
+    };
+    let path = operation
+        .get("path")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned);
+    let Some(value) = operation.get_mut("value") else {
+        return;
+    };
+    let Some(path) = path else {
+        if value.is_object() {
+            normalize_entra_booleans(value);
+        }
+        return;
+    };
+    let path = strip_user_core_prefix(&path).to_ascii_lowercase();
+    if path == "active" {
+        normalize_boolean(value);
+        return;
+    }
+    let attribute = path
+        .split(['[', '.'])
+        .next()
+        .unwrap_or_default()
+        .trim();
+    if !matches!(
+        attribute,
+        "emails" | "phonenumbers" | "addresses" | "roles" | "entitlements"
+    ) {
+        return;
+    }
+    if path.trim_end().ends_with(".primary") {
+        normalize_boolean(value);
+    } else {
+        normalize_primary_values(value);
+    }
+}
+
+fn strip_user_core_prefix(path: &str) -> &str {
+    const PREFIX: &str = "urn:ietf:params:scim:schemas:core:2.0:User:";
+    if path.len() >= PREFIX.len() && path[..PREFIX.len()].eq_ignore_ascii_case(PREFIX) {
+        &path[PREFIX.len()..]
+    } else {
+        path
+    }
+}
+
+fn normalize_primary_values(value: &mut Value) {
+    if let Some(values) = value.as_array_mut() {
+        for value in values {
+            normalize_primary_values(value);
+        }
+        return;
+    }
+    if let Some(primary) = value.get_mut("primary") {
+        normalize_boolean(primary);
     }
 }
 
