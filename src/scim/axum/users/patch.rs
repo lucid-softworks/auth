@@ -2,6 +2,7 @@ use crate::scim::{SCIM_ENTERPRISE_USER_SCHEMA, ScimError, ScimErrorType, ScimPat
 use serde_json::Value;
 
 mod filtered;
+mod emails;
 mod nested;
 
 pub(super) fn apply(value: &mut Value, patch: &ScimPatchRequest) -> Result<(), ScimError> {
@@ -63,6 +64,9 @@ fn apply_path(
             format!("{raw_path} is read-only"),
             ScimErrorType::Mutability,
         ));
+    }
+    if emails::apply(root, op, &path, value.clone())? {
+        return Ok(());
     }
     if let Some(path) = filtered::parse(&path) {
         return filtered::apply(root, op, path, value);
@@ -132,7 +136,7 @@ fn patch_attribute(
 fn is_multi_valued(key: &str) -> bool {
     matches!(
         key,
-        "emails" | "phoneNumbers" | "addresses" | "roles" | "entitlements"
+        "phoneNumbers" | "addresses" | "roles" | "entitlements"
     )
 }
 

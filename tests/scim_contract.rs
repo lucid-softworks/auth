@@ -496,6 +496,38 @@ async fn user_patch_is_ordered_case_insensitive_and_atomic_at_the_store_boundary
 }
 
 #[tokio::test]
+async fn user_email_patch_deduplicates_additions_and_preserves_primary_rules() {
+    let (app, _, _, _) = application();
+    let mut resource = user("email-patch@example.com");
+    resource["emails"] = json!([
+        { "value": "personal@example.com", "type": "personal" },
+        { "value": "WORK@EXAMPLE.COM", "type": "WORK" }
+    ]);
+    let (_, created) = send_json(app.clone(), "POST", "/scim/v2/Users", resource).await;
+    let id = created["id"].as_str().unwrap();
+    assert_eq!(created["emails"][0]["primary"], false);
+    assert_eq!(created["emails"][1]["primary"], true);
+    assert_eq!(created["emails"][1]["value"], "work@example.com");
+
+    let patch = json!({
+        "schemas": [SCIM_PATCH_SCHEMA],
+        "Operations": [
+            { "op": "add", "path": "emails", "value": [
+                { "value": "PERSONAL@example.com", "type": "PERSONAL" },
+                { "value": "new@example.com", "type": "other", "primary": true }
+            ] },
+            { "op": "replace", "path": "emails[type eq \"other\"].value", "value": "changed@example.com" }
+        ]
+    });
+    let (status, changed) = send_json(app, "PATCH", &format!("/scim/v2/Users/{id}"), patch).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(changed["emails"].as_array().unwrap().len(), 3);
+    assert_eq!(changed["emails"][1]["primary"], false);
+    assert_eq!(changed["emails"][2]["value"], "changed@example.com");
+    assert_eq!(changed["emails"][2]["primary"], true);
+}
+
+#[tokio::test]
 async fn group_crud_enforces_same_connection_users_and_member_projection() {
     let (app, _, _, _) = application();
     let (_, created_user) = send_json(

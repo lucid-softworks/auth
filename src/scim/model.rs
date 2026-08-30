@@ -198,15 +198,29 @@ fn normalize_emails(user_name: &str, emails: &mut Vec<ScimEmail>) -> Result<(), 
         return Err(invalid("emails cannot contain multiple primary values"));
     }
     for email in emails.iter_mut() {
-        email.value = bounded(email.value.clone(), 254, "emails.value")?;
-        if !looks_like_email(&email.value) {
+        if email.value.is_empty()
+            || email.value.chars().count() > 254
+            || !looks_like_email(&email.value)
+        {
             return Err(invalid("Invalid email address"));
         }
+        email.value.make_ascii_lowercase();
         email.kind = optional_bounded(email.kind.take(), 256, "emails.type")?
             .map(|kind| kind.to_lowercase());
     }
-    if primary_count == 0 {
-        emails[0].primary = Some(true);
+    let primary = if primary_count == 0 {
+        emails
+            .iter()
+            .position(|email| email.kind.as_deref() == Some("work"))
+            .unwrap_or(0)
+    } else {
+        emails
+            .iter()
+            .position(|email| email.primary == Some(true))
+            .expect("the explicit primary email was counted")
+    };
+    for (index, email) in emails.iter_mut().enumerate() {
+        email.primary = Some(index == primary);
     }
     validate_email_uniqueness(emails)
 }
