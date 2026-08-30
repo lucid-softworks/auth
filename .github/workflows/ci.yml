@@ -38,6 +38,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+          targets: wasm32-unknown-unknown
       - name: Check formatting
         run: cargo fmt -- --check
       - name: Lint the core feature set
@@ -48,6 +49,12 @@ jobs:
         run: cargo clippy --no-default-features --features sqlite --lib --test sqlite_adapter_contract -- -D warnings
       - name: Test native SQLite storage
         run: cargo test --no-default-features --features sqlite --lib --test sqlite_adapter_contract
+      - name: Lint native Cloudflare D1 storage
+        run: cargo clippy --no-default-features --features d1 --lib --test d1_adapter_contract -- -D warnings
+      - name: Test native Cloudflare D1 storage
+        run: cargo test --no-default-features --features d1 --lib --test d1_adapter_contract
+      - name: Check Cloudflare D1 Workers package
+        run: cargo check --no-default-features --features d1 --target wasm32-unknown-unknown
       - name: Lint all features
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: Test all features

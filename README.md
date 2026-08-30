@@ -11,7 +11,7 @@ limitations, upgrade audit, and links to every tracked gap.
 
 ## Start here
 
-- [Install and run the memory, SQLite, or PostgreSQL server](docs/installation.md)
+- [Install and run memory, D1, SQLite, or PostgreSQL storage](docs/installation.md)
 - [Connect React, Vue, Svelte, Solid, vanilla, SSR, and extension clients](docs/frameworks.md)
 - [Connect the pinned Electron main, preload, renderer, and browser-proxy clients](docs/frameworks.md#electron)
 - [Review the production proxy, TLS, cookie, CORS, secret, and migration checklist](docs/production.md)
@@ -45,6 +45,11 @@ timeouts, shared cache, retries, or checkpoint policy. A plain
 an explicitly configured shared-memory URI for multiple connections. See the
 [SQLite storage matrix](COMPATIBILITY.md#storage-and-deployment) for the exact
 native versus D1 boundary.
+
+Cloudflare Workers use the separate `d1` feature and `D1Store`; it binds every
+runtime value through the Workers D1 prepared-statement API and does not enable
+SQLx or the local `sqlite` feature. See the
+[D1 quickstart](docs/installation.md#cloudflare-d1-quickstart).
 
 The currently supported surface covers:
 
