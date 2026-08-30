@@ -2,6 +2,7 @@ mod domain;
 mod management;
 mod mutation;
 mod registration;
+mod saml_metadata;
 mod sanitize;
 mod support;
 
@@ -15,6 +16,10 @@ pub(super) fn routes(
     plugin: Arc<SsoPlugin>,
 ) -> Vec<AxumPluginRoute> {
     let mut routes = vec![
+        AxumPluginRoute::new(
+            "/sso/saml2/sp/metadata",
+            get(saml_metadata::metadata).layer(Extension(plugin.clone())),
+        ),
         AxumPluginRoute::new(
             "/sso/providers",
             get(management::list).layer(Extension(plugin.clone())),
