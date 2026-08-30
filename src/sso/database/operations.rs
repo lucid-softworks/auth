@@ -163,6 +163,34 @@ pub(super) async fn delete_with_accounts(
     .map_err(store_error)
 }
 
+pub(super) async fn verify_domain(
+    database: &super::DatabaseSsoStore,
+    id: &str,
+    expected_domain: &str,
+) -> Result<bool, SsoStoreError> {
+    let store = database.store.clone();
+    let id = id.to_owned();
+    let expected_domain = expected_domain.to_owned();
+    run_database_transaction(store.as_ref(), move |transaction| {
+        Box::pin(async move {
+            transaction
+                .increment_record(
+                    "ssoProvider",
+                    &[
+                        equal("id", json!(id)),
+                        equal("domain", json!(expected_domain)),
+                    ],
+                    serde_json::Map::new(),
+                    serde_json::Map::from_iter([("domainVerified".into(), json!(true))]),
+                )
+                .await
+                .map(|record| record.is_some())
+        })
+    })
+    .await
+    .map_err(store_error)
+}
+
 async fn find_one(
     transaction: &Arc<dyn DatabaseTransaction>,
     filter: &[DashAdapterWhere],

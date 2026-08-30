@@ -2,6 +2,8 @@
 
 mod config;
 mod database;
+#[cfg(feature = "axum")]
+mod dns;
 mod discovery;
 #[cfg(feature = "axum")]
 mod axum;
@@ -12,6 +14,8 @@ mod timestamp;
 
 pub use config::SsoOptions;
 pub use database::DatabaseSsoStore;
+#[cfg(feature = "axum")]
+pub use dns::{SsoDnsResolver, SystemSsoDnsResolver};
 pub use discovery::{
     DiscoveryError, DiscoveryErrorCode, OidcConfig, OidcDiscoveryDocument,
     REQUIRED_DISCOVERY_FIELDS,

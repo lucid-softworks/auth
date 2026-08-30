@@ -82,4 +82,12 @@ impl SsoStore for DatabaseSsoStore {
     ) -> Result<bool, SsoStoreError> {
         operations::delete_with_accounts(self, id, provider_id).await
     }
+
+    async fn verify_domain(
+        &self,
+        id: &str,
+        expected_domain: &str,
+    ) -> Result<bool, SsoStoreError> {
+        operations::verify_domain(self, id, expected_domain).await
+    }
 }

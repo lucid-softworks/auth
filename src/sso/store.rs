@@ -103,6 +103,11 @@ pub trait SsoStore: Send + Sync {
         let _ = provider_id;
         self.delete(id).await.map(|provider| provider.is_some())
     }
+    async fn verify_domain(
+        &self,
+        id: &str,
+        expected_domain: &str,
+    ) -> Result<bool, SsoStoreError>;
 }
 
 #[derive(Default)]
@@ -190,5 +195,21 @@ impl SsoStore for MemorySsoStore {
 
     async fn delete(&self, id: &str) -> Result<Option<SsoProvider>, SsoStoreError> {
         Ok(self.providers.lock().await.remove(id))
+    }
+
+    async fn verify_domain(
+        &self,
+        id: &str,
+        expected_domain: &str,
+    ) -> Result<bool, SsoStoreError> {
+        let mut providers = self.providers.lock().await;
+        let Some(provider) = providers.get_mut(id) else {
+            return Ok(false);
+        };
+        if provider.domain != expected_domain {
+            return Ok(false);
+        }
+        provider.domain_verified = Some(true);
+        Ok(true)
     }
 }

@@ -1,3 +1,4 @@
+mod domain;
 mod management;
 mod mutation;
 mod registration;
@@ -13,7 +14,7 @@ pub(super) fn routes(
     _service: Arc<AuthService>,
     plugin: Arc<SsoPlugin>,
 ) -> Vec<AxumPluginRoute> {
-    vec![
+    let mut routes = vec![
         AxumPluginRoute::new(
             "/sso/providers",
             get(management::list).layer(Extension(plugin.clone())),
@@ -32,7 +33,18 @@ pub(super) fn routes(
         ),
         AxumPluginRoute::new(
             "/sso/delete-provider",
-            axum::routing::post(mutation::delete).layer(Extension(plugin)),
+            axum::routing::post(mutation::delete).layer(Extension(plugin.clone())),
         ),
-    ]
+    ];
+    if plugin.options().domain_verification {
+        routes.push(AxumPluginRoute::new(
+            "/sso/request-domain-verification",
+            axum::routing::post(domain::request).layer(Extension(plugin.clone())),
+        ));
+        routes.push(AxumPluginRoute::new(
+            "/sso/verify-domain",
+            axum::routing::post(domain::verify).layer(Extension(plugin)),
+        ));
+    }
+    routes
 }
