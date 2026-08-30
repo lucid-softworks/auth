@@ -61,7 +61,10 @@ pub(super) async fn create(
     };
     match plugin.store.create_group(stored).await {
         Ok(stored) => {
-            let complete = present(&service, &stored);
+            let complete = match present(&service, &plugin, &stored).await {
+                Ok(value) => value,
+                Err(error) => return support::error_response(store_error(error)),
+            };
             let location = complete["meta"]["location"]
                 .as_str()
                 .unwrap_or_default()
@@ -98,10 +101,13 @@ pub(super) async fn get(
         Err(error) => return support::error_response(error),
     };
     match plugin.store.find_group(&principal.connection_id, &group_id).await {
-        Ok(Some(group)) => support::json(
-            StatusCode::OK,
-            query::project_value(present(&service, &group), &projection),
-        ),
+        Ok(Some(group)) => match present(&service, &plugin, &group).await {
+            Ok(value) => support::json(
+                StatusCode::OK,
+                query::project_value(value, &projection),
+            ),
+            Err(error) => support::error_response(store_error(error)),
+        },
         Ok(None) => support::error_response(ScimError::new(404, "Group not found")),
         Err(error) => support::error_response(store_error(error)),
     }
@@ -136,7 +142,14 @@ pub(super) async fn list(
         Ok(groups) => groups,
         Err(error) => return support::error_response(store_error(error)),
     };
-    let values = groups.iter().map(|group| present(&service, group)).collect();
+    let users = match plugin.store.list_users(&principal.connection_id).await {
+        Ok(users) => users,
+        Err(error) => return support::error_response(store_error(error)),
+    };
+    let values = groups
+        .iter()
+        .map(|group| present_with_users(&service, group, &users))
+        .collect();
     let values = match query::filter(values, &query, "Group") {
         Ok(values) => values,
         Err(error) => return support::error_response(error),
@@ -303,7 +316,10 @@ async fn replace_authenticated(
         .await
     {
         Ok(stored) => {
-            let complete = present(&service, &stored);
+            let complete = match present(&service, &plugin, &stored).await {
+                Ok(value) => value,
+                Err(error) => return support::error_response(store_error(error)),
+            };
             let location = complete["meta"]["location"]
                 .as_str()
                 .unwrap_or_default()
@@ -359,12 +375,29 @@ async fn parse_group(request: Request, allow_entra_legacy: bool) -> Result<ScimG
     })
 }
 
-fn present(service: &AuthService, stored: &StoredScimGroup) -> Value {
+async fn present(
+    service: &AuthService,
+    plugin: &ScimPlugin,
+    stored: &StoredScimGroup,
+) -> Result<Value, crate::scim::ScimStoreError> {
+    let users = plugin.store.list_users(&stored.connection_id).await?;
+    Ok(present_with_users(service, stored, &users))
+}
+
+fn present_with_users(
+    service: &AuthService,
+    stored: &StoredScimGroup,
+    users: &[crate::scim::store::StoredScimUser],
+) -> Value {
     let mut resource = stored.resource.clone();
     let id = resource.id.clone().unwrap_or_default();
     let base = service.scim_base_url();
     for member in &mut resource.members {
         member.reference = Some(format!("{base}/scim/v2/Users/{}", member.value));
+        member.display = users
+            .iter()
+            .find(|user| user.resource.id.as_deref() == Some(&member.value))
+            .and_then(|user| user.resource.display_name.clone());
         member.kind = Some("User".into());
     }
     resource.meta = Some(crate::scim::model::ScimMeta {

@@ -653,6 +653,7 @@ async fn group_crud_enforces_same_connection_users_and_member_projection() {
     let group_id = group["id"].as_str().unwrap();
     assert_eq!(group["externalId"], " external-group ");
     assert_eq!(group["members"][0]["type"], "User");
+    assert_eq!(group["members"][0]["display"], "Luna Lake");
     assert!(
         group["members"][0]["$ref"]
             .as_str()
