@@ -246,6 +246,8 @@ pub use sso::{
     DatabaseSsoStore, MemorySsoStore, NewSsoProvider, SsoOptions, SsoPlugin, SsoProvider,
     SsoProviderUpdate, SsoStore, SsoStoreError, VERSION as SSO_VERSION,
 };
+#[cfg(feature = "axum")]
+pub use sso::{SsoDnsResolver, SystemSsoDnsResolver};
 pub use service::account_types::{
     LinkedAccount, ProviderAccountIdentity, ProviderAccountInfo, ProviderAccountUser,
     ProviderTokenResponse,

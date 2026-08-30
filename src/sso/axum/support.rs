@@ -1,4 +1,4 @@
-use crate::{AuthService, SessionWithUser, SsoProvider};
+use crate::{AuthService, SessionWithUser, SsoPlugin, SsoProvider};
 use axum::{
     http::{HeaderMap, StatusCode},
     response::Response,
@@ -64,4 +64,33 @@ pub(super) fn base_url(service: &AuthService) -> String {
         .auth_base_url()
         .map(|url| url.to_string().trim_end_matches('/').to_owned())
         .unwrap_or_else(|| service.base_path().trim_end_matches('/').to_owned())
+}
+
+pub(super) async fn authorized_provider(
+    service: &AuthService,
+    plugin: &SsoPlugin,
+    headers: &HeaderMap,
+    provider_id: &str,
+) -> Result<(SessionWithUser, SsoProvider), Box<Response>> {
+    let session = required_session(service, headers).await?;
+    let provider = plugin
+        .store()
+        .find_by_provider_id(provider_id)
+        .await
+        .map_err(|error| Box::new(storage(error)))?
+        .ok_or_else(|| {
+            Box::new(self::error(
+                StatusCode::NOT_FOUND,
+                "NOT_FOUND",
+                "Provider not found",
+            ))
+        })?;
+    if !has_access(service, &provider, &session.user.id).await {
+        return Err(Box::new(self::error(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "You don't have access to this provider",
+        )));
+    }
+    Ok((session, provider))
 }

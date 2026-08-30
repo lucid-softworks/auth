@@ -53,6 +53,8 @@ const fn endpoint(
 pub struct SsoPlugin {
     options: SsoOptions,
     store: Arc<dyn SsoStore>,
+    #[cfg(feature = "axum")]
+    dns_resolver: Arc<dyn super::SsoDnsResolver>,
 }
 
 impl Default for SsoPlugin {
@@ -76,7 +78,12 @@ impl SsoPlugin {
     }
 
     pub fn with_store(options: SsoOptions, store: Arc<dyn SsoStore>) -> Self {
-        Self { options, store }
+        Self {
+            options,
+            store,
+            #[cfg(feature = "axum")]
+            dns_resolver: Arc::new(super::SystemSsoDnsResolver),
+        }
     }
 
     pub fn options(&self) -> &SsoOptions {
@@ -85,6 +92,17 @@ impl SsoPlugin {
 
     pub fn store(&self) -> &Arc<dyn SsoStore> {
         &self.store
+    }
+
+    #[cfg(feature = "axum")]
+    pub fn with_dns_resolver(mut self, resolver: Arc<dyn super::SsoDnsResolver>) -> Self {
+        self.dns_resolver = resolver;
+        self
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn dns_resolver(&self) -> &Arc<dyn super::SsoDnsResolver> {
+        &self.dns_resolver
     }
 }
 

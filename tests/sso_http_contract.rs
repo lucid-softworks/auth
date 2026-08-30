@@ -1,5 +1,6 @@
 #![cfg(feature = "axum")]
 
+use async_trait::async_trait;
 use axum::{
     Router,
     body::Body,
@@ -8,16 +9,30 @@ use axum::{
 use http_body_util::BodyExt;
 use lucid_auth::{
     AuthConfig, AuthService, EmailSignUpInput, MemorySsoStore, MemoryStore, NewSsoProvider,
-    SsoOptions, SsoPlugin, SsoStore,
+    SsoDnsResolver, SsoOptions, SsoPlugin, SsoStore,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tower::ServiceExt;
 
 struct Fixture {
     app: Router,
     owner_cookie: String,
     other_cookie: String,
+    dns: Arc<FixtureDnsResolver>,
+}
+
+#[derive(Default)]
+struct FixtureDnsResolver {
+    records: RwLock<Vec<String>>,
+}
+
+#[async_trait]
+impl SsoDnsResolver for FixtureDnsResolver {
+    async fn txt_records(&self, _name: &str) -> Result<Vec<String>, String> {
+        Ok(self.records.read().await.clone())
+    }
 }
 
 async fn fixture() -> Fixture {
@@ -29,8 +44,12 @@ async fn fixture_with_options(options: SsoOptions) -> Fixture {
     config.email_and_password.enabled = true;
     config.set_base_url("https://example.com").unwrap();
     let providers = Arc::new(MemorySsoStore::new());
+    let dns = Arc::new(FixtureDnsResolver::default());
+    let domain_verification = options.domain_verification;
     config
-        .add_plugin(SsoPlugin::with_store(options, providers.clone()))
+        .add_plugin(
+            SsoPlugin::with_store(options, providers.clone()).with_dns_resolver(dns.clone()),
+        )
         .unwrap();
     let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
     let owner = account(&service, "owner@example.com").await;
@@ -51,7 +70,7 @@ async fn fixture_with_options(options: SsoOptions) -> Fixture {
             provider_id: "acme-sso!".into(),
             organization_id: None,
             domain: "example.com".into(),
-            domain_verified: Some(true),
+            domain_verified: Some(!domain_verification),
         })
         .await
         .unwrap();
@@ -68,7 +87,7 @@ async fn fixture_with_options(options: SsoOptions) -> Fixture {
             provider_id: "other".into(),
             organization_id: None,
             domain: "other.example.com".into(),
-            domain_verified: None,
+            domain_verified: domain_verification.then_some(false),
         })
         .await
         .unwrap();
@@ -76,6 +95,7 @@ async fn fixture_with_options(options: SsoOptions) -> Fixture {
         app: lucid_auth::axum::router(service.clone()),
         owner_cookie: cookie(&service, &owner.0),
         other_cookie: cookie(&service, &other.0),
+        dns,
     }
 }
 
@@ -118,8 +138,12 @@ async fn get(app: Router, path: &str, cookie: Option<&str>) -> (StatusCode, Valu
         .await
         .unwrap();
     let status = response.status();
-    let body =
-        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap()
+    };
     (status, body)
 }
 
@@ -135,8 +159,12 @@ async fn post(app: Router, path: &str, cookie: Option<&str>, body: Value) -> (St
         .await
         .unwrap();
     let status = response.status();
-    let body =
-        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap()
+    };
     (status, body)
 }
 
@@ -411,4 +439,99 @@ async fn provider_mutations_enforce_access_merge_configs_reset_domains_and_delet
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(missing["message"], "Provider not found");
+}
+
+#[tokio::test]
+async fn domain_verification_reuses_tokens_and_requires_matching_txt_records() {
+    let disabled = fixture().await;
+    let (status, _) = post(
+        disabled.app,
+        "/api/auth/sso/request-domain-verification",
+        Some(&disabled.owner_cookie),
+        json!({"providerId": "acme-sso!"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let fixture = fixture_with_options(SsoOptions {
+        domain_verification: true,
+        ..SsoOptions::default()
+    })
+    .await;
+    let (status, first) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/request-domain-verification",
+        Some(&fixture.owner_cookie),
+        json!({"providerId": "acme-sso!"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let token = first["domainVerificationToken"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(token.len(), 24);
+
+    let (status, second) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/request-domain-verification",
+        Some(&fixture.owner_cookie),
+        json!({"providerId": "acme-sso!"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(second["domainVerificationToken"], token);
+
+    let (status, forbidden) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/verify-domain",
+        Some(&fixture.other_cookie),
+        json!({"providerId": "acme-sso!"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        forbidden["message"],
+        "You don't have access to this provider"
+    );
+
+    let (status, failed) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/verify-domain",
+        Some(&fixture.owner_cookie),
+        json!({"providerId": "acme-sso!"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(failed["code"], "DOMAIN_VERIFICATION_FAILED");
+
+    *fixture.dns.records.write().await = vec![format!("_better-auth-token-acme-sso!={token}")];
+    let (status, body) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/verify-domain",
+        Some(&fixture.owner_cookie),
+        json!({"providerId": "acme-sso!"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(body, Value::Null);
+
+    let (status, provider) = get(
+        fixture.app.clone(),
+        "/api/auth/sso/get-provider?providerId=acme-sso%21",
+        Some(&fixture.owner_cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(provider["domainVerified"], true);
+
+    let (status, verified) = post(
+        fixture.app,
+        "/api/auth/sso/verify-domain",
+        Some(&fixture.owner_cookie),
+        json!({"providerId": "acme-sso!"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(verified["code"], "DOMAIN_VERIFIED");
 }

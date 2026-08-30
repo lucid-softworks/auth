@@ -1,7 +1,7 @@
 mod config;
 
 use super::{sanitize, support};
-use crate::{AuthService, SessionWithUser, SsoPlugin, SsoProvider, SsoStoreError};
+use crate::{AuthService, SsoPlugin, SsoStoreError};
 use axum::{
     Extension, Json,
     http::{HeaderMap, StatusCode},
@@ -33,7 +33,8 @@ pub(super) async fn update(
     headers: HeaderMap,
     crate::axum::body::BetterAuthBody(body): crate::axum::body::BetterAuthBody<UpdateBody>,
 ) -> Response {
-    let (_, provider) = match authorized(&service, &plugin, &headers, &body.provider_id).await {
+    let (_, provider) =
+        match support::authorized_provider(&service, &plugin, &headers, &body.provider_id).await {
         Ok(authorized) => authorized,
         Err(response) => return *response,
     };
@@ -71,7 +72,8 @@ pub(super) async fn delete(
     headers: HeaderMap,
     crate::axum::body::BetterAuthBody(body): crate::axum::body::BetterAuthBody<DeleteBody>,
 ) -> Response {
-    let (_, provider) = match authorized(&service, &plugin, &headers, &body.provider_id).await {
+    let (_, provider) =
+        match support::authorized_provider(&service, &plugin, &headers, &body.provider_id).await {
         Ok(authorized) => authorized,
         Err(response) => return *response,
     };
@@ -84,29 +86,6 @@ pub(super) async fn delete(
         Ok(false) | Err(SsoStoreError::NotFound) => not_found(),
         Err(error) => support::storage(error),
     }
-}
-
-async fn authorized(
-    service: &AuthService,
-    plugin: &SsoPlugin,
-    headers: &HeaderMap,
-    provider_id: &str,
-) -> Result<(SessionWithUser, SsoProvider), Box<Response>> {
-    let session = support::required_session(service, headers).await?;
-    let provider = plugin
-        .store()
-        .find_by_provider_id(provider_id)
-        .await
-        .map_err(|error| Box::new(support::storage(error)))?
-        .ok_or_else(|| Box::new(not_found()))?;
-    if !support::has_access(service, &provider, &session.user.id).await {
-        return Err(Box::new(support::error(
-            StatusCode::FORBIDDEN,
-            "FORBIDDEN",
-            "You don't have access to this provider",
-        )));
-    }
-    Ok((session, provider))
 }
 
 fn not_found() -> Response {
