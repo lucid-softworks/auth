@@ -2,7 +2,7 @@ use crate::{
     AuthService,
     scim::{
         ScimError, ScimErrorType, ScimIdentityProfile, ScimIdentityResolution, ScimPlugin,
-        ScimUser, identity,
+        ScimUser, identity, projection,
         plugin::{ScimPrincipal, store_error},
         store::StoredScimUser,
     },
@@ -143,7 +143,14 @@ async fn finish_identity_create(
     }
     if let Some(transaction) = crate::database_hooks::current_transaction() {
         identity::consume_tombstone(&transaction, resolved.tombstone_id.as_deref()).await?;
-        reconcile_identity(service, plugin, transaction, &stored.user_id).await?;
+        reconcile_identity(
+            service,
+            plugin,
+            transaction,
+            &stored.provisioning_domain_id,
+            &stored.user_id,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -191,6 +198,7 @@ pub(super) async fn replace(
                             &service,
                             &operation_plugin,
                             transaction,
+                            &stored.provisioning_domain_id,
                             &stored.user_id,
                         )
                         .await?;
@@ -205,6 +213,7 @@ pub(super) async fn replace(
                         &service,
                         &operation_plugin,
                         transaction,
+                        &stored.provisioning_domain_id,
                         &stored.user_id,
                     )
                     .await?;
@@ -240,6 +249,7 @@ pub(super) async fn delete(
                         &service,
                         &operation_plugin,
                         transaction,
+                        &user.provisioning_domain_id,
                         &user.user_id,
                     )
                     .await
@@ -258,8 +268,17 @@ async fn reconcile_identity(
     service: &AuthService,
     plugin: &ScimPlugin,
     transaction: Arc<dyn crate::DatabaseTransaction>,
+    provisioning_domain_id: &str,
     user_id: &str,
 ) -> Result<(), ScimError> {
+    projection::reconcile_user(
+        &plugin.options,
+        transaction.clone(),
+        provisioning_domain_id,
+        user_id,
+        false,
+    )
+    .await?;
     let state = identity::state(&plugin.options, transaction, user_id).await?;
     if !state.active {
         service

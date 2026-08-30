@@ -12,6 +12,7 @@ mod memory;
 mod managed;
 mod model;
 mod plugin;
+mod projection;
 mod schema;
 mod store;
 mod timestamp;
@@ -34,6 +35,10 @@ pub use model::{
     ScimUser,
 };
 pub use plugin::ScimPlugin;
+pub use projection::{
+    ScimAuthorizationSource, ScimProjectedRoleGrant, ScimProjectedUserState, ScimProjection,
+    ScimRoleExistenceInput, ScimRoleMappingInput, ScimRoleProjection,
+};
 pub use store::{ScimConnectionBinding, ScimStore, ScimStoreError};
 
 /// Published `@better-auth/scim` compatibility target.

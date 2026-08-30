@@ -41,3 +41,20 @@ pub(super) fn group_external_id(connection_id: &str, external_id: &str) -> Strin
 pub(super) fn membership(connection_id: &str, group_id: &str, user_id: &str) -> String {
     scoped(&["scim-group-member", connection_id, group_id, user_id])
 }
+
+pub(in crate::scim) fn projection_grant(
+    connection_id: &str,
+    scim_user_id: &str,
+    source_kind: &str,
+    source_id: &str,
+    role: &str,
+) -> String {
+    scoped(&[
+        "scim-projection-grant",
+        connection_id,
+        scim_user_id,
+        source_kind,
+        source_id,
+        role,
+    ])
+}

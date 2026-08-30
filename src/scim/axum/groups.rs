@@ -16,6 +16,7 @@ use serde_json::Value;
 use std::{collections::HashMap, sync::Arc};
 
 mod patch;
+mod mutation;
 mod presentation;
 
 const ENTRA_LEGACY_GROUP_SCHEMA: &str =
@@ -59,7 +60,7 @@ pub(super) async fn create(
         created_at: now,
         updated_at: now,
     };
-    match plugin.store.create_group(stored).await {
+    match mutation::create(plugin.clone(), stored).await {
         Ok(stored) => {
             let complete = match presentation::present(&service, &plugin, &stored).await {
                 Ok(value) => value,
@@ -74,7 +75,7 @@ pub(super) async fn create(
             support::set_location(&mut response, &location, true);
             response
         }
-        Err(error) => support::error_response(store_error(error)),
+        Err(error) => support::error_response(error),
     }
 }
 
@@ -255,10 +256,17 @@ pub(super) async fn delete(
         Ok(principal) => principal,
         Err(response) => return response,
     };
-    match plugin.store.delete_group(&principal.connection_id, &group_id).await {
+    match mutation::delete(
+        plugin,
+        principal.connection_id,
+        principal.provisioning_domain_id,
+        group_id,
+    )
+    .await
+    {
         Ok(Some(_)) => support::empty(StatusCode::NO_CONTENT),
         Ok(None) => support::error_response(ScimError::new(404, "Group not found")),
-        Err(error) => support::error_response(store_error(error)),
+        Err(error) => support::error_response(error),
     }
 }
 
@@ -310,16 +318,7 @@ async fn replace_authenticated(
         Err(error) => return support::error_response(error),
     };
     resource.id = Some(group_id.clone());
-    match plugin
-        .store
-        .replace_group(
-            &connection_id,
-            &group_id,
-            resource,
-            super::super::timestamp::now(),
-        )
-        .await
-    {
+    match mutation::replace(plugin.clone(), connection_id, group_id, resource).await {
         Ok(stored) => {
             let complete = match presentation::present(&service, &plugin, &stored).await {
                 Ok(value) => value,
@@ -334,7 +333,7 @@ async fn replace_authenticated(
             support::set_location(&mut response, &location, false);
             response
         }
-        Err(error) => support::error_response(store_error(error)),
+        Err(error) => support::error_response(error),
     }
 }
 

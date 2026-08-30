@@ -235,8 +235,10 @@ pub use scim::{
     ScimIdentityResolutionInput, ScimIdentitySource, ScimIdentityState, ScimListResponse,
     ScimManagedConnection, ScimManagedConnectionEvent, ScimManagedConnectionOptions,
     ScimManagedCredential, ScimManager, ScimName, ScimOptions, ScimPatchOperation,
-    ScimPatchRequest, ScimPhoneNumber, ScimPlugin, ScimRole, ScimScope, ScimStore, ScimStoreError,
-    ScimTransactionContext, ScimUser, ScimVerifiedBearer,
+    ScimPatchRequest, ScimPhoneNumber, ScimPlugin, ScimProjectedRoleGrant, ScimProjectedUserState,
+    ScimProjection, ScimRole, ScimRoleExistenceInput, ScimRoleMappingInput, ScimRoleProjection,
+    ScimScope, ScimStore, ScimStoreError, ScimTransactionContext, ScimUser, ScimVerifiedBearer,
+    ScimAuthorizationSource,
 };
 pub use service::account_types::{
     LinkedAccount, ProviderAccountIdentity, ProviderAccountInfo, ProviderAccountUser,

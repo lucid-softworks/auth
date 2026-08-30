@@ -69,9 +69,11 @@ pub struct ScimPlugin {
 impl ScimPlugin {
     pub fn new(options: ScimOptions, store: Arc<dyn ScimStore>) -> Result<Self, AuthError> {
         options.validate().map_err(AuthError::InvalidConfiguration)?;
-        if options.identity.is_some() && store.backing_auth_store().is_none() {
+        if (options.identity.is_some() || options.projection.is_some())
+            && store.backing_auth_store().is_none()
+        {
             return Err(AuthError::InvalidConfiguration(
-                "SCIM identity callbacks require a database-backed store with native transactions."
+                "SCIM identity and projection callbacks require a database-backed store with native transactions."
                     .into(),
             ));
         }

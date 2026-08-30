@@ -9,9 +9,10 @@ use axum::{
 use http_body_util::BodyExt;
 use lucid_auth::{
     AuthConfig, AuthService, AuthStore, DatabaseScimStore, SCIM_GROUP_SCHEMA, SCIM_MEDIA_TYPE,
-    SCIM_USER_SCHEMA, ScimBearerCredential, ScimConnection, ScimError, ScimIdentity,
-    ScimIdentityResolution, ScimIdentityResolutionInput, ScimIdentityState, ScimOptions,
-    ScimPlugin, ScimStore, ScimTransactionContext,
+    SCIM_USER_SCHEMA, ScimAuthorizationSource, ScimBearerCredential, ScimConnection, ScimError,
+    ScimIdentity, ScimIdentityResolution, ScimIdentityResolutionInput, ScimIdentityState,
+    ScimOptions, ScimPlugin, ScimProjectedUserState, ScimProjection, ScimRoleExistenceInput,
+    ScimRoleMappingInput, ScimRoleProjection, ScimStore, ScimTransactionContext,
     sqlite::{SqliteAdapterConfig, SqliteStore},
 };
 use serde_json::{Value, json};
@@ -59,11 +60,70 @@ impl ScimIdentity for RecordingIdentity {
     }
 }
 
+#[derive(Default)]
+struct RecordingProjection {
+    states: Mutex<Vec<ScimProjectedUserState>>,
+}
+
+#[async_trait]
+impl ScimRoleProjection for RecordingProjection {
+    async fn map(
+        &self,
+        input: ScimRoleMappingInput,
+        _context: ScimTransactionContext,
+    ) -> Result<Option<Vec<String>>, ScimError> {
+        let ScimAuthorizationSource::Group { display_name, .. } = input.source;
+        Ok((display_name == "Engineering")
+            .then(|| vec![" admin ".into(), "admin".into(), "missing".into()]))
+    }
+
+    async fn exists(
+        &self,
+        input: ScimRoleExistenceInput,
+        _context: ScimTransactionContext,
+    ) -> Result<bool, ScimError> {
+        Ok(input.role != "missing")
+    }
+}
+
+#[async_trait]
+impl ScimProjection for RecordingProjection {
+    fn roles(&self) -> Option<&dyn ScimRoleProjection> {
+        Some(self)
+    }
+
+    async fn reconcile_user(
+        &self,
+        input: ScimProjectedUserState,
+        context: ScimTransactionContext,
+    ) -> Result<(), ScimError> {
+        assert_eq!(
+            context
+                .database
+                .count_records(
+                    "scimProjectionGrant",
+                    &[lucid_auth::DashAdapterWhere {
+                        field: "userId".into(),
+                        value: json!(&input.user_id),
+                        operator: Default::default(),
+                        connector: None,
+                    }],
+                )
+                .await
+                .unwrap(),
+            input.grants.len() as u64
+        );
+        self.states.lock().unwrap().push(input);
+        Ok(())
+    }
+}
+
 async fn application() -> (
     Router,
     Arc<DatabaseScimStore>,
     Arc<SqliteStore>,
     Arc<RecordingIdentity>,
+    Arc<RecordingProjection>,
 ) {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
@@ -73,12 +133,14 @@ async fn application() -> (
     let auth_store = Arc::new(SqliteStore::new(pool, SqliteAdapterConfig::default()));
     let scim_store = Arc::new(DatabaseScimStore::new(auth_store.clone()));
     let identity = Arc::new(RecordingIdentity::default());
+    let projection = Arc::new(RecordingProjection::default());
     let options = ScimOptions {
         connections: vec![ScimConnection::new(
             "directory-1",
             vec![ScimBearerCredential::new("credential-1", TOKEN)],
         )],
         identity: Some(identity.clone()),
+        projection: Some(projection.clone()),
         ..ScimOptions::default()
     };
     let plugin = ScimPlugin::new(options, scim_store.clone()).unwrap();
@@ -95,6 +157,7 @@ async fn application() -> (
         scim_store,
         auth_store,
         identity,
+        projection,
     )
 }
 
@@ -127,7 +190,7 @@ async fn send_json(app: Router, method: &str, path: &str, body: Value) -> (Statu
 
 #[tokio::test]
 async fn core_resources_round_trip_through_native_sqlite_transactions() {
-    let (app, store, auth_store, identity) = application().await;
+    let (app, store, auth_store, identity, projection) = application().await;
     let (status, user) = send_json(
         app.clone(),
         "POST",
@@ -222,6 +285,9 @@ async fn core_resources_round_trip_through_native_sqlite_transactions() {
         .unwrap();
     assert_eq!(persisted_group.resource.members.len(), 1);
     assert_eq!(persisted_group.resource.members[0].value, user_id);
+    let projected = projection.states.lock().unwrap().last().unwrap().clone();
+    assert_eq!(projected.grants.len(), 1);
+    assert_eq!(projected.grants[0].role, "admin");
 
     let (status, updated) = send_json(
         app.clone(),
@@ -236,6 +302,16 @@ async fn core_resources_round_trip_through_native_sqlite_transactions() {
     .await;
     assert_eq!(status, StatusCode::OK, "{updated:#}");
     assert_eq!(updated["displayName"], "Platform");
+    assert!(
+        projection
+            .states
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap()
+            .grants
+            .is_empty()
+    );
 
     let response = app
         .clone()
