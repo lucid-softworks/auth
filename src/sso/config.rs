@@ -5,6 +5,8 @@ pub struct SsoOptions {
     pub domain_verification: bool,
     /// Maximum providers one user may register. Upstream defaults to ten.
     pub providers_limit: usize,
+    /// Publishes SAML single-logout bindings in generated SP metadata.
+    pub saml_enable_single_logout: bool,
 }
 
 impl Default for SsoOptions {
@@ -12,6 +14,7 @@ impl Default for SsoOptions {
         Self {
             domain_verification: false,
             providers_limit: 10,
+            saml_enable_single_logout: false,
         }
     }
 }

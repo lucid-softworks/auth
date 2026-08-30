@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 import * as ssoModule from "@better-auth/sso";
 import * as ssoClientModule from "@better-auth/sso/client";
+import { betterAuth } from "better-auth";
 import { packageJson, packageLock } from "./infra-email.helpers.mjs";
 
 const runtimeExports = [
@@ -176,5 +177,42 @@ describe("@better-auth/sso@1.7.1 artifact oracle", () => {
       "validateDiscoveryUrl",
       "validateSAMLTimestamp",
     ].sort());
+  });
+
+  test("pins generated SAML service-provider metadata", async () => {
+    const baseURL = "https://example.com/api/auth";
+    const auth = betterAuth({
+      baseURL,
+      secret: "S".repeat(32),
+      logger: { disabled: true },
+      plugins: [
+        ssoModule.sso({
+          saml: { enableSingleLogout: true },
+          defaultSSO: [{
+            providerId: "saml-provider",
+            domain: "example.com",
+            samlConfig: {
+              issuer: "https://sp.example.com/entity?a=1&b=2",
+              entryPoint: "https://idp.example.com/sso",
+              idpMetadata: { entityID: "https://idp.example.com" },
+              wantAssertionsSigned: true,
+              authnRequestsSigned: true,
+              identifierFormat:
+                "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+            },
+          }],
+        }),
+      ],
+    });
+    const response = await auth.handler(
+      new Request(
+        baseURL + "/sso/saml2/sp/metadata?providerId=saml-provider",
+      ),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/xml");
+    expect(await response.text()).toBe(
+      '<EntityDescriptor entityID="https://sp.example.com/entity?a=1&amp;b=2" xmlns="urn:oasis:names:tc:SAML:2.0:metadata" xmlns:assertion="urn:oasis:names:tc:SAML:2.0:assertion" xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><SPSSODescriptor AuthnRequestsSigned="true" WantAssertionsSigned="true" protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"><NameIDFormat>urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress</NameIDFormat><SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://example.com/api/auth/sso/saml2/sp/slo/saml-provider"></SingleLogoutService><SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://example.com/api/auth/sso/saml2/sp/slo/saml-provider"></SingleLogoutService><AssertionConsumerService index="0" Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://example.com/api/auth/sso/saml2/sp/acs/saml-provider"></AssertionConsumerService></SPSSODescriptor></EntityDescriptor>',
+    );
   });
 });

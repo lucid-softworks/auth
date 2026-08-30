@@ -21,6 +21,7 @@ struct Fixture {
     owner_cookie: String,
     other_cookie: String,
     dns: Arc<FixtureDnsResolver>,
+    providers: Arc<MemorySsoStore>,
 }
 
 #[derive(Default)]
@@ -96,6 +97,7 @@ async fn fixture_with_options(options: SsoOptions) -> Fixture {
         owner_cookie: cookie(&service, &owner.0),
         other_cookie: cookie(&service, &other.0),
         dns,
+        providers,
     }
 }
 
@@ -534,4 +536,145 @@ async fn domain_verification_reuses_tokens_and_requires_matching_txt_records() {
     .await;
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(verified["code"], "DOMAIN_VERIFIED");
+}
+
+#[tokio::test]
+async fn saml_metadata_is_public_and_supports_generated_and_custom_documents() {
+    let fixture = fixture_with_options(SsoOptions {
+        saml_enable_single_logout: true,
+        ..SsoOptions::default()
+    })
+    .await;
+    let missing = fixture
+        .app
+        .clone()
+        .oneshot(
+            Request::get("/api/auth/sso/saml2/sp/metadata?providerId=missing")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+
+    let invalid = fixture
+        .app
+        .clone()
+        .oneshot(
+            Request::get("/api/auth/sso/saml2/sp/metadata?providerId=acme-sso%21")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+
+    fixture
+        .providers
+        .create(NewSsoProvider {
+            id: "saml-row".into(),
+            issuer: "https://sp.example.com/entity".into(),
+            oidc_config: None,
+            saml_config: Some(json!({
+                "issuer": "https://sp.example.com/entity",
+                "entryPoint": "https://idp.example.com/sso",
+                "idpMetadata": {"entityID": "https://idp.example.com"},
+                "cert": "certificate",
+                "spMetadata": {"entityID": "https://sp.example.com/entity?a=1&b=2"},
+                "wantAssertionsSigned": true,
+                "authnRequestsSigned": true,
+                "identifierFormat": "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
+            })),
+            user_id: "public-metadata-owner".into(),
+            provider_id: "saml-provider".into(),
+            organization_id: None,
+            domain: "example.com".into(),
+            domain_verified: None,
+        })
+        .await
+        .unwrap();
+    let generated = fixture
+        .app
+        .clone()
+        .oneshot(
+            Request::get("/api/auth/sso/saml2/sp/metadata?providerId=saml-provider")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(generated.status(), StatusCode::OK);
+    assert_eq!(generated.headers()[header::CONTENT_TYPE], "application/xml");
+    let xml = String::from_utf8(
+        generated
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
+    assert_eq!(
+        xml,
+        concat!(
+            "<EntityDescriptor entityID=\"https://sp.example.com/entity?a=1&amp;b=2\" ",
+            "xmlns=\"urn:oasis:names:tc:SAML:2.0:metadata\" ",
+            "xmlns:assertion=\"urn:oasis:names:tc:SAML:2.0:assertion\" ",
+            "xmlns:ds=\"http://www.w3.org/2000/09/xmldsig#\">",
+            "<SPSSODescriptor AuthnRequestsSigned=\"true\" WantAssertionsSigned=\"true\" ",
+            "protocolSupportEnumeration=\"urn:oasis:names:tc:SAML:2.0:protocol\">",
+            "<NameIDFormat>urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress</NameIDFormat>",
+            "<SingleLogoutService Binding=\"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST\" ",
+            "Location=\"https://example.com/api/auth/sso/saml2/sp/slo/saml-provider\">",
+            "</SingleLogoutService>",
+            "<SingleLogoutService Binding=\"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect\" ",
+            "Location=\"https://example.com/api/auth/sso/saml2/sp/slo/saml-provider\">",
+            "</SingleLogoutService>",
+            "<AssertionConsumerService index=\"0\" ",
+            "Binding=\"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST\" ",
+            "Location=\"https://example.com/api/auth/sso/saml2/sp/acs/saml-provider\">",
+            "</AssertionConsumerService></SPSSODescriptor></EntityDescriptor>",
+        )
+    );
+
+    let custom = "<EntityDescriptor entityID=\"custom\"/>";
+    fixture
+        .providers
+        .create(NewSsoProvider {
+            id: "custom-saml-row".into(),
+            issuer: "https://sp.example.com/custom".into(),
+            oidc_config: None,
+            saml_config: Some(json!({
+                "issuer": "https://sp.example.com/custom",
+                "spMetadata": {"metadata": custom}
+            })),
+            user_id: "public-metadata-owner".into(),
+            provider_id: "custom-saml".into(),
+            organization_id: None,
+            domain: "custom.example.com".into(),
+            domain_verified: None,
+        })
+        .await
+        .unwrap();
+    let response = fixture
+        .app
+        .oneshot(
+            Request::get("/api/auth/sso/saml2/sp/metadata?providerId=custom-saml")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = String::from_utf8(
+        response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
+    assert_eq!(body, custom);
 }
