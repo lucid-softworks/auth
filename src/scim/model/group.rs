@@ -1,4 +1,4 @@
-use super::{ScimMeta, bounded, invalid, optional_bounded};
+use super::{ScimMeta, invalid};
 use crate::scim::{SCIM_GROUP_SCHEMA, ScimError};
 use serde::{Deserialize, Serialize};
 
@@ -35,22 +35,31 @@ impl ScimGroup {
                 "schemas must contain only the core SCIM Group schema",
             ));
         }
-        self.display_name = bounded(self.display_name, 1024, "displayName")?;
-        self.external_id = optional_bounded(self.external_id, 1024, "externalId")?;
+        self.display_name = self.display_name.trim().to_owned();
+        if self.display_name.is_empty() {
+            return Err(invalid("displayName cannot be empty"));
+        }
+        if self.external_id.as_deref() == Some("") {
+            return Err(invalid("externalId cannot be empty"));
+        }
         if self.members.len() > 1000 {
-            return Err(invalid("members must contain at most 1000 values"));
+            return Err(invalid(
+                "Groups cannot contain more than 1000 direct members",
+            ));
         }
         let mut seen = std::collections::HashSet::new();
         self.members
             .retain(|member| seen.insert(member.value.clone()));
         for member in &mut self.members {
-            member.value = bounded(member.value.clone(), 256, "members.value")?;
+            if member.value.is_empty() {
+                return Err(invalid("Group members must reference a SCIM User"));
+            }
             if member
                 .kind
                 .as_deref()
                 .is_some_and(|kind| !kind.eq_ignore_ascii_case("user"))
             {
-                return Err(invalid("Group members must reference User resources"));
+                return Err(invalid("Group members must reference a SCIM User"));
             }
             member.kind = Some("User".into());
             member.reference = None;

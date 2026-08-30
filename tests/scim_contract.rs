@@ -613,12 +613,28 @@ async fn group_crud_enforces_same_connection_users_and_member_projection() {
     )
     .await;
     let user_id = created_user["id"].as_str().unwrap();
+    let (status, body) = send_json(
+        app.clone(),
+        "POST",
+        "/scim/v2/Groups",
+        json!({
+            "schemas": [SCIM_GROUP_SCHEMA],
+            "externalId": " external-group ",
+            "displayName": "Whitespace Member",
+            "members": [{ "value": format!(" {user_id} "), "type": "User" }]
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["scimType"], "invalidValue");
+
     let (status, group) = send_json(
         app.clone(),
         "POST",
         "/scim/v2/Groups",
         json!({
             "schemas": [SCIM_GROUP_SCHEMA],
+            "externalId": " external-group ",
             "displayName": "Engineering",
             "members": [{ "value": user_id, "type": "user" }]
         }),
@@ -626,6 +642,7 @@ async fn group_crud_enforces_same_connection_users_and_member_projection() {
     .await;
     assert_eq!(status, StatusCode::CREATED);
     let group_id = group["id"].as_str().unwrap();
+    assert_eq!(group["externalId"], " external-group ");
     assert_eq!(group["members"][0]["type"], "User");
     assert!(
         group["members"][0]["$ref"]
