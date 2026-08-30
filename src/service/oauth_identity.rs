@@ -14,6 +14,43 @@ pub(super) struct OAuthSignInPolicy {
 }
 
 impl AuthService {
+    #[cfg(feature = "axum")]
+    pub(crate) async fn finish_sso_sign_in(
+        &self,
+        provider_id: &str,
+        user_info: OAuthUserInfo,
+        state: super::OAuthState,
+        disable_implicit_sign_up: bool,
+        user_agent: Option<String>,
+    ) -> Result<super::OAuthCallbackResult, AuthError> {
+        let (session, is_new_user) = self
+            .finish_oauth_sign_in_with_policy(
+                &OAuthSignInPolicy {
+                    provider_id: provider_id.into(),
+                    disable_implicit_sign_up,
+                    disable_sign_up: false,
+                    require_email_verification: false,
+                    override_user_info: false,
+                },
+                OAuthTokens::default(),
+                user_info,
+                state.request_sign_up,
+                None,
+                user_agent,
+            )
+            .await?;
+        let redirect_url = if is_new_user {
+            state.new_user_url.unwrap_or(state.callback_url)
+        } else {
+            state.callback_url
+        };
+        Ok(super::OAuthCallbackResult {
+            session: Some(session),
+            redirect_url,
+            is_new_user,
+        })
+    }
+
     pub(super) async fn finish_oauth_sign_in(
         &self,
         provider: &dyn crate::SocialProvider,

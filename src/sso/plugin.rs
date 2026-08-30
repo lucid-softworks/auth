@@ -187,6 +187,21 @@ impl AuthPlugin for SsoPlugin {
         vec![super::schema::table(self.options.domain_verification)]
     }
 
+    fn request_security(
+        &self,
+        method: PluginHttpMethod,
+        path: &str,
+    ) -> crate::PluginRequestSecurity {
+        let is_acs = path
+            .strip_prefix("/sso/saml2/sp/acs/")
+            .is_some_and(|provider_id| !provider_id.is_empty() && !provider_id.contains('/'));
+        if method == PluginHttpMethod::Post && is_acs {
+            crate::PluginRequestSecurity::RawPublic
+        } else {
+            crate::PluginRequestSecurity::Browser
+        }
+    }
+
     #[cfg(feature = "axum")]
     fn routes(&self, service: Arc<crate::AuthService>) -> Vec<crate::AxumPluginRoute> {
         super::axum::routes(service, Arc::new(self.clone()))

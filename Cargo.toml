@@ -18,6 +18,7 @@ axum = [
     "dep:flate2",
     "dep:hickory-resolver",
     "dep:serde_urlencoded",
+    "dep:samlet",
     "dep:tokio-stream",
     "dep:tower",
     "dep:x509-parser",
@@ -74,6 +75,12 @@ tower = { version = "0.5", features = ["util"], optional = true }
 tracing = "0.1"
 url = "2"
 x509-parser = { version = "0.18.1", optional = true }
+
+[target.'cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))'.dependencies]
+samlet = { version = "0.5", default-features = false, features = ["crypto-aws-lc"], optional = true }
+
+[target.'cfg(not(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64"))))'.dependencies]
+samlet = { version = "0.5", default-features = false, features = ["crypto-rustcrypto"], optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 hickory-resolver = { version = "0.26.1", optional = true, features = ["system-config", "tokio"] }

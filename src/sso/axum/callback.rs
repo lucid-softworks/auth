@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
 
-mod exchange;
+pub(super) mod exchange;
 
 #[derive(Debug, Deserialize)]
 pub(super) struct CallbackQuery {
@@ -195,6 +195,6 @@ fn reference(state: &OAuthState) -> Option<super::super::provider_reference::Pro
         .and_then(super::super::provider_reference::parse)
 }
 
-fn redirect_error(base: &str, error: &str, description: &str) -> Response {
+pub(super) fn redirect_error(base: &str, error: &str, description: &str) -> Response {
     crate::axum::oauth_redirect_error(base, error, Some(description))
 }
