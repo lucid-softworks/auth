@@ -32,10 +32,12 @@ pub(super) fn persisted(provider: &SsoProvider) -> ProviderReference {
     }
 }
 
+#[cfg(feature = "axum")]
 pub(super) fn parse(value: &Value) -> Option<ProviderReference> {
     serde_json::from_value(value.clone()).ok()
 }
 
+#[cfg(feature = "axum")]
 impl ProviderReference {
     pub(super) fn provider_id(&self) -> &str {
         &self.provider_id

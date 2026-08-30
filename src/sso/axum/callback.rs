@@ -10,6 +10,8 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
 
+mod exchange;
+
 #[derive(Debug, Deserialize)]
 pub(super) struct CallbackQuery {
     code: Option<String>,
@@ -46,7 +48,7 @@ pub(super) async fn shared(
         );
     };
     let provider_id = reference.provider_id().to_owned();
-    handle_with_state(&service, &plugin, &provider_id, query, state).await
+    handle_with_state(&service, &plugin, &headers, &provider_id, query, state).await
 }
 
 async fn handle(
@@ -60,17 +62,22 @@ async fn handle(
         Ok(state) => state,
         Err(response) => return *response,
     };
-    handle_with_state(service, plugin, provider_id, query, state).await
+    handle_with_state(service, plugin, headers, provider_id, query, state).await
 }
 
 async fn handle_with_state(
     service: &AuthService,
     plugin: &SsoPlugin,
+    headers: &HeaderMap,
     provider_id: &str,
     query: CallbackQuery,
     state: OAuthState,
 ) -> Response {
-    let error_url = state.error_url.as_deref().unwrap_or(&state.callback_url);
+    let error_url = state
+        .error_url
+        .as_deref()
+        .unwrap_or(&state.callback_url)
+        .to_owned();
     if query.code.as_deref().is_none_or(str::is_empty) || query.error.is_some() {
         let error = query.error.as_deref().unwrap_or("invalid_request");
         let description = query.error_description.as_deref().unwrap_or_else(|| {
@@ -80,23 +87,23 @@ async fn handle_with_state(
                 "authorization_code_not_found"
             }
         });
-        return redirect_error(error_url, error, description);
+        return redirect_error(&error_url, error, description);
     }
     let provider = match plugin.store().find_by_provider_id(provider_id).await {
         Ok(Some(provider)) => provider,
-        Ok(None) => return redirect_error(error_url, "invalid_provider", "provider not found"),
+        Ok(None) => return redirect_error(&error_url, "invalid_provider", "provider not found"),
         Err(error) => return support::storage(error),
     };
     let Some(reference) = reference(&state) else {
         return redirect_error(
-            error_url,
+            &error_url,
             "invalid_state",
             "missing_sso_provider_reference",
         );
     };
     if !reference.is_current(&provider) {
         return redirect_error(
-            error_url,
+            &error_url,
             "invalid_state",
             "sso_provider_changed_during_authentication",
         );
@@ -109,13 +116,21 @@ async fn handle_with_state(
         );
     }
     let Some(config) = provider.oidc_config.as_ref().and_then(Value::as_object) else {
-        return redirect_error(error_url, "invalid_provider", "provider not found");
+        return redirect_error(&error_url, "invalid_provider", "provider not found");
     };
     if config.get("tokenEndpoint").and_then(Value::as_str).is_none() {
-        return redirect_error(error_url, "invalid_provider", "token_endpoint_not_found");
+        return redirect_error(&error_url, "invalid_provider", "token_endpoint_not_found");
     }
-    let _ = service.consume_oauth_state(query.state.as_deref().unwrap_or_default()).await;
-    redirect_error(error_url, "invalid_provider", "token_response_not_found")
+    exchange::finish(
+        service,
+        headers,
+        provider,
+        query.code.expect("authorization code checked"),
+        query.state.unwrap_or_default(),
+        state,
+        error_url,
+    )
+    .await
 }
 
 async fn state(

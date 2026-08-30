@@ -2,14 +2,14 @@
 
 use async_trait::async_trait;
 use axum::{
-    Router,
+    Json, Router,
     body::Body,
     http::{Request, StatusCode, header},
 };
 use http_body_util::BodyExt;
 use lucid_auth::{
     AuthConfig, AuthService, EmailSignUpInput, MemorySsoStore, MemoryStore, NewSsoProvider,
-    SsoDnsResolver, SsoOptions, SsoPlugin, SsoStore,
+    SsoDnsResolver, SsoOptions, SsoPlugin, SsoProviderUpdate, SsoStore,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -325,6 +325,109 @@ async fn oidc_callback_validates_bound_state_before_token_exchange() {
         callback.headers()[header::LOCATION],
         "/dashboard?error=invalid_provider&error_description=token_endpoint_not_found"
     );
+}
+
+#[tokio::test]
+async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
+    let identity_provider = Router::new()
+        .route(
+            "/token",
+            axum::routing::post(|| async {
+                Json(json!({
+                    "access_token": "access-token",
+                    "token_type": "Bearer"
+                }))
+            }),
+        )
+        .route(
+            "/userinfo",
+            axum::routing::get(|| async {
+                Json(json!({
+                    "sub": "enterprise-user-1",
+                    "email": "enterprise@example.com",
+                    "name": "Enterprise User"
+                }))
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let idp_base = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, identity_provider).await.unwrap();
+    });
+
+    let fixture = fixture().await;
+    fixture
+        .providers
+        .update(
+            "provider-row-1",
+            SsoProviderUpdate {
+                oidc_config: Some(Some(json!({
+                    "authorizationEndpoint": "https://idp.example.com/authorize",
+                    "tokenEndpoint": format!("{idp_base}/token"),
+                    "userInfoEndpoint": format!("{idp_base}/userinfo"),
+                    "clientId": "client-123456",
+                    "clientSecret": "secret",
+                    "tokenEndpointAuthentication": "client_secret_basic",
+                    "pkce": true,
+                    "scopes": ["openid", "email"]
+                }))),
+                ..SsoProviderUpdate::default()
+            },
+        )
+        .await
+        .unwrap();
+    let response = fixture
+        .app
+        .clone()
+        .oneshot(
+            Request::post("/api/auth/sign-in/sso")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "https://example.com")
+                .body(Body::from(
+                    json!({"providerId": "acme-sso!", "callbackURL": "/dashboard"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let state_cookie = response.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let body: Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let state = url::Url::parse(body["url"].as_str().unwrap())
+        .unwrap()
+        .query_pairs()
+        .find(|(key, _)| key == "state")
+        .unwrap()
+        .1
+        .into_owned();
+    let callback = fixture
+        .app
+        .oneshot(
+            Request::get(format!(
+                "/api/auth/sso/callback/acme-sso%21?code=valid-code&state={state}"
+            ))
+            .header(header::COOKIE, state_cookie)
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(callback.status(), StatusCode::FOUND);
+    assert_eq!(callback.headers()[header::LOCATION], "/dashboard");
+    assert!(
+        callback
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .any(|cookie| cookie.to_str().unwrap().contains("session_token="))
+    );
+    server.abort();
 }
 
 #[tokio::test]
