@@ -61,6 +61,7 @@ async fn fixture_with_options(options: SsoOptions) -> Fixture {
             issuer: "https://idp.example.com".into(),
             oidc_config: Some(json!({
                 "discoveryEndpoint": "https://idp.example.com/.well-known/openid-configuration",
+                "authorizationEndpoint": "https://idp.example.com/authorize",
                 "clientId": "client-123456",
                 "clientSecret": "never-return-this",
                 "pkce": true,
@@ -197,6 +198,75 @@ async fn provider_catalog_requires_a_session_and_returns_only_owned_sanitized_en
     let serialized = provider.to_string();
     assert!(!serialized.contains("never-return-this"));
     assert!(!serialized.contains("clientSecret"));
+}
+
+#[tokio::test]
+async fn oidc_sign_in_resolves_domains_and_builds_bound_pkce_authorization_urls() {
+    let fixture = fixture().await;
+    let (status, body) = post(
+        fixture.app.clone(),
+        "/api/auth/sign-in/sso",
+        None,
+        json!({
+            "email": "person@staff.example.com",
+            "callbackURL": "/dashboard",
+            "loginHint": "employee@example.com",
+            "additionalParams": {"tenant": "workforce"}
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["redirect"], true);
+    let authorization = url::Url::parse(body["url"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        authorization.origin().ascii_serialization(),
+        "https://idp.example.com"
+    );
+    let query = authorization
+        .query_pairs()
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(query["response_type"], "code");
+    assert_eq!(query["client_id"], "client-123456");
+    assert_eq!(query["scope"], "openid email");
+    assert_eq!(
+        query["redirect_uri"],
+        "https://example.com/api/auth/sso/callback/acme-sso!"
+    );
+    assert_eq!(query["login_hint"], "employee@example.com");
+    assert_eq!(query["tenant"], "workforce");
+    assert_eq!(query["code_challenge_method"], "S256");
+    assert_eq!(query["state"].len(), 32);
+    assert_eq!(query["code_challenge"].len(), 43);
+
+    let (status, reserved) = post(
+        fixture.app.clone(),
+        "/api/auth/sign-in/sso",
+        None,
+        json!({
+            "providerId": "acme-sso!",
+            "callbackURL": "/dashboard",
+            "additionalParams": {"state": "attacker"}
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        reserved["message"]
+            .as_str()
+            .unwrap()
+            .contains("additionalParams cannot include reserved OAuth parameters")
+    );
+
+    let (status, missing) = post(
+        fixture.app,
+        "/api/auth/sign-in/sso",
+        None,
+        json!({"providerId": "missing", "callbackURL": "/dashboard"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(missing["message"], "No provider found for the issuer");
 }
 
 #[tokio::test]

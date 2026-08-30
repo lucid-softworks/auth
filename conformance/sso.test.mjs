@@ -215,4 +215,70 @@ describe("@better-auth/sso@1.7.1 artifact oracle", () => {
       '<EntityDescriptor entityID="https://sp.example.com/entity?a=1&amp;b=2" xmlns="urn:oasis:names:tc:SAML:2.0:metadata" xmlns:assertion="urn:oasis:names:tc:SAML:2.0:assertion" xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><SPSSODescriptor AuthnRequestsSigned="true" WantAssertionsSigned="true" protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"><NameIDFormat>urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress</NameIDFormat><SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://example.com/api/auth/sso/saml2/sp/slo/saml-provider"></SingleLogoutService><SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="https://example.com/api/auth/sso/saml2/sp/slo/saml-provider"></SingleLogoutService><AssertionConsumerService index="0" Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" Location="https://example.com/api/auth/sso/saml2/sp/acs/saml-provider"></AssertionConsumerService></SPSSODescriptor></EntityDescriptor>',
     );
   });
+
+  test("pins OIDC sign-in URL, PKCE, state cookie, and caller parameters", async () => {
+    const baseURL = "https://example.com/api/auth";
+    const auth = betterAuth({
+      baseURL,
+      secret: "S".repeat(32),
+      logger: { disabled: true },
+      plugins: [
+        ssoModule.sso({
+          defaultSSO: [{
+            providerId: "acme",
+            domain: "example.com",
+            oidcConfig: {
+              issuer: "https://idp.example.com",
+              clientId: "client",
+              clientSecret: "secret",
+              authorizationEndpoint:
+                "https://idp.example.com/authorize?tenant=one",
+              tokenEndpoint: "https://idp.example.com/token",
+              jwksEndpoint: "https://idp.example.com/jwks",
+              skipDiscovery: true,
+              pkce: true,
+              scopes: ["openid", "email"],
+            },
+          }],
+        }),
+      ],
+    });
+    const response = await auth.handler(new Request(
+      baseURL + "/sign-in/sso",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: "https://example.com",
+        },
+        body: JSON.stringify({
+          email: "person@staff.example.com",
+          callbackURL: "/dashboard",
+          loginHint: "employee@example.com",
+          additionalParams: { tenant: "workforce" },
+        }),
+      },
+    ));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("set-cookie")).toMatch(
+      /^__Secure-better-auth\.oauth_state=.+; Max-Age=600; Path=\/; HttpOnly; Secure; SameSite=Lax$/,
+    );
+    const body = await response.json();
+    expect(body.redirect).toBe(true);
+    const authorization = new URL(body.url);
+    expect(authorization.origin + authorization.pathname).toBe(
+      "https://idp.example.com/authorize",
+    );
+    expect(Object.fromEntries(authorization.searchParams)).toMatchObject({
+      tenant: "workforce",
+      response_type: "code",
+      client_id: "client",
+      scope: "openid email",
+      redirect_uri: baseURL + "/sso/callback/acme",
+      login_hint: "employee@example.com",
+      code_challenge_method: "S256",
+    });
+    expect(authorization.searchParams.get("state")).toHaveLength(32);
+    expect(authorization.searchParams.get("code_challenge")).toHaveLength(43);
+  });
 });

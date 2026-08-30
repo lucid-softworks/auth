@@ -4,6 +4,7 @@ mod mutation;
 mod registration;
 mod saml_metadata;
 mod sanitize;
+mod sign_in;
 mod support;
 
 use super::SsoPlugin;
@@ -16,6 +17,10 @@ pub(super) fn routes(
     plugin: Arc<SsoPlugin>,
 ) -> Vec<AxumPluginRoute> {
     let mut routes = vec![
+        AxumPluginRoute::new(
+            "/sign-in/sso",
+            axum::routing::post(sign_in::sign_in).layer(Extension(plugin.clone())),
+        ),
         AxumPluginRoute::new(
             "/sso/saml2/sp/metadata",
             get(saml_metadata::metadata).layer(Extension(plugin.clone())),
