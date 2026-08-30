@@ -8,12 +8,25 @@ use axum::{
 pub(super) async fn finish(
     service: &AuthService,
     headers: &HeaderMap,
-    provider: SsoProvider,
+    mut provider: SsoProvider,
     code: String,
     state_token: String,
     state: OAuthState,
     error_url: String,
 ) -> Response {
+    let Some(config) = provider.oidc_config.as_ref().and_then(serde_json::Value::as_object) else {
+        return redirect_error(&error_url, "invalid_provider", "provider not found");
+    };
+    provider.oidc_config = match super::super::runtime_oidc::ensure(
+        service,
+        &provider.issuer,
+        config,
+    )
+    .await
+    {
+        Ok(config) => Some(serde_json::Value::Object(config)),
+        Err(error) => return redirect_error(&error_url, "discovery_failed", &error.message),
+    };
     let redirect_uri = format!(
         "{}/sso/callback/{}",
         support::base_url(service),

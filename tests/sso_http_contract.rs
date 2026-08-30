@@ -41,9 +41,19 @@ async fn fixture() -> Fixture {
 }
 
 async fn fixture_with_options(options: SsoOptions) -> Fixture {
+    fixture_with_options_and_trusted_origins(options, &[]).await
+}
+
+async fn fixture_with_options_and_trusted_origins(
+    options: SsoOptions,
+    trusted_origins: &[&str],
+) -> Fixture {
     let mut config = AuthConfig::new([31_u8; 32]).unwrap();
     config.email_and_password.enabled = true;
     config.set_base_url("https://example.com").unwrap();
+    for origin in trusted_origins {
+        config.trust_origin(origin).unwrap();
+    }
     let providers = Arc::new(MemorySsoStore::new());
     let dns = Arc::new(FixtureDnsResolver::default());
     let domain_verification = options.domain_verification;
@@ -62,6 +72,8 @@ async fn fixture_with_options(options: SsoOptions) -> Fixture {
             oidc_config: Some(json!({
                 "discoveryEndpoint": "https://idp.example.com/.well-known/openid-configuration",
                 "authorizationEndpoint": "https://idp.example.com/authorize",
+                "tokenEndpoint": "https://idp.example.com/token",
+                "jwksEndpoint": "https://idp.example.com/jwks",
                 "clientId": "client-123456",
                 "clientSecret": "never-return-this",
                 "pkce": true,
@@ -312,7 +324,7 @@ async fn oidc_callback_validates_bound_state_before_token_exchange() {
         .app
         .oneshot(
             Request::get(format!(
-                "/api/auth/sso/callback/acme-sso%21?code=authorization-code&state={state}"
+                "/api/auth/sso/callback/other?code=authorization-code&state={state}"
             ))
             .header(header::COOKIE, state_cookie)
             .body(Body::empty())
@@ -323,13 +335,34 @@ async fn oidc_callback_validates_bound_state_before_token_exchange() {
     assert_eq!(callback.status(), StatusCode::FOUND);
     assert_eq!(
         callback.headers()[header::LOCATION],
-        "/dashboard?error=invalid_provider&error_description=token_endpoint_not_found"
+        "/dashboard?error=invalid_state&error_description=sso_provider_changed_during_authentication"
     );
 }
 
 #[tokio::test]
 async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let idp_base = format!("http://{}", listener.local_addr().unwrap());
     let identity_provider = Router::new()
+        .route(
+            "/.well-known/openid-configuration",
+            axum::routing::get({
+                let base = idp_base.clone();
+                move || {
+                    let base = base.clone();
+                    async move {
+                        Json(json!({
+                            "issuer": "https://idp.example.com",
+                            "authorization_endpoint": format!("{base}/authorize"),
+                            "token_endpoint": format!("{base}/token"),
+                            "jwks_uri": format!("{base}/jwks"),
+                            "userinfo_endpoint": format!("{base}/userinfo"),
+                            "token_endpoint_auth_methods_supported": ["client_secret_basic"]
+                        }))
+                    }
+                }
+            }),
+        )
         .route(
             "/token",
             axum::routing::post(|| async {
@@ -349,25 +382,22 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
                 }))
             }),
         );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let idp_base = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
         axum::serve(listener, identity_provider).await.unwrap();
     });
 
-    let fixture = fixture().await;
+    let fixture =
+        fixture_with_options_and_trusted_origins(SsoOptions::default(), &[idp_base.as_str()]).await;
     fixture
         .providers
         .update(
             "provider-row-1",
             SsoProviderUpdate {
                 oidc_config: Some(Some(json!({
-                    "authorizationEndpoint": "https://idp.example.com/authorize",
-                    "tokenEndpoint": format!("{idp_base}/token"),
-                    "userInfoEndpoint": format!("{idp_base}/userinfo"),
+                    "discoveryEndpoint": format!("{idp_base}/.well-known/openid-configuration"),
+                    "authorizationEndpoint": "https://explicit.example.com/authorize",
                     "clientId": "client-123456",
                     "clientSecret": "secret",
-                    "tokenEndpointAuthentication": "client_secret_basic",
                     "pkce": true,
                     "scopes": ["openid", "email"]
                 }))),
@@ -390,6 +420,7 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
         )
         .await
         .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
     let state_cookie = response.headers()[header::SET_COOKIE]
         .to_str()
         .unwrap()
@@ -399,8 +430,9 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
         .to_owned();
     let body: Value =
         serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    let state = url::Url::parse(body["url"].as_str().unwrap())
-        .unwrap()
+    let authorization = url::Url::parse(body["url"].as_str().unwrap()).unwrap();
+    assert_eq!(authorization.host_str(), Some("explicit.example.com"));
+    let state = authorization
         .query_pairs()
         .find(|(key, _)| key == "state")
         .unwrap()
@@ -428,6 +460,39 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
             .any(|cookie| cookie.to_str().unwrap().contains("session_token="))
     );
     server.abort();
+}
+
+#[tokio::test]
+async fn oidc_runtime_rejects_private_endpoints_that_are_not_explicitly_trusted() {
+    let fixture = fixture().await;
+    fixture
+        .providers
+        .update(
+            "provider-row-1",
+            SsoProviderUpdate {
+                oidc_config: Some(Some(json!({
+                    "authorizationEndpoint": "http://127.0.0.1/authorize",
+                    "tokenEndpoint": "https://idp.example.com/token",
+                    "jwksEndpoint": "https://idp.example.com/jwks",
+                    "clientId": "client-123456",
+                    "clientSecret": "secret"
+                }))),
+                ..SsoProviderUpdate::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    let (status, body) = post(
+        fixture.app,
+        "/api/auth/sign-in/sso",
+        None,
+        json!({"providerId": "acme-sso!", "callbackURL": "/dashboard"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["code"], "discovery_private_host");
+    assert!(body["message"].as_str().unwrap().contains("127.0.0.1"));
 }
 
 #[tokio::test]

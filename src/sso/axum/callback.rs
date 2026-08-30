@@ -115,11 +115,13 @@ async fn handle_with_state(
             "Provider domain has not been verified",
         );
     }
-    let Some(config) = provider.oidc_config.as_ref().and_then(Value::as_object) else {
+    if provider
+        .oidc_config
+        .as_ref()
+        .and_then(Value::as_object)
+        .is_none()
+    {
         return redirect_error(&error_url, "invalid_provider", "provider not found");
-    };
-    if config.get("tokenEndpoint").and_then(Value::as_str).is_none() {
-        return redirect_error(&error_url, "invalid_provider", "token_endpoint_not_found");
     }
     exchange::finish(
         service,

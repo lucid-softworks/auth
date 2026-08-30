@@ -72,7 +72,11 @@ pub(super) async fn sign_in(
         .and_then(Value::as_object)
         .filter(|_| body.provider_type != Some(ProviderType::Saml))
     {
-        return oidc::start(&service, &provider, config, body).await;
+        let config = match super::runtime_oidc::ensure(&service, &provider.issuer, config).await {
+            Ok(config) => config,
+            Err(error) => return super::runtime_oidc::api_error(error),
+        };
+        return oidc::start(&service, &provider, &config, body).await;
     }
     if provider.saml_config.is_some() {
         let message = if body.additional_params.is_some() {

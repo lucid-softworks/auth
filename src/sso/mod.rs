@@ -25,7 +25,7 @@ pub use discovery::{
     SsoTokenEndpointAuthentication, compute_discovery_url, fetch_discovery_document,
     needs_runtime_discovery, normalize_discovery_urls, normalize_url,
     select_token_endpoint_auth_method, validate_discovery_document, validate_discovery_url,
-    validate_oidc_endpoint_url,
+    validate_oidc_endpoint_egress, validate_oidc_endpoint_url,
 };
 pub use plugin::SsoPlugin;
 pub use store::{
