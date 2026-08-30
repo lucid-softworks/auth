@@ -2,18 +2,18 @@ use super::*;
 use std::time::Duration;
 
 #[test]
-fn descriptor_owns_the_exact_core_family() {
+fn descriptor_owns_the_exact_implemented_family() {
     let descriptor = DashPlugin::default().descriptor();
     assert_eq!(descriptor.id, "dash");
     assert_eq!(descriptor.version, "0.4.3");
-    assert_eq!(descriptor.endpoints.len(), 30);
+    assert_eq!(descriptor.endpoints.len(), 65);
     assert_eq!(
         descriptor
             .endpoints
             .iter()
             .filter(|endpoint| endpoint.method == PluginHttpMethod::Get)
             .count(),
-        14
+        25
     );
     assert_eq!(
         descriptor
@@ -21,7 +21,7 @@ fn descriptor_owns_the_exact_core_family() {
             .iter()
             .filter(|endpoint| endpoint.method == PluginHttpMethod::Post)
             .count(),
-        16
+        40
     );
 }
 

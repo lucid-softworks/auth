@@ -17,7 +17,13 @@ mod configuration;
 mod context_id;
 mod cookie_signing;
 mod dash;
+#[cfg(feature = "axum")]
+mod dash_organization;
+#[cfg(feature = "axum")]
+mod dash_two_factor;
 mod dash_events;
+#[cfg(feature = "axum")]
+mod dash_invitation;
 mod database;
 #[cfg(feature = "axum")]
 mod device_authorization;

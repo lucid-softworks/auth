@@ -135,6 +135,25 @@ impl OrganizationDataStore for PostgresStore {
             .collect()
     }
 
+    async fn list_all_organizations(&self) -> Result<Vec<Organization>, AuthError> {
+        let model = self.physical_model("organization")?;
+        let mut query = crate::postgres::rows::select_query(&model);
+        query
+            .push(" ORDER BY ")
+            .push(model.quoted_column("createdAt")?)
+            .push(" ASC, ")
+            .push(model.quoted_column("id")?)
+            .push(" ASC");
+        query
+            .build()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(storage_error)?
+            .iter()
+            .map(|row| rows::decode_organization(&model, row))
+            .collect()
+    }
+
     async fn update_organization(
         &self,
         organization: Organization,

@@ -5,6 +5,23 @@ use crate::{
 };
 
 impl AuthService {
+    #[cfg(feature = "axum")]
+    pub(in crate::service) async fn observe_dash_invitation_canceled(
+        &self,
+        organization: &Organization,
+        invitation: &OrganizationInvitation,
+        user: &AuthUser,
+    ) {
+        self.observe_invitation(
+            InvitationObservation::Canceled,
+            organization,
+            invitation,
+            user,
+            None,
+        )
+        .await;
+    }
+
     pub(super) async fn observe_organization_created(
         &self,
         organization: &Organization,
@@ -25,7 +42,7 @@ impl AuthService {
             .await;
     }
 
-    pub(super) async fn observe_member_added(
+    pub(in crate::service) async fn observe_member_added(
         &self,
         organization: &Organization,
         member: &OrganizationMember,
@@ -40,7 +57,7 @@ impl AuthService {
             .await;
     }
 
-    pub(super) async fn observe_member_removed(
+    pub(in crate::service) async fn observe_member_removed(
         &self,
         organization: &Organization,
         member: &OrganizationMember,
@@ -55,7 +72,7 @@ impl AuthService {
             .await;
     }
 
-    pub(super) async fn observe_member_role_updated(
+    pub(in crate::service) async fn observe_member_role_updated(
         &self,
         organization: &Organization,
         member: &OrganizationMember,

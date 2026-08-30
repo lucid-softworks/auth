@@ -33,6 +33,44 @@ describe("@better-auth/infra@0.4.3 Dash substrate oracle", () => {
     ["dashSendResetPasswordEmail", "POST", "/dash/send-reset-password-email"],
   ];
 
+  const organizationEndpointInventory = [
+    ["listDashOrganizations", "GET", "/dash/list-organizations"],
+    ["exportDashOrganizations", "GET", "/dash/export-organizations"],
+    ["getDashOrganization", "GET", "/dash/organization/:id"],
+    ["createDashOrganization", "POST", "/dash/organization/create"],
+    ["updateDashOrganization", "POST", "/dash/organization/update"],
+    ["deleteDashOrganization", "POST", "/dash/organization/delete"],
+    ["deleteManyDashOrganizations", "POST", "/dash/organization/delete-many"],
+    ["getDashOrganizationOptions", "GET", "/dash/organization/options"],
+    ["listDashOrganizationMembers", "GET", "/dash/organization/:id/members"],
+    ["addDashMember", "POST", "/dash/organization/add-member"],
+    ["removeDashMember", "POST", "/dash/organization/remove-member"],
+    ["updateDashMemberRole", "POST", "/dash/organization/update-member-role"],
+    ["listDashOrganizationTeams", "GET", "/dash/organization/:id/teams"],
+    ["createDashTeam", "POST", "/dash/organization/create-team"],
+    ["updateDashTeam", "POST", "/dash/organization/update-team"],
+    ["deleteDashTeam", "POST", "/dash/organization/delete-team"],
+    ["listDashTeamMembers", "GET", "/dash/organization/:orgId/teams/:teamId/members"],
+    ["addDashTeamMember", "POST", "/dash/organization/add-team-member"],
+    ["removeDashTeamMember", "POST", "/dash/organization/remove-team-member"],
+    ["listDashOrganizationInvitations", "GET", "/dash/organization/:id/invitations"],
+    ["inviteDashMember", "POST", "/dash/organization/invite-member"],
+    ["cancelDashInvitation", "POST", "/dash/organization/cancel-invitation"],
+    ["resendDashInvitation", "POST", "/dash/organization/resend-invitation"],
+    ["dashCheckUserByEmail", "POST", "/dash/organization/check-user-by-email"],
+    ["dashAcceptInvitation", "GET", "/dash/accept-invitation"],
+    ["dashCompleteInvitation", "POST", "/dash/complete-invitation"],
+    ["dashCompleteInvitationHandoff", "GET", "/dash/complete-invitation-handoff"],
+    ["dashCompleteInvitationSocial", "GET", "/dash/complete-invitation-social"],
+    ["dashCheckUserExists", "POST", "/dash/check-user-exists"],
+    ["dashEnableTwoFactor", "POST", "/dash/enable-two-factor"],
+    ["dashCompleteTwoFactorSetup", "POST", "/dash/complete-two-factor-setup"],
+    ["dashViewTwoFactorTotpUri", "POST", "/dash/view-two-factor-totp-uri"],
+    ["dashViewBackupCodes", "POST", "/dash/view-backup-codes"],
+    ["dashDisableTwoFactor", "POST", "/dash/disable-two-factor"],
+    ["dashGenerateBackupCodes", "POST", "/dash/generate-backup-codes"],
+  ];
+
   test("pins the immutable package and peer runtime", async () => {
     const pkg = await packageJson("@better-auth/infra");
     const lock = await packageLock();
@@ -143,6 +181,58 @@ describe("@better-auth/infra@0.4.3 Dash substrate oracle", () => {
     expect(actual.filter(([, method]) => method === "GET")).toHaveLength(10);
     expect(actual.filter(([, method]) => method === "POST")).toHaveLength(16);
     expect(new Set(actual.map(([, , path]) => path)).size).toBe(26);
+  });
+
+  test("publishes the exact 35 organization and two-factor descriptors with an 11/24 split", () => {
+    const endpoints = dash().endpoints;
+    const actual = organizationEndpointInventory.map(([key]) => [
+      key,
+      endpoints[key]?.options.method,
+      endpoints[key]?.path,
+    ]);
+    expect(actual).toEqual(organizationEndpointInventory);
+    expect(actual.filter(([, method]) => method === "GET")).toHaveLength(11);
+    expect(actual.filter(([, method]) => method === "POST")).toHaveLength(24);
+    expect(new Set(actual.map(([, , path]) => path)).size).toBe(35);
+  });
+
+  test("pins invitation egress, auth modes, and managed two-factor behavior", async () => {
+    const endpoints = dash().endpoints;
+    expect(endpoints.dashAcceptInvitation.options.use).toHaveLength(1);
+    expect(endpoints.dashCompleteInvitation.options.use).toHaveLength(1);
+    expect(endpoints.dashCompleteInvitationHandoff.options.use).toHaveLength(1);
+    expect(endpoints.dashCompleteInvitationSocial.options.use).toHaveLength(2);
+    expect(endpoints.dashCheckUserExists.options.use).toHaveLength(2);
+    expect(endpoints.dashEnableTwoFactor.options.use).toHaveLength(2);
+    expect(endpoints.dashViewTwoFactorTotpUri.options.metadata).toEqual({ scope: "http" });
+    expect(endpoints.createDashOrganization.options.body.parse({
+      name: "Acme",
+      slug: "acme",
+      defaultTeamName: "Core",
+      custom: 42,
+    })).toEqual({ name: "Acme", slug: "acme", defaultTeamName: "Core", custom: 42 });
+    expect(endpoints.inviteDashMember.options.body.parse({
+      email: "luna@example.com",
+      role: " admin ",
+      invitedBy: "user-1",
+      unknown: true,
+    })).toEqual({ email: "luna@example.com", role: "admin", invitedBy: "user-1" });
+
+    const source = await infraText("dist/index.mjs");
+    for (const fragment of [
+      '"/api/internal/invitations/verify"',
+      '"/api/internal/invitations/mark-expired"',
+      '"/api/internal/invitations/mark-accepted"',
+      '"/api/internal/invitations/redeem-handoff"',
+      'authMode === "auth" || authMode === "credential_setup" || authMode === "create_with_session" || authMode === "create_no_session"',
+      'authMode !== "create_no_session"',
+      'message: "Backup codes cannot be viewed after initial setup. Generate new codes instead."',
+      'message: "Two-factor authentication setup has not been started"',
+      'code: "TWO_FACTOR_SETUP_NOT_PENDING"',
+      'message: "Two-factor authentication not set up for this user"',
+    ]) {
+      expect(source).toContain(fragment);
+    }
   });
 
   test("publishes the exact event-query descriptors, constants, and schemas", () => {

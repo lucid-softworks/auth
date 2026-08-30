@@ -12,7 +12,8 @@ use josekit::{
 };
 use lucid_auth::{
     AuthConfig, AuthService, DashOptions, DashPlugin, InfraConnectionOptions,
-    MemoryOrganizationStore, MemoryStore, NewPasswordUser, OrganizationPlugin,
+    MemoryOrganizationStore, MemoryStore, MemoryTwoFactorStore, NewPasswordUser,
+    OrganizationPlugin, OrganizationPluginConfig, TwoFactorConfig, TwoFactorPlugin,
 };
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -31,6 +32,7 @@ struct ManagedApi {
     jti_checks: Arc<AtomicUsize>,
     event_queries: Arc<Mutex<Vec<String>>>,
     tracked_events: Arc<Mutex<Vec<Value>>>,
+    invitation_requests: Arc<Mutex<Vec<Value>>>,
 }
 
 async fn jwks(State(api): State<ManagedApi>) -> Json<Value> {
@@ -80,11 +82,54 @@ async fn track_event(State(api): State<ManagedApi>, Json(event): Json<Value>) ->
     StatusCode::INTERNAL_SERVER_ERROR
 }
 
+async fn verify_invitation(State(api): State<ManagedApi>, Json(body): Json<Value>) -> Json<Value> {
+    api.invitation_requests
+        .lock()
+        .unwrap()
+        .push(json!({"operation": "verify", "body": body}));
+    if body["token"] == "social-no-session" {
+        Json(json!({
+            "email": "luna@example.com",
+            "name": "Luna",
+            "status": "pending",
+            "expiresAt": "2030-01-01T00:00:00Z",
+            "redirectUrl": "http://localhost/welcome",
+            "authMode": "create_no_session"
+        }))
+    } else {
+        let redirect_url = if body["token"] == "evil-redirect" {
+            "https://evil.example/steal"
+        } else {
+            "http://localhost/welcome"
+        };
+        Json(json!({
+            "email": "nova@example.com",
+            "name": "Nova",
+            "status": "pending",
+            "expiresAt": "2030-01-01T00:00:00Z",
+            "redirectUrl": redirect_url,
+            "authMode": null
+        }))
+    }
+}
+
+async fn mark_invitation_accepted(
+    State(api): State<ManagedApi>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    api.invitation_requests
+        .lock()
+        .unwrap()
+        .push(json!({"operation": "mark-accepted", "body": body}));
+    Json(json!({"success": true}))
+}
+
 async fn fixture() -> (
     Router,
     Jwk,
     Arc<AtomicUsize>,
     Arc<Mutex<Vec<String>>>,
+    Arc<Mutex<Vec<Value>>>,
     Arc<Mutex<Vec<Value>>>,
     tokio::task::JoinHandle<()>,
 ) {
@@ -97,27 +142,45 @@ async fn fixture() -> (
     let jti_checks = Arc::new(AtomicUsize::new(0));
     let event_queries = Arc::new(Mutex::new(Vec::new()));
     let tracked_events = Arc::new(Mutex::new(Vec::new()));
+    let invitation_requests = Arc::new(Mutex::new(Vec::new()));
     let managed = Router::new()
         .route("/api/auth/jwks", get(jwks))
         .route("/api/auth/check-jti", post(check_jti))
         .route("/events/user", get(user_events))
         .route("/events/track", post(track_event))
+        .route("/api/internal/invitations/verify", post(verify_invitation))
+        .route(
+            "/api/internal/invitations/mark-accepted",
+            post(mark_invitation_accepted),
+        )
         .with_state(ManagedApi {
             public_key: serde_json::to_value(public_key).unwrap(),
             jti_checks: jti_checks.clone(),
             event_queries: event_queries.clone(),
             tracked_events: tracked_events.clone(),
+            invitation_requests: invitation_requests.clone(),
         });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move { axum::serve(listener, managed).await.unwrap() });
 
     let mut config = AuthConfig::new([b'D'; 32]).unwrap();
+    config.set_base_url("http://localhost").unwrap();
     config.email_and_password.enabled = true;
+    let mut organization_config = OrganizationPluginConfig::default();
+    organization_config.teams.enabled = true;
+    organization_config.teams.default_team_enabled = false;
     config
-        .add_plugin(OrganizationPlugin::new(Arc::new(
-            MemoryOrganizationStore::default(),
-        )))
+        .add_plugin(OrganizationPlugin::with_config(
+            Arc::new(MemoryOrganizationStore::default()),
+            organization_config,
+        ))
+        .unwrap();
+    config
+        .add_plugin(TwoFactorPlugin::new(
+            Arc::new(MemoryTwoFactorStore::default()),
+            TwoFactorConfig::default(),
+        ))
         .unwrap();
     config
         .add_plugin(DashPlugin::new(DashOptions {
@@ -146,21 +209,30 @@ async fn fixture() -> (
         jti_checks,
         event_queries,
         tracked_events,
+        invitation_requests,
         server,
     )
 }
 
 fn token(private_key: &Jwk, age_seconds: i64) -> String {
+    token_with(private_key, age_seconds, json!({}))
+}
+
+fn token_with(private_key: &Jwk, age_seconds: i64, additional: Value) -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs() as i64;
-    let claims = json!({
+    let mut claims = json!({
         "iat": now - age_seconds,
         "exp": now + 3_600,
         "jti": "dash-contract-jti",
         "apiKeyHash": hex::encode(Sha256::digest(b"managed-contract-key")),
     });
+    claims
+        .as_object_mut()
+        .unwrap()
+        .extend(additional.as_object().unwrap().clone());
     let mut header = JwsHeader::new();
     header.set_algorithm("RS256");
     header.set_key_id("dash-contract");
@@ -178,6 +250,19 @@ async fn request(app: &Router, uri: &str, token: &str) -> axum::response::Respon
             Request::get(uri)
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+async fn post_json(app: &Router, uri: &str, token: &str, body: Value) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::post(uri)
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string()))
                 .unwrap(),
         )
         .await
@@ -224,7 +309,8 @@ async fn local_cookie(app: &Router) -> String {
 
 #[tokio::test]
 async fn core_routes_use_managed_jwt_policy_and_return_dash_shapes() {
-    let (app, private_key, jti_checks, _event_queries, _tracked_events, server) = fixture().await;
+    let (app, private_key, jti_checks, _event_queries, _tracked_events, _invites, server) =
+        fixture().await;
     let old_token = token(&private_key, 60);
 
     let config = request(&app, "/api/auth/dash/config", &old_token).await;
@@ -262,7 +348,8 @@ async fn core_routes_use_managed_jwt_policy_and_return_dash_shapes() {
 
 #[tokio::test]
 async fn core_routes_reject_missing_managed_authorization() {
-    let (app, _private_key, _jti_checks, _event_queries, _tracked_events, server) = fixture().await;
+    let (app, _private_key, _jti_checks, _event_queries, _tracked_events, _invites, server) =
+        fixture().await;
     let response = app
         .oneshot(
             Request::get("/api/auth/dash/config")
@@ -281,7 +368,8 @@ async fn core_routes_reject_missing_managed_authorization() {
 
 #[tokio::test]
 async fn event_queries_use_local_sessions_transform_and_filter_remote_records() {
-    let (app, _private_key, _jti_checks, event_queries, _tracked_events, server) = fixture().await;
+    let (app, _private_key, _jti_checks, event_queries, _tracked_events, _invites, server) =
+        fixture().await;
     let cookie = local_cookie(&app).await;
 
     let response = app
@@ -350,7 +438,8 @@ async fn event_queries_use_local_sessions_transform_and_filter_remote_records() 
 
 #[tokio::test]
 async fn auth_hooks_project_exact_events_once_and_ignore_remote_500s() {
-    let (app, _private_key, _jti_checks, _event_queries, tracked_events, server) = fixture().await;
+    let (app, _private_key, _jti_checks, _event_queries, tracked_events, _invites, server) =
+        fixture().await;
     assert!(tracked_events.lock().unwrap().is_empty());
 
     let response = app
@@ -405,7 +494,8 @@ async fn auth_hooks_project_exact_events_once_and_ignore_remote_500s() {
 
 #[tokio::test]
 async fn organization_hooks_project_in_order_and_keep_remote_failures_non_fatal() {
-    let (app, _private_key, _jti_checks, _event_queries, tracked_events, server) = fixture().await;
+    let (app, _private_key, _jti_checks, _event_queries, tracked_events, _invites, server) =
+        fixture().await;
     let cookie = local_cookie(&app).await;
     wait_for_events(&tracked_events, 2).await;
     tracked_events.lock().unwrap().clear();
@@ -437,5 +527,269 @@ async fn organization_hooks_project_in_order_and_keep_remote_failures_non_fatal(
             .iter()
             .all(|event| event.get("inviteeEmail").is_none())
     );
+    server.abort();
+}
+
+#[tokio::test]
+async fn managed_organization_team_and_two_factor_routes_use_native_stores() {
+    let (app, private_key, _jti_checks, _event_queries, _tracked_events, _invites, server) =
+        fixture().await;
+    let base_token = token(&private_key, 0);
+    let users = request(&app, "/api/auth/dash/list-users", &base_token).await;
+    assert_eq!(users.status(), StatusCode::OK);
+    let user_id = json_body(users).await["users"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let user_token = token_with(
+        &private_key,
+        0,
+        json!({"userId": user_id.clone(), "skipDefaultTeam": true}),
+    );
+    let created = post_json(
+        &app,
+        "/api/auth/dash/organization/create",
+        &user_token,
+        json!({"name": "Managed Acme", "slug": "managed-acme"}),
+    )
+    .await;
+    assert_eq!(created.status(), StatusCode::OK);
+    let created = json_body(created).await;
+    let organization_id = created["id"].as_str().unwrap().to_owned();
+    assert_eq!(created["members"][0]["role"], "owner");
+
+    let organizations = request(&app, "/api/auth/dash/list-organizations", &base_token).await;
+    assert_eq!(organizations.status(), StatusCode::OK);
+    let organizations = json_body(organizations).await;
+    assert_eq!(organizations["total"], 1);
+    assert_eq!(organizations["organizations"][0]["memberCount"], 1);
+
+    let members = request(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/members"),
+        &base_token,
+    )
+    .await;
+    assert_eq!(members.status(), StatusCode::OK);
+    let members = json_body(members).await;
+    assert_eq!(members[0]["user"]["email"], "luna@example.com");
+    let member_id = members[0]["id"].as_str().unwrap().to_owned();
+
+    let organization_token = token_with(
+        &private_key,
+        0,
+        json!({"organizationId": organization_id.clone()}),
+    );
+    let mismatch = post_json(
+        &app,
+        "/api/auth/dash/organization/delete",
+        &organization_token,
+        json!({"organizationId": "another-organization"}),
+    )
+    .await;
+    assert_eq!(mismatch.status(), StatusCode::BAD_REQUEST);
+    let team = post_json(
+        &app,
+        "/api/auth/dash/organization/create-team",
+        &organization_token,
+        json!({"name": "Platform"}),
+    )
+    .await;
+    assert_eq!(team.status(), StatusCode::OK);
+    let team_id = json_body(team).await["id"].as_str().unwrap().to_owned();
+    let added = post_json(
+        &app,
+        "/api/auth/dash/organization/add-team-member",
+        &organization_token,
+        json!({"teamId": team_id.clone(), "userId": user_id.clone()}),
+    )
+    .await;
+    assert_eq!(added.status(), StatusCode::OK);
+    let team_members = request(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/teams/{team_id}/members"),
+        &base_token,
+    )
+    .await;
+    assert_eq!(team_members.status(), StatusCode::OK);
+    assert_eq!(json_body(team_members).await[0]["user"]["id"], user_id);
+
+    let updated_member = post_json(
+        &app,
+        "/api/auth/dash/organization/update-member-role",
+        &organization_token,
+        json!({"memberId": member_id.clone(), "role": "member"}),
+    )
+    .await;
+    assert_eq!(updated_member.status(), StatusCode::OK);
+    assert_eq!(json_body(updated_member).await["role"], "member");
+    let removed_member = post_json(
+        &app,
+        "/api/auth/dash/organization/remove-member",
+        &organization_token,
+        json!({"memberId": member_id}),
+    )
+    .await;
+    assert_eq!(removed_member.status(), StatusCode::OK);
+    let team_members = request(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/teams/{team_id}/members"),
+        &base_token,
+    )
+    .await;
+    assert_eq!(json_body(team_members).await, json!([]));
+
+    let enabled = post_json(
+        &app,
+        "/api/auth/dash/enable-two-factor",
+        &user_token,
+        json!({}),
+    )
+    .await;
+    assert_eq!(enabled.status(), StatusCode::OK);
+    let enabled = json_body(enabled).await;
+    assert_eq!(enabled["success"], true);
+    assert_eq!(enabled["secret"].as_str().unwrap().len(), 32);
+    assert_eq!(enabled["backupCodes"].as_array().unwrap().len(), 10);
+
+    let uri = post_json(
+        &app,
+        "/api/auth/dash/view-two-factor-totp-uri",
+        &user_token,
+        json!({}),
+    )
+    .await;
+    assert_eq!(uri.status(), StatusCode::OK);
+    assert!(
+        json_body(uri).await["totpURI"]
+            .as_str()
+            .unwrap()
+            .starts_with("otpauth://totp/")
+    );
+    let forbidden = post_json(
+        &app,
+        "/api/auth/dash/view-backup-codes",
+        &user_token,
+        json!({}),
+    )
+    .await;
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+    let generated = post_json(
+        &app,
+        "/api/auth/dash/generate-backup-codes",
+        &user_token,
+        json!({}),
+    )
+    .await;
+    assert_eq!(generated.status(), StatusCode::OK);
+    assert_eq!(
+        json_body(generated).await["backupCodes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        10
+    );
+    let disabled = post_json(
+        &app,
+        "/api/auth/dash/disable-two-factor",
+        &user_token,
+        json!({}),
+    )
+    .await;
+    assert_eq!(disabled.status(), StatusCode::OK);
+    assert_eq!(json_body(disabled).await, json!({"success": true}));
+    server.abort();
+}
+
+#[tokio::test]
+async fn public_invitation_acceptance_uses_managed_egress_and_mints_local_session() {
+    let (
+        app,
+        _private_key,
+        _jti_checks,
+        _event_queries,
+        _tracked_events,
+        invitation_requests,
+        server,
+    ) = fixture().await;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/api/auth/dash/accept-invitation?token=managed-invite")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        response.headers()[header::LOCATION],
+        "http://localhost/welcome"
+    );
+    assert!(response.headers().contains_key(header::SET_COOKIE));
+
+    let requests = invitation_requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        requests[0],
+        json!({
+            "operation": "verify",
+            "body": {"token": "managed-invite"}
+        })
+    );
+    assert_eq!(requests[1]["operation"], "mark-accepted");
+    assert_eq!(requests[1]["body"]["token"], "managed-invite");
+    assert!(requests[1]["body"]["userId"].as_str().is_some());
+
+    let untrusted = app
+        .clone()
+        .oneshot(
+            Request::get("/api/auth/dash/accept-invitation?token=evil-redirect")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(untrusted.status(), StatusCode::FOUND);
+    assert_eq!(untrusted.headers()[header::LOCATION], "http://localhost");
+    server.abort();
+}
+
+#[tokio::test]
+async fn social_create_no_session_invitation_revokes_the_local_session() {
+    let (app, _private_key, _jti_checks, _event_queries, _tracked_events, _invites, server) =
+        fixture().await;
+    let cookie = local_cookie(&app).await;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/api/auth/dash/complete-invitation-social?token=social-no-session")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert!(
+        response.headers()[header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .contains("Max-Age=0")
+    );
+
+    let session = app
+        .clone()
+        .oneshot(
+            Request::get("/api/auth/get-session")
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(session.status(), StatusCode::OK);
+    assert_eq!(json_body(session).await, Value::Null);
     server.abort();
 }

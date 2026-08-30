@@ -15,20 +15,41 @@ impl AuthService {
         session: &SessionWithUser,
         input: NewOrganization,
     ) -> Result<OrganizationCreation, AuthError> {
+        self.create_organization_with_options(session, input, None, false, true)
+            .await
+    }
+
+    pub(in crate::service) async fn create_organization_with_options(
+        &self,
+        session: &SessionWithUser,
+        input: NewOrganization,
+        default_team_name: Option<String>,
+        skip_default_team: bool,
+        enforce_creation_policy: bool,
+    ) -> Result<OrganizationCreation, AuthError> {
         let plugin = self.organization_plugin()?;
-        let policy_allowed = match &plugin.config.creation_policy {
-            Some(policy) => policy.allow(&session.user).await?,
-            None => plugin.config.allow_user_to_create_organization,
-        };
-        if !policy_allowed {
-            return Err(forbidden(
-                "YOU_ARE_NOT_ALLOWED_TO_CREATE_A_NEW_ORGANIZATION",
-                "You are not allowed to create a new organization",
-            ));
+        if enforce_creation_policy {
+            let policy_allowed = match &plugin.config.creation_policy {
+                Some(policy) => policy.allow(&session.user).await?,
+                None => plugin.config.allow_user_to_create_organization,
+            };
+            if !policy_allowed {
+                return Err(forbidden(
+                    "YOU_ARE_NOT_ALLOWED_TO_CREATE_A_NEW_ORGANIZATION",
+                    "You are not allowed to create a new organization",
+                ));
+            }
         }
         let keep_current = input.keep_current_active_organization;
         let (mut organization, mut member, mut default_team) =
-            prepare_creation(plugin, session, input).await?;
+            prepare_creation(
+                plugin,
+                session,
+                input,
+                default_team_name,
+                skip_default_team,
+            )
+            .await?;
         match creation_persistence::create(
             self,
             plugin,
@@ -266,6 +287,8 @@ async fn prepare_creation(
     plugin: &crate::OrganizationPlugin,
     session: &SessionWithUser,
     input: NewOrganization,
+    default_team_name: Option<String>,
+    skip_default_team: bool,
 ) -> Result<(Organization, OrganizationMember, DefaultTeam), AuthError> {
     let now = Utc::now();
     let mut organization = Organization {
@@ -291,8 +314,17 @@ async fn prepare_creation(
             .before_add_member(member, &session.user, &organization)
             .await?;
     }
-    let mut team = (plugin.config.teams.enabled && plugin.config.teams.default_team_enabled)
-        .then(|| default_team(&organization, session.user.id.clone(), now));
+    let mut team = (plugin.config.teams.enabled
+        && plugin.config.teams.default_team_enabled
+        && !skip_default_team)
+        .then(|| {
+            default_team(
+                &organization,
+                session.user.id.clone(),
+                default_team_name,
+                now,
+            )
+        });
     if let (Some(hooks), Some((team, team_member))) = (&plugin.config.hooks, team.as_mut()) {
         *team = hooks
             .before_create_team(team.clone(), &session.user, &organization)
@@ -305,11 +337,12 @@ async fn prepare_creation(
 fn default_team(
     organization: &Organization,
     user_id: String,
+    name: Option<String>,
     now: chrono::DateTime<Utc>,
 ) -> (OrganizationTeam, OrganizationTeamMember) {
     let team = OrganizationTeam {
         id: String::new(),
-        name: organization.name.clone(),
+        name: name.unwrap_or_else(|| organization.name.clone()),
         organization_id: organization.id.clone(),
         created_at: now,
         updated_at: None,

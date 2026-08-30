@@ -94,6 +94,8 @@ pub trait OrganizationDataStore: Send + Sync {
         slug: &str,
     ) -> Result<Option<Organization>, AuthError>;
     async fn list_organizations(&self, user_id: &str) -> Result<Vec<Organization>, AuthError>;
+    /// Privileged full catalog used by Better Auth's hosted Dash management API.
+    async fn list_all_organizations(&self) -> Result<Vec<Organization>, AuthError>;
     async fn update_organization(
         &self,
         organization: Organization,

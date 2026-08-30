@@ -9,12 +9,15 @@ use crate::{
 use async_trait::async_trait;
 use std::{borrow::Cow, fmt, sync::Arc};
 
-#[cfg(feature = "axum")]
-use std::time::Duration;
-
 #[cfg(test)]
 mod contract;
+#[cfg(feature = "axum")]
+mod activity;
+mod endpoints;
 mod options;
+
+#[cfg(feature = "axum")]
+use activity::activity_was_recent;
 
 pub use options::{DashActivityTracking, DashOptions};
 
@@ -146,7 +149,7 @@ const CLIENT_PATH_METHODS: &[PluginClientPathMethod] = &[
     PluginClientPathMethod::new("/events/all-audit-logs", PluginHttpMethod::Get),
 ];
 
-const fn endpoint(
+pub(super) const fn endpoint(
     method: PluginHttpMethod,
     path: &'static str,
     client_method: &'static str,
@@ -213,6 +216,8 @@ impl fmt::Debug for DashPlugin {
 #[async_trait]
 impl AuthPlugin for DashPlugin {
     fn descriptor(&self) -> PluginDescriptor {
+        let mut endpoints = ENDPOINTS.to_vec();
+        endpoints.extend_from_slice(endpoints::MANAGEMENT);
         PluginDescriptor {
             id: "dash",
             display_name: "Better Auth Infrastructure Dash",
@@ -228,7 +233,7 @@ impl AuthPlugin for DashPlugin {
             },
             dependencies: &[],
             conflicts: &[],
-            endpoints: Cow::Borrowed(ENDPOINTS),
+            endpoints: Cow::Owned(endpoints),
             cookies: &[],
             rate_limits: &[],
             middleware: &[],
@@ -398,30 +403,4 @@ impl AuthPlugin for DashPlugin {
     fn routes(&self, service: Arc<crate::AuthService>) -> Vec<crate::AxumPluginRoute> {
         super::axum::routes(service, self.clone())
     }
-}
-
-#[cfg(feature = "axum")]
-trait ValueExt {
-    fn date_time(&self) -> Option<chrono::DateTime<chrono::Utc>>;
-}
-
-#[cfg(feature = "axum")]
-impl ValueExt for serde_json::Value {
-    fn date_time(&self) -> Option<chrono::DateTime<chrono::Utc>> {
-        self.as_str()?.parse().ok()
-    }
-}
-
-#[cfg(feature = "axum")]
-fn activity_was_recent(
-    value: Option<&serde_json::Value>,
-    interval: Duration,
-    now: chrono::DateTime<chrono::Utc>,
-) -> bool {
-    value
-        .and_then(ValueExt::date_time)
-        .is_some_and(|last_active| {
-            now.signed_duration_since(last_active)
-                < chrono::Duration::from_std(interval).unwrap_or(chrono::Duration::MAX)
-        })
 }

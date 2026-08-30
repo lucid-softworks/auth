@@ -141,6 +141,19 @@ impl OrganizationDataStore for MemoryOrganizationStore {
         Ok(organizations)
     }
 
+    async fn list_all_organizations(&self) -> Result<Vec<Organization>, AuthError> {
+        let mut organizations = self
+            .state
+            .read()
+            .await
+            .organizations
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        organizations.sort_by_key(|organization| (organization.created_at, organization.id.clone()));
+        Ok(organizations)
+    }
+
     async fn update_organization(
         &self,
         organization: Organization,

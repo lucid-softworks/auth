@@ -789,12 +789,15 @@ a callback route or repaired client contract. See the
 
 ### Better Auth Infrastructure Dash
 
-`DashPlugin` installs the 26 core `/dash/*` routes published by
+`DashPlugin` installs the 61 implemented `/dash/*` routes published by
 `@better-auth/infra@0.4.3`, including configuration/validation, user CRUD and
 NDJSON export, account/password/session management, impersonation, moderation,
-analytics, email actions, and the five-action raw adapter endpoint. Managed
-JWT authorization is mandatory; `/dash/validate` alone skips the JTI lookup,
-matching the pinned plugin.
+analytics, email actions, the five-action raw adapter endpoint, organization,
+member, invitation and team management, and managed two-factor setup. Managed
+JWT authorization is mandatory for the administrative routes;
+`/dash/validate` alone skips the JTI lookup. The four browser invitation
+completion routes instead use managed invitation tokens or the local social
+session, matching the pinned plugin.
 
 Installing `DashPlugin` also projects the exact 35 audit events emitted by the
 pinned artifact from user, session, account, verification, request-after, and
@@ -850,6 +853,12 @@ organization identifiers to the API origin, and responses can contain audit
 PII including account identifiers, email addresses, IP/location fields, and
 event-specific data. Lucid-auth neither persists those records nor adds a
 replay, retention, or delivery API.
+Organization, member, team, invitation, and two-factor mutations reuse the
+installed native stores and lifecycle hooks. Invitation verification,
+expiration, acceptance, and one-time handoff redemption send the configured
+API key and invitation payload to the Dash API origin. TOTP secrets and backup
+codes remain encrypted in the native two-factor store and are returned in
+plaintext only by their pinned initial-generation responses.
 See the [exact Dash core and substrate compatibility boundary](COMPATIBILITY.md#dash-core-routes-043).
 
 ### Better Auth Infrastructure managed email

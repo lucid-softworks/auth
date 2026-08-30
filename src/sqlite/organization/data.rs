@@ -2,7 +2,9 @@ use super::{codec, create, eq};
 use crate::{
     AuthError, DatabaseIdSupplier, Organization, OrganizationCreateOutcome, OrganizationDataStore,
     OrganizationMember, OrganizationTeam, OrganizationTeamMember,
-    sqlite::{SqliteFindOptions, SqliteStore, query::execute},
+    sqlite::{
+        SqliteFindOptions, SqliteSort, SqliteSortDirection, SqliteStore, query::execute,
+    },
 };
 use async_trait::async_trait;
 use serde_json::{Map, Value};
@@ -130,6 +132,24 @@ impl OrganizationDataStore for SqliteStore {
             }
         }
         Ok(organizations)
+    }
+
+    async fn list_all_organizations(&self) -> Result<Vec<Organization>, AuthError> {
+        self.find_records(
+            "organization",
+            &[],
+            &SqliteFindOptions {
+                sort: Some(SqliteSort {
+                    field: "createdAt".into(),
+                    direction: SqliteSortDirection::Ascending,
+                }),
+                ..SqliteFindOptions::default()
+            },
+        )
+        .await?
+        .into_iter()
+        .map(codec::decode_organization)
+        .collect()
     }
 
     async fn update_organization(
