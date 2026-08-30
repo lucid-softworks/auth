@@ -1,4 +1,6 @@
-use super::{DashJwtVerifier, InfraConnectionOptions, ResolvedConnectionOptions, VERSION};
+#[cfg(feature = "axum")]
+use super::DashJwtVerifier;
+use super::{InfraConnectionOptions, ResolvedConnectionOptions, VERSION};
 use crate::{
     AdditionalField, AdditionalFieldType, AuthConfig, AuthError, AuthPlugin, DatabaseRecord,
     PluginArtifactMetadata, PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginProvenance,
@@ -156,16 +158,19 @@ pub struct DashOptions {
 pub struct DashPlugin {
     options: Arc<DashOptions>,
     connection: Arc<ResolvedConnectionOptions>,
+    #[cfg(feature = "axum")]
     verifier: DashJwtVerifier,
 }
 
 impl DashPlugin {
     pub fn new(options: DashOptions) -> Self {
         let connection = Arc::new(options.connection.clone().resolve());
+        #[cfg(feature = "axum")]
         let verifier = DashJwtVerifier::new(&connection);
         Self {
             options: Arc::new(options),
             connection,
+            #[cfg(feature = "axum")]
             verifier,
         }
     }
@@ -174,10 +179,12 @@ impl DashPlugin {
         &self.options
     }
 
+    #[cfg(feature = "axum")]
     pub(crate) fn verifier(&self) -> &DashJwtVerifier {
         &self.verifier
     }
 
+    #[cfg(feature = "axum")]
     pub(crate) fn resolved_connection(&self) -> &ResolvedConnectionOptions {
         &self.connection
     }

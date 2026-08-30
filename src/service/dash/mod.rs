@@ -1,26 +1,42 @@
+#[cfg(feature = "axum")]
 use super::{AuthService, SignInResult};
+#[cfg(feature = "axum")]
 use crate::{
     AdminListCondition, AdminListOperator, AdminListUsersQuery, AdminSortDirection,
     AdminUserUpdate, AuthError, AuthUser, DashAdapterAction, DashAdapterWhere, DashSortDirection,
-    DashUserListQuery, PasswordCredentialChanged, PasswordCredentialSource, UserProfileUpdate,
+    DashUserListQuery, PasswordCredentialChanged, PasswordCredentialSource,
 };
+#[cfg(feature = "axum")]
 use chrono::{DateTime, Utc};
+#[cfg(feature = "axum")]
 use serde_json::{Map, Value, json};
 
+mod activity;
+#[cfg(feature = "axum")]
 mod adapter;
+#[cfg(feature = "axum")]
 mod analytics;
+#[cfg(feature = "axum")]
 mod config;
+#[cfg(feature = "axum")]
+mod entropy;
+#[cfg(feature = "axum")]
 mod sessions;
+#[cfg(feature = "axum")]
 mod users;
 
-fn percentage(current: i64, previous: i64) -> f64 {
+#[cfg(feature = "axum")]
+mod support {
+use super::*;
+
+pub(super) fn percentage(current: i64, previous: i64) -> f64 {
     if previous == 0 {
         return if current > 0 { 100.0 } else { 0.0 };
     }
     (current - previous) as f64 / previous as f64 * 100.0
 }
 
-fn optional_period(
+pub(super) fn optional_period(
     current: &Result<i64, AuthError>,
     previous: &Result<i64, AuthError>,
     field: &str,
@@ -44,7 +60,11 @@ fn optional_period(
     Value::Object(output)
 }
 
-fn add_period(value: DateTime<Utc>, period: crate::DashPeriod, amount: i32) -> DateTime<Utc> {
+pub(super) fn add_period(
+    value: DateTime<Utc>,
+    period: crate::DashPeriod,
+    amount: i32,
+) -> DateTime<Utc> {
     match period {
         crate::DashPeriod::Daily => value + chrono::Duration::days(i64::from(amount)),
         crate::DashPeriod::Weekly => value + chrono::Duration::weeks(i64::from(amount)),
@@ -57,7 +77,7 @@ fn add_period(value: DateTime<Utc>, period: crate::DashPeriod, amount: i32) -> D
     }
 }
 
-fn dash_field(name: &str, field: &crate::AdditionalField) -> Value {
+pub(super) fn dash_field(name: &str, field: &crate::AdditionalField) -> Value {
     json!({
         "name": name,
         "type": match field.field_type {
@@ -79,19 +99,7 @@ fn dash_field(name: &str, field: &crate::AdditionalField) -> Value {
     })
 }
 
-fn estimate_entropy(secret: &[u8]) -> f64 {
-    let unique = secret
-        .iter()
-        .copied()
-        .collect::<std::collections::BTreeSet<_>>()
-        .len();
-    if unique == 0 {
-        return 0.0;
-    }
-    secret.len() as f64 * (unique as f64).log2()
-}
-
-fn dash_conditions(values: &[Value]) -> Result<Vec<AdminListCondition>, AuthError> {
+pub(super) fn dash_conditions(values: &[Value]) -> Result<Vec<AdminListCondition>, AuthError> {
     values
         .iter()
         .map(|value| {
@@ -133,14 +141,17 @@ fn dash_conditions(values: &[Value]) -> Result<Vec<AdminListCondition>, AuthErro
         .collect()
 }
 
-fn take_required_string(body: &mut Map<String, Value>, key: &str) -> Result<String, AuthError> {
+pub(super) fn take_required_string(
+    body: &mut Map<String, Value>,
+    key: &str,
+) -> Result<String, AuthError> {
     let value = take_optional_string(body, key)?
         .filter(|value| !value.is_empty())
         .ok_or_else(|| AuthError::InvalidRequest(format!("{key} is required")))?;
     Ok(value)
 }
 
-fn take_optional_string(
+pub(super) fn take_optional_string(
     body: &mut Map<String, Value>,
     key: &str,
 ) -> Result<Option<String>, AuthError> {
@@ -154,7 +165,7 @@ fn take_optional_string(
         .transpose()
 }
 
-fn retain_writable_user_fields(
+pub(super) fn retain_writable_user_fields(
     body: &mut Map<String, Value>,
     fields: &crate::AdditionalFieldSet,
     require_configured: bool,
@@ -183,7 +194,7 @@ fn retain_writable_user_fields(
     Ok(())
 }
 
-fn dash_user_additional_fields(service: &AuthService) -> crate::AdditionalFieldSet {
+pub(super) fn dash_user_additional_fields(service: &AuthService) -> crate::AdditionalFieldSet {
     const CORE_FIELDS: &[&str] = &[
         "id",
         "name",
@@ -204,7 +215,7 @@ fn dash_user_additional_fields(service: &AuthService) -> crate::AdditionalFieldS
         .collect()
 }
 
-fn coerce_dash_field(
+pub(super) fn coerce_dash_field(
     name: &str,
     field: &crate::AdditionalField,
     value: &mut Value,
@@ -258,7 +269,9 @@ fn coerce_dash_field(
     }
 }
 
-fn dash_user_update(mut data: Map<String, Value>) -> Result<AdminUserUpdate, AuthError> {
+pub(super) fn dash_user_update(
+    mut data: Map<String, Value>,
+) -> Result<AdminUserUpdate, AuthError> {
     let name = nullable_string(&mut data, "name")?.flatten();
     let email = nullable_string(&mut data, "email")?
         .flatten()
@@ -282,7 +295,7 @@ fn dash_user_update(mut data: Map<String, Value>) -> Result<AdminUserUpdate, Aut
     })
 }
 
-fn nullable_string(
+pub(super) fn nullable_string(
     data: &mut Map<String, Value>,
     key: &str,
 ) -> Result<Option<Option<String>>, AuthError> {
@@ -295,12 +308,12 @@ fn nullable_string(
         .transpose()
 }
 
-fn random_password() -> String {
+pub(super) fn random_password() -> String {
     use rand::distr::{Alphanumeric, SampleString as _};
     Alphanumeric.sample_string(&mut rand::rng(), 12)
 }
 
-fn js_index(value: f64) -> usize {
+pub(super) fn js_index(value: f64) -> usize {
     if !value.is_finite() || value <= 0.0 {
         0
     } else {
@@ -308,7 +321,7 @@ fn js_index(value: f64) -> usize {
     }
 }
 
-fn equality_string<'a>(
+pub(super) fn equality_string<'a>(
     where_clause: &'a [DashAdapterWhere],
     field: &str,
 ) -> Result<&'a str, AuthError> {
@@ -325,7 +338,9 @@ fn equality_string<'a>(
         })
 }
 
-fn dash_adapter_condition(condition: &DashAdapterWhere) -> Result<AdminListCondition, AuthError> {
+pub(super) fn dash_adapter_condition(
+    condition: &DashAdapterWhere,
+) -> Result<AdminListCondition, AuthError> {
     let operator = match condition.operator {
         crate::DashAdapterOperator::Eq => AdminListOperator::Eq,
         crate::DashAdapterOperator::Ne => AdminListOperator::Ne,
@@ -345,7 +360,7 @@ fn dash_adapter_condition(condition: &DashAdapterWhere) -> Result<AdminListCondi
     })
 }
 
-fn dash_matches(value: &Value, conditions: &[DashAdapterWhere]) -> bool {
+pub(super) fn dash_matches(value: &Value, conditions: &[DashAdapterWhere]) -> bool {
     conditions.iter().all(|condition| {
         let candidate = value.get(&condition.field).unwrap_or(&Value::Null);
         match condition.operator {
@@ -382,14 +397,14 @@ fn dash_matches(value: &Value, conditions: &[DashAdapterWhere]) -> bool {
     })
 }
 
-fn compare_values(left: &Value, right: &Value) -> Option<std::cmp::Ordering> {
+pub(super) fn compare_values(left: &Value, right: &Value) -> Option<std::cmp::Ordering> {
     if let (Some(left), Some(right)) = (left.as_f64(), right.as_f64()) {
         return left.partial_cmp(&right);
     }
     left.as_str()?.partial_cmp(right.as_str()?)
 }
 
-fn project(mut value: Value, select: Option<&[String]>) -> Value {
+pub(super) fn project(mut value: Value, select: Option<&[String]>) -> Value {
     let Some(select) = select else {
         return value;
     };
@@ -400,14 +415,9 @@ fn project(mut value: Value, select: Option<&[String]>) -> Value {
     value
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn entropy_matches_the_javascript_unique_character_estimate() {
-        assert_eq!(estimate_entropy(b""), 0.0);
-        assert_eq!(estimate_entropy(b"aaaa"), 0.0);
-        assert_eq!(estimate_entropy(b"abab"), 4.0);
-    }
 }
+
+#[cfg(feature = "axum")]
+use support::*;
+#[cfg(feature = "axum")]
+use entropy::estimate_entropy;
