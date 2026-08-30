@@ -190,6 +190,10 @@ pub(super) fn json(status: StatusCode, value: impl serde::Serialize) -> Response
 pub(super) fn empty(status: StatusCode) -> Response {
     let mut response = Response::new(Body::empty());
     *response.status_mut() = status;
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(SCIM_MEDIA_TYPE),
+    );
     response
 }
 

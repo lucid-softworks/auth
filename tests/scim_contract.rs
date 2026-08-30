@@ -410,16 +410,16 @@ async fn user_crud_normalizes_profile_filters_paginates_and_projects() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(replaced["active"], false);
 
-    let (status, _) = response_json(
-        app.oneshot(
+    let response = app
+        .oneshot(
             request("DELETE", &format!("/scim/v2/Users/{id}"))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
-        .unwrap(),
-    )
-    .await;
+        .unwrap();
+    assert_eq!(response.headers()[header::CONTENT_TYPE], SCIM_MEDIA_TYPE);
+    let (status, _) = response_json(response).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     assert!(
         auth_store
@@ -678,16 +678,16 @@ async fn group_crud_enforces_same_connection_users_and_member_projection() {
     assert_eq!(status, StatusCode::OK);
     assert!(changed.get("members").is_none());
 
-    let (status, _) = response_json(
-        app.oneshot(
+    let response = app
+        .oneshot(
             request("DELETE", &format!("/scim/v2/Groups/{group_id}"))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
-        .unwrap(),
-    )
-    .await;
+        .unwrap();
+    assert_eq!(response.headers()[header::CONTENT_TYPE], SCIM_MEDIA_TYPE);
+    let (status, _) = response_json(response).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 }
 
