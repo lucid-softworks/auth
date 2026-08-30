@@ -8,6 +8,8 @@ mod discovery;
 #[cfg(feature = "axum")]
 mod axum;
 mod plugin;
+#[cfg(feature = "axum")]
+mod oidc_provider;
 mod provider_reference;
 mod schema;
 mod store;

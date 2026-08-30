@@ -270,6 +270,35 @@ impl AuthService {
         let provider = self
             .social_provider(provider_id)
             .ok_or(AuthError::OAuthProviderNotFound)?;
+        let redirect_uri = self.oauth_callback_url(provider.id())?;
+        self.oauth_callback_with_provider(
+            provider.as_ref(),
+            code,
+            state,
+            &redirect_uri,
+            issuer,
+            device_id,
+            provider_user,
+            ip_address,
+            user_agent,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[cfg(feature = "axum")]
+    pub(crate) async fn oauth_callback_with_provider(
+        &self,
+        provider: &dyn crate::SocialProvider,
+        code: &str,
+        state: OAuthState,
+        redirect_uri: &str,
+        issuer: Option<&str>,
+        device_id: Option<&str>,
+        provider_user: Option<&Value>,
+        ip_address: Option<String>,
+        user_agent: Option<String>,
+    ) -> Result<OAuthCallbackResult, AuthError> {
         if let (Some(received), Some(expected)) = (issuer, provider.issuer())
             && received != expected
         {
@@ -278,16 +307,15 @@ impl AuthService {
         if provider.requires_id_token_nonce() && state.id_token_nonce.is_none() {
             return Err(AuthError::OAuthNonceBindingMissing);
         }
-        let redirect_uri = self.oauth_callback_url(provider.id())?;
         let tokens = provider
-            .exchange_code(code, &state.code_verifier, &redirect_uri, device_id)
+            .exchange_code(code, &state.code_verifier, redirect_uri, device_id)
             .await
             .map_err(|_| AuthError::OAuthInvalidCode)?;
         let user_info = provider
             .get_user_info(&tokens, state.id_token_nonce.as_deref(), provider_user)
             .await?;
         if let Some(link) = &state.link {
-            self.link_oauth_identity(provider.as_ref(), link, tokens, user_info)
+            self.link_oauth_identity(provider, link, tokens, user_info)
                 .await?;
             return Ok(OAuthCallbackResult {
                 session: None,
@@ -297,7 +325,7 @@ impl AuthService {
         }
         let (session, is_new_user) = self
             .finish_oauth_sign_in(
-                provider.as_ref(),
+                provider,
                 tokens,
                 user_info,
                 state.request_sign_up,

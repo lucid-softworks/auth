@@ -8,7 +8,7 @@ use serde_json::Value;
 use url::Url;
 
 #[derive(Clone)]
-pub(super) struct GenericOAuthProvider {
+pub(crate) struct GenericOAuthProvider {
     pub(super) config: GenericOAuthConfig,
     name: String,
     pub(super) issuer: Option<String>,
@@ -17,7 +17,7 @@ pub(super) struct GenericOAuthProvider {
 }
 
 impl GenericOAuthProvider {
-    pub(super) fn new(
+    pub(crate) fn new(
         config: GenericOAuthConfig,
         issuer: Option<String>,
         is_oidc: bool,

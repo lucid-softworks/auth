@@ -20,6 +20,8 @@ pub use types::{
     GenericOAuthProfileMapper, GenericOAuthRefreshContext, GenericOAuthRefreshParams,
     GenericOAuthTokenExchange, GenericOAuthTokenRequest, GenericOAuthUserInfo,
 };
+#[cfg(feature = "axum")]
+pub(crate) use provider::GenericOAuthProvider;
 
 pub const INVALID_OAUTH_CONFIGURATION: &str = "Invalid OAuth configuration";
 pub const TOKEN_URL_NOT_FOUND: &str = "Invalid OAuth configuration. Token URL not found.";
