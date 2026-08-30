@@ -195,7 +195,12 @@ async fn begin_oidc_sign_in(app: &Router) -> (String, String) {
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(header::ORIGIN, "https://example.com")
                 .body(Body::from(
-                    json!({"providerId": "acme-sso!", "callbackURL": "/dashboard"}).to_string(),
+                    json!({
+                        "providerId": "acme-sso!",
+                        "callbackURL": "/dashboard",
+                        "requestSignUp": true
+                    })
+                    .to_string(),
                 ))
                 .unwrap(),
         )
@@ -343,6 +348,57 @@ async fn oidc_sign_in_resolves_domains_and_builds_bound_pkce_authorization_urls(
 }
 
 #[tokio::test]
+async fn oidc_shared_redirect_uri_is_used_for_authorization_and_registration() {
+    let fixture = fixture_with_options(SsoOptions {
+        redirect_uri: Some("/sso/callback".into()),
+        ..SsoOptions::default()
+    })
+    .await;
+    let (status, body) = post(
+        fixture.app.clone(),
+        "/api/auth/sign-in/sso",
+        None,
+        json!({"providerId": "acme-sso!", "callbackURL": "/dashboard"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let authorization = url::Url::parse(body["url"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        authorization
+            .query_pairs()
+            .find(|(key, _)| key == "redirect_uri")
+            .unwrap()
+            .1,
+        "https://example.com/api/auth/sso/callback"
+    );
+
+    let (status, created) = post(
+        fixture.app,
+        "/api/auth/sso/register",
+        Some(&fixture.owner_cookie),
+        json!({
+            "providerId": "shared-redirect",
+            "issuer": "https://shared.example.com",
+            "domain": "shared.example.com",
+            "oidcConfig": {
+                "clientId": "shared-client",
+                "clientSecret": "shared-secret",
+                "authorizationEndpoint": "https://shared.example.com/authorize",
+                "tokenEndpoint": "https://shared.example.com/token",
+                "jwksEndpoint": "https://shared.example.com/jwks",
+                "skipDiscovery": true
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    assert_eq!(
+        created["redirectURI"],
+        "https://example.com/api/auth/sso/callback"
+    );
+}
+
+#[tokio::test]
 async fn oidc_callback_validates_bound_state_before_token_exchange() {
     let fixture = fixture().await;
     let response = fixture
@@ -478,6 +534,7 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
                 Json(json!({
                     "sub": subject,
                     "email": "enterprise@example.com",
+                    "email_verified": "true",
                     "name": "Enterprise User"
                 }))
             }),
@@ -486,8 +543,15 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
         axum::serve(listener, identity_provider).await.unwrap();
     });
 
-    let fixture =
-        fixture_with_options_and_trusted_origins(SsoOptions::default(), &[idp_base.as_str()]).await;
+    let fixture = fixture_with_options_and_trusted_origins(
+        SsoOptions {
+            trust_email_verified: true,
+            disable_implicit_sign_up: true,
+            ..SsoOptions::default()
+        },
+        &[idp_base.as_str()],
+    )
+    .await;
     fixture
         .providers
         .update(
@@ -514,7 +578,12 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(header::ORIGIN, "https://example.com")
                 .body(Body::from(
-                    json!({"providerId": "acme-sso!", "callbackURL": "/dashboard"}).to_string(),
+                    json!({
+                        "providerId": "acme-sso!",
+                        "callbackURL": "/dashboard",
+                        "requestSignUp": true
+                    })
+                    .to_string(),
                 ))
                 .unwrap(),
         )
@@ -560,6 +629,25 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
             .iter()
             .any(|cookie| cookie.to_str().unwrap().contains("session_token="))
     );
+    let session_cookie = callback
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .find_map(|cookie| {
+            let cookie = cookie.to_str().ok()?;
+            cookie
+                .contains("session_token=")
+                .then(|| cookie.split(';').next().unwrap().to_owned())
+        })
+        .unwrap();
+    let (status, session) = get(
+        fixture.app.clone(),
+        "/api/auth/get-session",
+        Some(&session_cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(session["user"]["emailVerified"], true);
 
     let (state_cookie, state) = begin_oidc_sign_in(&fixture.app).await;
     let mismatch = fixture

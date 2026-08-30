@@ -125,12 +125,15 @@ async fn handle_with_state(
     }
     exchange::finish(
         service,
+        plugin,
         headers,
-        provider,
-        query.code.expect("authorization code checked"),
-        query.state.unwrap_or_default(),
-        state,
-        error_url,
+        exchange::Input {
+            provider,
+            code: query.code.expect("authorization code checked"),
+            state_token: query.state.unwrap_or_default(),
+            state,
+            error_url,
+        },
     )
     .await
 }

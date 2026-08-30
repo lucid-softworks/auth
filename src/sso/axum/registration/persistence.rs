@@ -50,10 +50,10 @@ pub(super) async fn create(
     result.remove("id");
     result.insert(
         "redirectURI".into(),
-        json!(format!(
-            "{}/sso/callback/{}",
-            base_url(service),
-            provider.provider_id
+        json!(super::super::support::oidc_redirect_uri(
+            service,
+            plugin,
+            &provider.provider_id
         )),
     );
     if plugin.options().domain_verification {
@@ -92,11 +92,4 @@ pub(super) fn duplicate() -> Response {
 
 fn storage(message: String) -> Response {
     super::super::support::storage(SsoStoreError::Storage(message))
-}
-
-fn base_url(service: &AuthService) -> String {
-    service
-        .auth_base_url()
-        .map(|url| url.to_string().trim_end_matches('/').to_owned())
-        .unwrap_or_else(|| service.base_path().trim_end_matches('/').to_owned())
 }

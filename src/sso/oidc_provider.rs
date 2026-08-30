@@ -1,4 +1,4 @@
-use super::SsoProvider;
+use super::{SsoOptions, SsoProvider};
 use crate::{
     AuthError, GenericOAuthConfig, GenericOAuthMappedUser, GenericOAuthProfileMapper,
     GenericOAuthUserInfo, OAuthTokens, OidcConfig, TokenEndpointAuth,
@@ -11,6 +11,7 @@ use std::sync::Arc;
 pub(super) fn build(
     provider: &SsoProvider,
     redirect_uri: String,
+    options: &SsoOptions,
 ) -> Result<GenericOAuthProvider, &'static str> {
     let config = provider
         .oidc_config
@@ -32,6 +33,7 @@ pub(super) fn build(
         .get("overrideUserInfo")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    generic.disable_implicit_sign_up = options.disable_implicit_sign_up;
     generic.get_user_info = generic
         .user_info_url
         .as_ref()
@@ -42,7 +44,10 @@ pub(super) fn build(
         Some("private_key_jwt") => return Err("no_private_key_available"),
         _ => Some(TokenEndpointAuth::ClientSecretBasic),
     };
-    generic.map_profile_to_user = Some(Arc::new(ProfileMapper::new(config)));
+    generic.map_profile_to_user = Some(Arc::new(ProfileMapper::new(
+        config,
+        options.trust_email_verified,
+    )));
     let oidc = OidcConfig {
         jwks_url: text(config, "jwksEndpoint")
             .unwrap_or("https://invalid.invalid/sso-missing-jwks")
@@ -104,16 +109,20 @@ struct ProfileMapper {
     email: String,
     name: String,
     image: String,
+    email_verified: String,
+    trust_email_verified: bool,
     extra: Vec<(String, String)>,
 }
 
 impl ProfileMapper {
-    fn new(config: &Map<String, Value>) -> Self {
+    fn new(config: &Map<String, Value>, trust_email_verified: bool) -> Self {
         let mapping = config.get("mapping").and_then(Value::as_object);
         Self {
             email: mapped(mapping, "email", "email"),
             name: mapped(mapping, "name", "name"),
             image: mapped(mapping, "image", "picture"),
+            email_verified: mapped(mapping, "emailVerified", "email_verified"),
+            trust_email_verified,
             extra: mapping
                 .and_then(|mapping| mapping.get("extraFields"))
                 .and_then(Value::as_object)
@@ -136,7 +145,11 @@ impl GenericOAuthProfileMapper for ProfileMapper {
             ("email".into(), claim(profile, &self.email)),
             ("name".into(), claim(profile, &self.name)),
             ("image".into(), claim(profile, &self.image)),
-            ("emailVerified".into(), json!(false)),
+            (
+                "emailVerified".into(),
+                json!(self.trust_email_verified
+                    && provider_email_verified(&claim(profile, &self.email_verified))),
+            ),
         ]);
         mapped.extend(
             self.extra
@@ -157,6 +170,10 @@ fn mapped(mapping: Option<&Map<String, Value>>, field: &str, default: &str) -> S
 
 fn claim(profile: &Value, field: &str) -> Value {
     profile.get(field).cloned().unwrap_or(Value::Null)
+}
+
+fn provider_email_verified(value: &Value) -> bool {
+    value == &Value::Bool(true) || value.as_str() == Some("true")
 }
 
 fn text<'a>(config: &'a Map<String, Value>, field: &str) -> Option<&'a str> {

@@ -66,6 +66,30 @@ pub(super) fn base_url(service: &AuthService) -> String {
         .unwrap_or_else(|| service.base_path().trim_end_matches('/').to_owned())
 }
 
+pub(super) fn oidc_redirect_uri(
+    service: &AuthService,
+    plugin: &SsoPlugin,
+    provider_id: &str,
+) -> String {
+    let Some(configured) = plugin
+        .options()
+        .redirect_uri
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return format!("{}/sso/callback/{provider_id}", base_url(service));
+    };
+    if url::Url::parse(configured).is_ok() {
+        return configured.to_owned();
+    }
+    format!(
+        "{}/{}",
+        base_url(service),
+        configured.trim_start_matches('/')
+    )
+}
+
 pub(super) async fn authorized_provider(
     service: &AuthService,
     plugin: &SsoPlugin,

@@ -1,5 +1,5 @@
 use super::{SignInBody, authorization, support};
-use crate::{AuthService, SsoProvider, service::OAuthState};
+use crate::{AuthService, SsoPlugin, SsoProvider, service::OAuthState};
 use axum::{
     Json,
     response::{IntoResponse, Response},
@@ -25,6 +25,7 @@ struct SavedState {
 
 pub(super) async fn start(
     service: &AuthService,
+    plugin: &SsoPlugin,
     provider: &SsoProvider,
     config: &Map<String, Value>,
     body: SignInBody,
@@ -52,11 +53,7 @@ pub(super) async fn start(
         Err(response) => return *response,
     };
     let scopes = body.scopes.unwrap_or_else(|| configured_scopes(config));
-    let redirect_uri = format!(
-        "{}/sso/callback/{}",
-        support::base_url(service),
-        provider.provider_id
-    );
+    let redirect_uri = support::oidc_redirect_uri(service, plugin, &provider.provider_id);
     let authorization_url = match authorization::build(authorization::Input {
         endpoint,
         client_id,

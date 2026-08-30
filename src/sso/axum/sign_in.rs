@@ -76,7 +76,7 @@ pub(super) async fn sign_in(
             Ok(config) => config,
             Err(error) => return super::runtime_oidc::api_error(error),
         };
-        return oidc::start(&service, &provider, &config, body).await;
+        return oidc::start(&service, &plugin, &provider, &config, body).await;
     }
     if provider.saml_config.is_some() {
         let message = if body.additional_params.is_some() {
