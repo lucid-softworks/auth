@@ -360,6 +360,142 @@ async fn registration_limit_counts_only_the_callers_providers() {
 }
 
 #[tokio::test]
+async fn saml_registration_enforces_authority_certificates_redirects_and_sp_policy() {
+    let fixture = fixture().await;
+    let base = json!({
+        "issuer": "https://sp.example.com",
+        "domain": "example.com"
+    });
+    let (status, missing_idp) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/register",
+        Some(&fixture.owner_cookie),
+        json!({
+            "providerId": "missing-idp",
+            "issuer": base["issuer"],
+            "domain": base["domain"],
+            "samlConfig": {
+                "entryPoint": "https://idp.example.com/sso",
+                "cert": "certificate"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(missing_idp["code"], "VALIDATION_ERROR");
+    assert_eq!(
+        missing_idp["message"],
+        "[body.samlConfig.idpMetadata] idpMetadata.entityID is required when IdP metadata XML is not provided"
+    );
+
+    let (status, missing_cert) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/register",
+        Some(&fixture.owner_cookie),
+        json!({
+            "providerId": "missing-cert",
+            "issuer": base["issuer"],
+            "domain": base["domain"],
+            "samlConfig": {
+                "entryPoint": "https://idp.example.com/sso",
+                "idpMetadata": {"entityID": "https://idp.example.com"}
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(missing_cert["code"], "CERT_SOURCE_MISSING");
+    assert_eq!(
+        missing_cert["message"],
+        "samlConfig requires either a signing certificate (cert or idpMetadata.cert) or an idpMetadata.metadata XML document."
+    );
+
+    let (status, fragment) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/register",
+        Some(&fixture.owner_cookie),
+        json!({
+            "providerId": "fragment",
+            "issuer": base["issuer"],
+            "domain": base["domain"],
+            "samlConfig": {
+                "entryPoint": "https://idp.example.com/sso",
+                "idpMetadata": {"entityID": "https://idp.example.com"},
+                "cert": "certificate",
+                "callbackUrl": "https://app.example.com/#fragment"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        fragment["message"],
+        "[body.samlConfig.callbackUrl] callbackUrl must not contain a fragment"
+    );
+
+    let (status, policy) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/register",
+        Some(&fixture.owner_cookie),
+        json!({
+            "providerId": "weak-sp-policy",
+            "issuer": base["issuer"],
+            "domain": base["domain"],
+            "samlConfig": {
+                "entryPoint": "https://idp.example.com/sso",
+                "idpMetadata": {"entityID": "https://idp.example.com"},
+                "cert": "certificate",
+                "wantAssertionsSigned": true,
+                "spMetadata": {
+                    "metadata": "<EntityDescriptor><SPSSODescriptor WantAssertionsSigned=\"false\"><AssertionConsumerService Binding=\"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST\" Location=\"https://example.com/acs\"/></SPSSODescriptor></EntityDescriptor>"
+                }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        policy["code"],
+        "SAML_SP_METADATA_ASSERTION_SIGNATURE_MISMATCH"
+    );
+
+    let (status, created) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/register",
+        Some(&fixture.owner_cookie),
+        json!({
+            "providerId": "workforce-saml",
+            "issuer": base["issuer"],
+            "domain": base["domain"],
+            "samlConfig": {
+                "entryPoint": "https://idp.example.com/sso",
+                "idpMetadata": {"entityID": "https://idp.example.com"},
+                "cert": "certificate",
+                "privateKey": "plaintext-upstream-private-key",
+                "wantAssertionsSigned": true
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        created["samlConfig"]["privateKey"],
+        "plaintext-upstream-private-key"
+    );
+
+    let metadata = fixture
+        .app
+        .oneshot(
+            Request::get("/api/auth/sso/saml2/sp/metadata?providerId=workforce-saml")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(metadata.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn provider_mutations_enforce_access_merge_configs_reset_domains_and_delete() {
     let fixture = fixture().await;
     let (status, empty) = post(
