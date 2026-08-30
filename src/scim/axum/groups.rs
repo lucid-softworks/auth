@@ -83,10 +83,14 @@ pub(super) async fn get(
         Ok(principal) => principal,
         Err(response) => return response,
     };
+    let projection = match query::projection(&query, "Group") {
+        Ok(projection) => projection,
+        Err(error) => return support::error_response(error),
+    };
     match plugin.store.find_group(&principal.connection_id, &group_id).await {
         Ok(Some(group)) => support::json(
             StatusCode::OK,
-            query::project_value(present(&service, &group), &query),
+            query::project_value(present(&service, &group), &projection),
         ),
         Ok(None) => support::error_response(ScimError::new(404, "Group not found")),
         Err(error) => support::error_response(store_error(error)),
@@ -114,6 +118,10 @@ pub(super) async fn list(
         Ok(pagination) => pagination,
         Err(error) => return support::error_response(error),
     };
+    let projection = match query::projection(&query, "Group") {
+        Ok(projection) => projection,
+        Err(error) => return support::error_response(error),
+    };
     let groups = match plugin.store.list_groups(&principal.connection_id).await {
         Ok(groups) => groups,
         Err(error) => return support::error_response(store_error(error)),
@@ -126,7 +134,7 @@ pub(super) async fn list(
     let (total, values) = query::page(values, pagination);
     let values = values
         .into_iter()
-        .map(|value| query::project_value(value, &query))
+        .map(|value| query::project_value(value, &projection))
         .collect();
     support::json(
         StatusCode::OK,
