@@ -1,6 +1,6 @@
 use super::{
-    SCIM_ENTERPRISE_USER_SCHEMA, SCIM_GROUP_SCHEMA, SCIM_LIST_RESPONSE_SCHEMA, SCIM_USER_SCHEMA,
-    ScimError, ScimErrorType,
+    SCIM_ENTERPRISE_USER_SCHEMA, SCIM_LIST_RESPONSE_SCHEMA, SCIM_USER_SCHEMA, ScimError,
+    ScimErrorType,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -8,10 +8,12 @@ use serde::{Deserialize, Serialize};
 mod managed;
 mod patch;
 mod structured;
+mod group;
 
 pub use managed::{ScimManagedConnection, ScimManagedConnectionEvent, ScimManagedCredential};
 pub use patch::{ScimPatchOperation, ScimPatchRequest};
 pub use structured::{ScimEntitlement, ScimManager, ScimPhoneNumber, ScimRole};
+pub use group::{ScimGroup, ScimGroupMember};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -127,9 +129,25 @@ fn default_active() -> bool {
 impl ScimUser {
     pub fn normalize(mut self) -> Result<Self, ScimError> {
         validate_user_schemas(&self.schemas, self.enterprise.is_some())?;
+        self.schemas = [SCIM_USER_SCHEMA]
+            .into_iter()
+            .chain(
+                self.schemas
+                    .iter()
+                    .any(|schema| schema == SCIM_ENTERPRISE_USER_SCHEMA)
+                    .then_some(SCIM_ENTERPRISE_USER_SCHEMA),
+            )
+            .map(str::to_owned)
+            .collect();
         self.user_name = bounded(self.user_name, 512, "userName")?;
         self.external_id = optional_bounded(self.external_id, 1024, "externalId")?;
         self.display_name = optional_bounded(self.display_name, 1024, "displayName")?;
+        self.title = optional_bounded(self.title, 1024, "title")?;
+        self.user_type = optional_bounded(self.user_type, 256, "userType")?;
+        self.preferred_language =
+            optional_bounded(self.preferred_language, 256, "preferredLanguage")?;
+        self.locale = optional_bounded(self.locale, 256, "locale")?;
+        self.timezone = optional_bounded(self.timezone, 256, "timezone")?;
         normalize_emails(&self.user_name, &mut self.emails)?;
         normalize_name(&self.user_name, &mut self.display_name, &mut self.name)?;
         validate_structured_counts(&self)?;
@@ -326,61 +344,6 @@ fn looks_like_email(value: &str) -> bool {
         && !domain.starts_with('.')
         && !domain.ends_with('.')
         && !value.chars().any(char::is_whitespace)
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ScimGroupMember {
-    pub value: String,
-    #[serde(rename = "$ref", skip_serializing_if = "Option::is_none")]
-    pub reference: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub display: Option<String>,
-    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
-    pub kind: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ScimGroup {
-    pub schemas: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub external_id: Option<String>,
-    pub display_name: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub members: Vec<ScimGroupMember>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub meta: Option<ScimMeta>,
-}
-
-impl ScimGroup {
-    pub fn normalize(mut self) -> Result<Self, ScimError> {
-        if self.schemas != [SCIM_GROUP_SCHEMA] {
-            return Err(invalid(
-                "schemas must contain only the core SCIM Group schema",
-            ));
-        }
-        self.display_name = bounded(self.display_name, 1024, "displayName")?;
-        self.external_id = optional_bounded(self.external_id, 1024, "externalId")?;
-        if self.members.len() > 1000 {
-            return Err(invalid("members must contain at most 1000 values"));
-        }
-        let mut seen = std::collections::HashSet::new();
-        self.members.retain(|member| seen.insert(member.value.clone()));
-        for member in &mut self.members {
-            member.value = bounded(member.value.clone(), 256, "members.value")?;
-            if member.kind.as_deref().is_some_and(|kind| !kind.eq_ignore_ascii_case("user")) {
-                return Err(invalid("Group members must reference User resources"));
-            }
-            member.kind = Some("User".into());
-            member.reference = None;
-            member.display = None;
-        }
-        self.id = None;
-        self.meta = None;
-        Ok(self)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

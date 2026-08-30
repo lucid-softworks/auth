@@ -298,6 +298,9 @@ async fn unsupported_user_attributes_are_rejected_instead_of_discarded() {
 async fn structured_user_attributes_normalize_and_enforce_primary_type_rules() {
     let (app, _, _, _) = application();
     let mut resource = user("structured@example.com");
+    resource["schemas"] = json!([SCIM_ENTERPRISE_USER_SCHEMA, SCIM_USER_SCHEMA]);
+    resource["title"] = json!(" Principal Engineer ");
+    resource["locale"] = json!(" en-GB ");
     resource["phoneNumbers"] = json!([
         { "value": " +44 20 0000 0000 ", "type": "WORK", "primary": "true" }
     ]);
@@ -311,6 +314,12 @@ async fn structured_user_attributes_normalize_and_enforce_primary_type_rules() {
     }]);
     let (status, created) = send_json(app.clone(), "POST", "/scim/v2/Users", resource).await;
     assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(
+        created["schemas"],
+        json!([SCIM_USER_SCHEMA, SCIM_ENTERPRISE_USER_SCHEMA])
+    );
+    assert_eq!(created["title"], "Principal Engineer");
+    assert_eq!(created["locale"], "en-GB");
     assert_eq!(created["phoneNumbers"][0]["value"], "+44 20 0000 0000");
     assert_eq!(created["phoneNumbers"][0]["type"], "work");
     assert_eq!(created["phoneNumbers"][0]["primary"], true);
