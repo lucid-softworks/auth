@@ -1,6 +1,7 @@
 //! Native enterprise SSO surface compatible with `@better-auth/sso` 1.7.1.
 
 mod config;
+mod database;
 mod discovery;
 mod plugin;
 mod schema;
@@ -8,6 +9,7 @@ mod store;
 mod timestamp;
 
 pub use config::SsoOptions;
+pub use database::DatabaseSsoStore;
 pub use discovery::{
     DiscoveryError, DiscoveryErrorCode, OidcConfig, OidcDiscoveryDocument,
     REQUIRED_DISCOVERY_FIELDS,

@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -17,8 +16,6 @@ pub struct SsoProvider {
     pub organization_id: Option<String>,
     pub domain: String,
     pub domain_verified: Option<bool>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -32,7 +29,6 @@ pub struct NewSsoProvider {
     pub organization_id: Option<String>,
     pub domain: String,
     pub domain_verified: Option<bool>,
-    pub now: DateTime<Utc>,
 }
 
 impl NewSsoProvider {
@@ -47,8 +43,6 @@ impl NewSsoProvider {
             organization_id: self.organization_id,
             domain: self.domain,
             domain_verified: self.domain_verified,
-            created_at: self.now,
-            updated_at: self.now,
         }
     }
 }
@@ -62,7 +56,6 @@ pub struct SsoProviderUpdate {
     pub organization_id: Option<Option<String>>,
     pub domain: Option<String>,
     pub domain_verified: Option<bool>,
-    pub updated_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -127,9 +120,7 @@ impl SsoStore for MemorySsoStore {
     async fn list(&self) -> Result<Vec<SsoProvider>, SsoStoreError> {
         let providers = self.providers.lock().await;
         let mut providers = providers.values().cloned().collect::<Vec<_>>();
-        providers.sort_by(|left, right| {
-            (left.created_at, &left.id).cmp(&(right.created_at, &right.id))
-        });
+        providers.sort_by(|left, right| left.id.cmp(&right.id));
         Ok(providers)
     }
 
@@ -174,7 +165,6 @@ impl SsoStore for MemorySsoStore {
         provider.organization_id = update.organization_id.unwrap_or(existing.organization_id);
         provider.domain = update.domain.unwrap_or(existing.domain);
         provider.domain_verified = update.domain_verified.or(existing.domain_verified);
-        provider.updated_at = update.updated_at.unwrap_or(existing.updated_at);
         Ok(provider.clone())
     }
 
