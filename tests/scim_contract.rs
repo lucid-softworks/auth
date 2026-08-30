@@ -295,6 +295,38 @@ async fn unsupported_user_attributes_are_rejected_instead_of_discarded() {
 }
 
 #[tokio::test]
+async fn structured_user_attributes_normalize_and_enforce_primary_type_rules() {
+    let (app, _, _, _) = application();
+    let mut resource = user("structured@example.com");
+    resource["phoneNumbers"] = json!([
+        { "value": " +44 20 0000 0000 ", "type": "WORK", "primary": "true" }
+    ]);
+    resource["roles"] = json!([
+        { "value": " engineer ", "display": " Engineer ", "type": "APPLICATION" }
+    ]);
+    let (status, created) = send_json(app.clone(), "POST", "/scim/v2/Users", resource).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(created["phoneNumbers"][0]["value"], "+44 20 0000 0000");
+    assert_eq!(created["phoneNumbers"][0]["type"], "work");
+    assert_eq!(created["phoneNumbers"][0]["primary"], true);
+    assert_eq!(created["roles"][0]["value"], "engineer");
+    assert_eq!(created["roles"][0]["type"], "application");
+
+    let mut duplicate = user("duplicate-types@example.com");
+    duplicate["entitlements"] = json!([
+        { "value": "first", "type": "LICENSE" },
+        { "value": "second", "type": "license" }
+    ]);
+    let (status, body) = send_json(app, "POST", "/scim/v2/Users", duplicate).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["scimType"], "invalidValue");
+    assert_eq!(
+        body["detail"],
+        "entitlements cannot contain duplicate defined types"
+    );
+}
+
+#[tokio::test]
 async fn user_crud_normalizes_profile_filters_paginates_and_projects() {
     let (app, _, _, auth_store) = application();
     let (status, created) = send_json(

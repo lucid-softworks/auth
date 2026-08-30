@@ -8,9 +8,11 @@ use serde_json::Value;
 
 mod managed;
 mod patch;
+mod structured;
 
 pub use managed::{ScimManagedConnection, ScimManagedConnectionEvent, ScimManagedCredential};
 pub use patch::{ScimPatchOperation, ScimPatchRequest};
+pub use structured::{ScimEntitlement, ScimPhoneNumber, ScimRole};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -103,13 +105,13 @@ pub struct ScimUser {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub phone_numbers: Vec<Value>,
+    pub phone_numbers: Vec<ScimPhoneNumber>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub addresses: Vec<ScimAddress>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub roles: Vec<Value>,
+    pub roles: Vec<ScimRole>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub entitlements: Vec<Value>,
+    pub entitlements: Vec<ScimEntitlement>,
     #[serde(default = "default_active")]
     pub active: bool,
     #[serde(rename = "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User")]
@@ -132,6 +134,10 @@ impl ScimUser {
         normalize_emails(&self.user_name, &mut self.emails)?;
         normalize_name(&self.user_name, &mut self.display_name, &mut self.name)?;
         validate_structured_counts(&self)?;
+        structured::normalize_phone_numbers(&mut self.phone_numbers)?;
+        structured::normalize_addresses(&mut self.addresses)?;
+        structured::normalize_roles(&mut self.roles, "roles")?;
+        structured::normalize_entitlements(&mut self.entitlements)?;
         if serde_json::to_vec(&self).map_or(usize::MAX, |value| value.len()) > 65_535 {
             return Err(invalid("SCIM User attributes exceed the supported serialized size"));
         }
@@ -246,9 +252,9 @@ fn normalize_name(
 }
 
 fn validate_structured_counts(user: &ScimUser) -> Result<(), ScimError> {
-    if [&user.phone_numbers, &user.roles, &user.entitlements]
-        .into_iter()
-        .any(|values| values.len() > 10)
+    if user.phone_numbers.len() > 10
+        || user.roles.len() > 10
+        || user.entitlements.len() > 10
         || user.addresses.len() > 10
     {
         return Err(invalid(

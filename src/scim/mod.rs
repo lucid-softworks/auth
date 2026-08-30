@@ -21,8 +21,8 @@ pub use error::{ScimError, ScimErrorBody, ScimErrorType};
 pub use memory::MemoryScimStore;
 pub use model::{
     ScimAddress, ScimEmail, ScimEnterpriseUser, ScimGroup, ScimGroupMember, ScimListResponse,
-    ScimManagedConnection, ScimManagedConnectionEvent, ScimManagedCredential, ScimName,
-    ScimPatchOperation, ScimPatchRequest, ScimUser,
+    ScimEntitlement, ScimManagedConnection, ScimManagedConnectionEvent, ScimManagedCredential,
+    ScimName, ScimPatchOperation, ScimPatchRequest, ScimPhoneNumber, ScimRole, ScimUser,
 };
 pub use plugin::ScimPlugin;
 pub use store::{ScimConnectionBinding, ScimStore, ScimStoreError};
