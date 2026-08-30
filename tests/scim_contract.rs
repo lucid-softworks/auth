@@ -333,7 +333,7 @@ async fn user_patch_is_ordered_case_insensitive_and_atomic_at_the_store_boundary
         "schemas": [SCIM_PATCH_SCHEMA],
         "Operations": [
             { "op": "REPLACE", "path": "displayName", "value": "First" },
-            { "op": "replace", "path": "displayName", "value": "Second" },
+            { "op": "replace", "path": "displayName", "value": [" Second "] },
             { "op": "replace", "path": "Name.GivenName", "value": "Nova" },
             { "op": "add", "path": "emails[type eq \"home\"].value", "value": "home@example.com" },
             { "op": "remove", "path": format!("{SCIM_ENTERPRISE_USER_SCHEMA}:department") },
