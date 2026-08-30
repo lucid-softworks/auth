@@ -4,6 +4,7 @@ mod config;
 mod discovery;
 mod plugin;
 mod schema;
+mod store;
 mod timestamp;
 
 pub use config::SsoOptions;
@@ -16,6 +17,9 @@ pub use discovery::{
     validate_oidc_endpoint_url,
 };
 pub use plugin::SsoPlugin;
+pub use store::{
+    MemorySsoStore, NewSsoProvider, SsoProvider, SsoProviderUpdate, SsoStore, SsoStoreError,
+};
 pub use timestamp::{
     SamlConditions, SamlTimestampError, SamlTimestampOptions, validate_saml_timestamp,
     validate_saml_timestamp_at,

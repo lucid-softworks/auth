@@ -1,10 +1,10 @@
-use super::{SsoOptions, VERSION};
+use super::{MemorySsoStore, SsoOptions, SsoStore, VERSION};
 use crate::{
     AuthPlugin, PluginArtifactMetadata, PluginClientMetadata, PluginClientPathMethod,
     PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginProvenance,
 };
 use async_trait::async_trait;
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::Arc};
 
 const BASE_ENDPOINTS: &[PluginEndpoint] = &[
     endpoint(PluginHttpMethod::Get, "/sso/saml2/sp/metadata", "spMetadata"),
@@ -49,18 +49,42 @@ const fn endpoint(
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone)]
 pub struct SsoPlugin {
     options: SsoOptions,
+    store: Arc<dyn SsoStore>,
+}
+
+impl Default for SsoPlugin {
+    fn default() -> Self {
+        Self::new(SsoOptions::default())
+    }
+}
+
+impl std::fmt::Debug for SsoPlugin {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SsoPlugin")
+            .field("options", &self.options)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SsoPlugin {
     pub fn new(options: SsoOptions) -> Self {
-        Self { options }
+        Self::with_store(options, Arc::new(MemorySsoStore::new()))
+    }
+
+    pub fn with_store(options: SsoOptions, store: Arc<dyn SsoStore>) -> Self {
+        Self { options, store }
     }
 
     pub fn options(&self) -> &SsoOptions {
         &self.options
+    }
+
+    pub fn store(&self) -> &Arc<dyn SsoStore> {
+        &self.store
     }
 }
 
