@@ -8,7 +8,9 @@ pub(super) use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 pub(super) use chrono::{Duration, Utc};
 pub(super) use http_body_util::BodyExt;
 pub(super) use lucid_auth::{
-    AuthConfig, AuthError, AuthPlugin, AuthService, DatabaseIdValue, JwtAdapterContext, JwtConfig,
+    AuthConfig, AuthError, AuthPlugin, AuthService, CimdClientCreatedEvent, CimdClientLifecycle,
+    CimdClientRefreshedEvent, CimdFetchError, CimdFetchRequest, CimdFetchResponse,
+    CimdMetadataResourceFetcher, CimdOptions, DatabaseIdValue, JwtAdapterContext, JwtConfig,
     JwtPlugin, JwtProtectedHeader, JwtSigningOverrides, MemoryOAuthProviderStore, MemoryStore,
     NewPasswordUser, OAuthCallbackContext, OAuthClaimTarget, OAuthClientRegistrationMode,
     OAuthClientRegistrationOutcome, OAuthClientRegistrationWrite, OAuthExpiration,
@@ -20,7 +22,7 @@ pub(super) use lucid_auth::{
     OAuthProviderExtension, OAuthProviderMetadataDocument, OAuthProviderPlugin,
     OAuthProviderPluginConfig, OAuthProviderRefreshToken, OAuthProviderResource,
     OAuthProviderResourceStore, OAuthProviderTokenStore, OAuthRefreshRotation,
-    OAuthRefreshRotationOutcome, OAuthTokenIssuance, PreparedDatabaseId,
+    OAuthRefreshRotationOutcome, OAuthTokenIssuance, PreparedDatabaseId, cimd,
 };
 pub(super) use serde_json::{Map, Value, json};
 pub(super) use sha2::{Digest as _, Sha256};

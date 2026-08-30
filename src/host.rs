@@ -9,6 +9,7 @@ mod audit;
 mod autumn;
 mod bearer;
 mod captcha;
+mod cimd;
 mod chargebee;
 mod client_ip;
 mod commet;
@@ -38,6 +39,7 @@ mod mcp;
 mod memory;
 mod model;
 mod multi_session;
+mod network_address;
 mod oauth;
 mod oauth_popup;
 mod oauth_provider;
@@ -100,6 +102,7 @@ pub use api_key::{
     ApiKeySecondaryStorage, ApiKeySecondaryStorageMode, ApiKeyStartingCharactersConfig,
     ApiKeyStorage, ApiKeyValidator,
 };
+pub use cimd::*;
 pub use database_hooks::{
     BeforeDatabaseCreateHook, BeforeDatabaseUpdateHook, DatabaseCreatePatch, DatabaseCreateRecord,
     DatabaseHookContext, DatabaseHookRequest, DatabaseHooks, DatabaseModel, DatabaseRecord,

@@ -1441,6 +1441,38 @@ Auth's server-only admin/resource actions intentionally remain unavailable over
 HTTP, and device authorization is a separate plugin. See the
 [compatibility matrix](COMPATIBILITY.md) for the precise boundary.
 
+Client ID Metadata Document discovery matches the server-only
+`@better-auth/cimd@1.7.1` companion. Install it with OAuth Provider and supply
+the required metadata-resource transport; there is no CIMD browser plugin,
+client factory, HTTP endpoint, or Dynamic Client Registration alias:
+
+```rust
+use lucid_auth::{
+    CimdOptions, NativeCimdMetadataFetcher, cimd,
+};
+use std::sync::Arc;
+
+config.add_plugin(cimd(CimdOptions::new(Arc::new(
+    NativeCimdMetadataFetcher,
+)))?)?;
+```
+
+The generic behavior follows Client ID Metadata Document draft-02. Set
+`metadata_profile` to `Some(CimdMetadataProfile::Mcp20260728)` only for the
+MCP 2026-07-28 draft-00 profile. Discovered clients use OAuth Provider's
+configured `oauthClient` schema and canonical resource-link persistence; the
+document cannot assign secrets, server trust, administrative flags, resources,
+or client-credentials scopes.
+
+The native transport accepts HTTPS only, resolves a hostname once, rejects the
+request if any DNS answer is non-public, pins one approved address while
+preserving Host/TLS identity, refuses redirects, and bounds response reads.
+Applications supplying a custom transport must preserve those properties.
+CIMD fetches untrusted remote metadata during OAuth requests, so production
+operators should also use `metadata_document_url_policy`, conservative fetch
+budgets, and an origin allowlist when their deployment has a narrower trust
+boundary.
+
 MCP support matches the authorization boundary of `@better-auth/mcp@1.7.1`.
 It is an OAuth Provider preset and RFC 9728 protected-resource server, not an
 MCP transport: it binds issued tokens to one configured MCP resource, links

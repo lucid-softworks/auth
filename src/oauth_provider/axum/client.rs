@@ -47,7 +47,7 @@ async fn resolve_discovered_client(
         let client = extension
             .discover_client(client_id, stored_client, &context)
             .await
-            .map_err(|error| OAuthProviderError::ServerError(error.to_string()))?;
+            .map_err(extension_error)?;
         if let Some(client) = client {
             if client.client_id != client_id {
                 return Err(OAuthProviderError::InvalidClient(
@@ -58,6 +58,13 @@ async fn resolve_discovered_client(
         }
     }
     Ok(None)
+}
+
+fn extension_error(error: crate::AuthError) -> OAuthProviderError {
+    match error {
+        crate::AuthError::OAuthProvider(error) => error,
+        error => OAuthProviderError::ServerError(error.to_string()),
+    }
 }
 
 fn header_context(headers: &HeaderMap) -> BTreeMap<String, String> {

@@ -44,6 +44,15 @@ pub struct OAuthExtensionGrantInput {
 
 #[async_trait]
 pub trait OAuthProviderExtension: Send + Sync {
+    /// Binds a companion discovery extension to the effective provider runtime.
+    fn bind_oauth_provider(
+        &self,
+        _service: &crate::AuthService,
+        _config: Arc<super::OAuthProviderConfig>,
+        _store: Arc<dyn super::OAuthProviderStore>,
+    ) {
+    }
+
     fn grant_types(&self) -> Vec<String> {
         Vec::new()
     }
