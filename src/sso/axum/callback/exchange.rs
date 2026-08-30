@@ -1,19 +1,31 @@
 use super::{redirect_error, support};
-use crate::{AuthService, SsoProvider, service::OAuthState};
+use crate::{AuthService, SsoPlugin, SsoProvider, service::OAuthState};
 use axum::{
     http::{HeaderMap, HeaderValue},
     response::Response,
 };
 
+pub(super) struct Input {
+    pub provider: SsoProvider,
+    pub code: String,
+    pub state_token: String,
+    pub state: OAuthState,
+    pub error_url: String,
+}
+
 pub(super) async fn finish(
     service: &AuthService,
+    plugin: &SsoPlugin,
     headers: &HeaderMap,
-    mut provider: SsoProvider,
-    code: String,
-    state_token: String,
-    state: OAuthState,
-    error_url: String,
+    input: Input,
 ) -> Response {
+    let Input {
+        mut provider,
+        code,
+        state_token,
+        state,
+        error_url,
+    } = input;
     let Some(config) = provider.oidc_config.as_ref().and_then(serde_json::Value::as_object) else {
         return redirect_error(&error_url, "invalid_provider", "provider not found");
     };
@@ -27,12 +39,12 @@ pub(super) async fn finish(
         Ok(config) => Some(serde_json::Value::Object(config)),
         Err(error) => return redirect_error(&error_url, "discovery_failed", &error.message),
     };
-    let redirect_uri = format!(
-        "{}/sso/callback/{}",
-        support::base_url(service),
-        provider.provider_id
-    );
-    let dynamic = match super::super::super::oidc_provider::build(&provider, redirect_uri.clone()) {
+    let redirect_uri = support::oidc_redirect_uri(service, plugin, &provider.provider_id);
+    let dynamic = match super::super::super::oidc_provider::build(
+        &provider,
+        redirect_uri.clone(),
+        plugin.options(),
+    ) {
         Ok(provider) => provider,
         Err(description) => return redirect_error(&error_url, "invalid_provider", description),
     };
