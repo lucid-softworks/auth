@@ -224,7 +224,6 @@ fn local_response(response: &str) -> String {
 #[tokio::test]
 async fn memory_provider_catalog_enforces_identity_and_ordering() {
     let store = MemorySsoStore::new();
-    let now = Utc.with_ymd_and_hms(2026, 8, 30, 13, 0, 0).unwrap();
     let provider = NewSsoProvider {
         id: "provider-row".into(),
         issuer: "https://sp.example".into(),
@@ -235,7 +234,6 @@ async fn memory_provider_catalog_enforces_identity_and_ordering() {
         organization_id: Some("organization".into()),
         domain: "example.com".into(),
         domain_verified: Some(false),
-        now,
     };
     let created = store.create(provider.clone()).await.unwrap();
     assert_eq!(created.provider_id, "workforce");
@@ -254,7 +252,6 @@ async fn memory_provider_catalog_enforces_identity_and_ordering() {
             SsoProviderUpdate {
                 domain: Some("login.example.com".into()),
                 domain_verified: Some(true),
-                updated_at: Some(now + chrono::Duration::seconds(1)),
                 ..SsoProviderUpdate::default()
             },
         )
