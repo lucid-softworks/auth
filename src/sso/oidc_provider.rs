@@ -1,4 +1,4 @@
-use super::{SsoOptions, SsoProvider};
+use super::{SsoOptions, SsoPrivateKey, SsoProvider, private_key::SsoClientAssertion};
 use crate::{
     AuthError, GenericOAuthConfig, GenericOAuthMappedUser, GenericOAuthProfileMapper,
     GenericOAuthUserInfo, OAuthTokens, OidcConfig, TokenEndpointAuth,
@@ -12,6 +12,7 @@ pub(super) fn build(
     provider: &SsoProvider,
     redirect_uri: String,
     options: &SsoOptions,
+    private_key: Option<SsoPrivateKey>,
 ) -> Result<GenericOAuthProvider, &'static str> {
     let config = provider
         .oidc_config
@@ -41,7 +42,14 @@ pub(super) fn build(
     generic.token_endpoint_auth = match text(config, "tokenEndpointAuthentication") {
         Some("client_secret_post") => Some(TokenEndpointAuth::ClientSecretPost),
         Some("none") => Some(TokenEndpointAuth::None),
-        Some("private_key_jwt") => return Err("no_private_key_available"),
+        Some("private_key_jwt") => Some(TokenEndpointAuth::PrivateKeyJwt(Arc::new(
+            SsoClientAssertion::new(
+                private_key.ok_or("no_private_key_available")?,
+                text(config, "privateKeyId"),
+                text(config, "privateKeyAlgorithm"),
+            )
+            .map_err(|_| "invalid_private_key")?,
+        ))),
         _ => Some(TokenEndpointAuth::ClientSecretBasic),
     };
     generic.map_profile_to_user = Some(Arc::new(ProfileMapper::new(

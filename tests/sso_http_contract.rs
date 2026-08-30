@@ -13,7 +13,7 @@ use josekit::{
 };
 use lucid_auth::{
     AuthConfig, AuthService, EmailSignUpInput, MemorySsoStore, MemoryStore, NewSsoProvider,
-    SsoDnsResolver, SsoOptions, SsoPlugin, SsoProviderUpdate, SsoStore,
+    SsoDnsResolver, SsoOptions, SsoPlugin, SsoPrivateKey, SsoProviderUpdate, SsoStore,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -52,6 +52,14 @@ async fn fixture_with_options_and_trusted_origins(
     options: SsoOptions,
     trusted_origins: &[&str],
 ) -> Fixture {
+    fixture_with_private_key(options, trusted_origins, None).await
+}
+
+async fn fixture_with_private_key(
+    options: SsoOptions,
+    trusted_origins: &[&str],
+    private_key: Option<SsoPrivateKey>,
+) -> Fixture {
     let mut config = AuthConfig::new([31_u8; 32]).unwrap();
     config.email_and_password.enabled = true;
     config.set_base_url("https://example.com").unwrap();
@@ -61,11 +69,12 @@ async fn fixture_with_options_and_trusted_origins(
     let providers = Arc::new(MemorySsoStore::new());
     let dns = Arc::new(FixtureDnsResolver::default());
     let domain_verification = options.domain_verification;
-    config
-        .add_plugin(
-            SsoPlugin::with_store(options, providers.clone()).with_dns_resolver(dns.clone()),
-        )
-        .unwrap();
+    let mut plugin =
+        SsoPlugin::with_store(options, providers.clone()).with_dns_resolver(dns.clone());
+    if let Some(private_key) = private_key {
+        plugin = plugin.with_default_private_key("acme-sso!", private_key);
+    }
+    config.add_plugin(plugin).unwrap();
     let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
     let owner = account(&service, "owner@example.com").await;
     let other = account(&service, "other@example.com").await;
@@ -469,6 +478,14 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
     public_key.set_algorithm("RS256");
     let id_token = signed_sso_id_token(&private_key, "client-123456");
     let invalid_id_token = signed_sso_id_token(&private_key, "different-client");
+    let assertion_public_key = public_key.clone();
+    let private_key_material = SsoPrivateKey {
+        private_key_jwk: Some(serde_json::to_value(&private_key).unwrap()),
+        kid: Some("sso-contract-key".into()),
+        algorithm: Some("RS256".into()),
+        ..SsoPrivateKey::default()
+    };
+    let (assertion_requests, mut assertion_receiver) = tokio::sync::mpsc::unbounded_channel();
     let identity_provider = Router::new()
         .route(
             "/.well-known/openid-configuration",
@@ -494,9 +511,11 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
             axum::routing::post({
                 let id_token = id_token.clone();
                 let invalid_id_token = invalid_id_token.clone();
+                let assertion_requests = assertion_requests.clone();
                 move |axum::extract::Form(params): axum::extract::Form<
                     std::collections::BTreeMap<String, String>,
                 >| {
+                    assertion_requests.send(params.clone()).unwrap();
                     let id_token = if params.get("code").is_some_and(|code| code == "invalid-azp") {
                         invalid_id_token.clone()
                     } else {
@@ -543,13 +562,14 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
         axum::serve(listener, identity_provider).await.unwrap();
     });
 
-    let fixture = fixture_with_options_and_trusted_origins(
+    let fixture = fixture_with_private_key(
         SsoOptions {
             trust_email_verified: true,
             disable_implicit_sign_up: true,
             ..SsoOptions::default()
         },
         &[idp_base.as_str()],
+        Some(private_key_material),
     )
     .await;
     fixture
@@ -561,7 +581,9 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
                     "discoveryEndpoint": format!("{idp_base}/.well-known/openid-configuration"),
                     "authorizationEndpoint": "https://explicit.example.com/authorize",
                     "clientId": "client-123456",
-                    "clientSecret": "secret",
+                    "tokenEndpointAuthentication": "private_key_jwt",
+                    "privateKeyId": "sso-contract-key",
+                    "privateKeyAlgorithm": "RS256",
                     "pkce": true,
                     "scopes": ["openid", "email"]
                 }))),
@@ -648,6 +670,20 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(session["user"]["emailVerified"], true);
+    let token_request = assertion_receiver.recv().await.unwrap();
+    assert_eq!(
+        token_request["client_assertion_type"],
+        "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+    );
+    assert_eq!(token_request["client_id"], "client-123456");
+    assert!(!token_request.contains_key("client_secret"));
+    let verifier = RS256.verifier_from_jwk(&assertion_public_key).unwrap();
+    let (assertion, _) =
+        josekit::jwt::decode_with_verifier(&token_request["client_assertion"], &verifier).unwrap();
+    assert_eq!(assertion.issuer(), Some("client-123456"));
+    assert_eq!(assertion.subject(), Some("client-123456"));
+    let expected_audience = format!("{idp_base}/token");
+    assert_eq!(assertion.audience(), Some(vec![expected_audience.as_str()]));
 
     let (state_cookie, state) = begin_oidc_sign_in(&fixture.app).await;
     let mismatch = fixture

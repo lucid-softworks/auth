@@ -8,6 +8,7 @@ mod discovery;
 #[cfg(feature = "axum")]
 mod axum;
 mod plugin;
+mod private_key;
 #[cfg(feature = "axum")]
 mod oidc_provider;
 mod provider_reference;
@@ -28,6 +29,7 @@ pub use discovery::{
     validate_oidc_endpoint_egress, validate_oidc_endpoint_url,
 };
 pub use plugin::SsoPlugin;
+pub use private_key::{SsoPrivateKey, SsoPrivateKeyRequest, SsoPrivateKeyResolver};
 pub use store::{
     MemorySsoStore, NewSsoProvider, SsoProvider, SsoProviderUpdate, SsoStore, SsoStoreError,
 };

@@ -1,5 +1,5 @@
 use crate::{
-    AuthService,
+    AuthService, SsoPlugin,
     sso::{
         DiscoveryError, DiscoveryErrorCode, SsoTokenEndpointAuthentication,
         compute_discovery_url, fetch_discovery_document, normalize_discovery_urls,
@@ -49,6 +49,8 @@ const fn default_pkce() -> bool {
 
 pub(super) async fn prepare(
     service: &AuthService,
+    plugin: &SsoPlugin,
+    provider_id: &str,
     issuer: &str,
     override_user_info: bool,
     config: &RegistrationConfig,
@@ -72,7 +74,7 @@ pub(super) async fn prepare(
     } else {
         hydrate(service, issuer, config, &mut persisted).await?;
     }
-    validate_authentication(config, &persisted)?;
+    validate_authentication(config, &persisted, plugin.has_private_key_source(provider_id))?;
     Ok(Value::Object(persisted))
 }
 
@@ -152,19 +154,20 @@ async fn hydrate(
 fn validate_authentication(
     config: &RegistrationConfig,
     persisted: &serde_json::Map<String, Value>,
+    has_private_key_source: bool,
 ) -> Result<(), Box<Response>> {
     let private_key = persisted
         .get("tokenEndpointAuthentication")
         .and_then(Value::as_str)
         == Some("private_key_jwt");
-    if private_key {
+    if private_key && !has_private_key_source {
         return Err(Box::new(super::super::support::error(
             StatusCode::BAD_REQUEST,
             "BAD_REQUEST",
             "private_key_jwt authentication requires either a resolvePrivateKey callback or a privateKey in defaultSSO",
         )));
     }
-    if config.client_secret.as_deref().is_none_or(str::is_empty) {
+    if !private_key && config.client_secret.as_deref().is_none_or(str::is_empty) {
         return Err(Box::new(super::super::support::error(
             StatusCode::BAD_REQUEST,
             "BAD_REQUEST",

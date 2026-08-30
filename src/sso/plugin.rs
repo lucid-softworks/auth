@@ -1,10 +1,14 @@
-use super::{MemorySsoStore, SsoOptions, SsoStore, VERSION};
+use super::{
+    MemorySsoStore, SsoOptions, SsoPrivateKey, SsoPrivateKeyResolver, SsoStore, VERSION,
+};
+#[cfg(feature = "axum")]
+use super::SsoPrivateKeyRequest;
 use crate::{
     AuthPlugin, PluginArtifactMetadata, PluginClientMetadata, PluginClientPathMethod,
     PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginProvenance,
 };
 use async_trait::async_trait;
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, collections::BTreeMap, sync::Arc};
 
 const BASE_ENDPOINTS: &[PluginEndpoint] = &[
     endpoint(PluginHttpMethod::Get, "/sso/saml2/sp/metadata", "spMetadata"),
@@ -53,6 +57,8 @@ const fn endpoint(
 pub struct SsoPlugin {
     options: SsoOptions,
     store: Arc<dyn SsoStore>,
+    private_key_resolver: Option<Arc<dyn SsoPrivateKeyResolver>>,
+    default_private_keys: BTreeMap<String, SsoPrivateKey>,
     #[cfg(feature = "axum")]
     dns_resolver: Arc<dyn super::SsoDnsResolver>,
 }
@@ -81,6 +87,8 @@ impl SsoPlugin {
         Self {
             options,
             store,
+            private_key_resolver: None,
+            default_private_keys: BTreeMap::new(),
             #[cfg(feature = "axum")]
             dns_resolver: Arc::new(super::SystemSsoDnsResolver),
         }
@@ -92,6 +100,40 @@ impl SsoPlugin {
 
     pub fn store(&self) -> &Arc<dyn SsoStore> {
         &self.store
+    }
+
+    pub fn with_private_key_resolver(mut self, resolver: Arc<dyn SsoPrivateKeyResolver>) -> Self {
+        self.private_key_resolver = Some(resolver);
+        self
+    }
+
+    pub fn with_default_private_key(
+        mut self,
+        provider_id: impl Into<String>,
+        private_key: SsoPrivateKey,
+    ) -> Self {
+        self.default_private_keys
+            .insert(provider_id.into(), private_key);
+        self
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn has_private_key_source(&self, provider_id: &str) -> bool {
+        self.default_private_keys.contains_key(provider_id) || self.private_key_resolver.is_some()
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) async fn resolve_private_key(
+        &self,
+        request: SsoPrivateKeyRequest,
+    ) -> Result<Option<SsoPrivateKey>, crate::AuthError> {
+        if let Some(material) = self.default_private_keys.get(&request.provider_id) {
+            return Ok(Some(material.clone()));
+        }
+        match &self.private_key_resolver {
+            Some(resolver) => resolver.resolve(request).await,
+            None => Ok(None),
+        }
     }
 
     #[cfg(feature = "axum")]

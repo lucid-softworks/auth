@@ -243,8 +243,9 @@ pub use scim::{
     ScimAuthorizationSource, ScimUserExternalIdReference, acquire_active_scim_user_link,
 };
 pub use sso::{
-    DatabaseSsoStore, MemorySsoStore, NewSsoProvider, SsoOptions, SsoPlugin, SsoProvider,
-    SsoProviderUpdate, SsoStore, SsoStoreError, VERSION as SSO_VERSION,
+    DatabaseSsoStore, MemorySsoStore, NewSsoProvider, SsoOptions, SsoPlugin, SsoPrivateKey,
+    SsoPrivateKeyRequest, SsoPrivateKeyResolver, SsoProvider, SsoProviderUpdate, SsoStore,
+    SsoStoreError, VERSION as SSO_VERSION,
 };
 #[cfg(feature = "axum")]
 pub use sso::{SsoDnsResolver, SystemSsoDnsResolver};
