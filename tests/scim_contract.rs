@@ -468,6 +468,14 @@ async fn managed_credentials_are_one_time_hmac_only_and_authenticate() {
     assert_eq!(persisted.1.token_digest, credential.token_digest);
     assert_eq!(persisted.1.hash_version, "v1");
     assert!(!persisted.1.token_digest.starts_with("v1:"));
+    assert_eq!(
+        persisted.1.active_slot_key,
+        format!("{}:active:0", connection.id)
+    );
+    assert_eq!(
+        persisted.1.serialized_scopes,
+        serde_json::to_string(&ScimScope::ALL).unwrap()
+    );
 
     let response = app
         .oneshot(
@@ -600,6 +608,16 @@ async fn managed_catalog_rotates_revokes_isolates_and_decommissions() {
     assert!(decommissioned.decommission_started_at.is_some());
     assert!(decommissioned.decommissioned_at.is_some());
     assert!(credentials.iter().all(|item| item.status != "active"));
+    assert!(
+        credentials
+            .iter()
+            .all(|item| item.status != "decommissioned" || item.decommissioned_at.is_some())
+    );
+    assert!(
+        credentials
+            .iter()
+            .all(|item| item.active_slot_key.ends_with(":inactive"))
+    );
 
     for token in [first_token, second_token] {
         let response = app

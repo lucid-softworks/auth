@@ -128,6 +128,8 @@ pub(super) fn decommission(
     for credential in state.managed_credentials.values_mut() {
         if record_id.is_some_and(|id| id == credential.connection_record_id) {
             credential.status = "decommissioned".into();
+            credential.active_slot_key = format!("{}:inactive", credential.credential_id);
+            credential.decommissioned_at = Some(now);
         }
     }
     if let Some(connection) = state.managed_connections.get_mut(connection_id) {
@@ -172,6 +174,8 @@ pub(super) fn decommission_managed(
         credential.connection_record_id == connection.id && credential.status == "active"
     }) {
         credential.status = "decommissioned".into();
+        credential.active_slot_key = format!("{}:inactive", credential.credential_id);
+        credential.decommissioned_at = Some(now);
     }
     state.users.retain(|_, user| user.connection_id != connection_id);
     state
@@ -228,6 +232,7 @@ pub(super) fn rotate_credential(
             && existing.expires_at <= now
     }) {
         existing.status = "expired".into();
+        existing.active_slot_key = format!("{}:inactive", existing.credential_id);
     }
     let active = state
         .managed_credentials
@@ -278,6 +283,7 @@ pub(super) fn revoke_credential(
         return Err(ScimStoreError::CredentialLimit);
     }
     credential.status = "revoked".into();
+    credential.active_slot_key = format!("{}:inactive", credential.credential_id);
     credential.revoked_at = Some(now);
     credential.revoked_by = Some(actor_id.into());
     let output = credential.clone();

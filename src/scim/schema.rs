@@ -203,7 +203,7 @@ fn managed_tables() -> [PluginSchemaTable; 3] {
             .field("credentialId", string().unique(true))
             .field("tokenDigest", hidden(string()))
             .field("hashVersion", hidden(string()))
-            .field("activeSlotKey", hidden(string().optional().unique(true)))
+            .field("activeSlotKey", hidden(string().unique(true)))
             .field("status", string())
             .field("serializedScopes", hidden(string()))
             .field("expiresAt", date())

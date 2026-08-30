@@ -33,14 +33,20 @@ pub struct ScimManagedCredential {
     pub token_digest: String,
     #[serde(skip)]
     pub hash_version: String,
+    #[serde(skip)]
+    pub active_slot_key: String,
     pub status: String,
     pub scopes: Vec<ScimScope>,
+    #[serde(skip)]
+    pub serialized_scopes: String,
     pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub created_by: String,
     pub last_used_at: Option<DateTime<Utc>>,
     pub revoked_at: Option<DateTime<Utc>>,
     pub revoked_by: Option<String>,
+    #[serde(skip)]
+    pub decommissioned_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

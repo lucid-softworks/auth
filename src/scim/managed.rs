@@ -37,15 +37,16 @@ impl ScimPlugin {
             decommissioned_at: None,
             decommissioned_by: None,
         };
-        let credential = credential(
-            &record_id,
-            &credential_id,
-            token_digest(&options.credential_hash_secret, &token)?,
+        let credential = credential(NewCredential {
+            record_id: &record_id,
+            credential_id: &credential_id,
+            token_digest: token_digest(&options.credential_hash_secret, &token)?,
+            active_slot_key: format!("{record_id}:active:0"),
             scopes,
             expires_at,
             actor_id,
             now,
-        );
+        });
         let events = vec![
             event(&record_id, 1, "connection.created", actor_id, None, now),
             event(
@@ -107,17 +108,31 @@ impl ScimPlugin {
             .qualified_connection(connection_id, provisioning_domain_id)
             .await?;
         let now = Utc::now();
+        let credentials = self
+            .store
+            .list_managed_credentials(&connection.id)
+            .await
+            .map_err(store_error)?;
+        let used_slots = credentials
+            .iter()
+            .filter(|credential| credential.status == "active" && credential.expires_at > now)
+            .map(|credential| credential.active_slot_key.as_str())
+            .collect::<HashSet<_>>();
+        let slot = (0..options.max_active_credentials)
+            .find(|slot| !used_slots.contains(format!("{}:active:{slot}", connection.id).as_str()))
+            .unwrap_or(options.max_active_credentials);
         let credential_id = format!("ba_scim_credential_{}", super::random_urlsafe(32));
         let token = format!("{credential_id}.{}", super::random_urlsafe(48));
-        let credential = credential(
-            &connection.id,
-            &credential_id,
-            token_digest(&options.credential_hash_secret, &token)?,
+        let credential = credential(NewCredential {
+            record_id: &connection.id,
+            credential_id: &credential_id,
+            token_digest: token_digest(&options.credential_hash_secret, &token)?,
+            active_slot_key: format!("{}:active:{slot}", connection.id),
             scopes,
             expires_at,
             actor_id,
             now,
-        );
+        });
         let event = event(
             &connection.id,
             connection.revision + 1,
@@ -226,29 +241,37 @@ impl ScimPlugin {
     }
 }
 
-fn credential(
-    record_id: &str,
-    credential_id: &str,
+struct NewCredential<'a> {
+    record_id: &'a str,
+    credential_id: &'a str,
     token_digest: String,
+    active_slot_key: String,
     scopes: Vec<ScimScope>,
     expires_at: DateTime<Utc>,
-    actor_id: &str,
+    actor_id: &'a str,
     now: DateTime<Utc>,
-) -> ScimManagedCredential {
+}
+
+fn credential(input: NewCredential<'_>) -> ScimManagedCredential {
+    let serialized_scopes =
+        serde_json::to_string(&input.scopes).expect("SCIM scopes always serialize to JSON");
     ScimManagedCredential {
         id: super::random_urlsafe(32),
-        connection_record_id: record_id.into(),
-        credential_id: credential_id.into(),
-        token_digest,
+        connection_record_id: input.record_id.into(),
+        credential_id: input.credential_id.into(),
+        token_digest: input.token_digest,
         hash_version: "v1".into(),
+        active_slot_key: input.active_slot_key,
         status: "active".into(),
-        scopes,
-        expires_at,
-        created_at: now,
-        created_by: actor_id.into(),
+        scopes: input.scopes,
+        serialized_scopes,
+        expires_at: input.expires_at,
+        created_at: input.now,
+        created_by: input.actor_id.into(),
         last_used_at: None,
         revoked_at: None,
         revoked_by: None,
+        decommissioned_at: None,
     }
 }
 
