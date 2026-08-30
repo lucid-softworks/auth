@@ -59,6 +59,7 @@ mod polar;
 mod rate_limit;
 mod secondary_storage;
 pub mod scim;
+pub mod sso;
 mod service;
 #[cfg(feature = "axum")]
 mod session_cache;
@@ -241,6 +242,7 @@ pub use scim::{
     ScimTransactionContext, ScimUser, ScimVerifiedBearer,
     ScimAuthorizationSource, ScimUserExternalIdReference, acquire_active_scim_user_link,
 };
+pub use sso::{SsoOptions, SsoPlugin, VERSION as SSO_VERSION};
 pub use service::account_types::{
     LinkedAccount, ProviderAccountIdentity, ProviderAccountInfo, ProviderAccountUser,
     ProviderTokenResponse,
