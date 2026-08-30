@@ -431,6 +431,81 @@ async fn user_crud_normalizes_profile_filters_paginates_and_projects() {
 }
 
 #[tokio::test]
+async fn mutation_responses_apply_attribute_projection_without_losing_location_headers() {
+    let (app, _, _, _) = application();
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", "/scim/v2/Users?attributes=userName")
+                .header(header::CONTENT_TYPE, SCIM_MEDIA_TYPE)
+                .body(Body::from(user("projected-create@example.com").to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(response.headers().get(header::LOCATION).is_some());
+    assert!(response.headers().get(header::CONTENT_LOCATION).is_some());
+    let (status, created) = response_json(response).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(created["userName"], "projected-create@example.com");
+    assert!(created.get("schemas").is_some());
+    assert!(created.get("id").is_some());
+    assert!(created.get("emails").is_none());
+    assert!(created.get("meta").is_none());
+
+    let id = created["id"].as_str().unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            request(
+                "PATCH",
+                &format!("/scim/v2/Users/{id}?excludedAttributes=emails,name"),
+            )
+            .header(header::CONTENT_TYPE, SCIM_MEDIA_TYPE)
+            .body(Body::from(
+                json!({
+                    "schemas": [SCIM_PATCH_SCHEMA],
+                    "Operations": [{ "op": "replace", "path": "displayName", "value": "Projected" }]
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(response.headers().get(header::LOCATION).is_some());
+    let (status, patched) = response_json(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(patched["displayName"], "Projected");
+    assert!(patched.get("emails").is_none());
+    assert!(patched.get("name").is_none());
+
+    let response = app
+        .oneshot(
+            request("POST", "/scim/v2/Groups?attributes=displayName")
+                .header(header::CONTENT_TYPE, SCIM_MEDIA_TYPE)
+                .body(Body::from(
+                    json!({
+                        "schemas": [SCIM_GROUP_SCHEMA],
+                        "displayName": "Projected Group"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(response.headers().get(header::LOCATION).is_some());
+    assert!(response.headers().get(header::CONTENT_LOCATION).is_some());
+    let (status, group) = response_json(response).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(group["displayName"], "Projected Group");
+    assert!(group.get("schemas").is_some());
+    assert!(group.get("id").is_some());
+    assert!(group.get("meta").is_none());
+}
+
+#[tokio::test]
 async fn user_patch_is_ordered_case_insensitive_and_atomic_at_the_store_boundary() {
     let (app, _, _, _) = application();
     let (_, created) = send_json(

@@ -24,6 +24,7 @@ const ENTRA_LEGACY_GROUP_SCHEMA: &str =
 pub(super) async fn create(
     Extension(service): Extension<Arc<AuthService>>,
     Extension(plugin): Extension<Arc<ScimPlugin>>,
+    Query(query_parameters): Query<HashMap<String, String>>,
     headers: HeaderMap,
     request: Request,
 ) -> Response {
@@ -37,6 +38,10 @@ pub(super) async fn create(
     {
         Ok(principal) => principal,
         Err(response) => return response,
+    };
+    let projection = match query::projection(&query_parameters, "Group") {
+        Ok(projection) => projection,
+        Err(error) => return support::error_response(error),
     };
     let mut resource = match parse_group(request, plugin.options.microsoft_entra_legacy_group_schema).await {
         Ok(resource) => match resource.normalize() {
@@ -56,8 +61,12 @@ pub(super) async fn create(
     };
     match plugin.store.create_group(stored).await {
         Ok(stored) => {
-            let value = present(&service, &stored);
-            let location = value["meta"]["location"].as_str().unwrap_or_default().to_owned();
+            let complete = present(&service, &stored);
+            let location = complete["meta"]["location"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned();
+            let value = query::project_value(complete, &projection);
             let mut response = support::json(StatusCode::CREATED, value);
             support::set_location(&mut response, &location, true);
             response
@@ -147,6 +156,7 @@ pub(super) async fn replace(
     Extension(service): Extension<Arc<AuthService>>,
     Extension(plugin): Extension<Arc<ScimPlugin>>,
     Path(group_id): Path<String>,
+    Query(query_parameters): Query<HashMap<String, String>>,
     headers: HeaderMap,
     request: Request,
 ) -> Response {
@@ -154,13 +164,23 @@ pub(super) async fn replace(
         Ok(resource) => resource,
         Err(response) => return response,
     };
-    replace_resource(service, plugin, headers, group_id, resource, "PUT").await
+    replace_resource(
+        service,
+        plugin,
+        headers,
+        group_id,
+        resource,
+        "PUT",
+        query_parameters,
+    )
+    .await
 }
 
 pub(super) async fn patch(
     Extension(service): Extension<Arc<AuthService>>,
     Extension(plugin): Extension<Arc<ScimPlugin>>,
     Path(group_id): Path<String>,
+    Query(query_parameters): Query<HashMap<String, String>>,
     headers: HeaderMap,
     request: Request,
 ) -> Response {
@@ -182,6 +202,10 @@ pub(super) async fn patch(
         Ok(principal) => principal,
         Err(response) => return response,
     };
+    let projection = match query::projection(&query_parameters, "Group") {
+        Ok(projection) => projection,
+        Err(error) => return support::error_response(error),
+    };
     let existing = match plugin.store.find_group(&principal.connection_id, &group_id).await {
         Ok(Some(group)) => group,
         Ok(None) => return support::error_response(ScimError::new(404, "Group not found")),
@@ -191,7 +215,15 @@ pub(super) async fn patch(
     if let Err(error) = patch::apply(&mut resource, patch) {
         return support::error_response(error);
     }
-    replace_authenticated(service, plugin, principal.connection_id, group_id, resource).await
+    replace_authenticated(
+        service,
+        plugin,
+        principal.connection_id,
+        group_id,
+        resource,
+        projection,
+    )
+    .await
 }
 
 pub(super) async fn delete(
@@ -224,6 +256,7 @@ async fn replace_resource(
     group_id: String,
     resource: ScimGroup,
     method: &str,
+    query_parameters: HashMap<String, String>,
 ) -> Response {
     let principal = match support::authenticate(
         &plugin,
@@ -236,7 +269,19 @@ async fn replace_resource(
         Ok(principal) => principal,
         Err(response) => return response,
     };
-    replace_authenticated(service, plugin, principal.connection_id, group_id, resource).await
+    let projection = match query::projection(&query_parameters, "Group") {
+        Ok(projection) => projection,
+        Err(error) => return support::error_response(error),
+    };
+    replace_authenticated(
+        service,
+        plugin,
+        principal.connection_id,
+        group_id,
+        resource,
+        projection,
+    )
+    .await
 }
 
 async fn replace_authenticated(
@@ -245,6 +290,7 @@ async fn replace_authenticated(
     connection_id: String,
     group_id: String,
     resource: ScimGroup,
+    projection: query::AttributeProjection,
 ) -> Response {
     let mut resource = match resource.normalize() {
         Ok(resource) => resource,
@@ -257,8 +303,12 @@ async fn replace_authenticated(
         .await
     {
         Ok(stored) => {
-            let value = present(&service, &stored);
-            let location = value["meta"]["location"].as_str().unwrap_or_default().to_owned();
+            let complete = present(&service, &stored);
+            let location = complete["meta"]["location"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned();
+            let value = query::project_value(complete, &projection);
             let mut response = support::json(StatusCode::OK, value);
             support::set_location(&mut response, &location, false);
             response

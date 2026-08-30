@@ -6,7 +6,7 @@ mod filter;
 mod projection;
 
 pub(super) use filter::filter;
-pub(super) use projection::{project_value, projection};
+pub(super) use projection::{AttributeProjection, project_value, projection};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Pagination {

@@ -21,6 +21,7 @@ mod patch;
 pub(super) async fn create(
     Extension(service): Extension<Arc<AuthService>>,
     Extension(plugin): Extension<Arc<ScimPlugin>>,
+    Query(query_parameters): Query<HashMap<String, String>>,
     headers: HeaderMap,
     request: Request,
 ) -> Response {
@@ -34,6 +35,10 @@ pub(super) async fn create(
     {
         Ok(principal) => principal,
         Err(response) => return response,
+    };
+    let projection = match query::projection(&query_parameters, "User") {
+        Ok(projection) => projection,
+        Err(error) => return support::error_response(error),
     };
     let resource = match support::parse_body::<ScimUser>(request).await {
         Ok(resource) => match resource.normalize() {
@@ -72,8 +77,12 @@ pub(super) async fn create(
     };
     match plugin.store.create_user(stored).await {
         Ok(stored) => {
-            let value = present(&service, &stored);
-            let location = value["meta"]["location"].as_str().unwrap_or_default().to_owned();
+            let complete = present(&service, &stored);
+            let location = complete["meta"]["location"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned();
+            let value = query::project_value(complete, &projection);
             let mut response = support::json(StatusCode::CREATED, value);
             support::set_location(&mut response, &location, true);
             response
@@ -166,6 +175,7 @@ pub(super) async fn replace(
     Extension(service): Extension<Arc<AuthService>>,
     Extension(plugin): Extension<Arc<ScimPlugin>>,
     Path(user_id): Path<String>,
+    Query(query_parameters): Query<HashMap<String, String>>,
     headers: HeaderMap,
     request: Request,
 ) -> Response {
@@ -173,13 +183,23 @@ pub(super) async fn replace(
         Ok(resource) => resource,
         Err(response) => return response,
     };
-    replace_resource(service, plugin, headers, user_id, resource, "PUT").await
+    replace_resource(
+        service,
+        plugin,
+        headers,
+        user_id,
+        resource,
+        "PUT",
+        query_parameters,
+    )
+    .await
 }
 
 pub(super) async fn patch(
     Extension(service): Extension<Arc<AuthService>>,
     Extension(plugin): Extension<Arc<ScimPlugin>>,
     Path(user_id): Path<String>,
+    Query(query_parameters): Query<HashMap<String, String>>,
     headers: HeaderMap,
     request: Request,
 ) -> Response {
@@ -200,6 +220,10 @@ pub(super) async fn patch(
     {
         Ok(principal) => principal,
         Err(response) => return response,
+    };
+    let projection = match query::projection(&query_parameters, "User") {
+        Ok(projection) => projection,
+        Err(error) => return support::error_response(error),
     };
     let existing = match plugin.store.find_user(&principal.connection_id, &user_id).await {
         Ok(Some(user)) => user,
@@ -224,7 +248,15 @@ pub(super) async fn patch(
             ));
         }
     };
-    replace_authenticated(service, plugin, principal.connection_id, user_id, resource).await
+    replace_authenticated(
+        service,
+        plugin,
+        principal.connection_id,
+        user_id,
+        resource,
+        projection,
+    )
+    .await
 }
 
 pub(super) async fn delete(
@@ -265,6 +297,7 @@ async fn replace_resource(
     user_id: String,
     resource: ScimUser,
     method: &str,
+    query_parameters: HashMap<String, String>,
 ) -> Response {
     let principal = match support::authenticate(
         &plugin,
@@ -277,7 +310,19 @@ async fn replace_resource(
         Ok(principal) => principal,
         Err(response) => return response,
     };
-    replace_authenticated(service, plugin, principal.connection_id, user_id, resource).await
+    let projection = match query::projection(&query_parameters, "User") {
+        Ok(projection) => projection,
+        Err(error) => return support::error_response(error),
+    };
+    replace_authenticated(
+        service,
+        plugin,
+        principal.connection_id,
+        user_id,
+        resource,
+        projection,
+    )
+    .await
 }
 
 async fn replace_authenticated(
@@ -286,6 +331,7 @@ async fn replace_authenticated(
     connection_id: String,
     user_id: String,
     resource: ScimUser,
+    projection: query::AttributeProjection,
 ) -> Response {
     let mut resource = match resource.normalize() {
         Ok(resource) => resource,
@@ -315,8 +361,12 @@ async fn replace_authenticated(
             if active_changed_to_false {
                 let _ = service.scim_revoke_user_sessions(&stored.user_id).await;
             }
-            let value = present(&service, &stored);
-            let location = value["meta"]["location"].as_str().unwrap_or_default().to_owned();
+            let complete = present(&service, &stored);
+            let location = complete["meta"]["location"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned();
+            let value = query::project_value(complete, &projection);
             let mut response = support::json(StatusCode::OK, value);
             support::set_location(&mut response, &location, false);
             response
