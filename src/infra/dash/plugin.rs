@@ -388,7 +388,8 @@ mod tests {
         });
         let schema = plugin.schema();
         assert_eq!(schema.len(), 1);
-        assert_eq!(schema[0].model_name.as_deref(), Some("user"));
+        assert_eq!(schema[0].logical_name, "user");
+        assert_eq!(schema[0].model_name, None);
         assert!(schema[0].fields.contains_key("lastActiveAt"));
     }
 

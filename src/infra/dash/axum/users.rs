@@ -254,13 +254,13 @@ async fn create(
         .unwrap_or(false);
     match service.dash_create_user_body(body).await {
         Ok(user) => {
-            if send_verification && !user.email_verified {
-                if let Err(error) = service
+            if send_verification
+                && !user.email_verified
+                && let Err(error) = service
                     .dash_send_create_verification_email(user.clone())
                     .await
-                {
-                    return route_error(error);
-                }
+            {
+                return route_error(error);
             }
             match service.dash_plain_user_json(&user).await {
                 Ok(value) => Json(value).into_response(),

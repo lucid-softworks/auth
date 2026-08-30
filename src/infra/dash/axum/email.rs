@@ -39,6 +39,10 @@ struct UsersClaim {
     user_ids: Vec<String>,
 }
 
+#[allow(
+    clippy::result_large_err,
+    reason = "the error is an exact Axum response returned directly by route handlers"
+)]
 fn validate_callback(
     service: &AuthService,
     headers: &HeaderMap,

@@ -90,7 +90,7 @@ impl AuthService {
         object.insert(
             "banExpires".into(),
             admin_enabled
-                .then(|| user.ban_expires)
+                .then_some(user.ban_expires)
                 .flatten()
                 .map(|date| json!(date))
                 .unwrap_or(Value::Null),

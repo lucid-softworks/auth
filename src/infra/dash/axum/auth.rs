@@ -13,6 +13,10 @@ pub(super) fn authorization(headers: &HeaderMap) -> Option<&str> {
         .and_then(|value| value.to_str().ok())
 }
 
+#[allow(
+    clippy::result_large_err,
+    reason = "the error is an exact Axum response returned directly by route handlers"
+)]
 pub(super) async fn regular<T: DeserializeOwned>(
     plugin: &DashPlugin,
     headers: &HeaderMap,
@@ -25,6 +29,10 @@ pub(super) async fn regular<T: DeserializeOwned>(
     serde_json::from_value(claims.0).map_err(|_| unauthorized())
 }
 
+#[allow(
+    clippy::result_large_err,
+    reason = "the error is an exact Axum response returned directly by route handlers"
+)]
 pub(super) async fn token<T: DeserializeOwned>(
     plugin: &DashPlugin,
     token: &str,

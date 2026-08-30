@@ -120,6 +120,17 @@ describe("@better-auth/infra@0.4.3 Dash substrate oracle", () => {
     );
   });
 
+  test("contributes activity storage only when explicitly enabled", () => {
+    expect(dash().schema).toEqual({});
+    expect(dash({ activityTracking: { enabled: true, updateInterval: 0 } }).schema).toEqual({
+      user: {
+        fields: {
+          lastActiveAt: { type: "date", required: false },
+        },
+      },
+    });
+  });
+
   test("publishes the exact 26 core route descriptors with a 10/16 split", () => {
     const endpoints = dash().endpoints;
     const actual = coreEndpointInventory.map(([key]) => [
