@@ -4,7 +4,6 @@ use super::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 mod managed;
 mod patch;
@@ -12,7 +11,7 @@ mod structured;
 
 pub use managed::{ScimManagedConnection, ScimManagedConnectionEvent, ScimManagedCredential};
 pub use patch::{ScimPatchOperation, ScimPatchRequest};
-pub use structured::{ScimEntitlement, ScimPhoneNumber, ScimRole};
+pub use structured::{ScimEntitlement, ScimManager, ScimPhoneNumber, ScimRole};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -76,7 +75,7 @@ pub struct ScimEnterpriseUser {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub department: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub manager: Option<Value>,
+    pub manager: Option<ScimManager>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -138,6 +137,7 @@ impl ScimUser {
         structured::normalize_addresses(&mut self.addresses)?;
         structured::normalize_roles(&mut self.roles, "roles")?;
         structured::normalize_entitlements(&mut self.entitlements)?;
+        structured::normalize_enterprise(&mut self.enterprise)?;
         if serde_json::to_vec(&self).map_or(usize::MAX, |value| value.len()) > 65_535 {
             return Err(invalid("SCIM User attributes exceed the supported serialized size"));
         }

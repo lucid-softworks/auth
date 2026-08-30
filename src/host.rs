@@ -232,7 +232,7 @@ pub use scim::{
     ScimBearerTokenVerifier, ScimConnection, ScimConnectionBinding, ScimEmail,
     ScimEnterpriseUser, ScimEntitlement, ScimError, ScimErrorBody, ScimErrorType, ScimGroup,
     ScimGroupMember, ScimListResponse, ScimManagedConnection, ScimManagedConnectionEvent,
-    ScimManagedConnectionOptions, ScimManagedCredential, ScimName, ScimOptions,
+    ScimManagedConnectionOptions, ScimManagedCredential, ScimManager, ScimName, ScimOptions,
     ScimPatchOperation, ScimPatchRequest, ScimPhoneNumber, ScimPlugin, ScimRole, ScimScope,
     ScimStore, ScimStoreError, ScimUser, ScimVerifiedBearer,
 };

@@ -304,6 +304,11 @@ async fn structured_user_attributes_normalize_and_enforce_primary_type_rules() {
     resource["roles"] = json!([
         { "value": " engineer ", "display": " Engineer ", "type": "APPLICATION" }
     ]);
+    resource[SCIM_ENTERPRISE_USER_SCHEMA]["manager"] = json!([{
+        "value": " manager-1 ",
+        "$ref": " https://example.com/api/auth/scim/v2/Users/manager-1 ",
+        "displayName": "Ignored on write"
+    }]);
     let (status, created) = send_json(app.clone(), "POST", "/scim/v2/Users", resource).await;
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(created["phoneNumbers"][0]["value"], "+44 20 0000 0000");
@@ -311,6 +316,13 @@ async fn structured_user_attributes_normalize_and_enforce_primary_type_rules() {
     assert_eq!(created["phoneNumbers"][0]["primary"], true);
     assert_eq!(created["roles"][0]["value"], "engineer");
     assert_eq!(created["roles"][0]["type"], "application");
+    assert_eq!(
+        created[SCIM_ENTERPRISE_USER_SCHEMA]["manager"],
+        json!({
+            "value": "manager-1",
+            "$ref": "https://example.com/api/auth/scim/v2/Users/manager-1"
+        })
+    );
 
     let mut duplicate = user("duplicate-types@example.com");
     duplicate["entitlements"] = json!([

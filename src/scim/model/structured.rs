@@ -1,6 +1,67 @@
-use super::{ScimAddress, invalid, optional_bounded};
+use super::{ScimAddress, ScimEnterpriseUser, invalid, optional_bounded};
 use crate::scim::ScimError;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ScimManager {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    #[serde(rename = "$ref", skip_serializing_if = "Option::is_none")]
+    pub reference: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for ScimManager {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        let value = match value {
+            Value::String(value) => {
+                return Ok(Self {
+                    value: Some(value),
+                    reference: None,
+                });
+            }
+            Value::Array(mut values) if values.len() == 1 => values.remove(0),
+            value => value,
+        };
+        let object = value
+            .as_object()
+            .ok_or_else(|| serde::de::Error::custom("manager must be a string or object"))?;
+        if object
+            .keys()
+            .any(|key| !matches!(key.as_str(), "value" | "$ref" | "displayName"))
+        {
+            return Err(serde::de::Error::custom(
+                "manager contains an unsupported attribute",
+            ));
+        }
+        let value = optional_string(object.get("value"), "manager.value")?;
+        let reference = optional_string(object.get("$ref"), "manager.$ref")?;
+        if value.is_none() && reference.is_none() {
+            return Err(serde::de::Error::custom(
+                "manager must contain value or $ref",
+            ));
+        }
+        Ok(Self { value, reference })
+    }
+}
+
+fn optional_string<E: serde::de::Error>(
+    value: Option<&Value>,
+    field: &str,
+) -> Result<Option<String>, E> {
+    value
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| E::custom(format!("{field} must be a string")))
+        })
+        .transpose()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -103,6 +164,32 @@ pub(super) fn normalize_entitlements(
         values.iter().map(|value| (value.primary, value.kind.as_deref())),
         "entitlements",
     )
+}
+
+pub(super) fn normalize_enterprise(
+    enterprise: &mut Option<ScimEnterpriseUser>,
+) -> Result<(), ScimError> {
+    let Some(enterprise) = enterprise else {
+        return Ok(());
+    };
+    enterprise.employee_number =
+        optional_bounded(enterprise.employee_number.take(), 256, "employeeNumber")?;
+    enterprise.cost_center =
+        optional_bounded(enterprise.cost_center.take(), 256, "costCenter")?;
+    enterprise.organization =
+        optional_bounded(enterprise.organization.take(), 1024, "organization")?;
+    enterprise.division = optional_bounded(enterprise.division.take(), 1024, "division")?;
+    enterprise.department =
+        optional_bounded(enterprise.department.take(), 1024, "department")?;
+    if let Some(manager) = &mut enterprise.manager {
+        manager.value = optional_bounded(manager.value.take(), 256, "manager.value")?;
+        manager.reference =
+            optional_bounded(manager.reference.take(), 2048, "manager.$ref")?;
+        if manager.value.is_none() && manager.reference.is_none() {
+            return Err(invalid("manager must contain value or $ref"));
+        }
+    }
+    Ok(())
 }
 
 fn required(value: String, maximum: usize, field: &str) -> Result<String, ScimError> {
