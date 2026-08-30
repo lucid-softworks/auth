@@ -3,6 +3,7 @@
 #[cfg(feature = "axum")]
 mod axum;
 mod config;
+mod database;
 #[cfg(feature = "axum")]
 mod discovery;
 mod error;
@@ -18,6 +19,7 @@ pub use config::{
     ScimBearerCredential, ScimBearerTokenVerifier, ScimConnection, ScimManagedConnectionOptions,
     ScimOptions, ScimScope, ScimVerifiedBearer,
 };
+pub use database::DatabaseScimStore;
 pub use error::{ScimError, ScimErrorBody, ScimErrorType};
 pub use memory::MemoryScimStore;
 pub use model::{

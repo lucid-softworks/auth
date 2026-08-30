@@ -57,6 +57,12 @@ pub enum ScimStoreError {
 
 #[async_trait]
 pub trait ScimStore: Send + Sync {
+    /// Returns the shared Better Auth adapter when this store persists through
+    /// the native logical-row transaction boundary.
+    fn backing_auth_store(&self) -> Option<std::sync::Arc<dyn crate::AuthStore>> {
+        None
+    }
+
     async fn bind_connection(
         &self,
         connection_id: &str,
