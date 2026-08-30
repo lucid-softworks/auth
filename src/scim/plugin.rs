@@ -1,13 +1,15 @@
 use super::{
-    MemoryScimStore, ScimError, ScimErrorType, ScimManagedConnection, ScimManagedConnectionEvent,
-    ScimManagedCredential, ScimOptions, ScimScope, ScimStore, ScimStoreError, VERSION,
+    MemoryScimStore, ScimError, ScimErrorType, ScimOptions, ScimStore, ScimStoreError, VERSION,
 };
+#[cfg(feature = "axum")]
+use super::ScimScope;
 use crate::{
     AuthConfig, AuthError, AuthPlugin, PluginArtifactMetadata, PluginDescriptor, PluginEndpoint,
     PluginHttpMethod, PluginProvenance, PluginRequestSecurity, PluginSchemaTable,
 };
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+#[cfg(feature = "axum")]
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -200,74 +202,6 @@ impl ScimPlugin {
         Ok(None)
     }
 
-    pub async fn create_managed_connection(
-        &self,
-        creation_request_id: &str,
-        provisioning_domain_id: &str,
-        actor_id: &str,
-        scopes: Vec<ScimScope>,
-        expires_at: DateTime<Utc>,
-    ) -> Result<(ScimManagedConnection, ScimManagedCredential, String), ScimError> {
-        let options = self.options.managed_connections.as_ref().ok_or_else(|| {
-            ScimError::new(400, "SCIM managed connections are not configured")
-        })?;
-        if creation_request_id.trim() != creation_request_id
-            || !(16..=255).contains(&creation_request_id.chars().count())
-        {
-            return Err(ScimError::typed(
-                400,
-                "creationRequestId must contain 16 through 255 trimmed characters",
-                ScimErrorType::InvalidValue,
-            ));
-        }
-        if scopes.is_empty() || expires_at <= Utc::now() {
-            return Err(ScimError::typed(
-                400,
-                "managed credential scopes and a future expiresAt are required",
-                ScimErrorType::InvalidValue,
-            ));
-        }
-        let now = Utc::now();
-        let record_id = super::random_urlsafe(32);
-        let connection_id = format!("ba_scim_connection_{}", super::random_urlsafe(32));
-        let credential_id = format!("ba_scim_credential_{}", super::random_urlsafe(32));
-        let token = format!("{credential_id}.{}", super::random_urlsafe(48));
-        let connection = ScimManagedConnection {
-            id: record_id.clone(),
-            connection_id,
-            provisioning_domain_id: provisioning_domain_id.into(),
-            status: "active".into(),
-            revision: 0,
-            created_at: now,
-            created_by: actor_id.into(),
-        };
-        let credential = ScimManagedCredential {
-            id: super::random_urlsafe(32),
-            connection_record_id: record_id.clone(),
-            credential_id: credential_id.clone(),
-            token_digest: token_digest(&options.credential_hash_secret, &token)?,
-            status: "active".into(),
-            scopes,
-            expires_at,
-            created_at: now,
-            created_by: actor_id.into(),
-            last_used_at: None,
-        };
-        let event = ScimManagedConnectionEvent {
-            id: super::random_urlsafe(32),
-            connection_record_id: record_id,
-            sequence: 1,
-            kind: "connection_created".into(),
-            actor_id: actor_id.into(),
-            credential_id: Some(credential_id),
-            created_at: now,
-        };
-        self.store
-            .create_managed_connection(creation_request_id, connection, credential, event)
-            .await
-            .map(|(connection, credential)| (connection, credential, token))
-            .map_err(store_error)
-    }
 }
 
 impl std::fmt::Debug for ScimPlugin {
@@ -347,7 +281,7 @@ fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
     difference == 0
 }
 
-fn token_digest(secret: &str, token: &str) -> Result<String, ScimError> {
+pub(super) fn token_digest(secret: &str, token: &str) -> Result<String, ScimError> {
     let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
         .map_err(|_| ScimError::new(500, "Unable to initialize managed credential hashing"))?;
     mac.update(token.as_bytes());

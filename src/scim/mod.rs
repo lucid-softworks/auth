@@ -7,6 +7,7 @@ mod config;
 mod discovery;
 mod error;
 mod memory;
+mod managed;
 mod model;
 mod plugin;
 mod schema;

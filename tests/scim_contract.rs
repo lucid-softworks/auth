@@ -480,6 +480,129 @@ async fn managed_credentials_are_one_time_hmac_only_and_authenticate() {
     assert_eq!(conflict.status, 409);
 }
 
+#[tokio::test]
+async fn managed_catalog_rotates_revokes_isolates_and_decommissions() {
+    let mut managed = ScimManagedConnectionOptions::new("catalog-secret".repeat(3));
+    managed.max_active_credentials = 2;
+    let options = ScimOptions {
+        managed_connections: Some(managed),
+        ..ScimOptions::default()
+    };
+    let (app, _, plugin, _) = application_with_options(options);
+    let expiry = Utc::now() + Duration::hours(1);
+    let (created, first, first_token) = plugin
+        .create_managed_connection(
+            "managed-request-0001",
+            "tenant-a",
+            "actor-a",
+            ScimScope::ALL.to_vec(),
+            expiry,
+        )
+        .await
+        .unwrap();
+    let public = serde_json::to_value(&created).unwrap();
+    assert_eq!(public["creationRequestId"], "managed-request-0001");
+    assert!(public.get("id").is_none());
+    let credential_public = serde_json::to_value(&first).unwrap();
+    assert!(credential_public.get("tokenDigest").is_none());
+    assert!(credential_public.get("connectionRecordId").is_none());
+
+    let listed = plugin.list_managed_connections("tenant-a").await.unwrap();
+    assert_eq!(listed, vec![created.clone()]);
+    assert!(
+        plugin
+            .get_managed_connection(&created.connection_id, "tenant-b")
+            .await
+            .is_err_and(|error| error.status == 404)
+    );
+
+    let (_, second, second_token) = plugin
+        .rotate_managed_credential(
+            &created.connection_id,
+            "tenant-a",
+            "actor-b",
+            vec![ScimScope::UsersRead],
+            expiry,
+        )
+        .await
+        .unwrap();
+    let at_capacity = plugin
+        .rotate_managed_credential(
+            &created.connection_id,
+            "tenant-a",
+            "actor-b",
+            vec![ScimScope::UsersRead],
+            expiry,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(at_capacity.status, 409);
+
+    let (_, revoked) = plugin
+        .revoke_managed_credential(
+            &created.connection_id,
+            "tenant-a",
+            &first.credential_id,
+            "actor-c",
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        revoked
+            .iter()
+            .find(|item| item.credential_id == first.credential_id)
+            .unwrap()
+            .status,
+        "revoked"
+    );
+    let (_, third, _) = plugin
+        .rotate_managed_credential(
+            &created.connection_id,
+            "tenant-a",
+            "actor-d",
+            vec![ScimScope::UsersRead],
+            expiry,
+        )
+        .await
+        .unwrap();
+    assert_ne!(third.credential_id, second.credential_id);
+
+    let events = plugin
+        .list_managed_connection_events(&created.connection_id, "tenant-a")
+        .await
+        .unwrap();
+    assert_eq!(events.first().unwrap().kind, "connection.created");
+    assert_eq!(events.last().unwrap().kind, "credential.rotated");
+    assert!(
+        events
+            .windows(2)
+            .all(|pair| pair[0].sequence < pair[1].sequence)
+    );
+
+    let (decommissioned, credentials) = plugin
+        .decommission_managed_connection(&created.connection_id, "tenant-a", "actor-e")
+        .await
+        .unwrap();
+    assert_eq!(decommissioned.status, "decommissioned");
+    assert!(decommissioned.decommission_started_at.is_some());
+    assert!(decommissioned.decommissioned_at.is_some());
+    assert!(credentials.iter().all(|item| item.status != "active"));
+
+    for token in [first_token, second_token] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get("/api/auth/scim/v2/Users")
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+}
+
 #[test]
 fn configuration_rejects_reserved_duplicate_and_short_managed_secrets() {
     let empty = ScimPlugin::in_memory(ScimOptions::default()).unwrap_err();

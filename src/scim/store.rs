@@ -116,7 +116,7 @@ pub trait ScimStore: Send + Sync {
         creation_request_id: &str,
         connection: ScimManagedConnection,
         credential: ScimManagedCredential,
-        event: ScimManagedConnectionEvent,
+        events: Vec<ScimManagedConnectionEvent>,
     ) -> Result<(ScimManagedConnection, ScimManagedCredential), ScimStoreError>;
     async fn list_managed_connections(
         &self,
@@ -135,11 +135,15 @@ pub trait ScimStore: Send + Sync {
         &self,
         credential_id: &str,
     ) -> Result<Option<(ScimManagedConnection, ScimManagedCredential)>, ScimStoreError>;
-    async fn save_managed_credential(
+    async fn rotate_managed_credential(
         &self,
+        connection_id: &str,
+        provisioning_domain_id: &str,
         credential: ScimManagedCredential,
         event: ScimManagedConnectionEvent,
-    ) -> Result<ScimManagedCredential, ScimStoreError>;
+        max_active_credentials: usize,
+        now: DateTime<Utc>,
+    ) -> Result<(ScimManagedConnection, ScimManagedCredential), ScimStoreError>;
     async fn revoke_managed_credential(
         &self,
         connection_record_id: &str,
@@ -164,4 +168,11 @@ pub trait ScimStore: Send + Sync {
         actor_id: &str,
         now: DateTime<Utc>,
     ) -> Result<usize, ScimStoreError>;
+    async fn decommission_managed_connection(
+        &self,
+        connection_id: &str,
+        provisioning_domain_id: &str,
+        actor_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ScimManagedConnection, ScimStoreError>;
 }

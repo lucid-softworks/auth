@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 mod state;
 use state::{
     MemoryScimState, decommission, ensure_active_binding, ensure_group_members, ensure_group_unique,
-    ensure_user_unique,
+    ensure_user_unique, revoke_credential, rotate_credential,
 };
 
 #[derive(Default)]
@@ -238,7 +238,7 @@ impl ScimStore for MemoryScimStore {
         creation_request_id: &str,
         connection: ScimManagedConnection,
         credential: ScimManagedCredential,
-        event: ScimManagedConnectionEvent,
+        events: Vec<ScimManagedConnectionEvent>,
     ) -> Result<(ScimManagedConnection, ScimManagedCredential), ScimStoreError> {
         let mut state = self.state.lock().await;
         if !state.creation_requests.insert(creation_request_id.into()) {
@@ -250,7 +250,7 @@ impl ScimStore for MemoryScimStore {
         state
             .managed_credentials
             .insert(credential.credential_id.clone(), credential.clone());
-        state.managed_events.push(event);
+        state.managed_events.extend(events);
         Ok((connection, credential))
     }
 
@@ -259,12 +259,14 @@ impl ScimStore for MemoryScimStore {
         provisioning_domain_id: &str,
     ) -> Result<Vec<ScimManagedConnection>, ScimStoreError> {
         let state = self.state.lock().await;
-        Ok(state
+        let mut connections = state
             .managed_connections
             .values()
             .filter(|connection| connection.provisioning_domain_id == provisioning_domain_id)
             .cloned()
-            .collect())
+            .collect::<Vec<_>>();
+        connections.sort_by_key(|connection| std::cmp::Reverse(connection.created_at));
+        Ok(connections)
     }
 
     async fn find_managed_connection(
@@ -285,12 +287,14 @@ impl ScimStore for MemoryScimStore {
         connection_record_id: &str,
     ) -> Result<Vec<ScimManagedCredential>, ScimStoreError> {
         let state = self.state.lock().await;
-        Ok(state
+        let mut credentials = state
             .managed_credentials
             .values()
             .filter(|credential| credential.connection_record_id == connection_record_id)
             .cloned()
-            .collect())
+            .collect::<Vec<_>>();
+        credentials.sort_by_key(|credential| std::cmp::Reverse(credential.created_at));
+        Ok(credentials)
     }
 
     async fn find_managed_credential(
@@ -309,17 +313,25 @@ impl ScimStore for MemoryScimStore {
         Ok(connection.map(|connection| (connection, credential.clone())))
     }
 
-    async fn save_managed_credential(
+    async fn rotate_managed_credential(
         &self,
+        connection_id: &str,
+        provisioning_domain_id: &str,
         credential: ScimManagedCredential,
         event: ScimManagedConnectionEvent,
-    ) -> Result<ScimManagedCredential, ScimStoreError> {
+        max_active_credentials: usize,
+        now: DateTime<Utc>,
+    ) -> Result<(ScimManagedConnection, ScimManagedCredential), ScimStoreError> {
         let mut state = self.state.lock().await;
-        state
-            .managed_credentials
-            .insert(credential.credential_id.clone(), credential.clone());
-        state.managed_events.push(event);
-        Ok(credential)
+        rotate_credential(
+            &mut state,
+            connection_id,
+            provisioning_domain_id,
+            credential,
+            event,
+            max_active_credentials,
+            now,
+        )
     }
 
     async fn revoke_managed_credential(
@@ -330,29 +342,7 @@ impl ScimStore for MemoryScimStore {
         now: DateTime<Utc>,
     ) -> Result<ScimManagedCredential, ScimStoreError> {
         let mut state = self.state.lock().await;
-        let credential = state
-            .managed_credentials
-            .get_mut(credential_id)
-            .filter(|credential| credential.connection_record_id == connection_record_id)
-            .ok_or(ScimStoreError::CredentialNotFound)?;
-        credential.status = "revoked".into();
-        let output = credential.clone();
-        let sequence = state
-            .managed_events
-            .iter()
-            .filter(|event| event.connection_record_id == connection_record_id)
-            .count() as u64
-            + 1;
-        state.managed_events.push(ScimManagedConnectionEvent {
-            id: super::random_urlsafe(32),
-            connection_record_id: connection_record_id.into(),
-            sequence,
-            kind: "credential_revoked".into(),
-            actor_id: actor_id.into(),
-            credential_id: Some(credential_id.into()),
-            created_at: now,
-        });
-        Ok(output)
+        revoke_credential(&mut state, connection_record_id, credential_id, actor_id, now)
     }
 
     async fn touch_managed_credential(
@@ -387,6 +377,7 @@ impl ScimStore for MemoryScimStore {
             .collect::<Vec<_>>();
         events.sort_by_key(|event| std::cmp::Reverse(event.sequence));
         events.truncate(100);
+        events.reverse();
         Ok(events)
     }
 
@@ -399,5 +390,22 @@ impl ScimStore for MemoryScimStore {
     ) -> Result<usize, ScimStoreError> {
         let mut state = self.state.lock().await;
         decommission(&mut state, connection_id, provisioning_domain_id, now)
+    }
+
+    async fn decommission_managed_connection(
+        &self,
+        connection_id: &str,
+        provisioning_domain_id: &str,
+        actor_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ScimManagedConnection, ScimStoreError> {
+        let mut state = self.state.lock().await;
+        state::decommission_managed(
+            &mut state,
+            connection_id,
+            provisioning_domain_id,
+            actor_id,
+            now,
+        )
     }
 }

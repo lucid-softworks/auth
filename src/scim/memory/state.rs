@@ -136,3 +136,186 @@ pub(super) fn decommission(
     }
     Ok(user_ids.len())
 }
+
+pub(super) fn decommission_managed(
+    state: &mut MemoryScimState,
+    connection_id: &str,
+    provisioning_domain_id: &str,
+    actor_id: &str,
+    now: DateTime<Utc>,
+) -> Result<ScimManagedConnection, ScimStoreError> {
+    let Some(mut connection) = state
+        .managed_connections
+        .get(connection_id)
+        .filter(|connection| connection.provisioning_domain_id == provisioning_domain_id)
+        .cloned()
+    else {
+        return Err(ScimStoreError::NotFound);
+    };
+    if connection.status == "decommissioned" {
+        return Ok(connection);
+    }
+    if connection.status == "active" {
+        connection.status = "decommissioning".into();
+        connection.revision += 1;
+        connection.decommission_started_at = Some(now);
+        connection.decommission_started_by = Some(actor_id.into());
+        push_event(
+            state,
+            &connection,
+            "connection.decommissioning",
+            actor_id,
+            now,
+        );
+    }
+    for credential in state.managed_credentials.values_mut().filter(|credential| {
+        credential.connection_record_id == connection.id && credential.status == "active"
+    }) {
+        credential.status = "decommissioned".into();
+    }
+    state.users.retain(|_, user| user.connection_id != connection_id);
+    state
+        .groups
+        .retain(|_, group| group.connection_id != connection_id);
+    state.bindings.insert(
+        connection_id.into(),
+        ScimConnectionBinding {
+            connection_id: connection_id.into(),
+            provisioning_domain_id: provisioning_domain_id.into(),
+            decommissioned_at: Some(now),
+        },
+    );
+    connection.status = "decommissioned".into();
+    connection.revision += 1;
+    connection.decommissioned_at = Some(now);
+    connection.decommissioned_by = Some(actor_id.into());
+    push_event(
+        state,
+        &connection,
+        "connection.decommissioned",
+        actor_id,
+        now,
+    );
+    state
+        .managed_connections
+        .insert(connection_id.into(), connection.clone());
+    Ok(connection)
+}
+
+pub(super) fn rotate_credential(
+    state: &mut MemoryScimState,
+    connection_id: &str,
+    provisioning_domain_id: &str,
+    credential: ScimManagedCredential,
+    event: ScimManagedConnectionEvent,
+    maximum: usize,
+    now: DateTime<Utc>,
+) -> Result<(ScimManagedConnection, ScimManagedCredential), ScimStoreError> {
+    let Some(mut connection) = state
+        .managed_connections
+        .get(connection_id)
+        .filter(|connection| connection.provisioning_domain_id == provisioning_domain_id)
+        .cloned()
+    else {
+        return Err(ScimStoreError::NotFound);
+    };
+    if connection.status != "active" {
+        return Err(ScimStoreError::Decommissioned);
+    }
+    for existing in state.managed_credentials.values_mut().filter(|existing| {
+        existing.connection_record_id == connection.id
+            && existing.status == "active"
+            && existing.expires_at <= now
+    }) {
+        existing.status = "expired".into();
+    }
+    let active = state
+        .managed_credentials
+        .values()
+        .filter(|existing| {
+            existing.connection_record_id == connection.id && existing.status == "active"
+        })
+        .count();
+    if active >= maximum {
+        return Err(ScimStoreError::CredentialLimit);
+    }
+    connection.revision += 1;
+    state
+        .managed_connections
+        .insert(connection_id.into(), connection.clone());
+    state
+        .managed_credentials
+        .insert(credential.credential_id.clone(), credential.clone());
+    state.managed_events.push(event);
+    Ok((connection, credential))
+}
+
+pub(super) fn revoke_credential(
+    state: &mut MemoryScimState,
+    connection_record_id: &str,
+    credential_id: &str,
+    actor_id: &str,
+    now: DateTime<Utc>,
+) -> Result<ScimManagedCredential, ScimStoreError> {
+    let connection = state
+        .managed_connections
+        .values()
+        .find(|connection| connection.id == connection_record_id)
+        .ok_or(ScimStoreError::NotFound)?;
+    if connection.status != "active" {
+        return Err(ScimStoreError::Decommissioned);
+    }
+    let connection_id = connection.connection_id.clone();
+    let credential = state
+        .managed_credentials
+        .get_mut(credential_id)
+        .filter(|credential| credential.connection_record_id == connection_record_id)
+        .ok_or(ScimStoreError::CredentialNotFound)?;
+    if credential.status == "revoked" {
+        return Ok(credential.clone());
+    }
+    if credential.status != "active" {
+        return Err(ScimStoreError::CredentialLimit);
+    }
+    credential.status = "revoked".into();
+    credential.revoked_at = Some(now);
+    credential.revoked_by = Some(actor_id.into());
+    let output = credential.clone();
+    let sequence = state
+        .managed_events
+        .iter()
+        .filter(|event| event.connection_record_id == connection_record_id)
+        .count() as u64
+        + 1;
+    state.managed_events.push(ScimManagedConnectionEvent {
+        id: crate::scim::random_urlsafe(32),
+        connection_record_id: connection_record_id.into(),
+        sequence,
+        kind: "credential.revoked".into(),
+        actor_id: actor_id.into(),
+        credential_id: Some(credential_id.into()),
+        created_at: now,
+    });
+    if let Some(connection) = state.managed_connections.get_mut(&connection_id) {
+        connection.revision = sequence;
+    }
+    Ok(output)
+}
+
+fn push_event(
+    state: &mut MemoryScimState,
+    connection: &ScimManagedConnection,
+    kind: &str,
+    actor_id: &str,
+    now: DateTime<Utc>,
+) {
+    state.managed_events.push(ScimManagedConnectionEvent {
+        id: crate::scim::random_urlsafe(32),
+        connection_record_id: connection.id.clone(),
+        sequence: connection.revision,
+        kind: kind.into(),
+        actor_id: actor_id.into(),
+        credential_id: None,
+        created_at: now,
+    });
+}
