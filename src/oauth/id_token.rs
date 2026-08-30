@@ -123,8 +123,26 @@ fn validate_claims(
     }
     validate_issuer(claims, oidc)?;
     validate_audience(claims, &oidc.audiences)?;
+    validate_authorized_party(claims, &oidc.audiences)?;
     validate_maximum_age(claims, oidc, now)?;
     validate_nonce(claims, oidc, expected_nonce)
+}
+
+fn validate_authorized_party(claims: &Value, expected: &[String]) -> Result<(), AuthError> {
+    let [client_id] = expected else {
+        return Ok(());
+    };
+    let multiple_audiences = claims
+        .get("aud")
+        .and_then(Value::as_array)
+        .is_some_and(|audiences| audiences.len() > 1);
+    let authorized_party = claims.get("azp").and_then(Value::as_str);
+    if (multiple_audiences && authorized_party.is_none())
+        || authorized_party.is_some_and(|party| party != client_id)
+    {
+        return Err(AuthError::OAuthInvalidToken);
+    }
+    Ok(())
 }
 
 fn validate_issuer(claims: &Value, oidc: &OidcConfig) -> Result<(), AuthError> {

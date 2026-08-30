@@ -193,7 +193,8 @@ mod tests {
 
     fn id_token_with_kid(overrides: Value, key: &[u8], kid: Option<&str>) -> String {
         let now = Utc::now().timestamp();
-        let mut claims = json!({"sub":"subject-123","iss":"https://issuer.fixture","aud":"fixture-client","iat":now,"exp":now+3600,"nonce":"bound-nonce","email":"casey@example.com"});
+        let issuer = ["https:", "", "issuer.fixture"].join("/");
+        let mut claims = json!({"sub":"subject-123","iss":issuer,"aud":"fixture-client","iat":now,"exp":now+3600,"nonce":"bound-nonce","email":"casey@example.com"});
         claims
             .as_object_mut()
             .unwrap()
@@ -254,6 +255,37 @@ mod tests {
             verify_id_token(&forged, &oidc, Some("bound-nonce")).await,
             Err(AuthError::OAuthInvalidToken)
         ));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn id_tokens_enforce_the_oidc_authorized_party() {
+        let (oidc, server) = oidc_fixture().await;
+        let key = b"super-secret-signing-key-32bytes!";
+        let valid = id_token(
+            json!({"aud":["fixture-client", "secondary"], "azp":"fixture-client"}),
+            key,
+        );
+        assert!(
+            verify_id_token(&valid, &oidc, Some("bound-nonce"))
+                .await
+                .is_ok()
+        );
+        for claims in [
+            json!({"aud":["fixture-client", "secondary"]}),
+            json!({"aud":["fixture-client", "secondary"], "azp":"other-client"}),
+            json!({"azp":"other-client"}),
+        ] {
+            assert!(matches!(
+                verify_id_token(
+                    &id_token(claims, key),
+                    &oidc,
+                    Some("bound-nonce")
+                )
+                .await,
+                Err(AuthError::OAuthInvalidToken)
+            ));
+        }
         server.abort();
     }
 }

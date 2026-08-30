@@ -10,10 +10,15 @@ pub(super) async fn get_user_info(
     tokens: &OAuthTokens,
     expected_nonce: Option<&str>,
 ) -> Result<OAuthUserInfo, AuthError> {
-    if let (Some(token), Some(oidc)) = (tokens.id_token.as_deref(), provider.oidc.as_ref()) {
-        crate::oauth::verify_id_token(token, oidc, expected_nonce).await?;
+    let verified_id_token = verify_profile_token(provider, tokens, expected_nonce).await?;
+    let profile = raw_user_info(provider, tokens, verified_id_token.as_ref()).await?;
+    if provider.exact_oidc_errors
+        && provider.config.user_info_url.is_some()
+        && verified_id_token.is_some()
+        && verified_id_token.as_ref().and_then(|claims| claims.get("sub")) != profile.get("sub")
+    {
+        return Err(AuthError::OAuthIdTokenUserInfoSubjectMismatch);
     }
-    let profile = raw_user_info(provider, tokens).await?;
     let mapped = if let Some(mapper) = &provider.config.map_profile_to_user {
         mapper.map_profile(&profile).await?
     } else {
@@ -40,8 +45,20 @@ pub(super) async fn get_user_info(
     user.extend(mapped);
     let email = text(user.get("email"))
         .filter(|email| !email.is_empty())
-        .ok_or(AuthError::OAuthEmailNotFound)?;
-    let (account_id, issuer) = account_key(provider, tokens, &profile).await?;
+        .ok_or(if provider.exact_oidc_errors {
+            AuthError::OAuthMissingUserInfo
+        } else {
+            AuthError::OAuthEmailNotFound
+        })?;
+    let (account_id, issuer) = account_key(provider, tokens, &profile)
+        .await
+        .map_err(|error| {
+            if provider.exact_oidc_errors && matches!(error, AuthError::OAuthUserInfoUnavailable) {
+                AuthError::OAuthMissingUserInfo
+            } else {
+                error
+            }
+        })?;
     let object = profile
         .as_object()
         .cloned()
@@ -63,9 +80,38 @@ pub(super) async fn get_user_info(
     })
 }
 
+async fn verify_profile_token(
+    provider: &GenericOAuthProvider,
+    tokens: &OAuthTokens,
+    expected_nonce: Option<&str>,
+) -> Result<Option<Value>, AuthError> {
+    let (Some(token), Some(oidc)) = (tokens.id_token.as_deref(), provider.oidc.as_ref()) else {
+        return Ok(None);
+    };
+    let claims = crate::oauth::verify_id_token(token, oidc, expected_nonce)
+        .await
+        .map_err(|error| {
+            if provider.exact_oidc_errors {
+                AuthError::OAuthIdTokenNotVerified
+            } else {
+                error
+            }
+        })?;
+    if provider.exact_oidc_errors
+        && !claims
+            .get("sub")
+            .and_then(Value::as_str)
+            .is_some_and(|subject| !subject.is_empty())
+    {
+        return Err(AuthError::OAuthIdTokenSubjectMissing);
+    }
+    Ok(Some(claims))
+}
+
 async fn raw_user_info(
     provider: &GenericOAuthProvider,
     tokens: &OAuthTokens,
+    verified_id_token: Option<&Value>,
 ) -> Result<Value, AuthError> {
     if let Some(callback) = &provider.config.get_user_info {
         return callback
@@ -73,18 +119,21 @@ async fn raw_user_info(
             .await?
             .ok_or(AuthError::OAuthUserInfoUnavailable);
     }
-    if let Some(id_token) = tokens.id_token.as_deref()
-        && let Ok(decoded) = jsonwebtoken::dangerous::insecure_decode::<Value>(id_token)
-        && decoded.claims.get("sub").is_some_and(json_truthy)
-        && decoded.claims.get("email").is_some_and(json_truthy)
+    if let Some(claims) = verified_id_token
+        && claims.get("sub").is_some_and(json_truthy)
+        && claims.get("email").is_some_and(json_truthy)
     {
-        return Ok(normalize_oidc_profile(decoded.claims));
+        return Ok(normalize_oidc_profile(claims.clone()));
     }
     let endpoint = provider
         .config
         .user_info_url
         .as_deref()
-        .ok_or(AuthError::OAuthUserInfoUnavailable)?;
+        .ok_or(if provider.exact_oidc_errors {
+            AuthError::OAuthUserInfoEndpointNotFound
+        } else {
+            AuthError::OAuthUserInfoUnavailable
+        })?;
     let access_token = tokens
         .access_token
         .as_deref()

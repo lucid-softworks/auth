@@ -7,6 +7,10 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use http_body_util::BodyExt;
+use josekit::{
+    jwk::Jwk,
+    jws::{self, JwsHeader, RS256},
+};
 use lucid_auth::{
     AuthConfig, AuthService, EmailSignUpInput, MemorySsoStore, MemoryStore, NewSsoProvider,
     SsoDnsResolver, SsoOptions, SsoPlugin, SsoProviderUpdate, SsoStore,
@@ -183,6 +187,63 @@ async fn post(app: Router, path: &str, cookie: Option<&str>, body: Value) -> (St
     (status, body)
 }
 
+async fn begin_oidc_sign_in(app: &Router) -> (String, String) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/auth/sign-in/sso")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "https://example.com")
+                .body(Body::from(
+                    json!({"providerId": "acme-sso!", "callbackURL": "/dashboard"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let body: Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let state = url::Url::parse(body["url"].as_str().unwrap())
+        .unwrap()
+        .query_pairs()
+        .find(|(key, _)| key == "state")
+        .unwrap()
+        .1
+        .into_owned();
+    (cookie, state)
+}
+
+fn signed_sso_id_token(private_key: &Jwk, authorized_party: &str) -> String {
+    let now = chrono::Utc::now().timestamp();
+    let claims = json!({
+        "iss": "https://idp.example.com",
+        "aud": ["client-123456", "enterprise-api"],
+        "azp": authorized_party,
+        "sub": "enterprise-user-1",
+        "email": "enterprise@example.com",
+        "name": "Enterprise User",
+        "iat": now,
+        "exp": now + 300
+    });
+    let mut header = JwsHeader::new();
+    header.set_algorithm("RS256");
+    header.set_key_id("sso-contract-key");
+    jws::serialize_compact(
+        &serde_json::to_vec(&claims).unwrap(),
+        &header,
+        &RS256.signer_from_jwk(private_key).unwrap(),
+    )
+    .unwrap()
+}
+
 #[tokio::test]
 async fn provider_catalog_requires_a_session_and_returns_only_owned_sanitized_entries() {
     let fixture = fixture().await;
@@ -322,6 +383,7 @@ async fn oidc_callback_validates_bound_state_before_token_exchange() {
 
     let callback = fixture
         .app
+        .clone()
         .oneshot(
             Request::get(format!(
                 "/api/auth/sso/callback/other?code=authorization-code&state={state}"
@@ -343,6 +405,14 @@ async fn oidc_callback_validates_bound_state_before_token_exchange() {
 async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let idp_base = format!("http://{}", listener.local_addr().unwrap());
+    let mut private_key = Jwk::generate_rsa_key(2_048).unwrap();
+    private_key.set_key_id("sso-contract-key");
+    private_key.set_algorithm("RS256");
+    let mut public_key = private_key.to_public_key().unwrap();
+    public_key.set_key_id("sso-contract-key");
+    public_key.set_algorithm("RS256");
+    let id_token = signed_sso_id_token(&private_key, "client-123456");
+    let invalid_id_token = signed_sso_id_token(&private_key, "different-client");
     let identity_provider = Router::new()
         .route(
             "/.well-known/openid-configuration",
@@ -365,18 +435,48 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
         )
         .route(
             "/token",
-            axum::routing::post(|| async {
-                Json(json!({
-                    "access_token": "access-token",
-                    "token_type": "Bearer"
-                }))
+            axum::routing::post({
+                let id_token = id_token.clone();
+                let invalid_id_token = invalid_id_token.clone();
+                move |axum::extract::Form(params): axum::extract::Form<
+                    std::collections::BTreeMap<String, String>,
+                >| {
+                    let id_token = if params.get("code").is_some_and(|code| code == "invalid-azp") {
+                        invalid_id_token.clone()
+                    } else {
+                        id_token.clone()
+                    };
+                    async move {
+                        Json(json!({
+                            "access_token": params.get("code").cloned().unwrap_or_default(),
+                            "token_type": "Bearer",
+                            "id_token": id_token
+                        }))
+                    }
+                }
+            }),
+        )
+        .route(
+            "/jwks",
+            axum::routing::get(move || {
+                let public_key = public_key.clone();
+                async move { Json(json!({"keys": [public_key]})) }
             }),
         )
         .route(
             "/userinfo",
-            axum::routing::get(|| async {
+            axum::routing::get(|headers: axum::http::HeaderMap| async move {
+                let subject = if headers
+                    .get(header::AUTHORIZATION)
+                    .and_then(|value| value.to_str().ok())
+                    .is_some_and(|value| value.ends_with("mismatched-code"))
+                {
+                    "different-enterprise-user"
+                } else {
+                    "enterprise-user-1"
+                };
                 Json(json!({
-                    "sub": "enterprise-user-1",
+                    "sub": subject,
                     "email": "enterprise@example.com",
                     "name": "Enterprise User"
                 }))
@@ -440,6 +540,7 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
         .into_owned();
     let callback = fixture
         .app
+        .clone()
         .oneshot(
             Request::get(format!(
                 "/api/auth/sso/callback/acme-sso%21?code=valid-code&state={state}"
@@ -459,11 +560,50 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
             .iter()
             .any(|cookie| cookie.to_str().unwrap().contains("session_token="))
     );
+
+    let (state_cookie, state) = begin_oidc_sign_in(&fixture.app).await;
+    let mismatch = fixture
+        .app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/auth/sso/callback/acme-sso%21?code=mismatched-code&state={state}"
+            ))
+            .header(header::COOKIE, state_cookie)
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(mismatch.status(), StatusCode::FOUND);
+    assert_eq!(
+        mismatch.headers()[header::LOCATION],
+        "/dashboard?error=invalid_provider&error_description=id_token_userinfo_subject_mismatch"
+    );
+
+    let (state_cookie, state) = begin_oidc_sign_in(&fixture.app).await;
+    let invalid_azp = fixture
+        .app
+        .oneshot(
+            Request::get(format!(
+                "/api/auth/sso/callback/acme-sso%21?code=invalid-azp&state={state}"
+            ))
+            .header(header::COOKIE, state_cookie)
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(invalid_azp.status(), StatusCode::FOUND);
+    assert_eq!(
+        invalid_azp.headers()[header::LOCATION],
+        "/dashboard?error=invalid_provider&error_description=token_not_verified"
+    );
     server.abort();
 }
 
 #[tokio::test]
-async fn oidc_runtime_rejects_private_endpoints_that_are_not_explicitly_trusted() {
+async fn oidc_runtime_rejects_private_server_fetches_that_are_not_explicitly_trusted() {
     let fixture = fixture().await;
     fixture
         .providers
@@ -471,8 +611,8 @@ async fn oidc_runtime_rejects_private_endpoints_that_are_not_explicitly_trusted(
             "provider-row-1",
             SsoProviderUpdate {
                 oidc_config: Some(Some(json!({
-                    "authorizationEndpoint": "http://127.0.0.1/authorize",
-                    "tokenEndpoint": "https://idp.example.com/token",
+                    "authorizationEndpoint": "https://idp.example.com/authorize",
+                    "tokenEndpoint": "http://127.0.0.1/token",
                     "jwksEndpoint": "https://idp.example.com/jwks",
                     "clientId": "client-123456",
                     "clientSecret": "secret"

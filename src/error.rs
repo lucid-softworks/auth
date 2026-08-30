@@ -151,6 +151,16 @@ pub enum AuthError {
     OAuthInvalidCode,
     #[error("the OAuth token is invalid")]
     OAuthInvalidToken,
+    #[error("the OIDC ID token could not be verified")]
+    OAuthIdTokenNotVerified,
+    #[error("the OIDC ID token has no subject")]
+    OAuthIdTokenSubjectMissing,
+    #[error("the OIDC ID token and UserInfo subjects do not match")]
+    OAuthIdTokenUserInfoSubjectMismatch,
+    #[error("the OIDC provider has no UserInfo endpoint")]
+    OAuthUserInfoEndpointNotFound,
+    #[error("the OIDC provider did not return a usable subject and email")]
+    OAuthMissingUserInfo,
     #[error("the OAuth provider did not return usable user information")]
     OAuthUserInfoUnavailable,
     #[error("the OAuth provider did not return an email address")]

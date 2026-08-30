@@ -14,6 +14,7 @@ pub(crate) struct GenericOAuthProvider {
     pub(super) issuer: Option<String>,
     pub(super) is_oidc: bool,
     pub(super) oidc: Option<OidcConfig>,
+    pub(super) exact_oidc_errors: bool,
 }
 
 impl GenericOAuthProvider {
@@ -33,7 +34,14 @@ impl GenericOAuthProvider {
             issuer,
             is_oidc,
             oidc,
+            exact_oidc_errors: false,
         }
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn with_exact_oidc_errors(mut self) -> Self {
+        self.exact_oidc_errors = true;
+        self
     }
 }
 

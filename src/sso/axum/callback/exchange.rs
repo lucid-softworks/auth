@@ -55,14 +55,37 @@ pub(super) async fn finish(
     {
         Ok(result) => result,
         Err(error) => {
-            return redirect_error(
-                &error_url,
-                crate::axum::oauth_callback_error_code(&error),
-                "token_response_error",
-            );
+            let (code, description) = callback_error(&error);
+            return redirect_error(&error_url, code, description);
         }
     };
     success(service, headers, &provider.provider_id, result).await
+}
+
+fn callback_error(error: &crate::AuthError) -> (&'static str, &'static str) {
+    use crate::AuthError::{
+        OAuthIdTokenNotVerified, OAuthIdTokenSubjectMissing,
+        OAuthIdTokenUserInfoSubjectMismatch, OAuthMissingUserInfo, OAuthUserInfoEndpointNotFound,
+    };
+    match error {
+        OAuthIdTokenNotVerified => ("invalid_provider", "token_not_verified"),
+        OAuthIdTokenSubjectMissing => ("invalid_provider", "id_token_subject_missing"),
+        OAuthIdTokenUserInfoSubjectMismatch => {
+            ("invalid_provider", "id_token_userinfo_subject_mismatch")
+        }
+        OAuthUserInfoEndpointNotFound => {
+            ("invalid_provider", "user_info_endpoint_not_found")
+        }
+        OAuthMissingUserInfo => ("invalid_provider", "missing_user_info"),
+        crate::AuthError::OAuthInvalidCode => ("invalid_provider", "token_response_error"),
+        crate::AuthError::OAuthUserInfoUnavailable => {
+            ("invalid_provider", "userinfo_response_error")
+        }
+        _ => (
+            crate::axum::oauth_callback_error_code(error),
+            "token_response_error",
+        ),
+    }
 }
 
 async fn success(
