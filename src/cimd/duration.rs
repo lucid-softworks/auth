@@ -11,7 +11,7 @@ pub(super) fn parse_duration(
         CimdDuration::Text(value) => parse_duration_seconds(value)
             .ok_or(CimdConfigError::InvalidDuration(option))?,
     };
-    Ok(Duration::from_secs_f64(seconds))
+    Duration::try_from_secs_f64(seconds).map_err(|_| CimdConfigError::InvalidDuration(option))
 }
 
 fn parse_duration_seconds(input: &str) -> Option<f64> {

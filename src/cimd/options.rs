@@ -117,7 +117,7 @@ impl CimdOptions {
         parse_duration(&self.metadata_revalidation_interval, "metadataRevalidationInterval")?;
         parse_duration(
             &self.metadata_fetch_policy.minimum_fetch_interval,
-            "minimumFetchInterval",
+            "metadataFetchPolicy.minimumFetchInterval",
         )?;
         if self.max_cache_entries == 0 { return Err(CimdConfigError::InvalidCacheEntries); }
         for (name, value) in [
@@ -139,7 +139,7 @@ impl CimdOptions {
     pub(crate) fn minimum_fetch_interval(&self) -> Duration {
         parse_duration(
             &self.metadata_fetch_policy.minimum_fetch_interval,
-            "minimumFetchInterval",
+            "metadataFetchPolicy.minimumFetchInterval",
         )
         .expect("validated CIMD fetch interval")
     }
@@ -182,6 +182,14 @@ mod tests {
         assert_eq!(
             options.validate(),
             Err(CimdConfigError::InvalidFetchLimit("maximumConcurrentFetches"))
+        );
+
+        let mut options = CimdOptions::new(Arc::new(Fetcher));
+        options.metadata_fetch_policy.minimum_fetch_interval =
+            CimdDuration::Seconds(f64::MAX);
+        assert_eq!(
+            options.validate().unwrap_err().to_string(),
+            "cimd metadataFetchPolicy.minimumFetchInterval must be a non-negative number of seconds or duration string"
         );
     }
 }

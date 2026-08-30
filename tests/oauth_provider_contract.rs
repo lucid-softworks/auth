@@ -4,6 +4,8 @@ mod authorization;
 mod authorization_fidelity;
 #[path = "oauth_provider_contract/authorization_support.rs"]
 mod authorization_support;
+#[path = "oauth_provider_contract/cimd.rs"]
+mod cimd;
 #[path = "oauth_provider_contract/client_metadata.rs"]
 mod client_metadata;
 #[path = "oauth_provider_contract/discovery_wire.rs"]

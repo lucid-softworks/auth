@@ -67,18 +67,33 @@ pub async fn fetch_client_metadata_resource(
         return Err(CimdFetchError::new("CIMD native transport supports only GET and HEAD"));
     }
     let host = url.host_str().ok_or_else(|| CimdFetchError::new("metadata URL has no hostname"))?;
+    let lookup_host = host
+        .strip_prefix('[')
+        .and_then(|value| value.strip_suffix(']'))
+        .unwrap_or(host);
     let port = url.port_or_known_default().unwrap_or(443);
-    let addresses = resolve_addresses(host, port).await?;
+    let request_host = url.port().map_or_else(
+        || host.to_owned(),
+        |port| format!("{host}:{port}"),
+    );
+    let addresses = resolve_addresses(lookup_host, port).await?;
     if addresses.iter().any(|address| !crate::network_address::public_routable_ip(address.ip())) {
         return Err(CimdFetchError::new("metadata hostname must resolve only to public-routable addresses"));
     }
     let mut builder = Client::builder().redirect(Policy::none()).timeout(request.timeout);
-    if IpAddr::from_str(host).is_err() { builder = builder.resolve(host, addresses[0]); }
+    if IpAddr::from_str(lookup_host).is_err() {
+        builder = builder.resolve(lookup_host, addresses[0]);
+    }
     let client = builder.build().map_err(|error| CimdFetchError::new(error.to_string()))?;
     let method = Method::from_bytes(request.method.as_bytes())
         .map_err(|_| CimdFetchError::new("invalid metadata request method"))?;
     let mut outbound = client.request(method, url);
-    for (name, value) in request.headers { outbound = outbound.header(name, value); }
+    for (name, value) in request.headers {
+        if !name.eq_ignore_ascii_case("host") {
+            outbound = outbound.header(name, value);
+        }
+    }
+    outbound = outbound.header(reqwest::header::HOST, request_host);
     let mut response = outbound.send().await.map_err(|error| CimdFetchError::new(error.to_string()))?;
     if response
         .content_length()
@@ -119,5 +134,70 @@ async fn resolve_addresses(host: &str, port: u16) -> Result<Vec<std::net::Socket
 impl fmt::Display for CimdFetchRequest {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{} {}", self.method, self.url)
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    fn request(url: &str, method: &str) -> CimdFetchRequest {
+        CimdFetchRequest {
+            url: url.into(),
+            method: method.into(),
+            headers: BTreeMap::new(),
+            timeout: Duration::from_millis(100),
+            maximum_response_bytes: 64,
+        }
+    }
+
+    #[tokio::test]
+    async fn native_transport_rejects_non_https_and_unsupported_methods_before_io() {
+        assert_eq!(
+            fetch_client_metadata_resource(request("http://example.com/doc", "GET"))
+                .await
+                .unwrap_err()
+                .to_string(),
+            "CIMD native transport requires an HTTPS URL"
+        );
+        assert_eq!(
+            fetch_client_metadata_resource(request("https://example.com/doc", "POST"))
+                .await
+                .unwrap_err()
+                .to_string(),
+            "CIMD native transport supports only GET and HEAD"
+        );
+    }
+
+    #[tokio::test]
+    async fn native_transport_rejects_literal_special_use_addresses_before_connecting() {
+        for url in [
+            "https://127.0.0.1/doc",
+            "https://169.254.169.254/latest/meta-data",
+            "https://192.0.2.1/doc",
+            "https://[::1]/doc",
+            "https://[fe80::1]/doc",
+            "https://[2001:db8::1]/doc",
+        ] {
+            let error = fetch_client_metadata_resource(request(url, "GET"))
+                .await
+                .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "metadata hostname must resolve only to public-routable addresses",
+                "{url}"
+            );
+        }
+    }
+
+    #[test]
+    fn response_header_lookup_is_case_insensitive() {
+        let response = CimdFetchResponse {
+            status: 200,
+            headers: BTreeMap::from([("Content-Type".into(), "application/json".into())]),
+            body: Vec::new(),
+            redirected: false,
+        };
+        assert_eq!(response.content_type(), Some("application/json"));
     }
 }

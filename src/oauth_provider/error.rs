@@ -192,5 +192,8 @@ mod tests {
             OAuthProviderError::InvalidUser("deleted".into()).code(),
             "invalid_user"
         );
+        let paced = OAuthProviderError::TooManyRequestsTemporarilyUnavailable("paced".into());
+        assert_eq!(paced.code(), "temporarily_unavailable");
+        assert_eq!(paced.status_code(), 429);
     }
 }

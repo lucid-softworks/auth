@@ -157,3 +157,109 @@ fn validate_body(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{CimdFetchError, CimdMetadataResourceFetcher};
+    use async_trait::async_trait;
+    use std::sync::Arc;
+
+    struct Fetcher;
+
+    #[async_trait]
+    impl CimdMetadataResourceFetcher for Fetcher {
+        async fn fetch(
+            &self,
+            _request: CimdFetchRequest,
+        ) -> Result<CimdFetchResponse, CimdFetchError> {
+            unreachable!()
+        }
+    }
+
+    fn options() -> CimdOptions {
+        CimdOptions::new(Arc::new(Fetcher))
+    }
+
+    fn response(status: u16, content_type: &str, body: &[u8]) -> CimdFetchResponse {
+        CimdFetchResponse {
+            status,
+            headers: BTreeMap::from([("Content-Type".into(), content_type.into())]),
+            body: body.into(),
+            redirected: false,
+        }
+    }
+
+    fn error(response: CimdFetchResponse, conditional: bool) -> String {
+        match validate_response(
+            &options(),
+            "https://client.example/document.json",
+            response,
+            conditional,
+        ) {
+            Err(ResolutionFailure::Invalid(error)) => error,
+            _ => panic!("expected invalid metadata response"),
+        }
+    }
+
+    #[test]
+    fn response_boundary_rejects_redirects_status_media_json_and_size_failures() {
+        let mut redirected = response(200, "application/json", b"{}");
+        redirected.redirected = true;
+        assert_eq!(
+            error(redirected, false),
+            "Metadata document fetch must not follow redirects"
+        );
+        assert_eq!(
+            error(response(302, "application/json", b"{}"), false),
+            "Metadata document fetch returned HTTP 302"
+        );
+        assert_eq!(
+            error(response(200, "text/plain", b"{}"), false),
+            "Metadata document must be JSON (got Content-Type \"text/plain\")"
+        );
+        assert_eq!(
+            error(response(200, "application/json", b"not json"), false),
+            "Metadata document is not valid JSON"
+        );
+        let mut oversized = response(200, "application/json", b"{}");
+        oversized
+            .headers
+            .insert("Content-Length".into(), "5121".into());
+        assert_eq!(
+            error(oversized, false),
+            "Metadata document exceeds 5KB size limit"
+        );
+    }
+
+    #[test]
+    fn not_modified_requires_a_real_conditional_validator() {
+        assert_eq!(
+            error(response(304, "", b""), false),
+            "Metadata document returned 304 without a conditional validator"
+        );
+        assert!(matches!(
+            validate_response(
+                &options(),
+                "https://client.example/document.json",
+                response(304, "", b""),
+                true,
+            ),
+            Ok(FetchedDocument::NotModified(_))
+        ));
+    }
+
+    #[test]
+    fn structured_json_suffix_and_parameters_are_accepted() {
+        let body = br#"{"client_id":"https://client.example/document.json"}"#;
+        assert!(matches!(
+            validate_response(
+                &options(),
+                "https://client.example/document.json",
+                response(200, "application/client-metadata+json; charset=utf-8", body),
+                false,
+            ),
+            Ok(FetchedDocument::Modified { .. })
+        ));
+    }
+}

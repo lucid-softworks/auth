@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
+import { betterAuth } from "better-auth";
 import {
   cimd,
   createCimdClientDiscovery,
@@ -7,6 +8,7 @@ import {
   validateCimdMetadata,
   validateClientIdUrl,
 } from "@better-auth/cimd";
+import { oauthProvider } from "@better-auth/oauth-provider";
 
 const packageJson = async (name) =>
   JSON.parse(
@@ -129,5 +131,140 @@ describe("@better-auth/cimd@1.7.1 oracle", () => {
         error: "jwks must contain only structurally valid public keys",
       });
     }
+  });
+
+  test("captures discovery metadata, transport input, cache reuse, and creation callback", async () => {
+    const baseURL = "https://issuer.example.test/api/auth";
+    const clientId = "https://metadata.example.test/client.json";
+    const requests = [];
+    const callbacks = [];
+    const transport = async (input, init) => {
+      requests.push({
+        input: String(input),
+        accept: init.headers.get("accept"),
+        redirect: init.redirect,
+        hasSignal: init.signal instanceof AbortSignal,
+      });
+      return new Response(
+        JSON.stringify({
+          client_id: clientId,
+          client_name: "Oracle client",
+          redirect_uris: ["https://client.example.test/callback"],
+          unknown: "stripped",
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/metadata+json; charset=utf-8",
+            "cache-control": "max-age=60",
+          },
+        },
+      );
+    };
+    const auth = betterAuth({
+      baseURL,
+      secret: "c".repeat(32),
+      logger: { disabled: true },
+      plugins: [
+        oauthProvider({
+          loginPage: "/login",
+          consentPage: "/consent",
+          disableJwtPlugin: true,
+        }),
+        cimd({
+          fetchClientMetadataResource: transport,
+          onClientCreated: ({ client, clientMetadataDocument }) => {
+            callbacks.push({
+              clientId: client.clientId,
+              name: client.name,
+              metadata: clientMetadataDocument,
+            });
+          },
+        }),
+      ],
+    });
+
+    const metadata = await auth.handler(
+      new Request("https://issuer.example.test/.well-known/oauth-authorization-server/api/auth"),
+    );
+    expect(await metadata.json()).toMatchObject({
+      client_id_metadata_document_supported: true,
+    });
+    const authorizeUrl = new URL(`${baseURL}/oauth2/authorize`);
+    authorizeUrl.search = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: "https://client.example.test/callback",
+      scope: "openid",
+    });
+    for (let index = 0; index < 2; index += 1) {
+      const response = await auth.handler(new Request(authorizeUrl, { redirect: "manual" }));
+      expect(response.status).toBe(302);
+    }
+    expect(requests).toEqual([
+      {
+        input: clientId,
+        accept: "application/json",
+        redirect: "error",
+        hasSignal: true,
+      },
+    ]);
+    expect(callbacks).toEqual([
+      {
+        clientId,
+        name: "Oracle client",
+        metadata: {
+          client_id: clientId,
+          client_name: "Oracle client",
+          redirect_uris: ["https://client.example.test/callback"],
+          token_endpoint_auth_method: "none",
+        },
+      },
+    ]);
+  });
+
+  test("captures construction failures and invalid fetch envelopes", async () => {
+    const transport = async () =>
+      new Response("not json", {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      });
+    expect(() =>
+      createCimdClientDiscovery({
+        fetchClientMetadataResource: transport,
+        maxCacheEntries: 0,
+      }),
+    ).toThrowError("cimd maxCacheEntries must be a positive integer");
+    expect(() =>
+      createCimdClientDiscovery({
+        fetchClientMetadataResource: transport,
+        metadataFetchPolicy: { maximumConcurrentFetches: 0 },
+      }),
+    ).toThrowError(
+      "cimd metadataFetchPolicy.maximumConcurrentFetches must be a positive integer",
+    );
+
+    const clientId = "https://metadata.example.test/invalid.json";
+    const auth = betterAuth({
+      baseURL: "https://issuer.example.test/api/auth",
+      secret: "d".repeat(32),
+      logger: { disabled: true },
+      plugins: [
+        oauthProvider({ loginPage: "/login", consentPage: "/consent", disableJwtPlugin: true }),
+        cimd({ fetchClientMetadataResource: transport }),
+      ],
+    });
+    const url = new URL("https://issuer.example.test/api/auth/oauth2/authorize");
+    url.search = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: "https://client.example.test/callback",
+    });
+    const response = await auth.handler(new Request(url, { redirect: "manual" }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "invalid_client",
+      error_description: 'Metadata document must be JSON (got Content-Type "text/plain")',
+    });
   });
 });
