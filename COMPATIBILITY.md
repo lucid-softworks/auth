@@ -488,7 +488,7 @@ aliases or permissive alternate request/response shapes:
 | Commet | Supported | Optional `CommetPlugin` matches Better Auth `1.7.1`, `@commet/better-auth@8.1.0`, and `@commet/node@9.1.0`: ordered selection of portal, subscriptions, features, usage, seats, and webhooks produces 14 conditional routes—the official `commetClient` exposes 13 actions under the root `customer`, `subscription`, `features`, `usage`, and `seats` namespaces, while the raw public webhook is server-only. Exact request validation, unknown-key stripping, JavaScript property ordering, truthiness, coercion, and `undefined` response projections are preserved. Opt-in customer lifecycle hooks reproduce the adapter's first-truthy-customer lookup, conditional before-create, unconditional after-create (including its double-create behavior), and best-effort first-customer update; callback `domain` and subscription `plans` remain exposed but inert because 8.1.0 never forwards or reads them. The native provider validates server-only `ck_` API keys, implements all 15 SDK operations against `/api/v1`, retains raw JSON values, and matches the SDK's API-key/version headers, 30-second timeout, unbounded response read, status/network retry rules, and stable generated or explicit idempotency keys. Raw-body HMAC-SHA256 verification follows Node hexadecimal decoding and dispatches eight named callbacks before `onPayload` over the same shared payload. Commet remains authoritative: there is no plugin schema, local state, migration, organization mapping, replay ledger, checkout flow, generic SDK proxy, or npm/React replacement; [#51](https://github.com/lucid-softworks/auth/issues/51). |
 | Chargebee | Supported | Optional `ChargebeePlugin` matches Better Auth `1.7.1`, the Chargebee-maintained `@chargebee/better-auth@1.2.0`, and its `chargebee@3.23.1` runtime: eight always-mounted server routes; the official client's five explicit `pathMethods` plus its inferred GET cancel-callback action; exact validation, reference/origin rules, hosted checkout, portal, cancellation, local lifecycle, and declaration/runtime edges; conditional user/organization/subscription/item schema; an injected native provider gateway; eight webhook mappings, custom listeners, and optional awaited event-bus processing; and equivalent memory/PostgreSQL stores. One intentional hardening awaits webhook authentication, processing, listeners, and queue persistence instead of reproducing the package's unsafe early acknowledgement race. Pinned npm-oracle, official-client, native HTTP/lifecycle/webhook, memory, and live PostgreSQL contracts cover the boundary; see [Chargebee 1.2.0](#chargebee-120) and [#52](https://github.com/lucid-softworks/auth/issues/52). |
 | Dub | Supported | Optional `DubPlugin` matches Better Auth `1.7.1`, `@dub/better-auth@0.0.6`, and `dub@0.66.5` for its actual published surface: one post-commit user-create lead hook, exact `dub_id` parsing and pathless deletion, default/custom/disabled tracking behavior, and `POST /dub/link` validation/security/failure outcomes. The package exports no installable client, and its configured OAuth flow is broken with Better Auth 1.7.1; the native plugin preserves the empty 500 and adds no callback or fabricated repair. There is no schema, migration, local attribution state, webhook, sale/update tracking, job, retry, or idempotency layer; see [Dub 0.0.6](#dub-006) and [#53](https://github.com/lucid-softworks/auth/issues/53). |
-| Dashboard and audit logs | Partial | `DashPlugin` matches the 26 core routes from `@better-auth/infra@0.4.3`, including managed JWT/JTI policy, user/export/account/session/moderation/email/analytics behavior, opt-in activity tracking, and the five raw adapter actions. The shared connection/JWT/identification substrate also matches the pinned artifact. Application/activity/error audit event families and their storage/delivery work remain tracked by [#91](https://github.com/lucid-softworks/auth/issues/91)-[#94](https://github.com/lucid-softworks/auth/issues/94), so the overall Dashboard family remains Partial. See [Dash core routes 0.4.3](#dash-core-routes-043), [Dash substrate 0.4.3](#dash-substrate-043), [#89](https://github.com/lucid-softworks/auth/issues/89), and [#90](https://github.com/lucid-softworks/auth/issues/90). |
+| Dashboard and audit logs | Partial | `DashPlugin` matches the 26 hosted core routes and four local-session event-query routes from `@better-auth/infra@0.4.3`, including managed JWT/JTI policy, user/export/account/session/moderation/email/analytics behavior, opt-in activity tracking, five raw adapter actions, the exact 39-value event catalog, remote event transformation/filtering, local membership/role authorization, and the two-action `dashClient()` declaration. The shared connection/JWT/identification substrate also matches the pinned artifact. Audit-event projection and the remaining hosted management families remain tracked by [#91](https://github.com/lucid-softworks/auth/issues/91)-[#93](https://github.com/lucid-softworks/auth/issues/93), so the overall Dashboard family remains Partial. See [Dash core routes 0.4.3](#dash-core-routes-043), [Dash event queries 0.4.3](#dash-event-queries-043), [Dash substrate 0.4.3](#dash-substrate-043), [#89](https://github.com/lucid-softworks/auth/issues/89), [#90](https://github.com/lucid-softworks/auth/issues/90), and [#94](https://github.com/lucid-softworks/auth/issues/94). |
 | Sentinel security | Planned | [#55](https://github.com/lucid-softworks/auth/issues/55). |
 | Managed email service | Supported | Standalone `infra::email` client matching `@better-auth/infra@0.4.3`: exact reusable and one-shot send operations, bulk send, remote template listing, all 13 published templates and their typed variables, configuration/environment/timeout precedence, URL and header construction, result normalization, and one-request failure behavior. This is not an auth plugin: it adds no route, client plugin, schema, migration, lifecycle mapping, queue, retry, idempotency, locale, or provider transport. Recipients and template payloads leave the process for the configured API origin; see [Managed email 0.4.3](#managed-email-043) and [#56](https://github.com/lucid-softworks/auth/issues/56). |
 | Managed SMS service | Supported | Standalone `infra::sms` client matching the root-only SMS exports from `@better-auth/infra@0.4.3`: exact reusable and one-shot sends, three templates plus the generic send, configuration/environment/timeout precedence, optional client-IP header, URL/header/body construction, unchecked provider message IDs, result normalization, and one-request failure behavior. This is not an auth plugin and is not automatically wired by `dash` or `sentinel`; it adds no route, client plugin, schema, migration, validation, queue, retry, idempotency, locale, or provider transport. Phone numbers, OTPs, and optional end-user IPs leave the process for the configured origin; see [Managed SMS 0.4.3](#managed-sms-043) and [#57](https://github.com/lucid-softworks/auth/issues/57). |
@@ -685,7 +685,8 @@ GET and sixteen POST routes. The family covers `/dash/config`,
 delete and bulk deletion, organization lookup, account unlinking, password and
 session operations, impersonation, user statistics/graph/retention,
 ban/unban and bulk banning, plus verification and password-reset email actions.
-It does not claim the audit-event routes tracked separately in #91-#94.
+The four local-session event routes are documented separately below and do not
+share this hosted authorization boundary.
 
 Every route requires the hosted Dash JWT. Ordinary routes enforce token age,
 signature, API-key hash, expiry, route claims, and JTI for tokens at least 30
@@ -714,6 +715,33 @@ JWKS requests. The core routes expose administrative user and authentication
 data to callers holding a valid hosted Dash token. Treat that token and origin
 as privileged infrastructure credentials, and review the exact redacted config
 and export boundary before enabling the plugin.
+
+### Dash event queries 0.4.3
+
+`DashPlugin` also owns exactly four local-session GET endpoints:
+`/events/list`, `/events/audit-logs`, `/events/all-audit-logs`, and
+`/events/types`. They require the configured Events API and a normal local
+Better Auth session. User queries reject another `userId`; organization queries
+require local membership; all-activity queries require exact `owner` or
+`admin` roles and scope unqualified/user queries to the actor's elevated
+organizations. Member access uses the configured organization store, including
+schema remapping and memory, SQLite, PostgreSQL, or custom backends.
+
+Paging, local event/identifier filters, filtered-total behavior, remote totals,
+date conversion, location omission, error messages, and the exact 25 user plus
+14 organization constants match the pinned artifact. The official
+`@better-auth/infra/client` declaration has id `dash`, a single `dash`
+namespace, only `getAuditLogs` and `getAllAuditLogs`, and GET `pathMethods` only
+for those two paths. Its user resolver uses explicit `userId`, the configured
+resolver, `user.id`, then `session.user.id`; the all-activity action does not
+invoke it.
+
+The API origin receives the API key plus transmitted user/organization/filter
+identifiers and returns provider-owned audit records that can include email,
+account, event-data, IP, city, country, and country-code PII. Lucid-auth adds no
+local audit-event table, migration, history map, drain/replay endpoint, retry,
+or retention policy. This surface is separate from the optional native
+`AuditPlugin` and from hosted `/dash/**` management authorization.
 
 ### Dash substrate 0.4.3
 
@@ -748,10 +776,10 @@ Location prefers the record, then the artifact's platform IP/country headers,
 and honors the advanced IP-disable switch.
 
 The substrate alone owns no public Dash endpoint, browser client, database model,
-migration, persisted credential, event transport, background queue, retry
+migration, persisted credential, background queue, retry
 ledger, local audit store, issuer/audience validation, or generic remote-admin
-framework. Core endpoints are owned by `DashPlugin`; audit-event surfaces remain
-with #91-#94. The API
+framework. Core and event-query endpoints are owned by `DashPlugin`; event
+projection remains with #93. The API
 origin receives API keys, hosted JWT/JTI data, and JWKS requests; the KV origin
 receives request identifiers, while loaded identification can include visitor,
 IP, location, browser, confidence, incognito, and bot data. Configure only

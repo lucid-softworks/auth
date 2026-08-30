@@ -13,6 +13,7 @@ mod adapter;
 mod analytics;
 mod auth;
 mod email;
+mod events;
 mod input;
 mod sessions;
 mod users;
@@ -30,6 +31,7 @@ pub(super) fn routes(_service: Arc<AuthService>, plugin: DashPlugin) -> Vec<Axum
     routes.extend(sessions::routes(plugin.clone()));
     routes.extend(analytics::routes(plugin.clone()));
     routes.extend(email::routes(plugin.clone()));
+    routes.extend(events::routes(plugin.clone()));
     routes.extend(adapter::routes(plugin));
     routes
 }

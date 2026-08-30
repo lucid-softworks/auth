@@ -17,11 +17,13 @@ pub use crate::infra::dash::{
     ApiOptions as DashApiOptions, DashActivityTracking, DashAdapterAction, DashAdapterConnector,
     DashAdapterOperator, DashAdapterSort, DashAdapterWhere, DashApiClient, DashAuthorizationError,
     DashClientError, DashClientResponse, DashJwtVerifier, DashKvClient, DashOptions, DashPeriod,
-    DashPlugin, DashRequest, DashSortDirection, DashUserListQuery, DashVerifiedClaims,
+    DashEvent, DashPlugin, DashRequest, DashSortDirection, DashUserListQuery, DashVerifiedClaims,
     Identification, IdentificationContext, IdentificationCookie, IdentificationCountry,
     IdentificationGeo, IdentificationIpOptions, IdentificationLocation, IdentificationRequest,
     IdentificationService, InfraConnectionOptions, KvOptions as DashKvOptions,
     KvRetryOptions as DashKvRetryOptions, ResolvedConnectionOptions, ResolvedKvRetryOptions,
+    ORGANIZATION_EVENT_TYPE_ENTRIES, USER_EVENT_TYPE_ENTRIES, all_event_types,
+    organization_event_types, user_event_types,
 };
 pub use crate::infra::email::{
     ApplicationInviteVariables, BulkEmailRecipient, ChangeEmailVariables, DeleteAccountVariables,

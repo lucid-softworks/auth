@@ -1,5 +1,6 @@
-import { describe, expect, test } from "vitest";
-import { dash } from "@better-auth/infra";
+import { describe, expect, test, vi } from "vitest";
+import { USER_EVENT_TYPES, dash } from "@better-auth/infra";
+import { dashClient } from "@better-auth/infra/client";
 import { infraText, packageJson, packageLock } from "./infra-email.helpers.mjs";
 
 describe("@better-auth/infra@0.4.3 Dash substrate oracle", () => {
@@ -142,6 +143,101 @@ describe("@better-auth/infra@0.4.3 Dash substrate oracle", () => {
     expect(actual.filter(([, method]) => method === "GET")).toHaveLength(10);
     expect(actual.filter(([, method]) => method === "POST")).toHaveLength(16);
     expect(new Set(actual.map(([, , path]) => path)).size).toBe(26);
+  });
+
+  test("publishes the exact event-query descriptors, constants, and schemas", () => {
+    const endpoints = dash().endpoints;
+    expect([
+      ["getUserEvents", endpoints.getUserEvents.options.method, endpoints.getUserEvents.path],
+      ["getAuditLogs", endpoints.getAuditLogs.options.method, endpoints.getAuditLogs.path],
+      ["getAllAuditLogs", endpoints.getAllAuditLogs.options.method, endpoints.getAllAuditLogs.path],
+      ["getEventTypes", endpoints.getEventTypes.options.method, endpoints.getEventTypes.path],
+    ]).toEqual([
+      ["getUserEvents", "GET", "/events/list"],
+      ["getAuditLogs", "GET", "/events/audit-logs"],
+      ["getAllAuditLogs", "GET", "/events/all-audit-logs"],
+      ["getEventTypes", "GET", "/events/types"],
+    ]);
+    expect(Object.keys(USER_EVENT_TYPES)).toHaveLength(39);
+    expect(USER_EVENT_TYPES).toMatchObject({
+      USER_CREATED: "user_created",
+      EMAIL_CHANGED: "email_changed",
+      TWO_FACTOR_VERIFIED: "two_factor_verified",
+      ORGANIZATION_MEMBER_INVITE_CANCELED: "organization_member_invite_canceled",
+      ORGANIZATION_TEAM_MEMBER_REMOVED: "organization_team_member_removed",
+    });
+
+    expect(endpoints.getUserEvents.options.query.parse({ limit: "12.5", offset: "-2" }))
+      .toEqual({ limit: 12.5, offset: -2 });
+    expect(endpoints.getAuditLogs.options.query.parse({ limit: 8, userId: "user-1" }))
+      .toEqual({ limit: 8, userId: "user-1" });
+    expect(endpoints.getAllAuditLogs.options.query.safeParse({
+      organizationId: "org-1",
+      userId: "user-1",
+    }).error.issues[0].message).toBe("Provide at most one of userId and organizationId.");
+    expect(endpoints.getAllAuditLogs.options.query.parse({
+      organizationId: " ",
+      userId: "user-1",
+      unknown: "stripped",
+    })).toEqual({ organizationId: " ", userId: "user-1" });
+  });
+
+  test("dashClient exposes exactly two nested GET actions and resolver precedence", async () => {
+    const fetch = vi.fn(async () => ({ data: { events: [], total: 0, limit: 50, offset: 0 }, error: null }));
+    const resolver = vi.fn(() => "resolved-user");
+    const client = dashClient({ resolveUserId: resolver });
+    const actions = client.getActions(fetch).dash;
+
+    expect(client.id).toBe("dash");
+    expect(Object.keys(client.getActions(fetch))).toEqual(["dash"]);
+    expect(Object.keys(actions)).toEqual(["getAuditLogs", "getAllAuditLogs"]);
+    expect(client.pathMethods).toEqual({
+      "/events/audit-logs": "GET",
+      "/events/all-audit-logs": "GET",
+    });
+
+    await actions.getAuditLogs({
+      limit: 4,
+      organizationId: "org-1",
+      identifier: "member@example.com",
+      eventType: "organization_member_added",
+      userId: "explicit-user",
+      user: { id: "input-user" },
+      session: { user: { id: "session-user" } },
+    });
+    expect(resolver).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenLastCalledWith("/events/audit-logs", {
+      method: "GET",
+      query: {
+        limit: 4,
+        offset: undefined,
+        organizationId: "org-1",
+        identifier: "member@example.com",
+        eventType: "organization_member_added",
+        userId: "explicit-user",
+      },
+    });
+
+    await actions.getAuditLogs({ user: { id: "input-user" }, session: { user: { id: "session-user" } } });
+    expect(resolver).toHaveBeenLastCalledWith({
+      userId: undefined,
+      user: { id: "input-user" },
+      session: { user: { id: "session-user" } },
+    });
+    expect(fetch.mock.calls.at(-1)[1].query.userId).toBe("resolved-user");
+
+    await actions.getAllAuditLogs();
+    expect(fetch).toHaveBeenLastCalledWith("/events/all-audit-logs", {
+      method: "GET",
+      query: {
+        limit: undefined,
+        offset: undefined,
+        organizationId: undefined,
+        userId: undefined,
+        eventType: undefined,
+        identifier: undefined,
+      },
+    });
   });
 
   test("pins exposed query and body coercion, defaults, and strict unions", () => {

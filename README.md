@@ -111,8 +111,9 @@ The currently supported surface covers:
   `@dub/better-auth@0.0.6`
 - the standalone managed email client from `@better-auth/infra@0.4.3`
 - the standalone managed SMS client from `@better-auth/infra@0.4.3`
-- the 26 core `@better-auth/infra@0.4.3` Dash routes plus their shared
-  connection, hosted-JWT, and request-identification substrate
+- the 26 hosted-management and four local-session event-query routes from
+  `@better-auth/infra@0.4.3`, plus their shared connection, hosted-JWT, and
+  request-identification substrate
 
 The library keeps authentication protocol details separate from host-product
 authorization. Core principals contain actor, subject, session, and credential
@@ -795,6 +796,15 @@ analytics, email actions, and the five-action raw adapter endpoint. Managed
 JWT authorization is mandatory; `/dash/validate` alone skips the JTI lookup,
 matching the pinned plugin.
 
+It also installs the four local-session `GET /events/*` routes. `events/list`
+and `events/audit-logs` expose only the signed-in user or an organization in
+which that user is a member. `events/all-audit-logs` requires a literal
+`owner` or `admin` membership and scopes unqualified queries to those elevated
+organizations. These routes do not accept hosted Dash JWT claims as local
+identity. The official `dashClient()` from `@better-auth/infra/client` exposes
+only `dash.getAuditLogs()` and `dash.getAllAuditLogs()`; the list and event-type
+routes remain server-only and are not extra browser actions.
+
 ```rust
 use lucid_auth::{
     AuthConfig, DashActivityTracking, DashOptions, DashPlugin,
@@ -827,6 +837,11 @@ The API client sends the configured credential to `BETTER_AUTH_API_URL` or
 sends JWT/JTI data and fetches JWKS. Identification lookups send request IDs and
 can return visitor, IP, location, browser, confidence, incognito, and bot data.
 Keep credentials server-side and configure only origins trusted with that data.
+Event records remain provider-owned: query filters transmit user and
+organization identifiers to the API origin, and responses can contain audit
+PII including account identifiers, email addresses, IP/location fields, and
+event-specific data. Lucid-auth neither persists those records nor adds a
+replay, retention, or delivery API.
 See the [exact Dash core and substrate compatibility boundary](COMPATIBILITY.md#dash-core-routes-043).
 
 ### Better Auth Infrastructure managed email

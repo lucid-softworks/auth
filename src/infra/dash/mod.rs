@@ -8,6 +8,7 @@
 
 mod client;
 mod config;
+mod events;
 mod identification;
 mod jwt;
 mod model;
@@ -20,6 +21,10 @@ pub use client::{DashApiClient, DashClientError, DashClientResponse, DashKvClien
 pub use config::{
     ApiOptions, InfraConnectionOptions, KvOptions, KvRetryOptions, ResolvedConnectionOptions,
     ResolvedKvRetryOptions,
+};
+pub use events::{
+    DashEvent, ORGANIZATION_EVENT_TYPE_ENTRIES, USER_EVENT_TYPE_ENTRIES, all_event_types,
+    organization_event_types, user_event_types,
 };
 pub use identification::{
     Identification, IdentificationContext, IdentificationCookie, IdentificationCountry,

@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     body::Body,
-    extract::State,
+    extract::{RawQuery, State},
     http::{Request, StatusCode, header},
     routing::{get, post},
 };
@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 use std::{
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
     time::{SystemTime, UNIX_EPOCH},
@@ -29,6 +29,7 @@ use tower::ServiceExt as _;
 struct ManagedApi {
     public_key: Value,
     jti_checks: Arc<AtomicUsize>,
+    event_queries: Arc<Mutex<Vec<String>>>,
 }
 
 async fn jwks(State(api): State<ManagedApi>) -> Json<Value> {
@@ -40,7 +41,46 @@ async fn check_jti(State(api): State<ManagedApi>) -> Json<Value> {
     Json(json!({"valid": true}))
 }
 
-async fn fixture() -> (Router, Jwk, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
+async fn user_events(State(api): State<ManagedApi>, RawQuery(query): RawQuery) -> Json<Value> {
+    api.event_queries
+        .lock()
+        .unwrap()
+        .push(format!("user?{}", query.unwrap_or_default()));
+    Json(json!({
+        "events": [
+            {
+                "eventType": "user_signed_in",
+                "eventData": {"userId": "ignored-by-user-scope"},
+                "eventKey": "user-1",
+                "projectId": "project-1",
+                "createdAt": "2026-08-30T08:00:00Z",
+                "updatedAt": "2026-08-30T08:01:00Z",
+                "ageInMinutes": 2,
+                "ipAddress": "203.0.113.1",
+                "city": null
+            },
+            {
+                "eventType": "password_changed",
+                "eventData": {"userId": "ignored-by-user-scope"},
+                "eventKey": "user-1",
+                "projectId": "project-1",
+                "createdAt": "2026-08-30T09:00:00Z",
+                "updatedAt": "2026-08-30T09:01:00Z"
+            }
+        ],
+        "total": 20,
+        "limit": 7,
+        "offset": 3
+    }))
+}
+
+async fn fixture() -> (
+    Router,
+    Jwk,
+    Arc<AtomicUsize>,
+    Arc<Mutex<Vec<String>>>,
+    tokio::task::JoinHandle<()>,
+) {
     let mut private_key = Jwk::generate_rsa_key(2_048).unwrap();
     private_key.set_key_id("dash-contract");
     private_key.set_algorithm("RS256");
@@ -48,18 +88,22 @@ async fn fixture() -> (Router, Jwk, Arc<AtomicUsize>, tokio::task::JoinHandle<()
     public_key.set_key_id("dash-contract");
     public_key.set_algorithm("RS256");
     let jti_checks = Arc::new(AtomicUsize::new(0));
+    let event_queries = Arc::new(Mutex::new(Vec::new()));
     let managed = Router::new()
         .route("/api/auth/jwks", get(jwks))
         .route("/api/auth/check-jti", post(check_jti))
+        .route("/events/user", get(user_events))
         .with_state(ManagedApi {
             public_key: serde_json::to_value(public_key).unwrap(),
             jti_checks: jti_checks.clone(),
+            event_queries: event_queries.clone(),
         });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move { axum::serve(listener, managed).await.unwrap() });
 
     let mut config = AuthConfig::new([b'D'; 32]).unwrap();
+    config.email_and_password.enabled = true;
     config
         .add_plugin(DashPlugin::new(DashOptions {
             connection: InfraConnectionOptions {
@@ -85,6 +129,7 @@ async fn fixture() -> (Router, Jwk, Arc<AtomicUsize>, tokio::task::JoinHandle<()
         lucid_auth::axum::router(service),
         private_key,
         jti_checks,
+        event_queries,
         server,
     )
 }
@@ -127,9 +172,32 @@ async fn json_body(response: axum::response::Response) -> Value {
     serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap()
 }
 
+async fn local_cookie(app: &Router) -> String {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/auth/sign-in/email")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({"email": "luna@example.com", "password": "password"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    response.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned()
+}
+
 #[tokio::test]
 async fn core_routes_use_managed_jwt_policy_and_return_dash_shapes() {
-    let (app, private_key, jti_checks, server) = fixture().await;
+    let (app, private_key, jti_checks, _event_queries, server) = fixture().await;
     let old_token = token(&private_key, 60);
 
     let config = request(&app, "/api/auth/dash/config", &old_token).await;
@@ -167,7 +235,7 @@ async fn core_routes_use_managed_jwt_policy_and_return_dash_shapes() {
 
 #[tokio::test]
 async fn core_routes_reject_missing_managed_authorization() {
-    let (app, _private_key, _jti_checks, server) = fixture().await;
+    let (app, _private_key, _jti_checks, _event_queries, server) = fixture().await;
     let response = app
         .oneshot(
             Request::get("/api/auth/dash/config")
@@ -181,5 +249,74 @@ async fn core_routes_reject_missing_managed_authorization() {
         json_body(response).await,
         json!({"code": "UNAUTHORIZED", "message": "Invalid API key"})
     );
+    server.abort();
+}
+
+#[tokio::test]
+async fn event_queries_use_local_sessions_transform_and_filter_remote_records() {
+    let (app, _private_key, _jti_checks, event_queries, server) = fixture().await;
+    let cookie = local_cookie(&app).await;
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/api/auth/events/list?limit=500&offset=-2&eventType=user_signed_in")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["total"], 20);
+    assert_eq!(body["limit"], 7);
+    assert_eq!(body["offset"], 3);
+    assert_eq!(body["events"].as_array().unwrap().len(), 1);
+    assert_eq!(body["events"][0]["createdAt"], "2026-08-30T08:00:00.000Z");
+    assert_eq!(
+        body["events"][0]["location"],
+        json!({"ipAddress": "203.0.113.1", "city": null})
+    );
+    assert!(body["events"][0].get("ipAddress").is_none());
+    let query = event_queries.lock().unwrap().pop().unwrap();
+    assert!(query.contains("limit=100"), "{query}");
+    assert!(query.contains("offset=0"), "{query}");
+
+    let types = app
+        .clone()
+        .oneshot(
+            Request::get("/api/auth/events/types")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(types.status(), StatusCode::OK);
+    let types = json_body(types).await;
+    assert_eq!(types["user"].as_object().unwrap().len(), 25);
+    assert_eq!(types["organization"].as_object().unwrap().len(), 14);
+    assert_eq!(types["all"].as_object().unwrap().len(), 39);
+
+    let forbidden = app
+        .clone()
+        .oneshot(
+            Request::get("/api/auth/events/audit-logs?userId=another-user")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        json_body(forbidden).await,
+        json!({
+            "code": "FORBIDDEN",
+            "message": "Not allowed to access another user's audit logs"
+        })
+    );
+
     server.abort();
 }

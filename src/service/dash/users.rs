@@ -1,5 +1,7 @@
 use super::*;
 
+mod events;
+
 impl AuthService {
     pub(crate) async fn dash_list_users(
         &self,

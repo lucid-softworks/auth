@@ -3,11 +3,14 @@ use super::DashJwtVerifier;
 use super::{InfraConnectionOptions, ResolvedConnectionOptions, VERSION};
 use crate::{
     AdditionalField, AdditionalFieldType, AuthConfig, AuthError, AuthPlugin, DatabaseRecord,
-    PluginArtifactMetadata, PluginDescriptor, PluginEndpoint, PluginHttpMethod, PluginProvenance,
-    PluginSchemaTable,
+    PluginArtifactMetadata, PluginClientMetadata, PluginClientPathMethod, PluginDescriptor,
+    PluginEndpoint, PluginHttpMethod, PluginProvenance, PluginSchemaTable,
 };
 use async_trait::async_trait;
 use std::{borrow::Cow, fmt, sync::Arc, time::Duration};
+
+#[cfg(test)]
+mod contract;
 
 const ENDPOINTS: &[PluginEndpoint] = &[
     endpoint(PluginHttpMethod::Get, "/dash/config", "getDashConfig"),
@@ -116,6 +119,25 @@ const ENDPOINTS: &[PluginEndpoint] = &[
         "/dash/execute-adapter",
         "dashExecuteAdapter",
     ),
+    endpoint(PluginHttpMethod::Get, "/events/list", "getUserEvents"),
+    endpoint(
+        PluginHttpMethod::Get,
+        "/events/audit-logs",
+        "dash.getAuditLogs",
+    ),
+    endpoint(
+        PluginHttpMethod::Get,
+        "/events/all-audit-logs",
+        "dash.getAllAuditLogs",
+    ),
+    endpoint(PluginHttpMethod::Get, "/events/types", "getEventTypes"),
+];
+
+const CLIENT_ACTIONS: &[&str] = &["dash.getAuditLogs", "dash.getAllAuditLogs"];
+const CLIENT_NON_ACTION_PATHS: &[&str] = &["/events/list", "/events/types"];
+const CLIENT_PATH_METHODS: &[PluginClientPathMethod] = &[
+    PluginClientPathMethod::new("/events/audit-logs", PluginHttpMethod::Get),
+    PluginClientPathMethod::new("/events/all-audit-logs", PluginHttpMethod::Get),
 ];
 
 const fn endpoint(
@@ -228,7 +250,17 @@ impl AuthPlugin for DashPlugin {
             cookies: &[],
             rate_limits: &[],
             middleware: &[],
-            client: None,
+            client: Some(
+                PluginClientMetadata::official(
+                    "@better-auth/infra",
+                    "@better-auth/infra/client",
+                    "dashClient",
+                )
+                .with_identity("dash", VERSION)
+                .with_custom_actions(CLIENT_ACTIONS)
+                .with_non_action_paths(CLIENT_NON_ACTION_PATHS)
+                .with_path_methods(CLIENT_PATH_METHODS),
+            ),
         }
     }
 
@@ -353,76 +385,4 @@ fn activity_was_recent(
             now.signed_duration_since(last_active)
                 < chrono::Duration::from_std(interval).unwrap_or(chrono::Duration::MAX)
         })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn descriptor_owns_the_exact_core_family() {
-        let descriptor = DashPlugin::default().descriptor();
-        assert_eq!(descriptor.id, "dash");
-        assert_eq!(descriptor.version, "0.4.3");
-        assert_eq!(descriptor.endpoints.len(), 26);
-        assert_eq!(
-            descriptor
-                .endpoints
-                .iter()
-                .filter(|endpoint| endpoint.method == PluginHttpMethod::Get)
-                .count(),
-            10
-        );
-        assert_eq!(
-            descriptor
-                .endpoints
-                .iter()
-                .filter(|endpoint| endpoint.method == PluginHttpMethod::Post)
-                .count(),
-            16
-        );
-    }
-
-    #[test]
-    fn activity_schema_is_strictly_opt_in() {
-        assert!(DashPlugin::default().schema().is_empty());
-        let plugin = DashPlugin::new(DashOptions {
-            activity_tracking: DashActivityTracking {
-                enabled: true,
-                ..DashActivityTracking::default()
-            },
-            ..DashOptions::default()
-        });
-        let schema = plugin.schema();
-        assert_eq!(schema.len(), 1);
-        assert_eq!(schema[0].logical_name, "user");
-        assert_eq!(schema[0].model_name, None);
-        assert!(schema[0].fields.contains_key("lastActiveAt"));
-    }
-
-    #[test]
-    fn activity_interval_defaults_to_five_minutes() {
-        assert_eq!(
-            DashActivityTracking::default().update_interval,
-            Duration::from_millis(300_000)
-        );
-    }
-
-    #[cfg(feature = "axum")]
-    #[test]
-    fn activity_interval_uses_the_pinned_strict_boundary() {
-        let now = chrono::Utc::now();
-        let interval = Duration::from_secs(300);
-        assert!(activity_was_recent(
-            Some(&serde_json::json!(now - chrono::Duration::seconds(299))),
-            interval,
-            now,
-        ));
-        assert!(!activity_was_recent(
-            Some(&serde_json::json!(now - chrono::Duration::seconds(300))),
-            interval,
-            now,
-        ));
-        assert!(!activity_was_recent(None, interval, now));
-    }
 }
