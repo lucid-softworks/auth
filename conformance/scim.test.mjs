@@ -86,6 +86,77 @@ describe("@better-auth/scim@1.7.1 artifact oracle", () => {
     expect(plugin.hooks.after).toHaveLength(1);
   });
 
+  test("publishes the exact type export inventory", async () => {
+    const declarations = await readFile(
+      new URL("node_modules/@better-auth/scim/dist/index.d.mts", import.meta.url),
+      "utf8",
+    );
+    const exportBlock = declarations.match(/export \{[^}]+\};/g)?.at(-1);
+    const typeExports = exportBlock
+      ?.slice("export {".length, -2)
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.startsWith("type "))
+      .map((entry) => entry.slice("type ".length))
+      .sort();
+    expect(typeExports).toEqual([
+      "SCIMActiveUserLink",
+      "SCIMActiveUserLinkContext",
+      "SCIMAuthenticationOptions",
+      "SCIMAuthorizationSource",
+      "SCIMBearerCredentialOptions",
+      "SCIMBearerTokenVerification",
+      "SCIMBearerTokenVerificationContext",
+      "SCIMBearerTokenVerificationInput",
+      "SCIMCanonicalAddress",
+      "SCIMCanonicalEmail",
+      "SCIMCanonicalEntitlement",
+      "SCIMCanonicalManager",
+      "SCIMCanonicalName",
+      "SCIMCanonicalPhoneNumber",
+      "SCIMCanonicalRole",
+      "SCIMCanonicalUser",
+      "SCIMCompatibilityOptions",
+      "SCIMConnection",
+      "SCIMConnectionDecommissionStatus",
+      "SCIMConnectionOptions",
+      "SCIMDeclaredConnectionVerificationResult",
+      "SCIMEmail",
+      "SCIMEnterpriseUser",
+      "SCIMGroupAuthorizationSource",
+      "SCIMIdentity",
+      "SCIMIdentityResolution",
+      "SCIMIdentityResolutionContext",
+      "SCIMIdentityResolutionInput",
+      "SCIMIdentitySource",
+      "SCIMIdentityState",
+      "SCIMManagedBearerPrincipal",
+      "SCIMManagedConnection",
+      "SCIMManagedConnectionEvent",
+      "SCIMManagedConnectionEventType",
+      "SCIMManagedConnectionOptions",
+      "SCIMManagedConnectionStatus",
+      "SCIMManagedCredential",
+      "SCIMManagedCredentialStatus",
+      "SCIMMicrosoftEntraCompatibilityOptions",
+      "SCIMName",
+      "SCIMOAuthBearerPrincipal",
+      "SCIMOptions",
+      "SCIMPrincipal",
+      "SCIMProjectedRoleGrant",
+      "SCIMProjectedUserState",
+      "SCIMProjection",
+      "SCIMResolvedConnectionVerificationResult",
+      "SCIMRoleExistenceInput",
+      "SCIMRoleMappingInput",
+      "SCIMRoleProjection",
+      "SCIMScope",
+      "SCIMStaticBearerPrincipal",
+      "SCIMTransactionContext",
+      "SCIMUserExternalIdReference",
+    ]);
+  });
+
   test("contributes seven core models and three conditional managed models", () => {
     const plugin = scimModule.scim(staticOptions);
     expect(Object.fromEntries(Object.entries(plugin.schema).map(([name, schema]) => [
