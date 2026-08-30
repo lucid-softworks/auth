@@ -4,6 +4,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use serde_json::{Map, Value};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -29,6 +30,7 @@ mod verification;
 
 #[derive(Clone, Default)]
 struct MemoryState {
+    logical_records: HashMap<String, Vec<Map<String, Value>>>,
     users: HashMap<String, AuthUser>,
     usernames: HashMap<String, String>,
     emails: HashMap<String, String>,

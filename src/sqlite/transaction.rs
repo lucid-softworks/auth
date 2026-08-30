@@ -1,7 +1,10 @@
-use super::{SqliteFilter, SqliteStore, codec, query::execute};
+use super::{
+    SqliteFilter, SqliteFindOptions, SqliteSort, SqliteSortDirection, SqliteStore, codec,
+    query::execute,
+};
 use crate::{
-    AuthError, DatabaseCreateOperation, DatabaseModel, DatabaseRecord, DatabaseTransaction,
-    DatabaseTransactionOperation,
+    AuthError, DashAdapterSort, DashAdapterWhere, DashSortDirection, DatabaseCreateOperation,
+    DatabaseModel, DatabaseRecord, DatabaseTransaction, DatabaseTransactionOperation,
 };
 use async_trait::async_trait;
 use serde_json::{Map, Value, json};
@@ -184,7 +187,131 @@ impl DatabaseTransaction for SqliteHookTransaction {
         )
         .await?
         .map(|record| decode_record(model, record))
-        .transpose()
+            .transpose()
+    }
+
+    async fn find_records(
+        &self,
+        model: &str,
+        where_clause: &[DashAdapterWhere],
+        limit: Option<usize>,
+        offset: usize,
+        sort: Option<&DashAdapterSort>,
+        select: &[String],
+    ) -> Result<Vec<Map<String, Value>>, AuthError> {
+        self.ensure_active()?;
+        let schema = self.store.physical_schema()?;
+        let mut sql = self.sql.lock().await;
+        let sql = sql.as_mut().ok_or_else(closed_transaction)?;
+        execute::find_many(
+            sql,
+            schema,
+            model,
+            &super::dash::filters(where_clause),
+            &SqliteFindOptions {
+                select: select.to_vec(),
+                sort: sort.map(|sort| SqliteSort {
+                    field: sort.field.clone(),
+                    direction: match sort.direction {
+                        DashSortDirection::Asc => SqliteSortDirection::Ascending,
+                        DashSortDirection::Desc => SqliteSortDirection::Descending,
+                    },
+                }),
+                limit: limit.map(|limit| limit as u64),
+                offset: Some(offset as u64),
+            },
+        )
+        .await
+    }
+
+    async fn create_record(
+        &self,
+        model: &str,
+        data: Map<String, Value>,
+    ) -> Result<Map<String, Value>, AuthError> {
+        self.ensure_active()?;
+        let schema = self.store.physical_schema()?;
+        let mut sql = self.sql.lock().await;
+        let sql = sql.as_mut().ok_or_else(closed_transaction)?;
+        execute::insert(sql, schema, model, data).await
+    }
+
+    async fn update_record(
+        &self,
+        model: &str,
+        where_clause: &[DashAdapterWhere],
+        update: Map<String, Value>,
+    ) -> Result<Option<Map<String, Value>>, AuthError> {
+        self.ensure_active()?;
+        let schema = self.store.physical_schema()?;
+        let mut sql = self.sql.lock().await;
+        let sql = sql.as_mut().ok_or_else(closed_transaction)?;
+        execute::update_one(
+            sql,
+            schema,
+            model,
+            &super::dash::filters(where_clause),
+            update,
+        )
+        .await
+    }
+
+    async fn delete_records(
+        &self,
+        model: &str,
+        where_clause: &[DashAdapterWhere],
+    ) -> Result<u64, AuthError> {
+        self.ensure_active()?;
+        let schema = self.store.physical_schema()?;
+        let mut sql = self.sql.lock().await;
+        let sql = sql.as_mut().ok_or_else(closed_transaction)?;
+        execute::delete_many(
+            sql,
+            schema,
+            model,
+            &super::dash::filters(where_clause),
+        )
+        .await
+    }
+
+    async fn count_records(
+        &self,
+        model: &str,
+        where_clause: &[DashAdapterWhere],
+    ) -> Result<u64, AuthError> {
+        self.ensure_active()?;
+        let schema = self.store.physical_schema()?;
+        let mut sql = self.sql.lock().await;
+        let sql = sql.as_mut().ok_or_else(closed_transaction)?;
+        execute::count(
+            sql,
+            schema,
+            model,
+            &super::dash::filters(where_clause),
+        )
+        .await
+    }
+
+    async fn increment_record(
+        &self,
+        model: &str,
+        where_clause: &[DashAdapterWhere],
+        increments: Map<String, Value>,
+        set: Map<String, Value>,
+    ) -> Result<Option<Map<String, Value>>, AuthError> {
+        self.ensure_active()?;
+        let schema = self.store.physical_schema()?;
+        let mut sql = self.sql.lock().await;
+        let sql = sql.as_mut().ok_or_else(closed_transaction)?;
+        execute::increment_one(
+            sql,
+            schema,
+            model,
+            &super::dash::filters(where_clause),
+            increments,
+            set,
+        )
+        .await
     }
 }
 

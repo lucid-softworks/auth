@@ -1,6 +1,7 @@
 use crate::support::catalog;
 use lucid_auth::{
-    AdditionalField, AdditionalFieldType, PluginSchemaTable,
+    AdditionalField, AdditionalFieldType, AuthError, DashAdapterWhere, PluginSchemaTable,
+    run_database_transaction,
     sqlite::{
         SqliteAdapterConfig, SqliteComparisonMode, SqliteFilter, SqliteFilterConnector,
         SqliteFilterOperator, SqliteMigrationMode, SqliteStore,
@@ -165,4 +166,66 @@ async fn explicit_transaction_rolls_back_without_store_policy() {
         .await
         .unwrap();
     assert_eq!(empty.compiled_sql(), ";");
+}
+
+#[tokio::test]
+async fn logical_plugin_rows_use_the_public_native_transaction() {
+    let store = store().await;
+    let updated = run_database_transaction(&store, |transaction| {
+        Box::pin(async move {
+            transaction
+                .create_record("counter", record("native", "Native", 4))
+                .await?;
+            transaction
+                .increment_record(
+                    "counter",
+                    &[equal("id", json!("native"))],
+                    Map::from_iter([("value".into(), json!(3))]),
+                    Map::from_iter([("note".into(), json!("committed"))]),
+                )
+                .await?
+                .ok_or(AuthError::NotFound)
+        })
+    })
+    .await
+    .unwrap();
+    assert_eq!(updated["value"], 7);
+    assert_eq!(updated["note"], "committed");
+
+    let error = run_database_transaction::<(), _>(&store, |transaction| {
+        Box::pin(async move {
+            transaction
+                .update_record(
+                    "counter",
+                    &[equal("id", json!("native"))],
+                    Map::from_iter([("value".into(), json!(99))]),
+                )
+                .await?;
+            Err(AuthError::Storage("rollback".into()))
+        })
+    })
+    .await
+    .unwrap_err();
+    assert!(matches!(error, AuthError::Storage(message) if message == "rollback"));
+    assert_eq!(
+        store
+            .find_record(
+                "counter",
+                &[SqliteFilter::equal("id", json!("native"))],
+                &[],
+            )
+            .await
+            .unwrap()
+            .unwrap()["value"],
+        7
+    );
+}
+
+fn equal(field: &str, value: Value) -> DashAdapterWhere {
+    DashAdapterWhere {
+        field: field.into(),
+        value,
+        operator: Default::default(),
+        connector: None,
+    }
 }
