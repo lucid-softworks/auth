@@ -31,6 +31,7 @@ mod user_deletion;
 
 pub use self::http::session_token;
 pub(crate) use self::oauth::with_provider_account_cookie;
+pub(crate) use self::oauth::redirect_error as oauth_redirect_error;
 pub(crate) use self::security::validate_trusted_origin_value;
 pub(crate) use error::ApiErrorResponse;
 pub(crate) use error::api_error_empty;

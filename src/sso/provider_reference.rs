@@ -1,11 +1,11 @@
 use super::SsoProvider;
 use base64::Engine as _;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sha2::{Digest as _, Sha256};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ProviderReference {
     provider_id: String,
@@ -13,7 +13,7 @@ pub(super) struct ProviderReference {
     authentication_configuration_fingerprint: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum ProviderSource {
     Persisted {
@@ -29,6 +29,20 @@ pub(super) fn persisted(provider: &SsoProvider) -> ProviderReference {
             record_id: provider.id.clone(),
         },
         authentication_configuration_fingerprint: fingerprint(provider),
+    }
+}
+
+pub(super) fn parse(value: &Value) -> Option<ProviderReference> {
+    serde_json::from_value(value.clone()).ok()
+}
+
+impl ProviderReference {
+    pub(super) fn provider_id(&self) -> &str {
+        &self.provider_id
+    }
+
+    pub(super) fn is_current(&self, provider: &SsoProvider) -> bool {
+        self == &persisted(provider)
     }
 }
 

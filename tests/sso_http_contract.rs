@@ -270,6 +270,64 @@ async fn oidc_sign_in_resolves_domains_and_builds_bound_pkce_authorization_urls(
 }
 
 #[tokio::test]
+async fn oidc_callback_validates_bound_state_before_token_exchange() {
+    let fixture = fixture().await;
+    let response = fixture
+        .app
+        .clone()
+        .oneshot(
+            Request::post("/api/auth/sign-in/sso")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "https://example.com")
+                .body(Body::from(
+                    json!({
+                        "providerId": "acme-sso!",
+                        "callbackURL": "/dashboard"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let state_cookie = response.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let body: Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let state = url::Url::parse(body["url"].as_str().unwrap())
+        .unwrap()
+        .query_pairs()
+        .find(|(key, _)| key == "state")
+        .unwrap()
+        .1
+        .into_owned();
+
+    let callback = fixture
+        .app
+        .oneshot(
+            Request::get(format!(
+                "/api/auth/sso/callback/acme-sso%21?code=authorization-code&state={state}"
+            ))
+            .header(header::COOKIE, state_cookie)
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(callback.status(), StatusCode::FOUND);
+    assert_eq!(
+        callback.headers()[header::LOCATION],
+        "/dashboard?error=invalid_provider&error_description=token_endpoint_not_found"
+    );
+}
+
+#[tokio::test]
 async fn saml_provider_catalog_returns_safe_certificate_summaries() {
     let fixture = fixture().await;
     let owner = fixture
