@@ -57,4 +57,29 @@ impl SsoStore for DatabaseSsoStore {
     async fn delete(&self, id: &str) -> Result<Option<SsoProvider>, SsoStoreError> {
         operations::delete(self, id).await
     }
+
+    async fn update_guarded(
+        &self,
+        id: &str,
+        provider_id: &str,
+        update: SsoProviderUpdate,
+        identity_boundary_changed: bool,
+    ) -> Result<SsoProvider, SsoStoreError> {
+        operations::update_guarded(
+            self,
+            id,
+            provider_id,
+            update,
+            identity_boundary_changed,
+        )
+        .await
+    }
+
+    async fn delete_with_accounts(
+        &self,
+        id: &str,
+        provider_id: &str,
+    ) -> Result<bool, SsoStoreError> {
+        operations::delete_with_accounts(self, id, provider_id).await
+    }
 }

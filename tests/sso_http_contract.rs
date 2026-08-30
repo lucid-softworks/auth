@@ -328,3 +328,87 @@ async fn registration_limit_counts_only_the_callers_providers() {
         "You have reached the maximum number of SSO providers"
     );
 }
+
+#[tokio::test]
+async fn provider_mutations_enforce_access_merge_configs_reset_domains_and_delete() {
+    let fixture = fixture().await;
+    let (status, empty) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/update-provider",
+        Some(&fixture.owner_cookie),
+        json!({"providerId": "acme-sso!"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(empty["message"], "No fields provided for update");
+
+    let (status, forbidden) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/update-provider",
+        Some(&fixture.other_cookie),
+        json!({"providerId": "acme-sso!", "domain": "login.example.com"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        forbidden["message"],
+        "You don't have access to this provider"
+    );
+
+    let (status, updated) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/update-provider",
+        Some(&fixture.owner_cookie),
+        json!({
+            "providerId": "acme-sso!",
+            "domain": "login.example.com",
+            "oidcConfig": {
+                "clientSecret": "replacement-secret",
+                "scopes": ["openid"],
+                "unknownNestedField": "stripped"
+            },
+            "unknownTopLevelField": "stripped"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(updated["domain"], "login.example.com");
+    assert_eq!(updated["domainVerified"], false);
+    assert_eq!(updated["oidcConfig"]["clientIdLastFour"], "****3456");
+    assert_eq!(updated["oidcConfig"]["scopes"], json!(["openid"]));
+    let serialized = updated.to_string();
+    assert!(!serialized.contains("replacement-secret"));
+    assert!(!serialized.contains("unknownNestedField"));
+
+    let (status, forbidden) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/delete-provider",
+        Some(&fixture.other_cookie),
+        json!({"providerId": "acme-sso!"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        forbidden["message"],
+        "You don't have access to this provider"
+    );
+
+    let (status, deleted) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/delete-provider",
+        Some(&fixture.owner_cookie),
+        json!({"providerId": "acme-sso!"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(deleted, json!({"success": true}));
+
+    let (status, missing) = get(
+        fixture.app,
+        "/api/auth/sso/get-provider?providerId=acme-sso%21",
+        Some(&fixture.owner_cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(missing["message"], "Provider not found");
+}

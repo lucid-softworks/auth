@@ -64,6 +64,8 @@ pub enum SsoStoreError {
     NotFound,
     #[error("SSO provider ID already exists")]
     DuplicateProviderId,
+    #[error("linked SSO accounts prevent this identity-boundary change")]
+    LinkedAccounts,
     #[error("SSO storage failed: {0}")]
     Storage(String),
 }
@@ -83,6 +85,24 @@ pub trait SsoStore: Send + Sync {
         update: SsoProviderUpdate,
     ) -> Result<SsoProvider, SsoStoreError>;
     async fn delete(&self, id: &str) -> Result<Option<SsoProvider>, SsoStoreError>;
+    async fn update_guarded(
+        &self,
+        id: &str,
+        provider_id: &str,
+        update: SsoProviderUpdate,
+        identity_boundary_changed: bool,
+    ) -> Result<SsoProvider, SsoStoreError> {
+        let _ = (provider_id, identity_boundary_changed);
+        self.update(id, update).await
+    }
+    async fn delete_with_accounts(
+        &self,
+        id: &str,
+        provider_id: &str,
+    ) -> Result<bool, SsoStoreError> {
+        let _ = provider_id;
+        self.delete(id).await.map(|provider| provider.is_some())
+    }
 }
 
 #[derive(Default)]
