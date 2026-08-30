@@ -231,10 +231,12 @@ pub use scim::{
     SCIM_PATCH_SCHEMA, SCIM_USER_SCHEMA, ScimAddress, ScimBearerCredential,
     ScimBearerTokenVerifier, ScimConnection, ScimConnectionBinding, ScimEmail,
     ScimEnterpriseUser, ScimEntitlement, ScimError, ScimErrorBody, ScimErrorType, ScimGroup,
-    ScimGroupMember, ScimListResponse, ScimManagedConnection, ScimManagedConnectionEvent,
-    ScimManagedConnectionOptions, ScimManagedCredential, ScimManager, ScimName, ScimOptions,
-    ScimPatchOperation, ScimPatchRequest, ScimPhoneNumber, ScimPlugin, ScimRole, ScimScope,
-    ScimStore, ScimStoreError, ScimUser, ScimVerifiedBearer,
+    ScimGroupMember, ScimIdentity, ScimIdentityProfile, ScimIdentityResolution,
+    ScimIdentityResolutionInput, ScimIdentitySource, ScimIdentityState, ScimListResponse,
+    ScimManagedConnection, ScimManagedConnectionEvent, ScimManagedConnectionOptions,
+    ScimManagedCredential, ScimManager, ScimName, ScimOptions, ScimPatchOperation,
+    ScimPatchRequest, ScimPhoneNumber, ScimPlugin, ScimRole, ScimScope, ScimStore, ScimStoreError,
+    ScimTransactionContext, ScimUser, ScimVerifiedBearer,
 };
 pub use service::account_types::{
     LinkedAccount, ProviderAccountIdentity, ProviderAccountInfo, ProviderAccountUser,

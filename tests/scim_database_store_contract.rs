@@ -1,5 +1,6 @@
 #![cfg(all(feature = "axum", feature = "sqlite"))]
 
+use async_trait::async_trait;
 use axum::{
     Router,
     body::Body,
@@ -8,17 +9,62 @@ use axum::{
 use http_body_util::BodyExt;
 use lucid_auth::{
     AuthConfig, AuthService, AuthStore, DatabaseScimStore, SCIM_GROUP_SCHEMA, SCIM_MEDIA_TYPE,
-    SCIM_USER_SCHEMA, ScimBearerCredential, ScimConnection, ScimOptions, ScimPlugin, ScimStore,
+    SCIM_USER_SCHEMA, ScimBearerCredential, ScimConnection, ScimError, ScimIdentity,
+    ScimIdentityResolution, ScimIdentityResolutionInput, ScimIdentityState, ScimOptions,
+    ScimPlugin, ScimStore, ScimTransactionContext,
     sqlite::{SqliteAdapterConfig, SqliteStore},
 };
 use serde_json::{Value, json};
 use sqlx::sqlite::SqlitePoolOptions;
-use std::sync::Arc;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 use tower::ServiceExt;
 
 const TOKEN: &str = "database-scim-token";
 
-async fn application() -> (Router, Arc<DatabaseScimStore>, Arc<SqliteStore>) {
+#[derive(Default)]
+struct RecordingIdentity {
+    resolutions: AtomicUsize,
+    states: Mutex<Vec<ScimIdentityState>>,
+}
+
+#[async_trait]
+impl ScimIdentity for RecordingIdentity {
+    async fn resolve_user(
+        &self,
+        _input: ScimIdentityResolutionInput,
+        context: ScimTransactionContext,
+    ) -> Result<ScimIdentityResolution, ScimError> {
+        assert_eq!(
+            context
+                .database
+                .count_records("scimConnectionBinding", &[])
+                .await
+                .unwrap(),
+            1
+        );
+        self.resolutions.fetch_add(1, Ordering::SeqCst);
+        Ok(ScimIdentityResolution::Create)
+    }
+
+    async fn reconcile_user(
+        &self,
+        input: ScimIdentityState,
+        _context: ScimTransactionContext,
+    ) -> Result<(), ScimError> {
+        self.states.lock().unwrap().push(input);
+        Ok(())
+    }
+}
+
+async fn application() -> (
+    Router,
+    Arc<DatabaseScimStore>,
+    Arc<SqliteStore>,
+    Arc<RecordingIdentity>,
+) {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
         .connect("sqlite::memory:")
@@ -26,11 +72,13 @@ async fn application() -> (Router, Arc<DatabaseScimStore>, Arc<SqliteStore>) {
         .unwrap();
     let auth_store = Arc::new(SqliteStore::new(pool, SqliteAdapterConfig::default()));
     let scim_store = Arc::new(DatabaseScimStore::new(auth_store.clone()));
+    let identity = Arc::new(RecordingIdentity::default());
     let options = ScimOptions {
         connections: vec![ScimConnection::new(
             "directory-1",
             vec![ScimBearerCredential::new("credential-1", TOKEN)],
         )],
+        identity: Some(identity.clone()),
         ..ScimOptions::default()
     };
     let plugin = ScimPlugin::new(options, scim_store.clone()).unwrap();
@@ -42,7 +90,12 @@ async fn application() -> (Router, Arc<DatabaseScimStore>, Arc<SqliteStore>) {
         .migrate(Arc::new(service.database_schema().clone()))
         .await
         .unwrap();
-    (lucid_auth::axum::router(service), scim_store, auth_store)
+    (
+        lucid_auth::axum::router(service),
+        scim_store,
+        auth_store,
+        identity,
+    )
 }
 
 fn request(method: &str, path: &str) -> axum::http::request::Builder {
@@ -74,7 +127,7 @@ async fn send_json(app: Router, method: &str, path: &str, body: Value) -> (Statu
 
 #[tokio::test]
 async fn core_resources_round_trip_through_native_sqlite_transactions() {
-    let (app, store, auth_store) = application().await;
+    let (app, store, auth_store, identity) = application().await;
     let (status, user) = send_json(
         app.clone(),
         "POST",
@@ -98,6 +151,8 @@ async fn core_resources_round_trip_through_native_sqlite_transactions() {
         .unwrap();
     assert_eq!(persisted_user.resource.user_name, "luna@example.com");
     let auth_user_id = persisted_user.user_id.clone();
+    assert_eq!(identity.resolutions.load(Ordering::SeqCst), 1);
+    assert!(identity.states.lock().unwrap().last().unwrap().active);
 
     let (status, duplicate) = send_json(
         app.clone(),
@@ -198,5 +253,38 @@ async fn core_resources_round_trip_through_native_sqlite_transactions() {
             .await
             .unwrap()
             .is_none()
+    );
+    assert!(!identity.states.lock().unwrap().last().unwrap().active);
+
+    let resolutions_before_relink = identity.resolutions.load(Ordering::SeqCst);
+    let (status, relinked) = send_json(
+        app,
+        "POST",
+        "/scim/v2/Users",
+        json!({
+            "schemas": [SCIM_USER_SCHEMA],
+            "externalId": "employee-1",
+            "userName": "returned@example.com",
+            "name": {"formatted": "Luna Returned"},
+            "emails": [{"value": "returned@example.com", "type": "work", "primary": true}],
+            "active": true
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{relinked:#}");
+    assert_eq!(
+        identity.resolutions.load(Ordering::SeqCst),
+        resolutions_before_relink,
+        "a tombstone must resolve before the application callback"
+    );
+    let relinked_id = relinked["id"].as_str().unwrap();
+    assert_eq!(
+        store
+            .find_user("directory-1", relinked_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .user_id,
+        auth_user_id
     );
 }

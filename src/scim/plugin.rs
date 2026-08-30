@@ -69,6 +69,12 @@ pub struct ScimPlugin {
 impl ScimPlugin {
     pub fn new(options: ScimOptions, store: Arc<dyn ScimStore>) -> Result<Self, AuthError> {
         options.validate().map_err(AuthError::InvalidConfiguration)?;
+        if options.identity.is_some() && store.backing_auth_store().is_none() {
+            return Err(AuthError::InvalidConfiguration(
+                "SCIM identity callbacks require a database-backed store with native transactions."
+                    .into(),
+            ));
+        }
         Ok(Self {
             options: Arc::new(options),
             store,
@@ -381,6 +387,9 @@ pub(super) fn store_error(error: ScimStoreError) -> ScimError {
         ),
         ScimStoreError::Decommissioned => {
             ScimError::unauthorized("SCIM connection is decommissioned")
+        }
+        ScimStoreError::ProfileConflict => {
+            ScimError::typed(409, error.to_string(), ScimErrorType::Uniqueness)
         }
         ScimStoreError::CreationRequestConflict => ScimError::new(
             409,

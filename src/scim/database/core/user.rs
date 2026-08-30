@@ -210,6 +210,13 @@ async fn upsert_subject(
     let filter = [equal("userId", json!(user.user_id))];
     if let Some(subject) = find_one(transaction, "scimSubject", &filter).await? {
         if user.profile_managed {
+            if subject
+                .get("profileSourceId")
+                .and_then(Value::as_str)
+                .is_some_and(|source_id| user.resource.id.as_deref() != Some(source_id))
+            {
+                return Err(auth_error(ScimStoreError::ProfileConflict));
+            }
             let revision = subject.get("revision").and_then(Value::as_i64).unwrap_or_default();
             transaction
                 .increment_record(

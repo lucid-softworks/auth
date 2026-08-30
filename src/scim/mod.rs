@@ -7,6 +7,7 @@ mod database;
 #[cfg(feature = "axum")]
 mod discovery;
 mod error;
+mod identity;
 mod memory;
 mod managed;
 mod model;
@@ -21,6 +22,10 @@ pub use config::{
 };
 pub use database::DatabaseScimStore;
 pub use error::{ScimError, ScimErrorBody, ScimErrorType};
+pub use identity::{
+    ScimIdentity, ScimIdentityProfile, ScimIdentityResolution, ScimIdentityResolutionInput,
+    ScimIdentitySource, ScimIdentityState, ScimTransactionContext,
+};
 pub use memory::MemoryScimStore;
 pub use model::{
     ScimAddress, ScimEmail, ScimEnterpriseUser, ScimGroup, ScimGroupMember, ScimListResponse,

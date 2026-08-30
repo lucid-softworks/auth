@@ -45,6 +45,8 @@ pub enum ScimStoreError {
     BindingConflict,
     #[error("the SCIM connection is decommissioned")]
     Decommissioned,
+    #[error("another SCIM source already manages this User profile")]
+    ProfileConflict,
     #[error("the managed creation request id has already been used")]
     CreationRequestConflict,
     #[error("the maximum active managed credential count has been reached")]

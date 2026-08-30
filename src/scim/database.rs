@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 mod codec;
 mod core;
-mod keys;
+pub(super) mod keys;
 
 /// SCIM persistence backed by the application's native Better Auth adapter.
 #[derive(Clone)]

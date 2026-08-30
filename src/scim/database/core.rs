@@ -67,6 +67,7 @@ pub(super) fn store_error(error: AuthError) -> crate::scim::ScimStoreError {
         "InvalidMember" => crate::scim::ScimStoreError::InvalidMember,
         "BindingConflict" => crate::scim::ScimStoreError::BindingConflict,
         "Decommissioned" => crate::scim::ScimStoreError::Decommissioned,
+        "ProfileConflict" => crate::scim::ScimStoreError::ProfileConflict,
         _ => crate::scim::ScimStoreError::Storage(detail),
     }
 }

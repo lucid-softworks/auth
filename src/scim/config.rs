@@ -117,6 +117,7 @@ pub struct ScimOptions {
     pub connections: Vec<ScimConnection>,
     pub authentication: Option<Arc<dyn ScimBearerTokenVerifier>>,
     pub managed_connections: Option<ScimManagedConnectionOptions>,
+    pub identity: Option<Arc<dyn super::ScimIdentity>>,
     pub microsoft_entra_legacy_group_schema: bool,
 }
 
@@ -127,6 +128,7 @@ impl std::fmt::Debug for ScimOptions {
             .field("connections", &self.connections)
             .field("authentication", &self.authentication.is_some())
             .field("managed_connections", &self.managed_connections)
+            .field("identity", &self.identity.is_some())
             .field(
                 "microsoft_entra_legacy_group_schema",
                 &self.microsoft_entra_legacy_group_schema,

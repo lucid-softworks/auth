@@ -18,7 +18,7 @@ pub(super) fn user_name(connection_id: &str, user_name: &str) -> String {
     scoped(&["scim-user-name", connection_id, &user_name.to_lowercase()])
 }
 
-pub(super) fn user_external_id(connection_id: &str, external_id: &str) -> String {
+pub(in crate::scim) fn user_external_id(connection_id: &str, external_id: &str) -> String {
     scoped(&["scim-user-external-id", connection_id, external_id])
 }
 
