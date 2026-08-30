@@ -1,5 +1,6 @@
 mod creation_persistence;
 mod crud;
+mod events;
 mod invitation;
 mod member;
 mod permission;

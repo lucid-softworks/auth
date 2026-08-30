@@ -15,6 +15,10 @@ pub struct PluginRequestContext {
     pub headers: std::collections::BTreeMap<String, String>,
 }
 
+#[cfg(feature = "axum")]
+#[derive(Clone, Debug)]
+pub(crate) struct CapturedPluginRequestBody(pub serde_json::Value);
+
 /// Browser-security policy selected by an installed plugin for one route.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PluginRequestSecurity {
@@ -30,12 +34,14 @@ pub enum PluginRequestSecurity {
 mod activity;
 mod any;
 mod metadata;
+mod organization;
 mod registry;
 
 pub use activity::AuthActivity;
 
 use any::PluginAny;
 pub use metadata::*;
+pub use organization::AfterOrganizationEvent;
 pub(crate) use registry::PluginRegistry;
 
 /// One ordered SQL migration contributed by a plugin.
@@ -294,6 +300,8 @@ pub trait AuthPlugin: PluginAny + Send + Sync {
     }
 
     async fn after(&self, _event: &AfterAuthEvent) {}
+
+    async fn after_organization(&self, _event: &AfterOrganizationEvent<'_>) {}
 
     /// Initializes security-critical plugin state for a newly persisted session.
     async fn initialize_session(&self, _session: &SessionWithUser) -> Result<(), AuthError> {

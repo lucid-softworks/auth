@@ -1,8 +1,8 @@
 use super::PluginRegistry;
 use crate::{
-    AfterAuthEvent, AuthError, BeforeAuthEvent, BeforeDatabaseUpdateHook, DatabaseHookContext,
-    DatabaseRecord, DatabaseUpdateRecord, PasswordCredentialChanged, SensitiveOperation,
-    SessionWithUser, UserManagementDecision, UserManagementOperation,
+    AfterAuthEvent, AfterOrganizationEvent, AuthError, BeforeAuthEvent, BeforeDatabaseUpdateHook,
+    DatabaseHookContext, DatabaseRecord, DatabaseUpdateRecord, PasswordCredentialChanged,
+    SensitiveOperation, SessionWithUser, UserManagementDecision, UserManagementOperation,
 };
 
 mod create;
@@ -103,6 +103,12 @@ impl PluginRegistry {
     pub(crate) async fn after(&self, event: &AfterAuthEvent) {
         for plugin in &self.plugins {
             plugin.after(event).await;
+        }
+    }
+
+    pub(crate) async fn after_organization(&self, event: &AfterOrganizationEvent<'_>) {
+        for plugin in &self.plugins {
+            plugin.after_organization(event).await;
         }
     }
 

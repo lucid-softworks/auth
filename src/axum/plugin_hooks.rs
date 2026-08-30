@@ -17,7 +17,15 @@ pub(super) async fn before_request(
             Err(response) => return response,
         };
     }
-    next.run(request).await
+    let captured_body = request
+        .extensions()
+        .get::<crate::plugin::CapturedPluginRequestBody>()
+        .cloned();
+    let mut response = next.run(request).await;
+    if let Some(body) = captured_body {
+        response.extensions_mut().insert(body);
+    }
+    response
 }
 
 pub(super) async fn after_response(

@@ -1,7 +1,7 @@
 use crate::{AuthError, AuthSession, AuthUser, OAuthAccount, VerificationValue};
 use async_trait::async_trait;
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, HashSet, VecDeque},
     future::Future,
     pin::Pin,
     sync::{Arc, Mutex},
@@ -203,6 +203,8 @@ pub trait DatabaseHooks: Send + Sync {
 
 tokio::task_local! {
     static REQUEST_CONTEXT: DatabaseHookRequest;
+    static REQUEST_BODY: Option<serde_json::Value>;
+    static REQUEST_OBSERVATIONS: Arc<Mutex<HashSet<&'static str>>>;
     static CREATION_METHOD: &'static str;
     static DEFERRED_AFTER_COMMIT: DeferredHookQueue;
     static ACTIVE_DATABASE_TRANSACTION: Arc<dyn crate::DatabaseTransaction>;
@@ -243,6 +245,21 @@ pub(crate) fn current_transaction() -> Option<Arc<dyn crate::DatabaseTransaction
     ACTIVE_DATABASE_TRANSACTION.try_with(Clone::clone).ok()
 }
 
+pub(crate) fn current_request_body() -> Option<serde_json::Value> {
+    REQUEST_BODY.try_with(Clone::clone).ok().flatten()
+}
+
+pub(crate) fn mark_request_observation(key: &'static str) -> bool {
+    REQUEST_OBSERVATIONS
+        .try_with(|observations| {
+            observations
+                .lock()
+                .expect("request observation lock is not poisoned")
+                .insert(key)
+        })
+        .unwrap_or(true)
+}
+
 pub(crate) async fn scope_transaction<F>(
     transaction: Arc<dyn crate::DatabaseTransaction>,
     future: F,
@@ -263,6 +280,7 @@ where
 #[cfg(feature = "axum")]
 pub(crate) async fn scope_request<F>(
     request: DatabaseHookRequest,
+    body: Option<serde_json::Value>,
     queue: DeferredHookQueue,
     future: F,
 ) -> F::Output
@@ -270,7 +288,16 @@ where
     F: Future,
 {
     REQUEST_CONTEXT
-        .scope(request, DEFERRED_AFTER_COMMIT.scope(queue, future))
+        .scope(
+            request,
+            REQUEST_BODY.scope(
+                body,
+                REQUEST_OBSERVATIONS.scope(
+                    Arc::new(Mutex::new(HashSet::new())),
+                    DEFERRED_AFTER_COMMIT.scope(queue, future),
+                ),
+            ),
+        )
         .await
 }
 

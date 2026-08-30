@@ -7,6 +7,8 @@ use crate::{
 use chrono::Utc;
 use std::collections::BTreeMap;
 
+mod events;
+
 impl AuthService {
     pub async fn create_organization(
         &self,
@@ -51,30 +53,15 @@ impl AuthService {
             }
         }
         let default_team_id = default_team.as_ref().map(|(team, _)| team.id.clone());
-        if let Some(hooks) = &plugin.config.hooks {
-            hooks
-                .after_add_member(&member, &session.user, &organization)
-                .await?;
-            if let Some(stripe) = self.organization_stripe_plugin() {
-                stripe
-                    .after_organization_member_change(&organization, plugin.store.as_ref())
-                    .await;
-            }
-            if let Some(ref team_id) = default_team_id
-                && let Some(team) = plugin.store.find_team(team_id).await?
-            {
-                hooks
-                    .after_create_team(&team, &session.user, &organization)
-                    .await?;
-            }
-            hooks
-                .after_create(&organization, &member, &session.user)
-                .await?;
-        } else if let Some(stripe) = self.organization_stripe_plugin() {
-            stripe
-                .after_organization_member_change(&organization, plugin.store.as_ref())
-                .await;
-        }
+        events::after_creation(
+            self,
+            plugin,
+            &organization,
+            &member,
+            default_team_id.as_deref(),
+            &session.user,
+        )
+        .await?;
         if !keep_current {
             self.set_active_organization(session, Some(organization.id.clone()))
                 .await?;
@@ -140,6 +127,8 @@ impl AuthService {
                     "Organization slug already taken",
                 )
             })?;
+        self.observe_organization_updated(&organization, &session.user)
+            .await;
         if let Some(hooks) = &plugin.config.hooks {
             hooks
                 .after_update(&organization, &member, &session.user)

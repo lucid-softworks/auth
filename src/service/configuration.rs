@@ -130,7 +130,6 @@ impl AuthService {
         self.config.skip_trailing_slashes
     }
 
-    #[cfg(feature = "axum")]
     pub(crate) fn base_path(&self) -> &str {
         self.config.base_path()
     }

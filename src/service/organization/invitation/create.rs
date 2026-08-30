@@ -71,6 +71,8 @@ impl AuthService {
                 .await?;
         }
         persist_invitation(self, plugin, &mut invitation).await?;
+        self.observe_member_invited(&organization, &invitation, &session.user)
+            .await;
         if let Some(hooks) = &plugin.config.hooks {
             hooks
                 .after_create_invitation(&invitation, &session.user, &organization)

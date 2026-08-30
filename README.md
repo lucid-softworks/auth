@@ -796,6 +796,14 @@ analytics, email actions, and the five-action raw adapter endpoint. Managed
 JWT authorization is mandatory; `/dash/validate` alone skips the JTI lookup,
 matching the pinned plugin.
 
+Installing `DashPlugin` also projects the exact 35 audit events emitted by the
+pinned artifact from user, session, account, verification, request-after, and
+organization lifecycle hooks. The four exported email-change/two-factor
+constants remain intentionally un-emitted. Each observation schedules one
+best-effort `POST /events/track`; an HTTP error or thrown transport failure does
+not fail authentication, and there is no retry, queue, replay, or delivery
+guarantee.
+
 It also installs the four local-session `GET /events/*` routes. `events/list`
 and `events/audit-logs` expose only the signed-in user or an organization in
 which that user is a member. `events/all-audit-logs` requires a literal

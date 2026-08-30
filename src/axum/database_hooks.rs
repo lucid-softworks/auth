@@ -11,6 +11,10 @@ use axum::{
 use std::collections::BTreeMap;
 
 pub(super) async fn request_context(request: Request, next: Next) -> Response {
+    let body = request
+        .extensions()
+        .get::<crate::plugin::CapturedPluginRequestBody>()
+        .map(|body| body.0.clone());
     let context = DatabaseHookRequest {
         method: request.method().to_string(),
         path: request.uri().path().to_owned(),
@@ -27,7 +31,7 @@ pub(super) async fn request_context(request: Request, next: Next) -> Response {
             .collect::<BTreeMap<_, _>>(),
     };
     let queue = DeferredHookQueue::default();
-    let response = scope_request(context, queue.clone(), next.run(request)).await;
+    let response = scope_request(context, body, queue.clone(), next.run(request)).await;
     apply_deferred_hooks(response, queue).await
 }
 
@@ -71,7 +75,7 @@ mod tests {
     #[tokio::test]
     async fn successful_work_appends_headers_after_the_handler() {
         let queue = DeferredHookQueue::default();
-        let response = scope_request(context(), queue.clone(), async {
+        let response = scope_request(context(), None, queue.clone(), async {
             assert!(
                 current_context()
                     .try_defer_after_commit(async {
@@ -123,7 +127,7 @@ mod tests {
     #[tokio::test]
     async fn rejected_work_discards_the_handler_response() {
         let queue = DeferredHookQueue::default();
-        let response = scope_request(context(), queue.clone(), async {
+        let response = scope_request(context(), None, queue.clone(), async {
             assert!(
                 current_context()
                     .try_defer_after_commit(async {

@@ -209,8 +209,9 @@ pub use phone_number::{
     PhoneNumberWriteOutcome,
 };
 pub use plugin::{
-    AfterAuthEvent, AuthActivity, AuthPlugin, BeforeAuthEvent, PasswordCredentialChanged,
-    PasswordCredentialSource, PluginApiError, PluginArtifactMetadata, PluginClientMetadata,
+    AfterAuthEvent, AfterOrganizationEvent, AuthActivity, AuthPlugin, BeforeAuthEvent,
+    PasswordCredentialChanged, PasswordCredentialSource, PluginApiError, PluginArtifactMetadata,
+    PluginClientMetadata,
     PluginClientPathMethod, PluginClientProvenance, PluginCookie, PluginDescriptor, PluginEndpoint,
     PluginHttpMethod, PluginMiddleware, PluginMigration, PluginMigrationContribution,
     PluginProvenance, PluginRateLimit, PluginRequestContext, PluginRequestSecurity,

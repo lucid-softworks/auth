@@ -82,6 +82,45 @@ pub const ORGANIZATION_EVENT_TYPE_ENTRIES: &[(&str, &str)] = &[
     ),
 ];
 
+/// The 35 constants for which `dash()` 0.4.3 installs projection hooks.
+pub const EMITTED_EVENT_TYPES: &[&str] = &[
+    "user_created",
+    "user_signed_in",
+    "user_signed_out",
+    "user_sign_in_failed",
+    "password_reset_requested",
+    "password_reset_completed",
+    "password_changed",
+    "email_verification_sent",
+    "email_verified",
+    "profile_updated",
+    "profile_image_updated",
+    "session_created",
+    "session_revoked",
+    "all_sessions_revoked",
+    "account_linked",
+    "account_unlinked",
+    "user_banned",
+    "user_unbanned",
+    "user_deleted",
+    "user_impersonated",
+    "user_impersonated_stopped",
+    "organization_created",
+    "organization_updated",
+    "organization_member_added",
+    "organization_member_removed",
+    "organization_member_role_updated",
+    "organization_member_invited",
+    "organization_member_invite_canceled",
+    "organization_member_invite_accepted",
+    "organization_member_invite_rejected",
+    "organization_team_created",
+    "organization_team_updated",
+    "organization_team_deleted",
+    "organization_team_member_added",
+    "organization_team_member_removed",
+];
+
 /// Better Auth's complete 39-entry `USER_EVENT_TYPES` root export.
 pub fn user_event_types() -> Map<String, Value> {
     type_map(USER_EVENT_TYPE_ENTRIES)
@@ -215,6 +254,15 @@ mod tests {
         assert_eq!(USER_EVENT_TYPE_ENTRIES.len(), 25);
         assert_eq!(ORGANIZATION_EVENT_TYPE_ENTRIES.len(), 14);
         assert_eq!(all_event_types().len(), 39);
+        assert_eq!(EMITTED_EVENT_TYPES.len(), 35);
+        for unprojected in [
+            "email_changed",
+            "two_factor_enabled",
+            "two_factor_disabled",
+            "two_factor_verified",
+        ] {
+            assert!(!EMITTED_EVENT_TYPES.contains(&unprojected));
+        }
         assert_eq!(all_event_types()["EMAIL_CHANGED"], "email_changed");
         assert_eq!(
             all_event_types()["ORGANIZATION_TEAM_MEMBER_REMOVED"],

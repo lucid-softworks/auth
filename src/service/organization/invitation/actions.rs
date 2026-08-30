@@ -58,6 +58,14 @@ impl AuthService {
             .find_invitation(&invitation_id)
             .await?
             .ok_or_else(invitation_not_found)?;
+        self.observe_invitation(
+            super::super::events::InvitationObservation::Accepted,
+            &organization,
+            &invitation,
+            &session.user,
+            Some(&member),
+        )
+            .await;
         if let Some(hooks) = &plugin.config.hooks {
             hooks
                 .after_accept_invitation(&invitation, &member, &session.user, &organization)
@@ -98,6 +106,14 @@ impl AuthService {
             .set_invitation_status(&invitation_id, OrganizationInvitationStatus::Rejected)
             .await?
             .ok_or_else(invitation_not_found)?;
+        self.observe_invitation(
+            super::super::events::InvitationObservation::Rejected,
+            &organization,
+            &rejected,
+            &session.user,
+            None,
+        )
+            .await;
         if let Some(hooks) = &plugin.config.hooks {
             hooks
                 .after_reject_invitation(&rejected, &session.user, &organization)
@@ -138,6 +154,14 @@ impl AuthService {
             .set_invitation_status(&invitation_id, OrganizationInvitationStatus::Canceled)
             .await?
             .ok_or_else(invitation_not_found)?;
+        self.observe_invitation(
+            super::super::events::InvitationObservation::Canceled,
+            &organization,
+            &canceled,
+            &session.user,
+            None,
+        )
+            .await;
         if let Some(hooks) = &plugin.config.hooks {
             hooks
                 .after_cancel_invitation(&canceled, &session.user, &organization)

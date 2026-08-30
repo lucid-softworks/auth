@@ -115,16 +115,15 @@ impl AuthService {
                     .find_member_by_id(&member_id)
                     .await?
                     .ok_or_else(member_not_found)?;
-                if let Some(hooks) = &plugin.config.hooks {
-                    hooks
-                        .after_update_member_role(
-                            &member,
-                            &previous_role,
-                            &target_user,
-                            &organization,
-                        )
-                        .await?;
-                }
+                after_role_update(
+                    self,
+                    plugin,
+                    &organization,
+                    &member,
+                    &previous_role,
+                    &target_user,
+                )
+                .await?;
                 Ok(member)
             }
             OrganizationMemberWriteOutcome::LastOwner => Err(last_owner()),
@@ -187,6 +186,8 @@ impl AuthService {
                 {
                     self.set_active_organization(session, None).await?;
                 }
+                self.observe_member_removed(&organization, &target, &target_user)
+                    .await;
                 if let Some(hooks) = &plugin.config.hooks {
                     hooks
                         .after_remove_member(&target, &target_user, &organization)
@@ -234,6 +235,8 @@ impl AuthService {
                 if Self::active_organization_id(session) == Some(organization_id) {
                     self.set_active_organization(session, None).await?;
                 }
+                self.observe_member_removed(&organization, &member, &session.user)
+                    .await;
                 if let Some(hooks) = &plugin.config.hooks {
                     hooks
                         .after_remove_member(&member, &session.user, &organization)
@@ -303,6 +306,25 @@ impl AuthService {
         self.organization_has_permission(&member, &permissions, false)
             .await
     }
+}
+
+async fn after_role_update(
+    service: &AuthService,
+    plugin: &crate::OrganizationPlugin,
+    organization: &crate::Organization,
+    member: &OrganizationMember,
+    previous_role: &str,
+    user: &crate::AuthUser,
+) -> Result<(), AuthError> {
+    service
+        .observe_member_role_updated(organization, member, previous_role, user)
+        .await;
+    if let Some(hooks) = &plugin.config.hooks {
+        hooks
+            .after_update_member_role(member, previous_role, user, organization)
+            .await?;
+    }
+    Ok(())
 }
 
 async fn validate_member_role(

@@ -63,11 +63,7 @@ impl AuthService {
             .await?
         {
             OrganizationTeamWriteOutcome::Written => {
-                if let Some(hooks) = &plugin.config.hooks {
-                    hooks
-                        .after_create_team(&team, &session.user, &organization)
-                        .await?;
-                }
+                after_team_created(self, plugin, &organization, &team, &session.user).await?;
                 Ok(team)
             }
             OrganizationTeamWriteOutcome::AlreadyExists => Err(OrganizationError::bad_request(
@@ -129,6 +125,13 @@ impl AuthService {
                 "Team already exists",
             ))
         })?;
+        self.observe_team(
+            super::super::events::TeamObservation::Updated,
+            &organization,
+            &updated,
+            &session.user,
+        )
+            .await;
         if let Some(hooks) = &plugin.config.hooks {
             hooks
                 .after_update_team(&updated, &session.user, &organization)
@@ -187,6 +190,13 @@ impl AuthService {
             .await?
         {
             OrganizationTeamWriteOutcome::Written => {
+                self.observe_team(
+                    super::super::events::TeamObservation::Deleted,
+                    &organization,
+                    &team,
+                    &session.user,
+                )
+                    .await;
                 if let Some(hooks) = &plugin.config.hooks {
                     hooks
                         .after_delete_team(&team, &session.user, &organization)
@@ -260,4 +270,25 @@ impl AuthService {
         self.set_active_team(session, Some(team_id)).await?;
         Ok(Some(team))
     }
+}
+
+async fn after_team_created(
+    service: &AuthService,
+    plugin: &crate::OrganizationPlugin,
+    organization: &crate::Organization,
+    team: &OrganizationTeam,
+    user: &crate::AuthUser,
+) -> Result<(), AuthError> {
+    service
+        .observe_team(
+            super::super::events::TeamObservation::Created,
+            organization,
+            team,
+            user,
+        )
+        .await;
+    if let Some(hooks) = &plugin.config.hooks {
+        hooks.after_create_team(team, user, organization).await?;
+    }
+    Ok(())
 }

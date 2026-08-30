@@ -7,10 +7,16 @@ use crate::{
     PluginEndpoint, PluginHttpMethod, PluginProvenance, PluginSchemaTable,
 };
 use async_trait::async_trait;
-use std::{borrow::Cow, fmt, sync::Arc, time::Duration};
+use std::{borrow::Cow, fmt, sync::Arc};
+
+#[cfg(feature = "axum")]
+use std::time::Duration;
 
 #[cfg(test)]
 mod contract;
+mod options;
+
+pub use options::{DashActivityTracking, DashOptions};
 
 const ENDPOINTS: &[PluginEndpoint] = &[
     endpoint(PluginHttpMethod::Get, "/dash/config", "getDashConfig"),
@@ -152,29 +158,6 @@ const fn endpoint(
     }
 }
 
-/// Opt-in activity tracking published by `dash()`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DashActivityTracking {
-    pub enabled: bool,
-    pub update_interval: Duration,
-}
-
-impl Default for DashActivityTracking {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            update_interval: Duration::from_millis(300_000),
-        }
-    }
-}
-
-/// Native inputs corresponding to the pinned `dash()` options owned by this endpoint family.
-#[derive(Clone, Debug, Default)]
-pub struct DashOptions {
-    pub connection: InfraConnectionOptions,
-    pub activity_tracking: DashActivityTracking,
-}
-
 /// Native port of the core endpoint family from `@better-auth/infra`'s `dash()` plugin.
 #[derive(Clone)]
 pub struct DashPlugin {
@@ -206,7 +189,6 @@ impl DashPlugin {
         &self.verifier
     }
 
-    #[cfg(feature = "axum")]
     pub(crate) fn resolved_connection(&self) -> &ResolvedConnectionOptions {
         &self.connection
     }
@@ -301,18 +283,52 @@ impl AuthPlugin for DashPlugin {
         }
     }
 
+    #[cfg(feature = "axum")]
+    async fn on_request(
+        &self,
+        _service: &crate::AuthService,
+        request: axum::extract::Request,
+    ) -> Result<axum::extract::Request, axum::response::Response> {
+        super::axum::capture_request_body(request).await
+    }
+
     async fn after_database_create(
         &self,
         service: &crate::AuthService,
         record: &DatabaseRecord,
-        _context: &crate::DatabaseHookContext,
+        context: &crate::DatabaseHookContext,
     ) -> Result<(), AuthError> {
         if self.options.activity_tracking.enabled
             && let DatabaseRecord::Session(session) = record
         {
             let _ = service.dash_touch_user_activity(&session.user_id).await;
         }
+        super::projection::after_create(self, service, record, context).await;
         Ok(())
+    }
+
+    async fn after_database_update(
+        &self,
+        service: &crate::AuthService,
+        record: &DatabaseRecord,
+        context: &crate::DatabaseHookContext,
+    ) -> Result<(), AuthError> {
+        super::projection::after_update(self, service, record, context).await;
+        Ok(())
+    }
+
+    async fn after_database_delete(
+        &self,
+        service: &crate::AuthService,
+        record: &DatabaseRecord,
+        context: &crate::DatabaseHookContext,
+    ) -> Result<(), AuthError> {
+        super::projection::after_delete(self, service, record, context).await;
+        Ok(())
+    }
+
+    async fn after_organization(&self, event: &crate::AfterOrganizationEvent<'_>) {
+        super::projection::organization(self, event);
     }
 
     #[cfg(feature = "axum")]
@@ -322,6 +338,29 @@ impl AuthPlugin for DashPlugin {
         request: &crate::PluginRequestContext,
         response: axum::response::Response,
     ) -> axum::response::Response {
+        let failed = response.status().is_client_error()
+            || response.status().is_server_error()
+            || response
+                .extensions()
+                .get::<crate::axum::ApiErrorResponse>()
+                .is_some();
+        let body = response
+            .extensions()
+            .get::<crate::plugin::CapturedPluginRequestBody>()
+            .and_then(|body| body.0.as_object().cloned());
+        let new_session = response
+            .extensions()
+            .get::<crate::axum::http::BoundSession>()
+            .map(|session| session.0.clone());
+        super::projection::after_response(
+            self,
+            service,
+            request,
+            failed,
+            body,
+            new_session,
+        )
+        .await;
         let tracking = self.options.activity_tracking;
         if !tracking.enabled
             || tracking.update_interval.is_zero()

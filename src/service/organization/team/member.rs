@@ -141,6 +141,14 @@ impl AuthService {
         }
         match write_team_member(self, plugin, &mut team_member).await? {
             OrganizationTeamWriteOutcome::Written => {
+                self.observe_team_member(
+                    true,
+                    &organization,
+                    &team,
+                    &team_member,
+                    &target_user,
+                )
+                    .await;
                 if let Some(hooks) = &plugin.config.hooks {
                     hooks
                         .after_add_team_member(&team_member, &team, &target_user, &organization)
@@ -220,6 +228,14 @@ impl AuthService {
         }
         match plugin.store.remove_team_member(&team_id, &user_id).await? {
             OrganizationTeamWriteOutcome::Written => {
+                self.observe_team_member(
+                    false,
+                    &organization,
+                    &team,
+                    &team_member,
+                    &target_user,
+                )
+                    .await;
                 if let Some(hooks) = &plugin.config.hooks {
                     hooks
                         .after_remove_team_member(&team_member, &team, &target_user, &organization)

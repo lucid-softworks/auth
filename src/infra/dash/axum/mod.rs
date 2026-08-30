@@ -1,6 +1,8 @@
 use super::DashPlugin;
 use crate::{AuthError, AuthService, AxumPluginRoute};
 use axum::{
+    body::{Body, to_bytes},
+    extract::Request,
     Extension, Json,
     http::HeaderMap,
     response::{IntoResponse, Response},
@@ -8,6 +10,35 @@ use axum::{
 };
 use serde_json::json;
 use std::sync::Arc;
+
+const CAPTURED_JSON_LIMIT: usize = 2 * 1024 * 1024;
+
+#[allow(
+    clippy::result_large_err,
+    reason = "the error is an exact Axum response returned directly by the request hook"
+)]
+pub(super) async fn capture_request_body(mut request: Request) -> Result<Request, Response> {
+    if request.method() == axum::http::Method::GET
+        || request.method() == axum::http::Method::HEAD
+    {
+        return Ok(request);
+    }
+    let body = std::mem::replace(request.body_mut(), Body::empty());
+    let bytes = to_bytes(body, CAPTURED_JSON_LIMIT).await.map_err(|_| {
+        crate::axum::api_error(
+            axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+            "PAYLOAD_TOO_LARGE",
+            "Request body is too large",
+        )
+    })?;
+    if let Ok(value) = serde_json::from_slice(&bytes) {
+        request
+            .extensions_mut()
+            .insert(crate::plugin::CapturedPluginRequestBody(value));
+    }
+    *request.body_mut() = Body::from(bytes);
+    Ok(request)
+}
 
 mod adapter;
 mod analytics;

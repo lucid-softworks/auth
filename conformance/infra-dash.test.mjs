@@ -182,6 +182,52 @@ describe("@better-auth/infra@0.4.3 Dash substrate oracle", () => {
     })).toEqual({ organizationId: " ", userId: "user-1" });
   });
 
+  test("projects exactly 35 events and deliberately leaves four constants un-emitted", async () => {
+    const source = await infraText("dist/index.mjs");
+    const emitted = [...source.matchAll(
+      /eventType: (?:EVENT_TYPES|ORGANIZATION_EVENT_TYPES)\.([A-Z_]+)/g,
+    )].map((match) => match[1]);
+    expect(new Set(emitted).size).toBe(35);
+    expect(new Set(emitted)).toEqual(new Set([
+      "USER_CREATED", "USER_SIGNED_IN", "USER_SIGNED_OUT", "USER_SIGN_IN_FAILED",
+      "PASSWORD_RESET_REQUESTED", "PASSWORD_RESET_COMPLETED", "PASSWORD_CHANGED",
+      "EMAIL_VERIFICATION_SENT", "EMAIL_VERIFIED", "PROFILE_UPDATED",
+      "PROFILE_IMAGE_UPDATED", "SESSION_CREATED", "SESSION_REVOKED",
+      "ALL_SESSIONS_REVOKED", "ACCOUNT_LINKED", "ACCOUNT_UNLINKED", "USER_BANNED",
+      "USER_UNBANNED", "USER_DELETED", "USER_IMPERSONATED",
+      "USER_IMPERSONATED_STOPPED", "ORGANIZATION_CREATED", "ORGANIZATION_UPDATED",
+      "ORGANIZATION_MEMBER_ADDED", "ORGANIZATION_MEMBER_REMOVED",
+      "ORGANIZATION_MEMBER_ROLE_UPDATED", "ORGANIZATION_MEMBER_INVITED",
+      "ORGANIZATION_MEMBER_INVITE_CANCELED", "ORGANIZATION_MEMBER_INVITE_ACCEPTED",
+      "ORGANIZATION_MEMBER_INVITE_REJECTED", "ORGANIZATION_TEAM_CREATED",
+      "ORGANIZATION_TEAM_UPDATED", "ORGANIZATION_TEAM_DELETED",
+      "ORGANIZATION_TEAM_MEMBER_ADDED", "ORGANIZATION_TEAM_MEMBER_REMOVED",
+    ]));
+    for (const intentionallyAbsent of [
+      "EMAIL_CHANGED", "TWO_FACTOR_ENABLED", "TWO_FACTOR_DISABLED", "TWO_FACTOR_VERIFIED",
+    ]) {
+      expect(emitted).not.toContain(intentionallyAbsent);
+    }
+  });
+
+  test("pins database, request, organization hook ordering and one-shot transport", async () => {
+    const source = await infraText("dist/index.mjs");
+    for (const fragment of [
+      'await $api("/events/track", {',
+      "ctx.context.runInBackground(track());",
+      'logger.debug("[Dash] Failed to track event:", e)',
+      "trackOrganizationCreated(organization, trigger, location);\n\t\t\t\t\t\tif (afterCreateOrganization)",
+      "trackOrganizationMemberAdded(organization, member, user, trigger, location);\n\t\t\t\t\t\tif (afterAddMember)",
+      "trackOrganizationTeamMemberRemoved(organization, team, user, teamMember, trigger, location);\n\t\t\t\t\t\tif (afterRemoveTeamMember)",
+      "if (!processedBulkOperationContexts.has(ctx))",
+      "setPendingSessionTracking(ctx, {",
+    ]) {
+      expect(source).toContain(fragment);
+    }
+    expect(source).not.toContain('eventType: EVENT_TYPES.TWO_FACTOR_ENABLED');
+    expect(source).not.toContain('eventType: EVENT_TYPES.EMAIL_CHANGED');
+  });
+
   test("dashClient exposes exactly two nested GET actions and resolver precedence", async () => {
     const fetch = vi.fn(async () => ({ data: { events: [], total: 0, limit: 50, offset: 0 }, error: null }));
     const resolver = vi.fn(() => "resolved-user");

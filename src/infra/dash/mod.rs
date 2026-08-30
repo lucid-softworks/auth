@@ -13,6 +13,8 @@ mod identification;
 mod jwt;
 mod model;
 mod plugin;
+mod projection;
+mod tracking;
 
 #[cfg(feature = "axum")]
 mod axum;
@@ -23,8 +25,8 @@ pub use config::{
     ResolvedKvRetryOptions,
 };
 pub use events::{
-    DashEvent, ORGANIZATION_EVENT_TYPE_ENTRIES, USER_EVENT_TYPE_ENTRIES, all_event_types,
-    organization_event_types, user_event_types,
+    DashEvent, EMITTED_EVENT_TYPES, ORGANIZATION_EVENT_TYPE_ENTRIES, USER_EVENT_TYPE_ENTRIES,
+    all_event_types, organization_event_types, user_event_types,
 };
 pub use identification::{
     Identification, IdentificationContext, IdentificationCookie, IdentificationCountry,
