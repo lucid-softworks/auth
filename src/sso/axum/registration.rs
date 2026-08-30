@@ -39,6 +39,8 @@ pub(super) async fn register(
     let oidc_config = match body.oidc_config.as_ref() {
         Some(config) => match oidc::prepare(
             &service,
+            &plugin,
+            &body.provider_id,
             &body.issuer,
             body.override_user_info,
             config,

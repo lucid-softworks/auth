@@ -38,7 +38,7 @@ pub(super) async fn update(
         Ok(authorized) => authorized,
         Err(response) => return *response,
     };
-    let prepared = match config::prepare(&service, &provider, &body) {
+    let prepared = match config::prepare(&service, &plugin, &provider, &body) {
         Ok(prepared) => prepared,
         Err(response) => return *response,
     };

@@ -1,5 +1,8 @@
 use super::UpdateBody;
-use crate::{AuthService, SsoProvider, SsoProviderUpdate, sso::validate_oidc_endpoint_url};
+use crate::{
+    AuthService, SsoPlugin, SsoProvider, SsoProviderUpdate,
+    sso::validate_oidc_endpoint_url,
+};
 use axum::{http::StatusCode, response::Response};
 use serde_json::{Map, Value, json};
 
@@ -50,6 +53,7 @@ pub(super) struct Prepared {
 
 pub(super) fn prepare(
     service: &AuthService,
+    plugin: &SsoPlugin,
     provider: &SsoProvider,
     body: &UpdateBody,
 ) -> Result<Prepared, Box<Response>> {
@@ -79,7 +83,13 @@ pub(super) fn prepare(
                     "Cannot update OIDC config for a provider that doesn't have OIDC configured",
                 ))
             })?;
-            let merged = merge_oidc(service, issuer, current, changes)?;
+            let merged = merge_oidc(
+                service,
+                issuer,
+                current,
+                changes,
+                plugin.has_private_key_source(&provider.provider_id),
+            )?;
             let changed = changed(current, &merged, &OIDC_IDENTITY_FIELDS);
             (Some(Some(Value::Object(merged))), changed)
         }
@@ -124,6 +134,7 @@ fn merge_oidc(
     issuer: &str,
     current: &Map<String, Value>,
     changes: &Map<String, Value>,
+    has_private_key_source: bool,
 ) -> Result<Map<String, Value>, Box<Response>> {
     for field in [
         "authorizationEndpoint",
@@ -153,12 +164,13 @@ fn merge_oidc(
         .get("tokenEndpointAuthentication")
         .and_then(Value::as_str)
         == Some("private_key_jwt");
-    if private_key {
+    if private_key && !has_private_key_source {
         return Err(Box::new(error(
             "private_key_jwt authentication requires either a resolvePrivateKey callback or a privateKey in defaultSSO",
         )));
     }
-    if merged
+    if !private_key
+        && merged
         .get("clientSecret")
         .and_then(Value::as_str)
         .is_none_or(str::is_empty)

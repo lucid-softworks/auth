@@ -1,5 +1,8 @@
 use super::{redirect_error, support};
-use crate::{AuthService, SsoPlugin, SsoProvider, service::OAuthState};
+use crate::{
+    AuthService, SsoPlugin, SsoPrivateKey, SsoPrivateKeyRequest, SsoProvider,
+    service::OAuthState,
+};
 use axum::{
     http::{HeaderMap, HeaderValue},
     response::Response,
@@ -39,11 +42,22 @@ pub(super) async fn finish(
         Ok(config) => Some(serde_json::Value::Object(config)),
         Err(error) => return redirect_error(&error_url, "discovery_failed", &error.message),
     };
+    let private_key = match resolve_private_key(plugin, &provider).await {
+        Ok(material) => material,
+        Err(()) => {
+            return redirect_error(
+                &error_url,
+                "invalid_provider",
+                "no_private_key_available",
+            );
+        }
+    };
     let redirect_uri = support::oidc_redirect_uri(service, plugin, &provider.provider_id);
     let dynamic = match super::super::super::oidc_provider::build(
         &provider,
         redirect_uri.clone(),
         plugin.options(),
+        private_key,
     ) {
         Ok(provider) => provider,
         Err(description) => return redirect_error(&error_url, "invalid_provider", description),
@@ -72,6 +86,34 @@ pub(super) async fn finish(
         }
     };
     success(service, headers, &provider.provider_id, result).await
+}
+
+async fn resolve_private_key(
+    plugin: &SsoPlugin,
+    provider: &SsoProvider,
+) -> Result<Option<SsoPrivateKey>, ()> {
+    let config = provider
+        .oidc_config
+        .as_ref()
+        .and_then(serde_json::Value::as_object);
+    if config
+        .and_then(|config| config.get("tokenEndpointAuthentication"))
+        .and_then(serde_json::Value::as_str)
+        != Some("private_key_jwt")
+    {
+        return Ok(None);
+    }
+    plugin
+        .resolve_private_key(SsoPrivateKeyRequest {
+            provider_id: provider.provider_id.clone(),
+            key_id: config
+                .and_then(|config| config.get("privateKeyId"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            issuer: provider.issuer.clone(),
+        })
+        .await
+        .map_err(|_| ())
 }
 
 fn callback_error(error: &crate::AuthError) -> (&'static str, &'static str) {
