@@ -66,6 +66,7 @@ impl ScimIdentity for RecordingIdentity {
 #[derive(Default)]
 struct RecordingProjection {
     states: Mutex<Vec<ScimProjectedUserState>>,
+    failures: AtomicUsize,
 }
 
 #[async_trait]
@@ -100,6 +101,15 @@ impl ScimProjection for RecordingProjection {
         input: ScimProjectedUserState,
         context: ScimTransactionContext,
     ) -> Result<(), ScimError> {
+        if self
+            .failures
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
+                remaining.checked_sub(1)
+            })
+            .is_ok()
+        {
+            return Err(ScimError::new(500, "injected projection failure"));
+        }
         assert_eq!(
             context
                 .database
@@ -216,7 +226,7 @@ async fn acquire_link(
 
 #[tokio::test]
 async fn core_resources_round_trip_through_native_sqlite_transactions() {
-    let (app, store, auth_store, identity, projection, _) = application().await;
+    let (app, store, auth_store, identity, projection, plugin) = application().await;
     let (status, user) = send_json(
         app.clone(),
         "POST",
@@ -374,7 +384,7 @@ async fn core_resources_round_trip_through_native_sqlite_transactions() {
 
     let resolutions_before_relink = identity.resolutions.load(Ordering::SeqCst);
     let (status, relinked) = send_json(
-        app,
+        app.clone(),
         "POST",
         "/scim/v2/Users",
         json!({
@@ -403,6 +413,57 @@ async fn core_resources_round_trip_through_native_sqlite_transactions() {
             .user_id,
         auth_user_id
     );
+
+    projection.failures.store(1, Ordering::SeqCst);
+    let interrupted = plugin
+        .decommission_connection("directory-1", "directory-1")
+        .await
+        .unwrap_err();
+    assert_eq!(interrupted.status, 500);
+    assert_eq!(
+        plugin
+            .decommission_connection("directory-1", "directory-1")
+            .await
+            .unwrap(),
+        1,
+        "a callback failure must release the lease for a clean resume"
+    );
+    assert!(
+        store
+            .find_user("directory-1", relinked_id)
+            .await
+            .unwrap()
+            .is_some(),
+        "canonical source rows remain for lifecycle history"
+    );
+    assert!(!identity.states.lock().unwrap().last().unwrap().active);
+    assert!(
+        projection
+            .states
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap()
+            .grants
+            .is_empty()
+    );
+    assert_eq!(
+        plugin
+            .decommission_connection("directory-1", "directory-1")
+            .await
+            .unwrap(),
+        1,
+        "completed retirement is resumable and idempotent"
+    );
+    let rejected = app
+        .oneshot(
+            request("GET", "/scim/v2/Users")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

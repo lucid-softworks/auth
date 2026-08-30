@@ -6,7 +6,7 @@ mod binding;
 mod group;
 mod user;
 
-pub(super) use binding::{bind_connection, decommission_connection};
+pub(super) use binding::bind_connection;
 pub(super) use group::{
     create_group, delete_group, find_group, list_groups, replace_group,
 };

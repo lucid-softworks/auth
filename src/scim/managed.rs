@@ -217,6 +217,8 @@ impl ScimPlugin {
             )
             .await
             .map_err(store_error)?;
+        self.decommission_connection(connection_id, provisioning_domain_id)
+            .await?;
         self.get_managed_connection(connection_id, provisioning_domain_id)
             .await
     }
@@ -226,12 +228,23 @@ impl ScimPlugin {
         connection_id: &str,
         provisioning_domain_id: &str,
     ) -> Result<usize, ScimError> {
+        let now = super::timestamp::now();
+        if let Some(store) = self.store.backing_auth_store() {
+            return super::database::decommission::run(
+                store,
+                self.options.clone(),
+                connection_id,
+                provisioning_domain_id,
+                now,
+            )
+            .await;
+        }
         self.store
             .decommission_connection(
                 connection_id,
                 provisioning_domain_id,
                 "application",
-                super::timestamp::now(),
+                now,
             )
             .await
             .map_err(store_error)

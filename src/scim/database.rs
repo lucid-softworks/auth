@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 mod codec;
 mod core;
+pub(super) mod decommission;
 pub(super) mod keys;
 mod managed;
 
@@ -219,7 +220,15 @@ impl ScimStore for DatabaseScimStore {
         _actor_id: &str,
         now: DateTime<Utc>,
     ) -> Result<usize, ScimStoreError> {
-        core::decommission_connection(self, connection_id, provisioning_domain_id, now).await
+        decommission::run(
+            self.store.clone(),
+            Arc::new(super::ScimOptions::default()),
+            connection_id,
+            provisioning_domain_id,
+            now,
+        )
+        .await
+        .map_err(|error| ScimStoreError::Storage(error.to_string()))
     }
 
     async fn decommission_managed_connection(
