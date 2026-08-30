@@ -10,9 +10,10 @@ pub use config::SsoOptions;
 pub use discovery::{
     DiscoveryError, DiscoveryErrorCode, OidcConfig, OidcDiscoveryDocument,
     REQUIRED_DISCOVERY_FIELDS,
-    SsoTokenEndpointAuthentication, compute_discovery_url, needs_runtime_discovery,
-    normalize_discovery_urls, normalize_url, select_token_endpoint_auth_method,
-    validate_discovery_document, validate_discovery_url, validate_oidc_endpoint_url,
+    SsoTokenEndpointAuthentication, compute_discovery_url, fetch_discovery_document,
+    needs_runtime_discovery, normalize_discovery_urls, normalize_url,
+    select_token_endpoint_auth_method, validate_discovery_document, validate_discovery_url,
+    validate_oidc_endpoint_url,
 };
 pub use plugin::SsoPlugin;
 pub use timestamp::{

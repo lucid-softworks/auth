@@ -1,5 +1,6 @@
 mod document;
 mod error;
+mod fetch;
 mod url;
 
 pub use document::{
@@ -9,6 +10,7 @@ pub use document::{
     validate_discovery_document,
 };
 pub use error::{DiscoveryError, DiscoveryErrorCode};
+pub use fetch::fetch_discovery_document;
 pub use url::{
     compute_discovery_url, normalize_url, validate_discovery_url, validate_oidc_endpoint_url,
 };

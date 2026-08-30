@@ -5,6 +5,11 @@ pub enum DiscoveryErrorCode {
     UntrustedOrigin,
     Incomplete,
     IssuerMismatch,
+    NotFound,
+    Timeout,
+    InvalidJson,
+    Unexpected,
+    EndpointRedirect,
 }
 
 impl DiscoveryErrorCode {
@@ -15,6 +20,11 @@ impl DiscoveryErrorCode {
             Self::UntrustedOrigin => "discovery_untrusted_origin",
             Self::Incomplete => "discovery_incomplete",
             Self::IssuerMismatch => "issuer_mismatch",
+            Self::NotFound => "discovery_not_found",
+            Self::Timeout => "discovery_timeout",
+            Self::InvalidJson => "discovery_invalid_json",
+            Self::Unexpected => "discovery_unexpected_error",
+            Self::EndpointRedirect => "oidc_endpoint_redirect",
         }
     }
 }

@@ -3,9 +3,10 @@ use lucid_auth::sso::{
     DEFAULT_CLOCK_SKEW_MS, DEFAULT_MAX_SAML_METADATA_SIZE, DEFAULT_MAX_SAML_RESPONSE_SIZE,
     DiscoveryErrorCode, OidcConfig, OidcDiscoveryDocument, REQUIRED_DISCOVERY_FIELDS,
     SamlConditions, SamlTimestampError, SamlTimestampOptions, SsoTokenEndpointAuthentication,
-    compute_discovery_url, needs_runtime_discovery, normalize_discovery_urls, normalize_url,
-    select_token_endpoint_auth_method, validate_discovery_document, validate_discovery_url,
-    validate_oidc_endpoint_url, validate_saml_timestamp_at,
+    compute_discovery_url, fetch_discovery_document, needs_runtime_discovery,
+    normalize_discovery_urls, normalize_url, select_token_endpoint_auth_method,
+    validate_discovery_document, validate_discovery_url, validate_oidc_endpoint_url,
+    validate_saml_timestamp_at,
 };
 use lucid_auth::{
     AdditionalFieldType, AuthPlugin, PluginHttpMethod, PluginProvenance, SSO_VERSION, SsoOptions,
@@ -179,4 +180,42 @@ fn saml_timestamp_validation_preserves_skew_and_boundary_order() {
         ),
         Err(SamlTimestampError::Expired)
     );
+}
+
+#[tokio::test]
+async fn discovery_fetch_rejects_redirects_and_parses_json_without_real_egress() {
+    let redirect =
+        local_response("HTTP/1.1 302 Found\r\nLocation: /final\r\nContent-Length: 0\r\n\r\n");
+    assert_eq!(
+        fetch_discovery_document(&redirect, 1_000, |_| true)
+            .await
+            .unwrap_err()
+            .code,
+        DiscoveryErrorCode::EndpointRedirect
+    );
+
+    let body = r#"{"issuer":"https://idp.example","authorization_endpoint":"https://idp.example/authorize","token_endpoint":"https://idp.example/token","jwks_uri":"https://idp.example/jwks"}"#;
+    let success = local_response(&format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    ));
+    let document = fetch_discovery_document(&success, 1_000, |_| true)
+        .await
+        .unwrap();
+    assert_eq!(document.issuer.as_deref(), Some("https://idp.example"));
+}
+
+fn local_response(response: &str) -> String {
+    use std::io::{Read as _, Write as _};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let response = response.to_owned();
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0_u8; 2048];
+        let _ = stream.read(&mut request).unwrap();
+        stream.write_all(response.as_bytes()).unwrap();
+    });
+    format!("http://{address}/.well-known/openid-configuration")
 }
