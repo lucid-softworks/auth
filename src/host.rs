@@ -58,6 +58,7 @@ mod plugin;
 mod polar;
 mod rate_limit;
 mod secondary_storage;
+pub mod scim;
 mod service;
 #[cfg(feature = "axum")]
 mod session_cache;
@@ -223,6 +224,22 @@ pub use plugin::{AxumPluginRoute, PluginSession};
 pub use rate_limit::{
     RateLimitConfig, RateLimitCustomRule, RateLimitOutcome, RateLimitRequest, RateLimitRule,
     RateLimitRuleResolver, RateLimitStorage, RateLimitStorageMode,
+};
+pub use scim::{
+    DatabaseScimStore, MemoryScimStore, SCIM_ENTERPRISE_USER_SCHEMA, SCIM_ERROR_SCHEMA, SCIM_GROUP_SCHEMA,
+    SCIM_LIST_RESPONSE_SCHEMA, SCIM_MANAGED_CREATION_REQUEST_ID_CONFLICT, SCIM_MEDIA_TYPE,
+    SCIM_PATCH_SCHEMA, SCIM_USER_SCHEMA, ScimActiveUserLink, ScimAddress, ScimBearerCredential,
+    ScimBearerTokenVerifier, ScimConnection, ScimConnectionBinding, ScimEmail,
+    ScimEnterpriseUser, ScimEntitlement, ScimError, ScimErrorBody, ScimErrorType, ScimGroup,
+    ScimGroupMember, ScimIdentity, ScimIdentityProfile, ScimIdentityResolution,
+    ScimIdentityResolutionInput, ScimIdentitySource, ScimIdentityState, ScimListResponse,
+    ScimManagedConnection, ScimManagedConnectionEvent, ScimManagedConnectionOptions,
+    ScimManagedCredential, ScimManager, ScimName, ScimOptions, ScimPatchOperation,
+    ScimPatchRequest, ScimPhoneNumber, ScimPlugin, ScimProjectedRoleGrant, ScimProjectedUserState,
+    ScimProjection, ScimProjectionReconciliation, ScimRole, ScimRoleExistenceInput,
+    ScimRoleMappingInput, ScimRoleProjection, ScimScope, ScimStore, ScimStoreError,
+    ScimTransactionContext, ScimUser, ScimVerifiedBearer,
+    ScimAuthorizationSource, ScimUserExternalIdReference, acquire_active_scim_user_link,
 };
 pub use service::account_types::{
     LinkedAccount, ProviderAccountIdentity, ProviderAccountInfo, ProviderAccountUser,

@@ -12,6 +12,8 @@ use std::sync::{
 };
 use tokio::sync::Mutex;
 
+mod records;
+
 pub(super) async fn run(
     store: &PostgresStore,
     operation: Box<dyn DatabaseTransactionOperation>,
@@ -170,6 +172,70 @@ impl DatabaseTransaction for PostgresTransaction {
             .as_ref()
             .map(|row| decode_record(&model, row))
             .transpose()
+    }
+
+    async fn find_records(
+        &self,
+        model: &str,
+        where_clause: &[crate::DashAdapterWhere],
+        limit: Option<usize>,
+        offset: usize,
+        sort: Option<&crate::DashAdapterSort>,
+        select: &[String],
+    ) -> Result<Vec<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        records::find(
+            self,
+            model,
+            where_clause,
+            limit,
+            offset,
+            sort,
+            select,
+        )
+        .await
+    }
+
+    async fn create_record(
+        &self,
+        model: &str,
+        data: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<serde_json::Map<String, serde_json::Value>, AuthError> {
+        records::create(self, model, data).await
+    }
+
+    async fn update_record(
+        &self,
+        model: &str,
+        where_clause: &[crate::DashAdapterWhere],
+        update: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        records::update(self, model, where_clause, update).await
+    }
+
+    async fn delete_records(
+        &self,
+        model: &str,
+        where_clause: &[crate::DashAdapterWhere],
+    ) -> Result<u64, AuthError> {
+        records::delete(self, model, where_clause).await
+    }
+
+    async fn count_records(
+        &self,
+        model: &str,
+        where_clause: &[crate::DashAdapterWhere],
+    ) -> Result<u64, AuthError> {
+        records::count(self, model, where_clause).await
+    }
+
+    async fn increment_record(
+        &self,
+        model: &str,
+        where_clause: &[crate::DashAdapterWhere],
+        increments: serde_json::Map<String, serde_json::Value>,
+        set: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        records::increment(self, model, where_clause, increments, set).await
     }
 }
 

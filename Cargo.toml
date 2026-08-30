@@ -114,6 +114,10 @@ name = "infra_dash_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "scim_contract"
+required-features = ["axum"]
+
+[[test]]
 name = "api_key_contract"
 required-features = ["axum"]
 

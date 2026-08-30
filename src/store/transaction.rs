@@ -1,6 +1,10 @@
 use super::{AuthStore, DatabaseCreate};
-use crate::{AuthError, AuthSession, AuthUser, DatabaseModel, DatabaseRecord, OAuthAccount};
+use crate::{
+    AuthError, AuthSession, AuthUser, DashAdapterSort, DashAdapterWhere, DatabaseModel,
+    DatabaseRecord, OAuthAccount,
+};
 use async_trait::async_trait;
+use serde_json::{Map, Value};
 use std::{any::Any, future::Future, pin::Pin, sync::Arc};
 
 /// One typed logical create executed by an active database transaction.
@@ -45,6 +49,57 @@ pub trait DatabaseTransaction: Send + Sync {
         model: DatabaseModel,
         id: &str,
     ) -> Result<Option<DatabaseRecord>, AuthError>;
+
+    /// Finds canonical logical rows, including plugin-owned models, inside
+    /// the active adapter transaction.
+    async fn find_records(
+        &self,
+        model: &str,
+        where_clause: &[DashAdapterWhere],
+        limit: Option<usize>,
+        offset: usize,
+        sort: Option<&DashAdapterSort>,
+        select: &[String],
+    ) -> Result<Vec<Map<String, Value>>, AuthError>;
+
+    /// Creates one canonical logical row inside the active transaction.
+    async fn create_record(
+        &self,
+        model: &str,
+        data: Map<String, Value>,
+    ) -> Result<Map<String, Value>, AuthError>;
+
+    /// Updates and returns the first canonical logical row matching a filter.
+    async fn update_record(
+        &self,
+        model: &str,
+        where_clause: &[DashAdapterWhere],
+        update: Map<String, Value>,
+    ) -> Result<Option<Map<String, Value>>, AuthError>;
+
+    /// Deletes every canonical logical row matching a filter.
+    async fn delete_records(
+        &self,
+        model: &str,
+        where_clause: &[DashAdapterWhere],
+    ) -> Result<u64, AuthError>;
+
+    /// Counts canonical logical rows matching a filter.
+    async fn count_records(
+        &self,
+        model: &str,
+        where_clause: &[DashAdapterWhere],
+    ) -> Result<u64, AuthError>;
+
+    /// Atomically increments numeric fields, applies set fields, and returns
+    /// the first canonical logical row matching a revision fence.
+    async fn increment_record(
+        &self,
+        model: &str,
+        where_clause: &[DashAdapterWhere],
+        increments: Map<String, Value>,
+        set: Map<String, Value>,
+    ) -> Result<Option<Map<String, Value>>, AuthError>;
 }
 
 /// Object-safe transaction callback implemented by downstream adapters and
