@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use axum::{
     Router,
     body::Body,
@@ -8,14 +9,44 @@ use http_body_util::BodyExt;
 use lucid_auth::{
     AuthConfig, AuthService, AuthStore, MemoryScimStore, MemoryStore, OAuthAccountStore,
     SCIM_ENTERPRISE_USER_SCHEMA, SCIM_GROUP_SCHEMA, SCIM_LIST_RESPONSE_SCHEMA, SCIM_MEDIA_TYPE,
-    SCIM_PATCH_SCHEMA, SCIM_USER_SCHEMA, ScimBearerCredential, ScimConnection,
-    ScimManagedConnectionOptions, ScimOptions, ScimPlugin, ScimScope,
+    SCIM_PATCH_SCHEMA, SCIM_USER_SCHEMA, ScimBearerCredential, ScimBearerTokenVerifier,
+    ScimConnection, ScimError, ScimManagedConnectionOptions, ScimOptions, ScimPlugin, ScimScope,
+    ScimVerifiedBearer,
 };
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 use tower::ServiceExt;
 
 const TOKEN: &str = "scim-test-bearer-token";
+
+#[derive(Default)]
+struct CountingVerifier(AtomicUsize);
+
+#[async_trait]
+impl ScimBearerTokenVerifier for CountingVerifier {
+    async fn verify(
+        &self,
+        _token: &str,
+        _method: &str,
+        _path: &str,
+        _headers: &BTreeMap<String, String>,
+    ) -> Result<Option<ScimVerifiedBearer>, ScimError> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(Some(ScimVerifiedBearer {
+            connection_id: "custom".into(),
+            provisioning_domain_id: "custom".into(),
+            credential_id: "custom".into(),
+            scopes: ScimScope::ALL.to_vec(),
+            expires_at: None,
+        }))
+    }
+}
 
 fn options() -> ScimOptions {
     ScimOptions {
@@ -637,6 +668,30 @@ async fn managed_catalog_rotates_revokes_isolates_and_decommissions() {
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
+}
+
+#[tokio::test]
+async fn managed_namespace_tokens_never_fall_through_to_the_custom_verifier() {
+    let verifier = Arc::new(CountingVerifier::default());
+    let options = ScimOptions {
+        authentication: Some(verifier.clone()),
+        managed_connections: Some(ScimManagedConnectionOptions::new(
+            "namespace-secret".repeat(3),
+        )),
+        ..ScimOptions::default()
+    };
+    let (app, _, _, _) = application_with_options(options);
+    let response = app
+        .oneshot(
+            Request::get("/api/auth/scim/v2/Users")
+                .header(header::AUTHORIZATION, "Bearer ba_scim_credential_malformed")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(verifier.0.load(Ordering::SeqCst), 0);
 }
 
 #[test]

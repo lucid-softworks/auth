@@ -116,7 +116,7 @@ impl ScimPlugin {
                 }
             }
         }
-        let managed_token = token.starts_with("ba_scim_credential_") && token.contains('.');
+        let managed_token = token.starts_with("ba_scim_credential_");
         if principal.is_none() && managed_token && self.options.managed_connections.is_some() {
             principal = self.authenticate_managed(token, now).await?;
         }

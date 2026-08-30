@@ -14,7 +14,8 @@ mod schema;
 mod store;
 
 pub use config::{
-    ScimBearerCredential, ScimConnection, ScimManagedConnectionOptions, ScimOptions, ScimScope,
+    ScimBearerCredential, ScimBearerTokenVerifier, ScimConnection, ScimManagedConnectionOptions,
+    ScimOptions, ScimScope, ScimVerifiedBearer,
 };
 pub use error::{ScimError, ScimErrorBody, ScimErrorType};
 pub use memory::MemoryScimStore;
