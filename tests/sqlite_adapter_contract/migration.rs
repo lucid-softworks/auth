@@ -1,22 +1,21 @@
-use super::*;
-use crate::{
-    AdditionalField, AdditionalFieldType, AuthConfig, AuthSchemaCatalog, DatabaseSchemaIndex,
-    PluginSchemaTable,
+use crate::support::catalog;
+use lucid_auth::{
+    AdditionalField, AdditionalFieldType, DatabaseSchemaIndex, PluginSchemaTable,
+    sqlite::{
+        SqliteAdapterConfig, SqliteMigrationError, SqliteMigrationMode, SqliteMigrationStep,
+        SqliteStore,
+    },
 };
 use sqlx::{Row, sqlite::SqlitePoolOptions};
 use std::sync::Arc;
 
-async fn store() -> crate::sqlite::SqliteStore {
+async fn store() -> SqliteStore {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
         .connect("sqlite::memory:")
         .await
         .unwrap();
-    crate::sqlite::SqliteStore::new(pool, crate::sqlite::SqliteAdapterConfig::default())
-}
-
-fn catalog(table: PluginSchemaTable) -> Arc<AuthSchemaCatalog> {
-    Arc::new(AuthSchemaCatalog::build(&AuthConfig::new([61; 32]).unwrap(), [table]).unwrap())
+    SqliteStore::new(pool, SqliteAdapterConfig::default())
 }
 
 #[tokio::test]
@@ -34,6 +33,7 @@ async fn creates_the_catalog_then_produces_the_pinned_empty_output() {
                     .default_value(serde_json::json!(true)),
             )
             .index(DatabaseSchemaIndex::new(["active"])),
+        [61; 32],
     );
     let first = store.migrate(schema.clone()).await.unwrap();
     assert!(first.compiled_sql().contains("create table \"widget\""));
@@ -62,10 +62,13 @@ async fn compile_reports_but_execute_rejects_an_unsafe_required_column() {
         .execute(store.pool())
         .await
         .unwrap();
-    let schema = catalog(PluginSchemaTable::new("widget").field(
-        "requiredValue",
-        AdditionalField::new(AdditionalFieldType::String),
-    ));
+    let schema = catalog(
+        PluginSchemaTable::new("widget").field(
+            "requiredValue",
+            AdditionalField::new(AdditionalFieldType::String),
+        ),
+        [61; 32],
+    );
     let compiled = store
         .migration_plan(schema.clone(), SqliteMigrationMode::Compile)
         .await
@@ -94,7 +97,7 @@ async fn does_not_mutate_caller_pragma_policy() {
         .try_get(0)
         .unwrap();
     store
-        .migrate(catalog(PluginSchemaTable::new("widget")))
+        .migrate(catalog(PluginSchemaTable::new("widget"), [61; 32]))
         .await
         .unwrap();
     let after: i64 = sqlx::query("pragma foreign_keys")
@@ -122,6 +125,7 @@ async fn reports_type_nullable_and_generated_array_drift() {
                 "tags",
                 AdditionalField::new(AdditionalFieldType::StringArray),
             ),
+        [61; 32],
     );
     let plan = store
         .migration_plan(schema, SqliteMigrationMode::Compile)
@@ -155,6 +159,7 @@ async fn repairs_table_indexes_but_preserves_the_missing_field_index_quirk() {
         PluginSchemaTable::new("widget")
             .field("value", AdditionalField::new(AdditionalFieldType::String))
             .index(DatabaseSchemaIndex::new(["value"]).named("widget_value_idx")),
+        [61; 32],
     );
     let plan = table_index_store
         .migration_plan(table_index_schema.clone(), SqliteMigrationMode::Execute)
@@ -179,10 +184,13 @@ async fn repairs_table_indexes_but_preserves_the_missing_field_index_quirk() {
         .execute(field_index_store.pool())
         .await
         .unwrap();
-    let field_index_schema = catalog(PluginSchemaTable::new("widget").field(
-        "value",
-        AdditionalField::new(AdditionalFieldType::String).index(true),
-    ));
+    let field_index_schema = catalog(
+        PluginSchemaTable::new("widget").field(
+            "value",
+            AdditionalField::new(AdditionalFieldType::String).index(true),
+        ),
+        [61; 32],
+    );
     let field_plan = field_index_store
         .migration_plan(field_index_schema, SqliteMigrationMode::Compile)
         .await
@@ -213,6 +221,7 @@ async fn rejects_mismatched_partial_expression_and_foreign_indexes() {
             PluginSchemaTable::new("widget")
                 .field("value", AdditionalField::new(AdditionalFieldType::String))
                 .index(DatabaseSchemaIndex::new(["value"]).named("widget_value_idx")),
+            [61; 32],
         );
         assert!(matches!(
             store
@@ -234,10 +243,14 @@ async fn static_defaults_are_safe_but_optional_unique_and_date_factories_are_not
         .execute(safe.pool())
         .await
         .unwrap();
-    let safe_schema = catalog(PluginSchemaTable::new("widget").field(
-        "active",
-        AdditionalField::new(AdditionalFieldType::Boolean).default_value(serde_json::json!(true)),
-    ));
+    let safe_schema = catalog(
+        PluginSchemaTable::new("widget").field(
+            "active",
+            AdditionalField::new(AdditionalFieldType::Boolean)
+                .default_value(serde_json::json!(true)),
+        ),
+        [61; 32],
+    );
     let safe_plan = safe
         .migration_plan(safe_schema, SqliteMigrationMode::Execute)
         .await
@@ -272,6 +285,7 @@ async fn static_defaults_are_safe_but_optional_unique_and_date_factories_are_not
                     Ok(serde_json::json!("2024-01-01T00:00:00.000Z"))
                 })),
             ),
+        [61; 32],
     );
     let compiled = unsafe_store
         .migration_plan(unsafe_schema, SqliteMigrationMode::Compile)

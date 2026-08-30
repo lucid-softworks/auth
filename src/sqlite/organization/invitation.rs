@@ -1,8 +1,7 @@
-use super::{codec, eq, insert};
+use super::{codec, eq, invitation_acceptance};
 use crate::{
     AuthError, DatabaseIdSupplier, OrganizationInvitation, OrganizationInvitationStatus,
-    OrganizationInvitationStore, OrganizationInvitationWriteOutcome, OrganizationMember,
-    OrganizationTeamMember,
+    OrganizationInvitationStore, OrganizationInvitationWriteOutcome,
     sqlite::{
         SqliteComparisonMode, SqliteFilter, SqliteFindOptions, SqliteSort, SqliteSortDirection,
         SqliteStore, query::execute,
@@ -162,7 +161,7 @@ impl OrganizationInvitationStore for SqliteStore {
         member_id: &dyn DatabaseIdSupplier,
         team_member_id: &dyn DatabaseIdSupplier,
     ) -> Result<OrganizationInvitationWriteOutcome, AuthError> {
-        accept(
+        invitation_acceptance::accept(
             self,
             invitation_id,
             user_id,
@@ -173,134 +172,6 @@ impl OrganizationInvitationStore for SqliteStore {
         )
         .await
     }
-}
-
-async fn accept(
-    store: &SqliteStore,
-    invitation_id: &str,
-    user_id: &str,
-    now: DateTime<Utc>,
-    membership_limit: usize,
-    member_id: &dyn DatabaseIdSupplier,
-    team_member_id: &dyn DatabaseIdSupplier,
-) -> Result<OrganizationInvitationWriteOutcome, AuthError> {
-    let schema = store.physical_schema()?;
-    let mut transaction = store.pool.begin().await.map_err(super::storage)?;
-    let Some(record) = execute::find_one(
-        &mut transaction,
-        schema,
-        "invitation",
-        &[eq("id", invitation_id)],
-        &[],
-    )
-    .await?
-    else {
-        transaction.rollback().await.map_err(super::storage)?;
-        return Ok(OrganizationInvitationWriteOutcome::NotFound);
-    };
-    let invitation: OrganizationInvitation = codec::decode("invitation", record)?;
-    if invitation.status != OrganizationInvitationStatus::Pending {
-        transaction.rollback().await.map_err(super::storage)?;
-        return Ok(OrganizationInvitationWriteOutcome::NotFound);
-    }
-    if invitation.expires_at <= now {
-        transaction.rollback().await.map_err(super::storage)?;
-        return Ok(OrganizationInvitationWriteOutcome::Expired);
-    }
-    let organization = [eq("organizationId", &invitation.organization_id)];
-    if execute::find_one(
-        &mut transaction,
-        schema,
-        "member",
-        &[
-            eq("organizationId", &invitation.organization_id),
-            eq("userId", user_id),
-        ],
-        &[],
-    )
-    .await?
-    .is_some()
-    {
-        transaction.rollback().await.map_err(super::storage)?;
-        return Ok(OrganizationInvitationWriteOutcome::AlreadyMember);
-    }
-    if execute::count(&mut transaction, schema, "member", &organization).await?
-        >= membership_limit as u64
-    {
-        transaction.rollback().await.map_err(super::storage)?;
-        return Ok(OrganizationInvitationWriteOutcome::LimitReached);
-    }
-    let member = OrganizationMember {
-        id: String::new(),
-        organization_id: invitation.organization_id.clone(),
-        user_id: user_id.into(),
-        role: invitation.role.clone(),
-        created_at: now,
-    };
-    insert(
-        store,
-        &mut transaction,
-        schema,
-        "member",
-        &member,
-        member_id.prepare()?,
-    )
-    .await?;
-    if let Some(team_ids) = invitation.team_id.as_deref() {
-        if !schema.has_model("team") || !schema.has_model("teamMember") {
-            return Err(AuthError::InvalidConfiguration(
-                "organization team schema is incomplete".into(),
-            ));
-        }
-        for team_id in team_ids.split(',') {
-            if execute::find_one(
-                &mut transaction,
-                schema,
-                "team",
-                &[
-                    eq("id", team_id),
-                    eq("organizationId", &invitation.organization_id),
-                ],
-                &[],
-            )
-            .await?
-            .is_none()
-            {
-                continue;
-            }
-            if execute::find_one(
-                &mut transaction,
-                schema,
-                "teamMember",
-                &[eq("teamId", team_id), eq("userId", user_id)],
-                &[],
-            )
-            .await?
-            .is_some()
-            {
-                continue;
-            }
-            let member = OrganizationTeamMember {
-                id: String::new(),
-                team_id: team_id.into(),
-                user_id: user_id.into(),
-                created_at: now,
-            };
-            let mut record = codec::team_member_record(store, &member)?;
-            insert_id(&mut record, team_member_id.prepare()?)?;
-            execute::insert(&mut transaction, schema, "teamMember", record).await?;
-        }
-    }
-    execute::update_one(
-        &mut transaction,
-        schema,
-        "invitation",
-        &[eq("id", invitation_id)],
-        Map::from_iter([("status".into(), json!("accepted"))]),
-    )
-    .await?;
-    transaction.commit().await.map_err(super::storage)?;
-    Ok(OrganizationInvitationWriteOutcome::Written)
 }
 
 async fn find(
@@ -346,7 +217,7 @@ fn pending_filters(organization_id: &str, email: Option<&str>) -> Vec<SqliteFilt
     }
     filters
 }
-fn insert_id(
+pub(super) fn insert_id(
     record: &mut Map<String, Value>,
     id: crate::PreparedDatabaseId,
 ) -> Result<(), AuthError> {

@@ -60,6 +60,45 @@ pub enum OAuthTokenUpdateOutcome {
 pub trait AuthStore:
     AccessStore + ApiKeyStore + OAuthAccountStore + SecurityStore + VerificationStore + Send + Sync
 {
+    /// Optional logical-model boundary used by Better Auth Infrastructure Dash's
+    /// authenticated five-action raw adapter endpoint.
+    async fn dash_find_records(
+        &self,
+        _model: &str,
+        _where_clause: &[crate::DashAdapterWhere],
+        _limit: Option<usize>,
+        _offset: usize,
+        _sort: Option<&crate::DashAdapterSort>,
+        _select: &[String],
+    ) -> Result<Option<Vec<serde_json::Map<String, serde_json::Value>>>, AuthError> {
+        Ok(None)
+    }
+
+    async fn dash_create_record(
+        &self,
+        _model: &str,
+        _data: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        Ok(None)
+    }
+
+    async fn dash_update_record(
+        &self,
+        _model: &str,
+        _where_clause: &[crate::DashAdapterWhere],
+        _update: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<Option<serde_json::Map<String, serde_json::Value>>>, AuthError> {
+        Ok(None)
+    }
+
+    async fn dash_count_records(
+        &self,
+        _model: &str,
+        _where_clause: &[crate::DashAdapterWhere],
+    ) -> Result<Option<u64>, AuthError> {
+        Ok(None)
+    }
+
     /// Runs one Better Auth adapter transaction without retries.
     ///
     /// Implementations must expose the same staged view to the operation and

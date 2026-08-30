@@ -132,6 +132,10 @@ impl fmt::Debug for AdditionalField {
 }
 
 impl AdditionalField {
+    pub fn has_default_value(&self) -> bool {
+        self.default_value.is_some() || self.default_factory.is_some()
+    }
+
     pub fn new(field_type: AdditionalFieldType) -> Self {
         Self {
             field_type,

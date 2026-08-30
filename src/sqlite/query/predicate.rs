@@ -63,100 +63,128 @@ fn push_filter(
                 .is_some_and(|values| values.iter().all(Value::is_string)));
     match filter.operator {
         SqliteFilterOperator::In | SqliteFilterOperator::NotIn => {
-            let values = filter
-                .value
-                .as_array()
-                .cloned()
-                .unwrap_or_else(|| vec![filter.value.clone()]);
-            if values.is_empty() {
-                query.push(if filter.operator == SqliteFilterOperator::In {
-                    "0 = 1"
-                } else {
-                    "1 = 1"
-                });
-                return Ok(());
-            }
-            push_column(query, column, insensitive);
-            query.push(if filter.operator == SqliteFilterOperator::In {
-                " in ("
-            } else {
-                " not in ("
-            });
-            for (position, value) in values.into_iter().enumerate() {
-                if position > 0 {
-                    query.push(", ");
-                }
-                let value = if insensitive {
-                    Value::String(
-                        value
-                            .as_str()
-                            .expect("insensitive IN values are strings")
-                            .to_lowercase(),
-                    )
-                } else {
-                    value
-                };
-                model.encode(&filter.field, value)?.push_bind(query);
-            }
-            query.push(")");
+            push_set(query, model, filter, column, insensitive)?;
         }
         SqliteFilterOperator::Contains
         | SqliteFilterOperator::StartsWith
         | SqliteFilterOperator::EndsWith => {
-            let value = filter.value.as_str().ok_or_else(|| {
-                AuthError::InvalidConfiguration("SQLite pattern predicates require a string".into())
-            })?;
-            let pattern = match filter.operator {
-                SqliteFilterOperator::Contains => format!("%{value}%"),
-                SqliteFilterOperator::StartsWith => format!("{value}%"),
-                SqliteFilterOperator::EndsWith => format!("%{value}"),
-                _ => unreachable!(),
-            };
-            push_column(query, column, insensitive);
-            query.push(" like ");
-            if insensitive {
-                query.push("lower(");
-            }
-            query.push_bind(pattern);
-            if insensitive {
-                query.push(")");
-            }
+            push_pattern(query, filter, column, insensitive)?;
         }
         SqliteFilterOperator::Eq | SqliteFilterOperator::Ne if filter.value.is_null() => {
-            query
-                .push(column)
-                .push(if filter.operator == SqliteFilterOperator::Eq {
-                    " is null"
-                } else {
-                    " is not null"
-                });
+            push_null(query, filter.operator, column);
         }
-        operator => {
-            push_column(query, column, insensitive);
-            query.push(match operator {
-                SqliteFilterOperator::Eq => " = ",
-                SqliteFilterOperator::Ne => " <> ",
-                SqliteFilterOperator::Gt => " > ",
-                SqliteFilterOperator::Gte => " >= ",
-                SqliteFilterOperator::Lt => " < ",
-                SqliteFilterOperator::Lte => " <= ",
-                _ => unreachable!(),
-            });
-            let value = if insensitive {
-                Value::String(
-                    filter
-                        .value
-                        .as_str()
-                        .expect("insensitive scalar is a string")
-                        .to_lowercase(),
-                )
-            } else {
-                filter.value.clone()
-            };
-            model.encode(&filter.field, value)?.push_bind(query);
-        }
+        operator => push_scalar(query, model, filter, column, insensitive, operator)?,
     }
     Ok(())
+}
+
+fn push_set(
+    query: &mut QueryBuilder<'_, Sqlite>,
+    model: &SqliteModel<'_>,
+    filter: &SqliteFilter,
+    column: &str,
+    insensitive: bool,
+) -> Result<(), AuthError> {
+    let values = filter
+        .value
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| vec![filter.value.clone()]);
+    if values.is_empty() {
+        query.push(if filter.operator == SqliteFilterOperator::In {
+            "0 = 1"
+        } else {
+            "1 = 1"
+        });
+        return Ok(());
+    }
+    push_column(query, column, insensitive);
+    query.push(if filter.operator == SqliteFilterOperator::In {
+        " in ("
+    } else {
+        " not in ("
+    });
+    for (position, value) in values.into_iter().enumerate() {
+        if position > 0 {
+            query.push(", ");
+        }
+        let value = normalize_case(value, insensitive, "insensitive IN values are strings");
+        model.encode(&filter.field, value)?.push_bind(query);
+    }
+    query.push(")");
+    Ok(())
+}
+
+fn push_pattern(
+    query: &mut QueryBuilder<'_, Sqlite>,
+    filter: &SqliteFilter,
+    column: &str,
+    insensitive: bool,
+) -> Result<(), AuthError> {
+    let value = filter.value.as_str().ok_or_else(|| {
+        AuthError::InvalidConfiguration("SQLite pattern predicates require a string".into())
+    })?;
+    let pattern = match filter.operator {
+        SqliteFilterOperator::Contains => format!("%{value}%"),
+        SqliteFilterOperator::StartsWith => format!("{value}%"),
+        SqliteFilterOperator::EndsWith => format!("%{value}"),
+        _ => unreachable!(),
+    };
+    push_column(query, column, insensitive);
+    query.push(" like ");
+    if insensitive {
+        query.push("lower(");
+    }
+    query.push_bind(pattern);
+    if insensitive {
+        query.push(")");
+    }
+    Ok(())
+}
+
+fn push_null(query: &mut QueryBuilder<'_, Sqlite>, operator: SqliteFilterOperator, column: &str) {
+    query
+        .push(column)
+        .push(if operator == SqliteFilterOperator::Eq {
+            " is null"
+        } else {
+            " is not null"
+        });
+}
+
+fn push_scalar(
+    query: &mut QueryBuilder<'_, Sqlite>,
+    model: &SqliteModel<'_>,
+    filter: &SqliteFilter,
+    column: &str,
+    insensitive: bool,
+    operator: SqliteFilterOperator,
+) -> Result<(), AuthError> {
+    push_column(query, column, insensitive);
+    query.push(match operator {
+        SqliteFilterOperator::Eq => " = ",
+        SqliteFilterOperator::Ne => " <> ",
+        SqliteFilterOperator::Gt => " > ",
+        SqliteFilterOperator::Gte => " >= ",
+        SqliteFilterOperator::Lt => " < ",
+        SqliteFilterOperator::Lte => " <= ",
+        _ => unreachable!(),
+    });
+    let value = normalize_case(
+        filter.value.clone(),
+        insensitive,
+        "insensitive scalar is a string",
+    );
+    model.encode(&filter.field, value)?.push_bind(query);
+    Ok(())
+}
+
+fn normalize_case(value: Value, insensitive: bool, message: &str) -> Value {
+    if insensitive {
+        Value::String(value.as_str().expect(message).to_lowercase())
+    } else {
+        value
+    }
 }
 
 fn push_column(query: &mut QueryBuilder<'_, Sqlite>, column: &str, insensitive: bool) {

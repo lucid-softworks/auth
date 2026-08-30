@@ -1,4 +1,4 @@
-use super::{codec, eq, insert};
+use super::{codec, create, eq};
 use crate::{
     AuthError, DatabaseIdSupplier, Organization, OrganizationCreateOutcome, OrganizationDataStore,
     OrganizationMember, OrganizationTeam, OrganizationTeamMember,
@@ -87,86 +87,16 @@ impl OrganizationDataStore for SqliteStore {
         )>,
         organization_limit: Option<usize>,
     ) -> Result<OrganizationCreateOutcome, AuthError> {
-        let schema = self.physical_schema()?;
-        let mut transaction = self.pool.begin().await.map_err(super::storage)?;
-        if execute::find_one(
-            &mut transaction,
-            schema,
-            "user",
-            &[eq("id", &owner.user_id)],
-            &[],
+        create::create(
+            self,
+            organization,
+            organization_id,
+            owner,
+            owner_id,
+            default_team,
+            organization_limit,
         )
-        .await?
-        .is_none()
-        {
-            transaction.rollback().await.map_err(super::storage)?;
-            return Err(AuthError::NotFound);
-        }
-        if execute::find_one(
-            &mut transaction,
-            schema,
-            "organization",
-            &[eq("slug", &organization.slug)],
-            &[],
-        )
-        .await?
-        .is_some()
-        {
-            transaction.rollback().await.map_err(super::storage)?;
-            return Ok(OrganizationCreateOutcome::SlugTaken);
-        }
-        if let Some(limit) = organization_limit
-            && execute::count(
-                &mut transaction,
-                schema,
-                "member",
-                &[eq("userId", &owner.user_id)],
-            )
-            .await?
-                >= limit as u64
-        {
-            transaction.rollback().await.map_err(super::storage)?;
-            return Ok(OrganizationCreateOutcome::LimitReached);
-        }
-        let mut record = codec::organization_record(self, organization)?;
-        insert_id(&mut record, organization_id.prepare()?)?;
-        *organization = codec::decode_organization(
-            execute::insert(&mut transaction, schema, "organization", record).await?,
-        )?;
-        owner.organization_id = organization.id.clone();
-        *owner = codec::decode(
-            "member",
-            insert(
-                self,
-                &mut transaction,
-                schema,
-                "member",
-                owner,
-                owner_id.prepare()?,
-            )
-            .await?,
-        )?;
-        if let Some((team, team_id, team_member, team_member_id)) = default_team {
-            team.organization_id = organization.id.clone();
-            let mut team_record =
-                super::super::codec::create_record(self, "team", team, &team_id.prepare()?)?;
-            if schema.model("team")?.has_field("memberCount") {
-                team_record.insert("memberCount".into(), serde_json::json!(0));
-            }
-            *team = codec::decode(
-                "team",
-                execute::insert(&mut transaction, schema, "team", team_record).await?,
-            )?;
-            team_member.team_id = team.id.clone();
-            let mut member_record = codec::team_member_record(self, team_member)?;
-            insert_id(&mut member_record, team_member_id.prepare()?)?;
-            *team_member = codec::decode(
-                "teamMember",
-                execute::insert(&mut transaction, schema, "teamMember", member_record).await?,
-            )?;
-        }
-        transaction.commit().await.map_err(super::storage)?;
-        Ok(OrganizationCreateOutcome::Created)
+        .await
     }
 
     async fn find_organization_by_id(&self, id: &str) -> Result<Option<Organization>, AuthError> {
@@ -234,7 +164,7 @@ async fn find(
         .transpose()
 }
 
-fn insert_id(
+pub(super) fn insert_id(
     record: &mut Map<String, Value>,
     id: crate::PreparedDatabaseId,
 ) -> Result<(), AuthError> {

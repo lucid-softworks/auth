@@ -92,7 +92,6 @@ impl PluginRegistry {
         })
     }
 
-    #[cfg(feature = "axum")]
     pub(crate) fn plugins(&self) -> &[Arc<dyn AuthPlugin>] {
         &self.plugins
     }

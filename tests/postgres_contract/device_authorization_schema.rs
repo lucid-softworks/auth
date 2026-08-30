@@ -57,7 +57,6 @@ async fn remapped_schema_migrates_idempotently_and_preserves_atomic_ownership()
     auth.add_plugin(UsernamePlugin::default())?;
     let mut provider_config = OAuthProviderPluginConfig::new("/login", "/consent");
     provider_config.disable_jwt_plugin = true;
-    auth.add_plugin(UsernamePlugin::default())?;
     auth.add_plugin(OAuthProviderPlugin::postgres(
         provider_config,
         postgres.clone(),

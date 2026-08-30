@@ -1,11 +1,13 @@
-use super::*;
-use crate::{
-    AdditionalField, AdditionalFieldType, AuthConfig, AuthSchemaCatalog, PluginSchemaTable,
-    sqlite::{SqliteAdapterConfig, SqliteMigrationMode, SqliteStore},
+use crate::support::catalog;
+use lucid_auth::{
+    AdditionalField, AdditionalFieldType, PluginSchemaTable,
+    sqlite::{
+        SqliteAdapterConfig, SqliteComparisonMode, SqliteFilter, SqliteFilterConnector,
+        SqliteFilterOperator, SqliteMigrationMode, SqliteStore,
+    },
 };
 use serde_json::{Map, Value, json};
 use sqlx::sqlite::SqlitePoolOptions;
-use std::sync::Arc;
 
 async fn store() -> SqliteStore {
     let pool = SqlitePoolOptions::new()
@@ -28,9 +30,7 @@ async fn store() -> SqliteStore {
             "note",
             AdditionalField::new(AdditionalFieldType::String).optional(),
         );
-    let catalog =
-        Arc::new(AuthSchemaCatalog::build(&AuthConfig::new([62; 32]).unwrap(), [table]).unwrap());
-    store.migrate(catalog).await.unwrap();
+    store.migrate(catalog(table, [62; 32])).await.unwrap();
     store
 }
 
@@ -143,25 +143,22 @@ async fn explicit_transaction_rolls_back_without_store_policy() {
 
     let empty = store
         .migration_plan(
-            Arc::new(
-                AuthSchemaCatalog::build(
-                    &AuthConfig::new([62; 32]).unwrap(),
-                    [PluginSchemaTable::new("counter")
-                        .field("name", AdditionalField::new(AdditionalFieldType::String))
-                        .field("value", AdditionalField::new(AdditionalFieldType::Number))
-                        .field("active", AdditionalField::new(AdditionalFieldType::Boolean))
-                        .field("when", AdditionalField::new(AdditionalFieldType::Date))
-                        .field("metadata", AdditionalField::new(AdditionalFieldType::Json))
-                        .field(
-                            "tags",
-                            AdditionalField::new(AdditionalFieldType::StringArray),
-                        )
-                        .field(
-                            "note",
-                            AdditionalField::new(AdditionalFieldType::String).optional(),
-                        )],
-                )
-                .unwrap(),
+            catalog(
+                PluginSchemaTable::new("counter")
+                    .field("name", AdditionalField::new(AdditionalFieldType::String))
+                    .field("value", AdditionalField::new(AdditionalFieldType::Number))
+                    .field("active", AdditionalField::new(AdditionalFieldType::Boolean))
+                    .field("when", AdditionalField::new(AdditionalFieldType::Date))
+                    .field("metadata", AdditionalField::new(AdditionalFieldType::Json))
+                    .field(
+                        "tags",
+                        AdditionalField::new(AdditionalFieldType::StringArray),
+                    )
+                    .field(
+                        "note",
+                        AdditionalField::new(AdditionalFieldType::String).optional(),
+                    ),
+                [62; 32],
             ),
             SqliteMigrationMode::Compile,
         )

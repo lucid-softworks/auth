@@ -1,4 +1,4 @@
-use super::{codec, eq, record};
+use super::{codec, eq, token_io};
 use crate::{
     AuthError, DatabaseIdSupplier, OAuthProviderAccessToken, OAuthProviderRefreshToken,
     OAuthProviderTokenStore, OAuthRefreshRotation, OAuthRefreshRotationOutcome,
@@ -15,13 +15,13 @@ impl OAuthProviderTokenStore for SqliteStore {
         &self,
         token: &str,
     ) -> Result<Option<OAuthProviderAccessToken>, AuthError> {
-        find_access(self, &[eq("token", token)]).await
+        token_io::find_access(self, &[eq("token", token)]).await
     }
     async fn find_oauth_refresh_token(
         &self,
         token: &str,
     ) -> Result<Option<OAuthProviderRefreshToken>, AuthError> {
-        find_refresh(self, &[eq("token", token)]).await
+        token_io::find_refresh(self, &[eq("token", token)]).await
     }
 
     async fn issue_oauth_tokens(
@@ -32,8 +32,8 @@ impl OAuthProviderTokenStore for SqliteStore {
     ) -> Result<(), AuthError> {
         let schema = self.physical_schema()?;
         let mut transaction = self.pool.begin().await.map_err(super::storage)?;
-        validate(&mut transaction, schema, &issuance).await?;
-        insert_issuance(
+        token_io::validate(&mut transaction, schema, &issuance).await?;
+        token_io::insert_issuance(
             self,
             &mut transaction,
             schema,
@@ -72,7 +72,7 @@ impl OAuthProviderTokenStore for SqliteStore {
             access_token: rotation.access_token.take(),
             refresh_token: Some(rotation.next_refresh_token),
         };
-        validate(&mut transaction, schema, &issuance).await?;
+        token_io::validate(&mut transaction, schema, &issuance).await?;
         execute::update_one(
             &mut transaction,
             schema,
@@ -92,7 +92,7 @@ impl OAuthProviderTokenStore for SqliteStore {
         )
         .await?
         .ok_or_else(|| AuthError::Storage("OAuth refresh token changed during rotation".into()))?;
-        rotation.next_refresh_token = insert_issuance(
+        rotation.next_refresh_token = token_io::insert_issuance(
             self,
             &mut transaction,
             schema,
@@ -167,7 +167,7 @@ impl OAuthProviderTokenStore for SqliteStore {
         client_id: &str,
         user_id: &str,
     ) -> Result<OAuthTokenRevocationCount, AuthError> {
-        delete_family(self, &[eq("clientId", client_id), eq("userId", user_id)]).await
+        token_io::delete_family(self, &[eq("clientId", client_id), eq("userId", user_id)]).await
     }
 
     async fn revoke_oauth_tokens_for_authorization_code(
@@ -191,7 +191,7 @@ impl OAuthProviderTokenStore for SqliteStore {
         )
         .await?;
         transaction.commit().await.map_err(super::storage)?;
-        Ok(counts(access, refresh))
+        Ok(token_io::counts(access, refresh))
     }
 
     async fn revoke_oauth_tokens_for_session(
@@ -224,8 +224,8 @@ impl OAuthProviderTokenStore for SqliteStore {
         &self,
         session_id: &str,
     ) -> Result<OAuthSessionLogoutPlan, AuthError> {
-        let access = list_access(self, &[eq("sessionId", session_id)]).await?;
-        let refresh = list_refresh(self, &[eq("sessionId", session_id)]).await?;
+        let access = token_io::list_access(self, &[eq("sessionId", session_id)]).await?;
+        let refresh = token_io::list_refresh(self, &[eq("sessionId", session_id)]).await?;
         let mut client_ids = access
             .iter()
             .map(|token| token.client_id.clone())
@@ -290,206 +290,4 @@ impl OAuthProviderTokenStore for SqliteStore {
         transaction.commit().await.map_err(super::storage)?;
         Ok(counts)
     }
-}
-
-async fn validate(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-    schema: &super::super::schema::SqliteSchema,
-    issuance: &OAuthTokenIssuance,
-) -> Result<(), AuthError> {
-    if let Some(refresh) = &issuance.refresh_token
-        && execute::find_one(
-            transaction,
-            schema,
-            "oauthRefreshToken",
-            &[eq("token", &refresh.token)],
-            &[],
-        )
-        .await?
-        .is_some()
-    {
-        return Err(AuthError::Storage(
-            "OAuth refresh token identifier already exists".into(),
-        ));
-    }
-    if let Some(access) = &issuance.access_token {
-        if execute::find_one(
-            transaction,
-            schema,
-            "oauthAccessToken",
-            &[eq("token", &access.token)],
-            &[],
-        )
-        .await?
-        .is_some()
-        {
-            return Err(AuthError::Storage(
-                "OAuth access token identifier already exists".into(),
-            ));
-        }
-        if let Some(refresh_id) = &access.refresh_id
-            && issuance
-                .refresh_token
-                .as_ref()
-                .is_none_or(|refresh| refresh.id != *refresh_id && !refresh_id.is_empty())
-            && execute::find_one(
-                transaction,
-                schema,
-                "oauthRefreshToken",
-                &[eq("id", refresh_id)],
-                &[],
-            )
-            .await?
-            .is_none()
-        {
-            return Err(AuthError::Storage(
-                "OAuth access token references an unknown refresh token".into(),
-            ));
-        }
-    }
-    Ok(())
-}
-
-async fn insert_issuance(
-    store: &SqliteStore,
-    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-    schema: &super::super::schema::SqliteSchema,
-    refresh_id: &dyn DatabaseIdSupplier,
-    access_id: &dyn DatabaseIdSupplier,
-    mut issuance: OAuthTokenIssuance,
-) -> Result<Option<OAuthProviderRefreshToken>, AuthError> {
-    let stored_refresh = if let Some(refresh) = issuance.refresh_token {
-        let values = refresh_record(store, &refresh, refresh_id.prepare()?)?;
-        Some(codec::decode_refresh(
-            execute::insert(transaction, schema, "oauthRefreshToken", values).await?,
-        )?)
-    } else {
-        None
-    };
-    if let Some(access) = issuance.access_token.as_mut()
-        && access.refresh_id.is_some()
-        && let Some(refresh) = &stored_refresh
-    {
-        access.refresh_id = Some(refresh.id.clone());
-    }
-    if let Some(access) = issuance.access_token {
-        let values = access_record(store, &access, access_id.prepare()?)?;
-        execute::insert(transaction, schema, "oauthAccessToken", values).await?;
-    }
-    Ok(stored_refresh)
-}
-
-async fn delete_family(
-    store: &SqliteStore,
-    filters: &[SqliteFilter],
-) -> Result<OAuthTokenRevocationCount, AuthError> {
-    let schema = store.physical_schema()?;
-    let mut transaction = store.pool.begin().await.map_err(super::storage)?;
-    let refresh = execute::find_many(
-        &mut transaction,
-        schema,
-        "oauthRefreshToken",
-        filters,
-        &SqliteFindOptions::default(),
-    )
-    .await?;
-    let ids = refresh
-        .iter()
-        .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_owned))
-        .collect::<Vec<_>>();
-    let mut access = 0;
-    for id in &ids {
-        access += execute::delete_many(
-            &mut transaction,
-            schema,
-            "oauthAccessToken",
-            &[eq("refreshId", id)],
-        )
-        .await?;
-    }
-    let refresh_count =
-        execute::delete_many(&mut transaction, schema, "oauthRefreshToken", filters).await?;
-    transaction.commit().await.map_err(super::storage)?;
-    Ok(counts(access, refresh_count))
-}
-
-fn refresh_record(
-    store: &SqliteStore,
-    value: &OAuthProviderRefreshToken,
-    id: crate::PreparedDatabaseId,
-) -> Result<Map<String, Value>, AuthError> {
-    record(
-        store,
-        "oauthRefreshToken",
-        value,
-        Some(id),
-        [
-            ("token", json!(value.token)),
-            (
-                "rotationReplayResponse",
-                json!(value.rotation_replay_response),
-            ),
-        ],
-    )
-}
-fn access_record(
-    store: &SqliteStore,
-    value: &OAuthProviderAccessToken,
-    id: crate::PreparedDatabaseId,
-) -> Result<Map<String, Value>, AuthError> {
-    record(
-        store,
-        "oauthAccessToken",
-        value,
-        Some(id),
-        [("token", json!(value.token))],
-    )
-}
-fn counts(access: u64, refresh: u64) -> OAuthTokenRevocationCount {
-    OAuthTokenRevocationCount {
-        access_tokens: usize::try_from(access).unwrap_or(usize::MAX),
-        refresh_tokens: usize::try_from(refresh).unwrap_or(usize::MAX),
-    }
-}
-async fn find_access(
-    store: &SqliteStore,
-    filters: &[SqliteFilter],
-) -> Result<Option<OAuthProviderAccessToken>, AuthError> {
-    store
-        .find_record("oauthAccessToken", filters, &[])
-        .await?
-        .map(codec::decode_access)
-        .transpose()
-}
-async fn find_refresh(
-    store: &SqliteStore,
-    filters: &[SqliteFilter],
-) -> Result<Option<OAuthProviderRefreshToken>, AuthError> {
-    store
-        .find_record("oauthRefreshToken", filters, &[])
-        .await?
-        .map(codec::decode_refresh)
-        .transpose()
-}
-async fn list_access(
-    store: &SqliteStore,
-    filters: &[SqliteFilter],
-) -> Result<Vec<OAuthProviderAccessToken>, AuthError> {
-    store
-        .find_records("oauthAccessToken", filters, &SqliteFindOptions::default())
-        .await?
-        .into_iter()
-        .map(codec::decode_access)
-        .collect()
-}
-async fn list_refresh(
-    store: &SqliteStore,
-    filters: &[SqliteFilter],
-) -> Result<Vec<OAuthProviderRefreshToken>, AuthError> {
-    store
-        .find_records("oauthRefreshToken", filters, &SqliteFindOptions::default())
-        .await?
-        .into_iter()
-        .map(codec::decode_refresh)
-        .collect()
 }

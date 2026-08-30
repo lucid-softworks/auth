@@ -4,8 +4,6 @@ use sqlx::{Sqlite, Transaction};
 
 pub(in crate::sqlite) mod execute;
 mod predicate;
-#[cfg(test)]
-mod tests;
 
 /// One Better Auth adapter predicate using a logical schema field.
 #[derive(Debug, Clone, PartialEq)]

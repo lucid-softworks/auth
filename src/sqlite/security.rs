@@ -18,65 +18,13 @@ impl SecurityStore for SqliteStore {
         rule: RateLimitRule,
         longest_window: u64,
     ) -> Result<RateLimitOutcome, AuthError> {
-        let window = duration(rule.window)?;
-        let prune_ms = i64::try_from(longest_window)
-            .ok()
-            .and_then(|seconds| seconds.checked_mul(1_000))
-            .ok_or_else(|| {
-                AuthError::InvalidConfiguration("rate-limit window is too large".into())
-            })?;
-        let now_ms = now.timestamp_millis();
         let schema = self.physical_schema()?;
         let mut connection = self.pool.acquire().await.map_err(storage)?;
         sqlx::query("begin immediate")
             .execute(&mut *connection)
             .await
             .map_err(storage)?;
-        let result = async {
-            let mut expired =
-                SqliteFilter::equal("lastRequest", json!(now_ms.saturating_sub(prune_ms)));
-            expired.operator = SqliteFilterOperator::Lt;
-            execute::delete_many(&mut connection, schema, "rateLimit", &[expired]).await?;
-            let current = execute::find_one(
-                &mut connection,
-                schema,
-                "rateLimit",
-                &[SqliteFilter::equal("key", json!(key))],
-                &[],
-            )
-            .await?;
-            let Some(current) = current else {
-                let mut record = Map::from_iter([
-                    ("key".into(), json!(key)),
-                    ("count".into(), json!(1)),
-                    ("lastRequest".into(), json!(now_ms)),
-                ]);
-                insert_id(&mut record, id.prepare()?)?;
-                execute::insert(&mut connection, schema, "rateLimit", record).await?;
-                return Ok(RateLimitOutcome::allowed());
-            };
-            let count = integer(&current, "count")?;
-            let last_ms = integer(&current, "lastRequest")?;
-            let last = DateTime::<Utc>::from_timestamp_millis(last_ms)
-                .ok_or_else(|| AuthError::Storage("rate-limit last request is invalid".into()))?;
-            if now - last >= window {
-                update(&mut connection, schema, key, 1, now_ms).await?;
-                return Ok(RateLimitOutcome::allowed());
-            }
-            if u64::try_from(count).unwrap_or(u64::MAX) >= u64::from(rule.max) {
-                return Ok(RateLimitOutcome::denied(retry_after(last, window, now)));
-            }
-            update(
-                &mut connection,
-                schema,
-                key,
-                count.saturating_add(1),
-                now_ms,
-            )
-            .await?;
-            Ok(RateLimitOutcome::allowed())
-        }
-        .await;
+        let result = consume(&mut connection, schema, id, key, now, rule, longest_window).await;
         match result {
             Ok(outcome) => {
                 sqlx::query("commit")
@@ -91,6 +39,57 @@ impl SecurityStore for SqliteStore {
             }
         }
     }
+}
+
+async fn consume(
+    connection: &mut sqlx::pool::PoolConnection<sqlx::Sqlite>,
+    schema: &super::schema::SqliteSchema,
+    id: &dyn DatabaseIdSupplier,
+    key: &str,
+    now: DateTime<Utc>,
+    rule: RateLimitRule,
+    longest_window: u64,
+) -> Result<RateLimitOutcome, AuthError> {
+    let window = duration(rule.window)?;
+    let prune_ms = i64::try_from(longest_window)
+        .ok()
+        .and_then(|seconds| seconds.checked_mul(1_000))
+        .ok_or_else(|| AuthError::InvalidConfiguration("rate-limit window is too large".into()))?;
+    let now_ms = now.timestamp_millis();
+    let mut expired = SqliteFilter::equal("lastRequest", json!(now_ms.saturating_sub(prune_ms)));
+    expired.operator = SqliteFilterOperator::Lt;
+    execute::delete_many(connection, schema, "rateLimit", &[expired]).await?;
+    let current = execute::find_one(
+        connection,
+        schema,
+        "rateLimit",
+        &[SqliteFilter::equal("key", json!(key))],
+        &[],
+    )
+    .await?;
+    let Some(current) = current else {
+        let mut record = Map::from_iter([
+            ("key".into(), json!(key)),
+            ("count".into(), json!(1)),
+            ("lastRequest".into(), json!(now_ms)),
+        ]);
+        insert_id(&mut record, id.prepare()?)?;
+        execute::insert(connection, schema, "rateLimit", record).await?;
+        return Ok(RateLimitOutcome::allowed());
+    };
+    let count = integer(&current, "count")?;
+    let last_ms = integer(&current, "lastRequest")?;
+    let last = DateTime::<Utc>::from_timestamp_millis(last_ms)
+        .ok_or_else(|| AuthError::Storage("rate-limit last request is invalid".into()))?;
+    if now - last >= window {
+        update(connection, schema, key, 1, now_ms).await?;
+        return Ok(RateLimitOutcome::allowed());
+    }
+    if u64::try_from(count).unwrap_or(u64::MAX) >= u64::from(rule.max) {
+        return Ok(RateLimitOutcome::denied(retry_after(last, window, now)));
+    }
+    update(connection, schema, key, count.saturating_add(1), now_ms).await?;
+    Ok(RateLimitOutcome::allowed())
 }
 
 async fn update(

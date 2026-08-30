@@ -1,13 +1,10 @@
-use super::{codec, eq, record};
+use super::{client_registration, codec, eq};
 use crate::{
-    AuthError, DatabaseIdSupplier, OAuthClientRegistrationMode, OAuthClientRegistrationOutcome,
-    OAuthClientRegistrationWrite, OAuthProviderClient, OAuthProviderClientResource,
-    OAuthProviderClientStore,
+    AuthError, DatabaseIdSupplier, OAuthClientRegistrationOutcome, OAuthClientRegistrationWrite,
+    OAuthProviderClient, OAuthProviderClientStore,
     sqlite::{SqliteFindOptions, SqliteSort, SqliteSortDirection, SqliteStore, query::execute},
 };
 use async_trait::async_trait;
-use chrono::Utc;
-use serde_json::json;
 
 #[async_trait]
 impl OAuthProviderClientStore for SqliteStore {
@@ -55,14 +52,14 @@ impl OAuthProviderClientStore for SqliteStore {
         link_id: &dyn DatabaseIdSupplier,
         write: OAuthClientRegistrationWrite,
     ) -> Result<OAuthClientRegistrationOutcome, AuthError> {
-        persist(self, client_id, link_id, write).await
+        client_registration::persist(self, client_id, link_id, write).await
     }
 
     async fn update_oauth_client(
         &self,
         client: OAuthProviderClient,
     ) -> Result<Option<OAuthProviderClient>, AuthError> {
-        let values = client_record(self, &client, None)?;
+        let values = client_registration::client_record(self, &client, None)?;
         self.update_record(
             "oauthClient",
             &[eq("id", &client.id), eq("clientId", &client.client_id)],
@@ -116,127 +113,6 @@ impl OAuthProviderClientStore for SqliteStore {
     }
 }
 
-async fn persist(
-    store: &SqliteStore,
-    client_id: &dyn DatabaseIdSupplier,
-    link_id: &dyn DatabaseIdSupplier,
-    mut write: OAuthClientRegistrationWrite,
-) -> Result<OAuthClientRegistrationOutcome, AuthError> {
-    let schema = store.physical_schema()?;
-    let mut transaction = store.pool.begin().await.map_err(super::storage)?;
-    for resource in &write.resource_ids {
-        if execute::find_one(
-            &mut transaction,
-            schema,
-            "oauthResource",
-            &[eq("identifier", resource)],
-            &[],
-        )
-        .await?
-        .is_none()
-        {
-            transaction.rollback().await.map_err(super::storage)?;
-            return Ok(OAuthClientRegistrationOutcome::ResourceNotFound(
-                resource.clone(),
-            ));
-        }
-    }
-    let existing = execute::find_one(
-        &mut transaction,
-        schema,
-        "oauthClient",
-        &[eq("clientId", &write.client.client_id)],
-        &[],
-    )
-    .await?
-    .map(codec::decode_client)
-    .transpose()?;
-    let outcome = match (&write.mode, existing.as_ref()) {
-        (OAuthClientRegistrationMode::Create, Some(_)) => {
-            return Ok(OAuthClientRegistrationOutcome::ClientIdTaken);
-        }
-        (OAuthClientRegistrationMode::RefreshDiscovered { discovery_id }, Some(existing))
-            if existing.client_discovery_id.as_deref() != Some(discovery_id) =>
-        {
-            return Ok(OAuthClientRegistrationOutcome::DiscoveryOwnershipChanged);
-        }
-        (OAuthClientRegistrationMode::RefreshDiscovered { discovery_id }, None)
-            if write.client.client_discovery_id.as_deref() != Some(discovery_id) =>
-        {
-            return Ok(OAuthClientRegistrationOutcome::DiscoveryOwnershipChanged);
-        }
-        (OAuthClientRegistrationMode::RefreshDiscovered { .. }, Some(existing)) => {
-            write.client.id = existing.id.clone();
-            let values = client_record(store, &write.client, None)?;
-            execute::update_one(
-                &mut transaction,
-                schema,
-                "oauthClient",
-                &[eq("id", &existing.id)],
-                values,
-            )
-            .await?
-            .ok_or_else(|| AuthError::Storage("OAuth client disappeared".into()))?;
-            OAuthClientRegistrationOutcome::Updated(write.client.clone())
-        }
-        (_, None) => {
-            let values = client_record(store, &write.client, Some(client_id.prepare()?))?;
-            write.client = codec::decode_client(
-                execute::insert(&mut transaction, schema, "oauthClient", values).await?,
-            )?;
-            OAuthClientRegistrationOutcome::Created(write.client.clone())
-        }
-    };
-    for resource_id in write.resource_ids {
-        let filters = [
-            eq("clientId", &write.client.client_id),
-            eq("resourceId", &resource_id),
-        ];
-        if execute::find_one(
-            &mut transaction,
-            schema,
-            "oauthClientResource",
-            &filters,
-            &[],
-        )
-        .await?
-        .is_some()
-        {
-            continue;
-        }
-        let link = OAuthProviderClientResource {
-            id: String::new(),
-            client_id: write.client.client_id.clone(),
-            resource_id,
-            metadata: None,
-            created_at: Some(Utc::now()),
-        };
-        let values = record(
-            store,
-            "oauthClientResource",
-            &link,
-            Some(link_id.prepare()?),
-            [],
-        )?;
-        execute::insert(&mut transaction, schema, "oauthClientResource", values).await?;
-    }
-    transaction.commit().await.map_err(super::storage)?;
-    Ok(outcome)
-}
-
-fn client_record(
-    store: &SqliteStore,
-    client: &OAuthProviderClient,
-    id: Option<crate::PreparedDatabaseId>,
-) -> Result<serde_json::Map<String, serde_json::Value>, AuthError> {
-    record(
-        store,
-        "oauthClient",
-        client,
-        id,
-        [("clientSecret", json!(client.client_secret))],
-    )
-}
 async fn find(
     store: &SqliteStore,
     client_id: &str,

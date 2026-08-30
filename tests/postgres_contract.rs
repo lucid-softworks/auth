@@ -154,7 +154,7 @@ async fn run_authentication_contracts(
     anonymous::assert_lifecycle(service, store).await?;
     let signed_in = authenticate_owner(service, user).await?;
     dodo_payments::assert_schema_and_persistence(service, store, &user.id).await?;
-    electron::assert_round_trip(store, pool, &user.id).await?;
+    electron::assert_round_trip(pool, &user.id).await?;
     multi_session::assert_http_round_trip(service).await?;
     last_login_method::assert_http_round_trip(service, store, &user.id).await?;
     session_refresh::assert_atomic(service, store).await?;

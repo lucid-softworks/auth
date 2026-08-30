@@ -1,9 +1,11 @@
 mod assertion;
 mod client;
+mod client_registration;
 mod codec;
 mod consent;
 mod resource;
 mod token;
+mod token_io;
 
 use super::{SqliteFilter, SqliteStore};
 use crate::{AuthError, PreparedDatabaseId};
