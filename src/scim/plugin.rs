@@ -181,6 +181,7 @@ impl ScimPlugin {
         };
         if connection.status == "active"
             && credential.status == "active"
+            && credential.hash_version == "v1"
             && credential.expires_at > now
             && constant_time_equal(credential.token_digest.as_bytes(), digest.as_bytes())
         {
@@ -285,10 +286,7 @@ pub(super) fn token_digest(secret: &str, token: &str) -> Result<String, ScimErro
     let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
         .map_err(|_| ScimError::new(500, "Unable to initialize managed credential hashing"))?;
     mac.update(token.as_bytes());
-    Ok(format!(
-        "v1:{}",
-        URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
-    ))
+    Ok(URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()))
 }
 
 pub(super) fn store_error(error: ScimStoreError) -> ScimError {
@@ -319,5 +317,18 @@ pub(super) fn store_error(error: ScimStoreError) -> ScimError {
             ScimError::new(409, "Maximum active SCIM credentials reached")
         }
         ScimStoreError::Storage(detail) => ScimError::new(500, detail),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::token_digest;
+
+    #[test]
+    fn managed_token_digest_matches_the_hmac_sha256_base64url_vector() {
+        assert_eq!(
+            token_digest("key", "The quick brown fox jumps over the lazy dog").unwrap(),
+            "97yD9DBThCSxMpjmqm-xQ-9NWaFJRhdZl0edvC0aPNg"
+        );
     }
 }

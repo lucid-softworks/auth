@@ -240,6 +240,7 @@ fn credential(
         connection_record_id: record_id.into(),
         credential_id: credential_id.into(),
         token_digest,
+        hash_version: "v1".into(),
         status: "active".into(),
         scopes,
         expires_at,

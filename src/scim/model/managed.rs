@@ -31,6 +31,8 @@ pub struct ScimManagedCredential {
     pub credential_id: String,
     #[serde(skip_serializing)]
     pub token_digest: String,
+    #[serde(skip)]
+    pub hash_version: String,
     pub status: String,
     pub scopes: Vec<ScimScope>,
     pub expires_at: DateTime<Utc>,

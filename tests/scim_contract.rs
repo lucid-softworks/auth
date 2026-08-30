@@ -466,6 +466,8 @@ async fn managed_credentials_are_one_time_hmac_only_and_authenticate() {
         .unwrap()
         .unwrap();
     assert_eq!(persisted.1.token_digest, credential.token_digest);
+    assert_eq!(persisted.1.hash_version, "v1");
+    assert!(!persisted.1.token_digest.starts_with("v1:"));
 
     let response = app
         .oneshot(
