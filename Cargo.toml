@@ -173,6 +173,9 @@ name = "generic_oauth_contract"
 required-features = ["axum"]
 
 [[test]]
+name = "sso_contract"
+
+[[test]]
 name = "account_lifecycle_contract"
 required-features = ["axum"]
 
