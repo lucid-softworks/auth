@@ -122,7 +122,8 @@ pub(super) fn description(error: &OAuthProviderError) -> &str {
         | OAuthProviderError::UseDpopNonce(value)
         | OAuthProviderError::UnsupportedTokenType(value)
         | OAuthProviderError::ServerError(value)
-        | OAuthProviderError::TemporarilyUnavailable(value) => value,
+        | OAuthProviderError::TemporarilyUnavailable(value)
+        | OAuthProviderError::TooManyRequestsTemporarilyUnavailable(value) => value,
         OAuthProviderError::ChallengedInvalidClient { description, .. }
         | OAuthProviderError::InsufficientScope { description, .. } => description,
     }

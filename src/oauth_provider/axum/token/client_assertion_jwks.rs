@@ -260,7 +260,10 @@ async fn fetch_client_jwks(
             if let Some(response) = extension
                 .fetch_client_metadata_resource(discovery_id, uri)
                 .await
-                .map_err(server)?
+                .map_err(|error| match error {
+                    AuthError::OAuthProvider(error) => error,
+                    error => server(error),
+                })?
             {
                 if response.status != 200
                     || response.body.len() > MAX_JWKS_RESPONSE_BYTES

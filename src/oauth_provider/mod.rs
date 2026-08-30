@@ -131,7 +131,11 @@ impl OAuthProviderPlugin {
         config
             .extensions
             .extend(service.oauth_provider_extensions());
-        Arc::new(config)
+        let config = Arc::new(config);
+        for extension in &config.extensions {
+            extension.bind_oauth_provider(service, config.clone(), self.store.clone());
+        }
+        config
     }
 }
 

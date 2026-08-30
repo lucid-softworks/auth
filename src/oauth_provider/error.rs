@@ -97,6 +97,8 @@ pub enum OAuthProviderError {
     ServerError(String),
     #[error("temporarily_unavailable: {0}")]
     TemporarilyUnavailable(String),
+    #[error("temporarily_unavailable: {0}")]
+    TooManyRequestsTemporarilyUnavailable(String),
 }
 
 impl OAuthProviderError {
@@ -135,6 +137,7 @@ impl OAuthProviderError {
             Self::UnsupportedTokenType(_) => "unsupported_token_type",
             Self::ServerError(_) => "server_error",
             Self::TemporarilyUnavailable(_) => "temporarily_unavailable",
+            Self::TooManyRequestsTemporarilyUnavailable(_) => "temporarily_unavailable",
         }
     }
 
@@ -150,6 +153,7 @@ impl OAuthProviderError {
             Self::InsufficientScope { .. } => 403,
             Self::ServerError(_) => 500,
             Self::TemporarilyUnavailable(_) => 503,
+            Self::TooManyRequestsTemporarilyUnavailable(_) => 429,
             _ => 400,
         }
     }
