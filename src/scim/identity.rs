@@ -1,5 +1,7 @@
 use super::{ScimError, ScimOptions, ScimUser};
-use crate::{AuthError, DashAdapterWhere, DatabaseModel, DatabaseRecord, DatabaseTransaction};
+use crate::{AuthError, DashAdapterWhere, DatabaseTransaction};
+#[cfg(feature = "axum")]
+use crate::{DatabaseModel, DatabaseRecord};
 use async_trait::async_trait;
 use serde_json::{Map, Value, json};
 use std::sync::Arc;
@@ -80,11 +82,13 @@ pub trait ScimIdentity: Send + Sync {
     }
 }
 
+#[cfg(feature = "axum")]
 pub(super) struct ResolvedIdentity {
     pub resolution: ScimIdentityResolution,
     pub tombstone_id: Option<String>,
 }
 
+#[cfg(feature = "axum")]
 pub(super) async fn resolve(
     options: &ScimOptions,
     transaction: Arc<dyn DatabaseTransaction>,
@@ -129,6 +133,7 @@ pub(super) async fn resolve(
     })
 }
 
+#[cfg(feature = "axum")]
 pub(super) async fn linked_user(
     transaction: &Arc<dyn DatabaseTransaction>,
     user_id: &str,
@@ -146,6 +151,7 @@ pub(super) async fn linked_user(
     }
 }
 
+#[cfg(feature = "axum")]
 pub(super) async fn consume_tombstone(
     transaction: &Arc<dyn DatabaseTransaction>,
     tombstone_id: Option<&str>,
@@ -221,6 +227,7 @@ pub(super) async fn state(
     Ok(state)
 }
 
+#[cfg(feature = "axum")]
 async fn resolve_tombstone(
     transaction: &Arc<dyn DatabaseTransaction>,
     connection_id: &str,
@@ -252,6 +259,7 @@ async fn resolve_tombstone(
     }))
 }
 
+#[cfg(feature = "axum")]
 async fn find_tombstone(
     transaction: &Arc<dyn DatabaseTransaction>,
     connection_id: &str,
