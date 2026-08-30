@@ -135,6 +135,17 @@ impl AuthService {
     }
 
     #[cfg(feature = "axum")]
+    pub(crate) fn auth_base_url(&self) -> Option<url::Url> {
+        self.config.base_url.as_ref().map(|base| {
+            let mut base = base.clone();
+            base.set_path(self.config.base_path());
+            base.set_query(None);
+            base.set_fragment(None);
+            base
+        })
+    }
+
+    #[cfg(feature = "axum")]
     pub(crate) fn cors_enabled(&self) -> bool {
         self.config.cors_enabled
     }
