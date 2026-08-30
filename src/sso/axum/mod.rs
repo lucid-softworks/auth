@@ -4,6 +4,7 @@ mod management;
 mod mutation;
 mod registration;
 mod runtime_oidc;
+mod saml_acs;
 mod saml_metadata;
 mod sanitize;
 mod sign_in;
@@ -34,6 +35,12 @@ pub(super) fn routes(
         AxumPluginRoute::new(
             "/sso/saml2/sp/metadata",
             get(saml_metadata::metadata).layer(Extension(plugin.clone())),
+        ),
+        AxumPluginRoute::new(
+            "/sso/saml2/sp/acs/{provider_id}",
+            get(saml_acs::get)
+                .post(saml_acs::post)
+                .layer(Extension(plugin.clone())),
         ),
         AxumPluginRoute::new(
             "/sso/providers",

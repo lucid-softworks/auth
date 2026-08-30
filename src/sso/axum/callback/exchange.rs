@@ -116,7 +116,9 @@ async fn resolve_private_key(
         .map_err(|_| ())
 }
 
-fn callback_error(error: &crate::AuthError) -> (&'static str, &'static str) {
+pub(in crate::sso::axum) fn callback_error(
+    error: &crate::AuthError,
+) -> (&'static str, &'static str) {
     use crate::AuthError::{
         OAuthIdTokenNotVerified, OAuthIdTokenSubjectMissing,
         OAuthIdTokenUserInfoSubjectMismatch, OAuthMissingUserInfo, OAuthUserInfoEndpointNotFound,
@@ -142,7 +144,7 @@ fn callback_error(error: &crate::AuthError) -> (&'static str, &'static str) {
     }
 }
 
-async fn success(
+pub(in crate::sso::axum) async fn success(
     service: &AuthService,
     headers: &HeaderMap,
     provider_id: &str,

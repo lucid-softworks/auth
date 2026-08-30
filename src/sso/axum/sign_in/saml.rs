@@ -51,7 +51,7 @@ pub(super) async fn start(
     let request_id = format!("_{}", uuid::Uuid::new_v4().simple());
     let relay_state = uuid::Uuid::new_v4().simple().to_string();
     let reference = super::super::super::provider_reference::persisted(provider);
-    let saved = match save_state(service, &relay_state, &reference, &body).await {
+    let saved = match save_state(service, &relay_state, &request_id, &reference, &body).await {
         Ok(saved) => saved,
         Err(response) => return *response,
     };
@@ -83,6 +83,7 @@ pub(super) async fn start(
 async fn save_state(
     service: &AuthService,
     relay_state: &str,
+    request_id: &str,
     reference: &super::super::super::provider_reference::ProviderReference,
     body: &SignInBody,
 ) -> Result<(&'static str, String, i64), Box<Response>> {
@@ -97,18 +98,32 @@ async fn save_state(
         id_token_nonce: None,
         additional_data: Map::from_iter([(
             "serverContext".into(),
-            json!({"ssoProviderReference": reference}),
+            json!({
+                "ssoProviderReference": reference,
+                "samlRequestId": request_id
+            }),
         )]),
         link: None,
         anonymous_user_id: None,
     };
-    service.save_oauth_state(relay_state, &state).await.map_err(|_| {
-        Box::new(support::error(
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "INTERNAL_SERVER_ERROR",
-            "State error: Unable to create verification for state",
+    let expires = Utc::now() + Duration::minutes(10);
+    service
+        .create_verification_value(VerificationValue::new(
+            relay_state,
+            serde_json::to_string(&state).map_err(|_| state_error())?,
+            expires,
         ))
-    })
+        .await
+        .map_err(|_| state_error())?;
+    Ok(("relay_state", service.signed_cookie_value(relay_state), 600))
+}
+
+fn state_error() -> Box<Response> {
+    Box::new(support::error(
+        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+        "INTERNAL_SERVER_ERROR",
+        "State error: Unable to create verification for state",
+    ))
 }
 
 async fn save_request(

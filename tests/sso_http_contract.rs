@@ -887,6 +887,311 @@ async fn saml_sign_in_builds_a_bound_redirect_authn_request() {
 }
 
 #[tokio::test]
+async fn saml_acs_is_cross_origin_public_bounded_and_does_not_burn_invalid_requests() {
+    use base64::Engine as _;
+
+    let fixture = fixture().await;
+    fixture
+        .providers
+        .update(
+            "provider-row-1",
+            SsoProviderUpdate {
+                oidc_config: Some(None),
+                saml_config: Some(Some(json!({
+                    "issuer": "https://sp.example.com/metadata",
+                    "entryPoint": "https://idp.example.com/sso",
+                    "cert": "certificate",
+                    "idpMetadata": {"entityID": "https://idp.example.com"},
+                    "wantAssertionsSigned": true
+                }))),
+                issuer: Some("https://sp.example.com/metadata".into()),
+                ..SsoProviderUpdate::default()
+            },
+        )
+        .await
+        .unwrap();
+    let response = fixture
+        .app
+        .clone()
+        .oneshot(
+            Request::post("/api/auth/sign-in/sso")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "https://example.com")
+                .body(Body::from(
+                    json!({
+                        "providerId": "acme-sso!",
+                        "providerType": "saml",
+                        "callbackURL": "/dashboard",
+                        "requestSignUp": true
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let relay_state = url::Url::parse(body["url"].as_str().unwrap())
+        .unwrap()
+        .query_pairs()
+        .find(|(key, _)| key == "RelayState")
+        .unwrap()
+        .1
+        .into_owned();
+    let malformed = base64::engine::general_purpose::STANDARD.encode("not SAML XML");
+
+    for _ in 0..2 {
+        let form = serde_urlencoded::to_string([
+            ("SAMLResponse", malformed.as_str()),
+            ("RelayState", relay_state.as_str()),
+        ])
+        .unwrap();
+        let response = fixture
+            .app
+            .clone()
+            .oneshot(
+                Request::post("/api/auth/sso/saml2/sp/acs/acme-sso!")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header("sec-fetch-site", "cross-site")
+                    .header("sec-fetch-mode", "navigate")
+                    .body(Body::from(form))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FOUND);
+        assert_eq!(
+            response.headers()[header::LOCATION],
+            "/dashboard?error=invalid_saml_response&error_description=Invalid+SAML+response"
+        );
+    }
+
+    let oversized = "a".repeat(lucid_auth::DEFAULT_MAX_SAML_RESPONSE_SIZE + 1);
+    let form = serde_urlencoded::to_string([
+        ("SAMLResponse", oversized.as_str()),
+        ("RelayState", relay_state.as_str()),
+    ])
+    .unwrap();
+    let response = fixture
+        .app
+        .oneshot(
+            Request::post("/api/auth/sso/saml2/sp/acs/acme-sso!")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header("sec-fetch-site", "cross-site")
+                .header("sec-fetch-mode", "navigate")
+                .body(Body::from(form))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(
+        body["message"],
+        "SAML response exceeds maximum allowed size (262144 bytes)"
+    );
+}
+
+#[tokio::test]
+async fn saml_acs_verifies_a_signed_assertion_creates_a_session_and_rejects_replay() {
+    use base64::Engine as _;
+    use samlet::{
+        raw::{
+            Binding, EntitySetting, IdentityProvider, LoginResponseOptions, ServiceProvider, User,
+            metadata::{Endpoint, IdpMetadataConfig, SpMetadataConfig},
+        },
+        template::{LoginResponseAttribute, LoginResponseTemplate},
+    };
+    use std::io::Read as _;
+
+    const PRIVATE_KEY: &str = include_str!("fixtures/saml_private_key.pem");
+    const CERTIFICATE: &str = include_str!("fixtures/saml_signing_cert.pem");
+
+    let fixture = fixture().await;
+    fixture
+        .providers
+        .update(
+            "provider-row-1",
+            SsoProviderUpdate {
+                oidc_config: Some(None),
+                saml_config: Some(Some(json!({
+                    "issuer": "https://sp.example.com/metadata",
+                    "entryPoint": "https://idp.example.com/sso",
+                    "cert": CERTIFICATE,
+                    "idpMetadata": {"entityID": "https://idp.example.com/metadata"},
+                    "wantAssertionsSigned": true,
+                    "mapping": {
+                        "email": "mail",
+                        "firstName": "givenName",
+                        "lastName": "surname"
+                    }
+                }))),
+                issuer: Some("https://sp.example.com/metadata".into()),
+                ..SsoProviderUpdate::default()
+            },
+        )
+        .await
+        .unwrap();
+    let response = fixture
+        .app
+        .clone()
+        .oneshot(
+            Request::post("/api/auth/sign-in/sso")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "https://example.com")
+                .body(Body::from(
+                    json!({
+                        "providerId": "acme-sso!",
+                        "providerType": "saml",
+                        "callbackURL": "/dashboard",
+                        "requestSignUp": true
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let redirect = url::Url::parse(body["url"].as_str().unwrap()).unwrap();
+    let parameters = redirect
+        .query_pairs()
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let compressed = base64::engine::general_purpose::STANDARD
+        .decode(&parameters["SAMLRequest"])
+        .unwrap();
+    let mut decoder = flate2::read::DeflateDecoder::new(compressed.as_slice());
+    let mut request_xml = String::new();
+    decoder.read_to_string(&mut request_xml).unwrap();
+    let request_id = request_xml
+        .split(" ID=\"")
+        .nth(1)
+        .and_then(|value| value.split('"').next())
+        .unwrap();
+    let acs = "https://example.com/api/auth/sso/saml2/sp/acs/acme-sso!";
+    let sp = ServiceProvider::from_config(
+        &SpMetadataConfig {
+            entity_id: "https://sp.example.com/metadata".into(),
+            want_assertions_signed: true,
+            assertion_consumer_service: vec![Endpoint::new(Binding::Post, acs)],
+            ..Default::default()
+        },
+        EntitySetting::default(),
+    )
+    .unwrap();
+    let mut idp_setting = EntitySetting::default();
+    idp_setting.private_key = Some(PRIVATE_KEY.into());
+    idp_setting.signing_cert = Some(CERTIFICATE.into());
+    idp_setting.login_response_template = Some(LoginResponseTemplate {
+        context: None,
+        attributes: [
+            ("mail", "email"),
+            ("givenName", "first_name"),
+            ("surname", "last_name"),
+        ]
+        .into_iter()
+        .map(|(name, value_tag)| LoginResponseAttribute {
+            name: name.into(),
+            name_format: "urn:oasis:names:tc:SAML:2.0:attrname-format:basic".into(),
+            value_xsi_type: "xs:string".into(),
+            value_tag: value_tag.into(),
+            value_xmlns_xs: None,
+            value_xmlns_xsi: None,
+        })
+        .collect(),
+    });
+    let idp = IdentityProvider::from_config(
+        &IdpMetadataConfig {
+            entity_id: "https://idp.example.com/metadata".into(),
+            signing_certs: vec![CERTIFICATE.into()],
+            single_sign_on_service: vec![Endpoint::new(
+                Binding::Redirect,
+                "https://idp.example.com/sso",
+            )],
+            ..Default::default()
+        },
+        idp_setting,
+    )
+    .unwrap();
+    let response = idp
+        .create_login_response(
+            &sp,
+            Binding::Post,
+            &User {
+                name_id: "saml-user-1".into(),
+                attributes: vec![
+                    ("email".into(), "employee@example.com".into()),
+                    ("first_name".into(), "Enterprise".into()),
+                    ("last_name".into(), "User".into()),
+                ],
+                session_index: Some("session-1".into()),
+            },
+            &LoginResponseOptions {
+                in_response_to: Some(request_id),
+                relay_state: Some(&parameters["RelayState"]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let form = serde_urlencoded::to_string([
+        ("SAMLResponse", response.context.as_str()),
+        ("RelayState", parameters["RelayState"].as_str()),
+    ])
+    .unwrap();
+    let assertion = || {
+        Request::post("/api/auth/sso/saml2/sp/acs/acme-sso!")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header("sec-fetch-site", "cross-site")
+            .header("sec-fetch-mode", "navigate")
+            .body(Body::from(form.clone()))
+            .unwrap()
+    };
+    let authenticated = fixture.app.clone().oneshot(assertion()).await.unwrap();
+    assert_eq!(authenticated.status(), StatusCode::FOUND);
+    assert_eq!(authenticated.headers()[header::LOCATION], "/dashboard");
+    let session_cookie = authenticated
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find(|value| value.contains("session_token"))
+        .and_then(|value| value.split(';').next())
+        .unwrap()
+        .to_owned();
+    let session = fixture
+        .app
+        .clone()
+        .oneshot(
+            Request::get("/api/auth/get-session")
+                .header(header::COOKIE, session_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(session.status(), StatusCode::OK);
+    let session: Value =
+        serde_json::from_slice(&session.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(session["user"]["email"], "employee@example.com");
+    assert_eq!(session["user"]["name"], "Enterprise User");
+
+    let replay = fixture.app.oneshot(assertion()).await.unwrap();
+    assert_eq!(replay.status(), StatusCode::BAD_REQUEST);
+    let body: Value =
+        serde_json::from_slice(&replay.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(
+        body["message"],
+        "State error: failed to validate relay state"
+    );
+}
+
+#[tokio::test]
 async fn provider_lookup_distinguishes_missing_and_forbidden_records() {
     let fixture = fixture().await;
     let (status, provider) = get(
