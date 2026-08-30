@@ -104,7 +104,7 @@ pub(in crate::scim::database) async fn replace_group(
                     group_update(&connection_id, &resource, now),
                 )
                 .await?
-                .ok_or_else(|| AuthError::Storage("SCIM Group revision changed".into()))?;
+                .ok_or_else(|| auth_error(ScimStoreError::ConcurrentMutation))?;
             transaction.delete_records("scimGroupMember", &[equal("groupId", json!(resource_id))]).await?;
             create_memberships(&transaction, &connection_id, &resource_id, &resource.members, now).await?;
             decode(&transaction, record).await

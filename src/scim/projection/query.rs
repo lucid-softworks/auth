@@ -72,7 +72,9 @@ pub(super) async fn lock(
         .await
         .map_err(database_error)?
         .ok_or_else(|| {
-            super::ScimError::new(409, "The SCIM projection subject changed concurrently")
+            super::ScimError::retryable_conflict(
+                "The SCIM projection subject changed concurrently; retry the request",
+            )
         })?;
     Ok(())
 }

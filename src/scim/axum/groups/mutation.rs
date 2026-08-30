@@ -10,6 +10,8 @@ pub(super) async fn create(
     let operation_plugin = plugin.clone();
     plugin
         .run_mutation(move || {
+            let operation_plugin = operation_plugin.clone();
+            let group = group.clone();
             Box::pin(async move {
                 let stored = operation_plugin
                     .store
@@ -42,6 +44,10 @@ pub(super) async fn replace(
     let operation_plugin = plugin.clone();
     plugin
         .run_mutation(move || {
+            let operation_plugin = operation_plugin.clone();
+            let connection_id = connection_id.clone();
+            let group_id = group_id.clone();
+            let resource = resource.clone();
             Box::pin(async move {
                 let existing = operation_plugin
                     .store
@@ -82,6 +88,10 @@ pub(super) async fn delete(
     let operation_plugin = plugin.clone();
     plugin
         .run_mutation(move || {
+            let operation_plugin = operation_plugin.clone();
+            let connection_id = connection_id.clone();
+            let provisioning_domain_id = provisioning_domain_id.clone();
+            let group_id = group_id.clone();
             Box::pin(async move {
                 let existing = operation_plugin
                     .store

@@ -49,6 +49,8 @@ pub struct ScimError {
     pub detail: String,
     pub scim_type: Option<ScimErrorType>,
     pub authenticate: bool,
+    #[serde(default)]
+    pub(crate) retryable: bool,
 }
 
 impl ScimError {
@@ -58,6 +60,7 @@ impl ScimError {
             detail: detail.into(),
             scim_type: None,
             authenticate: false,
+            retryable: false,
         }
     }
 
@@ -71,6 +74,7 @@ impl ScimError {
             detail: detail.into(),
             scim_type: Some(scim_type),
             authenticate: false,
+            retryable: false,
         }
     }
 
@@ -80,6 +84,17 @@ impl ScimError {
             detail: detail.into(),
             scim_type: None,
             authenticate: true,
+            retryable: false,
+        }
+    }
+
+    pub(crate) fn retryable_conflict(detail: impl Into<String>) -> Self {
+        Self {
+            status: 409,
+            detail: detail.into(),
+            scim_type: None,
+            authenticate: false,
+            retryable: true,
         }
     }
 

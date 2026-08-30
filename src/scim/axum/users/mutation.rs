@@ -22,11 +22,13 @@ pub(super) async fn create(
     let operation_plugin = plugin.clone();
     plugin
         .run_mutation(move || {
+            let operation_service = operation_service.clone();
+            let operation_plugin = operation_plugin.clone();
             Box::pin(create_inner(
                 operation_service,
                 operation_plugin,
-                principal,
-                resource,
+                principal.clone(),
+                resource.clone(),
                 now,
                 transaction_backed,
             ))
@@ -165,6 +167,11 @@ pub(super) async fn replace(
     let operation_plugin = plugin.clone();
     plugin
         .run_mutation(move || {
+            let operation_plugin = operation_plugin.clone();
+            let service = service.clone();
+            let connection_id = connection_id.clone();
+            let user_id = user_id.clone();
+            let resource = resource.clone();
             Box::pin(async move {
                 let existing = operation_plugin
                     .store
@@ -233,6 +240,10 @@ pub(super) async fn delete(
     let operation_plugin = plugin.clone();
     plugin
         .run_mutation(move || {
+            let operation_plugin = operation_plugin.clone();
+            let service = service.clone();
+            let connection_id = connection_id.clone();
+            let user_id = user_id.clone();
             Box::pin(async move {
                 let user = operation_plugin
                     .store

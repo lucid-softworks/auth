@@ -226,7 +226,7 @@ async fn upsert_subject(
                     super::super::codec::object(json!({"profileSourceId": user.resource.id, "updatedAt": super::super::codec::date(user.updated_at)})),
                 )
                 .await?
-                .ok_or_else(|| AuthError::Storage("SCIM subject revision changed".into()))?;
+                .ok_or_else(|| auth_error(ScimStoreError::ConcurrentMutation))?;
         }
     } else {
         transaction
@@ -282,7 +282,7 @@ async fn increment_subject(
             super::super::codec::object(set),
         )
         .await?
-        .ok_or_else(|| AuthError::Storage("SCIM subject revision changed".into()))?;
+        .ok_or_else(|| auth_error(ScimStoreError::ConcurrentMutation))?;
     Ok(())
 }
 

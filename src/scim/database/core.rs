@@ -68,6 +68,7 @@ pub(super) fn store_error(error: AuthError) -> crate::scim::ScimStoreError {
         "BindingConflict" => crate::scim::ScimStoreError::BindingConflict,
         "Decommissioned" => crate::scim::ScimStoreError::Decommissioned,
         "ProfileConflict" => crate::scim::ScimStoreError::ProfileConflict,
+        "ConcurrentMutation" => crate::scim::ScimStoreError::ConcurrentMutation,
         _ => crate::scim::ScimStoreError::Storage(detail),
     }
 }

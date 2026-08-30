@@ -47,6 +47,8 @@ pub enum ScimStoreError {
     Decommissioned,
     #[error("another SCIM source already manages this User profile")]
     ProfileConflict,
+    #[error("the SCIM resource changed concurrently; retry the request")]
+    ConcurrentMutation,
     #[error("the managed creation request id has already been used")]
     CreationRequestConflict,
     #[error("the maximum active managed credential count has been reached")]
