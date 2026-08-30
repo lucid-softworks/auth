@@ -62,7 +62,9 @@ jobs:
       - name: Test PostgreSQL persistence
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/lucid_auth_test
-        run: cargo test --features postgres --test postgres_contract -- --ignored
+        run: |
+          cargo test --features postgres --test postgres_contract -- --ignored
+          cargo test --features postgres --test scim_postgres_contract -- --ignored
       - name: Install official Better Auth clients
         run: npm ci --prefix conformance --ignore-scripts
       - name: Test the official Better Auth clients

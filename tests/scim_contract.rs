@@ -357,6 +357,78 @@ async fn structured_user_attributes_normalize_and_enforce_primary_type_rules() {
 }
 
 #[tokio::test]
+async fn pinned_okta_google_and_entra_ingress_shapes_round_trip() {
+    const ENTRA_GROUP_SCHEMA: &str =
+        "http://schemas.microsoft.com/2006/11/ResourceManagement/ADSCIM/2.0/Group";
+    let (strict_app, _, _, _) = application();
+    let (status, _) = send_json(
+        strict_app,
+        "POST",
+        "/scim/v2/Groups",
+        json!({
+            "schemas": [SCIM_GROUP_SCHEMA, ENTRA_GROUP_SCHEMA],
+            "displayName": "Strict Entra Group"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let mut provider_options = options();
+    provider_options.microsoft_entra_legacy_group_schema = true;
+    let (app, _, _, _) = application_with_options(provider_options);
+    let provider_users = [
+        json!({
+            "schemas": [SCIM_USER_SCHEMA],
+            "id": null,
+            "externalId": "okta-001",
+            "userName": "okta.user@example.com",
+            "name": {"givenName": "Okta", "familyName": "User"},
+            "displayName": "Okta User",
+            "emails": [{"value": "okta.user@example.com", "type": "work", "primary": true}],
+            "active": true
+        }),
+        json!({
+            "schemas": [SCIM_USER_SCHEMA],
+            "externalId": "google-001",
+            "userName": "google.user@example.com",
+            "name": {"givenName": "Google", "familyName": "User"},
+            "emails": [{"value": "google.user@example.com", "type": "work", "primary": true}],
+            "active": true
+        }),
+        json!({
+            "schemas": [SCIM_USER_SCHEMA],
+            "externalId": "entra-001",
+            "userName": "entra.user@example.com",
+            "name": {"givenName": "Entra", "familyName": "User"},
+            "emails": [{"value": "entra.user@example.com", "type": "work", "primary": "TRUE"}],
+            "active": "True"
+        }),
+    ];
+    for resource in provider_users {
+        let (status, created) = send_json(app.clone(), "POST", "/scim/v2/Users", resource).await;
+        assert_eq!(status, StatusCode::CREATED, "{created:#}");
+        assert_eq!(created["active"], true);
+        assert_eq!(created["emails"][0]["primary"], true);
+    }
+
+    let (status, group) = send_json(
+        app,
+        "POST",
+        "/scim/v2/Groups",
+        json!({
+            "schemas": [SCIM_GROUP_SCHEMA, ENTRA_GROUP_SCHEMA],
+            "externalId": "entra-group-001",
+            "displayName": "Entra Group",
+            "members": []
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{group:#}");
+    assert_eq!(group["schemas"], json!([SCIM_GROUP_SCHEMA]));
+    assert!(group.get(ENTRA_GROUP_SCHEMA).is_none());
+}
+
+#[tokio::test]
 async fn user_crud_normalizes_profile_filters_paginates_and_projects() {
     let (app, _, _, auth_store) = application();
     let (status, created) = send_json(
