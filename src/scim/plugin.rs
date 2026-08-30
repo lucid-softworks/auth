@@ -128,12 +128,7 @@ impl ScimPlugin {
                 .verify(token, method, path, &headers)
                 .await?
                 .filter(|verified| verified.expires_at.is_none_or(|expiry| expiry > now))
-                .map(|verified| ScimPrincipal {
-                    connection_id: verified.connection_id,
-                    provisioning_domain_id: verified.provisioning_domain_id,
-                    credential_id: verified.credential_id,
-                    scopes: verified.scopes,
-                });
+                .and_then(|verified| self.resolve_verified_principal(verified));
         }
         let principal = principal
             .ok_or_else(|| ScimError::unauthorized("Invalid SCIM bearer token"))?;
@@ -156,6 +151,40 @@ impl ScimPlugin {
             .await
             .map_err(store_error)?;
         Ok(principal)
+    }
+
+    #[cfg(feature = "axum")]
+    fn resolve_verified_principal(
+        &self,
+        verified: super::ScimVerifiedBearer,
+    ) -> Option<ScimPrincipal> {
+        if !valid_identifier(&verified.connection_id)
+            || !valid_identifier(&verified.provisioning_domain_id)
+            || !valid_identifier(&verified.credential_id)
+            || verified.scopes.is_empty()
+            || verified.scopes.iter().collect::<std::collections::HashSet<_>>().len()
+                != verified.scopes.len()
+        {
+            return None;
+        }
+        if let Some(connection) = self
+            .options
+            .connections
+            .iter()
+            .find(|connection| connection.id == verified.connection_id)
+        {
+            if connection.provisioning_domain_id != verified.provisioning_domain_id {
+                return None;
+            }
+        } else if verified.connection_id.starts_with("ba_scim_connection_") {
+            return None;
+        }
+        Some(ScimPrincipal {
+            connection_id: verified.connection_id,
+            provisioning_domain_id: verified.provisioning_domain_id,
+            credential_id: verified.credential_id,
+            scopes: verified.scopes,
+        })
     }
 
     #[cfg(feature = "axum")]
@@ -280,6 +309,11 @@ fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
             ^ right.get(index).copied().unwrap_or(0));
     }
     difference == 0
+}
+
+#[cfg(feature = "axum")]
+fn valid_identifier(value: &str) -> bool {
+    !value.is_empty() && value.chars().count() <= 255 && value.trim() == value
 }
 
 pub(super) fn token_digest(secret: &str, token: &str) -> Result<String, ScimError> {

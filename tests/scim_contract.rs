@@ -25,8 +25,19 @@ use tower::ServiceExt;
 
 const TOKEN: &str = "scim-test-bearer-token";
 
-#[derive(Default)]
-struct CountingVerifier(AtomicUsize);
+struct CountingVerifier {
+    calls: AtomicUsize,
+    connection_id: String,
+}
+
+impl CountingVerifier {
+    fn new(connection_id: &str) -> Self {
+        Self {
+            calls: AtomicUsize::new(0),
+            connection_id: connection_id.into(),
+        }
+    }
+}
 
 #[async_trait]
 impl ScimBearerTokenVerifier for CountingVerifier {
@@ -37,10 +48,10 @@ impl ScimBearerTokenVerifier for CountingVerifier {
         _path: &str,
         _headers: &BTreeMap<String, String>,
     ) -> Result<Option<ScimVerifiedBearer>, ScimError> {
-        self.0.fetch_add(1, Ordering::SeqCst);
+        self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(Some(ScimVerifiedBearer {
-            connection_id: "custom".into(),
-            provisioning_domain_id: "custom".into(),
+            connection_id: self.connection_id.clone(),
+            provisioning_domain_id: self.connection_id.clone(),
             credential_id: "custom".into(),
             scopes: ScimScope::ALL.to_vec(),
             expires_at: None,
@@ -672,7 +683,7 @@ async fn managed_catalog_rotates_revokes_isolates_and_decommissions() {
 
 #[tokio::test]
 async fn managed_namespace_tokens_never_fall_through_to_the_custom_verifier() {
-    let verifier = Arc::new(CountingVerifier::default());
+    let verifier = Arc::new(CountingVerifier::new("custom"));
     let options = ScimOptions {
         authentication: Some(verifier.clone()),
         managed_connections: Some(ScimManagedConnectionOptions::new(
@@ -691,7 +702,28 @@ async fn managed_namespace_tokens_never_fall_through_to_the_custom_verifier() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    assert_eq!(verifier.0.load(Ordering::SeqCst), 0);
+    assert_eq!(verifier.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn custom_verifiers_cannot_resolve_reserved_connection_ids() {
+    let verifier = Arc::new(CountingVerifier::new("ba_scim_connection_injected"));
+    let options = ScimOptions {
+        authentication: Some(verifier.clone()),
+        ..ScimOptions::default()
+    };
+    let (app, _, _, _) = application_with_options(options);
+    let response = app
+        .oneshot(
+            Request::get("/api/auth/scim/v2/Users")
+                .header(header::AUTHORIZATION, "Bearer application-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(verifier.calls.load(Ordering::SeqCst), 1);
 }
 
 #[test]
