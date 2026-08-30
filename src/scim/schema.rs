@@ -182,7 +182,7 @@ fn group_member() -> PluginSchemaTable {
 fn managed_tables() -> [PluginSchemaTable; 3] {
     [
         PluginSchemaTable::new("scimManagedConnection")
-            .field("creationRequestId", hidden(string().unique(true)))
+            .field("creationRequestId", string().unique(true))
             .field("connectionId", string().unique(true))
             .field("provisioningDomainId", string().index(true))
             .field("status", string())

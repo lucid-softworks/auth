@@ -179,6 +179,15 @@ async fn descriptor_and_conditional_schema_match_the_pinned_package() {
     ] {
         assert!(managed_service.database_schema().table(model).is_some());
     }
+    assert!(
+        managed_service.database_schema().tables()["scimManagedConnection"].fields
+            ["creationRequestId"]
+            .returned
+    );
+    assert!(
+        !managed_service.database_schema().tables()["scimManagedConnection"].fields["revision"]
+            .returned
+    );
 }
 
 #[tokio::test]
