@@ -1,7 +1,8 @@
 use super::SCIM_ERROR_SCHEMA;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ScimErrorType {
     InvalidFilter,
     TooMany,
@@ -30,15 +31,6 @@ impl ScimErrorType {
     }
 }
 
-impl Serialize for ScimErrorType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(self.as_str())
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScimErrorBody {
@@ -50,7 +42,7 @@ pub struct ScimErrorBody {
     pub scim_type: Option<ScimErrorType>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Serialize, thiserror::Error)]
 #[error("{detail}")]
 pub struct ScimError {
     pub status: u16,

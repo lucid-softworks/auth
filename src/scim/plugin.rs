@@ -16,6 +16,8 @@ use sha2::Sha256;
 use std::{borrow::Cow, sync::Arc};
 #[cfg(feature = "axum")]
 use std::collections::BTreeMap;
+#[cfg(feature = "axum")]
+use std::{future::Future, pin::Pin};
 
 const ENDPOINTS: &[PluginEndpoint] = &[
     endpoint(PluginHttpMethod::Post, "/scim/v2/Groups", "createSCIMGroup"),
@@ -83,6 +85,24 @@ impl ScimPlugin {
 
     pub fn store(&self) -> &Arc<dyn ScimStore> {
         &self.store
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) async fn run_mutation<T, F>(&self, operation: F) -> Result<T, ScimError>
+    where
+        T: Send + 'static,
+        F: FnOnce() -> Pin<Box<dyn Future<Output = Result<T, ScimError>> + Send>>
+            + Send
+            + 'static,
+    {
+        let Some(store) = self.store.backing_auth_store() else {
+            return operation().await;
+        };
+        crate::run_database_transaction(store.as_ref(), move |_| {
+            Box::pin(async move { operation().await.map_err(encode_mutation_error) })
+        })
+        .await
+        .map_err(decode_mutation_error)
     }
 
     #[cfg(feature = "axum")]
@@ -233,6 +253,25 @@ impl ScimPlugin {
     }
 
 }
+
+#[cfg(feature = "axum")]
+fn encode_mutation_error(error: ScimError) -> AuthError {
+    let serialized = serde_json::to_string(&error)
+        .unwrap_or_else(|_| "{\"status\":500,\"detail\":\"SCIM mutation failed\"}".into());
+    AuthError::Storage(format!("{MUTATION_ERROR_PREFIX}{serialized}"))
+}
+
+#[cfg(feature = "axum")]
+fn decode_mutation_error(error: AuthError) -> ScimError {
+    let detail = error.to_string();
+    detail
+        .split_once(MUTATION_ERROR_PREFIX)
+        .and_then(|(_, serialized)| serde_json::from_str(serialized).ok())
+        .unwrap_or_else(|| ScimError::new(500, detail))
+}
+
+#[cfg(feature = "axum")]
+const MUTATION_ERROR_PREFIX: &str = "__lucid_scim_mutation_error__:";
 
 impl std::fmt::Debug for ScimPlugin {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
