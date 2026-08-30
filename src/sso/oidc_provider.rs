@@ -65,7 +65,8 @@ pub(super) fn build(
         Some(provider.issuer.clone()),
         true,
         Some(oidc),
-    ))
+    )
+    .with_exact_oidc_errors())
 }
 
 struct UserInfoFetcher(String);
@@ -94,12 +95,6 @@ impl GenericOAuthUserInfo for UserInfoFetcher {
             .json::<Value>()
             .await
             .map_err(|_| AuthError::OAuthUserInfoUnavailable)?;
-        if let Some(id_token) = tokens.id_token.as_deref()
-            && let Ok(decoded) = jsonwebtoken::dangerous::insecure_decode::<Value>(id_token)
-            && decoded.claims.get("sub") != profile.get("sub")
-        {
-            return Err(AuthError::OAuthUserInfoUnavailable);
-        }
         Ok(Some(profile))
     }
 }

@@ -67,7 +67,6 @@ async fn validate_runtime_endpoints(
     config: &Map<String, Value>,
 ) -> Result<(), DiscoveryError> {
     for (name, endpoint) in [
-        ("authorizationEndpoint", config.get("authorizationEndpoint")),
         ("tokenEndpoint", config.get("tokenEndpoint")),
         ("jwksEndpoint", config.get("jwksEndpoint")),
         ("userInfoEndpoint", config.get("userInfoEndpoint")),
