@@ -156,7 +156,54 @@ UUID option or generator name is accepted as an alias.
 | Lucid owner policy | Native only | Optional `OwnerPolicyPlugin`, composed with `AdminPlugin::new(OwnerPolicyPlugin::admin_config())`, owns lucid-auth's fixed owner/member/viewer vocabulary, owner-only gates, last-owner protection, and owner-promotion session revocation. Invalid or mismatched composition is rejected before serving; [#75](https://github.com/lucid-softworks/auth/issues/75). |
 | Organization | Supported | Optional `OrganizationPlugin`; every official `organizationClient` method, active organization/team session fields, configurable static and dynamic access control, custom roles, organization/member/invitation/team lifecycle hooks, creation/membership/invitation/team/role limits, email delivery, team assignment on invitation, last-owner protection, and memory/SQLite/PostgreSQL transactional stores; [#30](https://github.com/lucid-softworks/auth/issues/30). |
 | SSO | Planned | Native OIDC/OAuth2/SAML and provisioning: [#31](https://github.com/lucid-softworks/auth/issues/31). |
-| SCIM | Planned | Users, Groups, PATCH/filtering, credentials, and role projection: [#32](https://github.com/lucid-softworks/auth/issues/32). |
+| SCIM | Supported | Native server-only `@better-auth/scim@1.7.1` Users/Groups provisioning, public discovery, static/application/managed bearer resolution, identity lifecycle, role projection, managed credentials/events, and resumable connection retirement; [SCIM 1.7.1](#scim-171), [#32](https://github.com/lucid-softworks/auth/issues/32). |
+
+## SCIM 1.7.1
+
+`ScimPlugin` targets the immutable `@better-auth/scim@1.7.1` server package.
+It exposes only the case-sensitive `/scim/v2/Users`, `/scim/v2/Groups`, and
+public discovery routes beneath the configured Better Auth base path. There is
+no browser/client plugin or prefixless route alias. Requests and responses use
+the SCIM media type, absolute resource locations, package-compatible error
+envelopes, equality/`and` filters, pagination, attribute projection, and
+ordered atomic PATCH behavior.
+
+The resource boundary is deliberately focused: core and Enterprise Users,
+direct same-connection User membership in Groups, explicit identity linking,
+external-ID tombstones, and application role projection. The plugin does not
+create Accounts, sign-in methods, Organizations, members, teams, or built-in
+roles. Custom extensions, `User.groups`, password mutation, nested Groups,
+Bulk, `/Me`, ETags, sorting, Basic authentication, mTLS, request audit rows,
+webhooks, and general SCIM behavior outside the pinned package remain
+unsupported. Microsoft Entra string booleans are normalized only at the
+published ingress points; its attribute-less classic Group schema is accepted
+only when the narrow compatibility option is enabled.
+
+Static credentials are application configuration and do not gain persistence,
+hashing, expiry, scopes, or audit history. Application verification remains an
+explicit callback. The optional managed catalog alone persists scoped and
+expiring credentials as versioned HMAC-SHA256 digests, returns plaintext once,
+limits overlapping active slots, throttles `lastUsedAt`, and records the latest
+100 lifecycle events. Managed namespace tokens never fall through to an
+application verifier.
+
+Database-backed SCIM requires a native interactive transaction adapter.
+SQLite and PostgreSQL share authoritative Better Auth User/profile/session,
+SCIM resource, tombstone, membership, projection-grant, managed-catalog, and
+callback changes in the same transaction. Mutations use revision fences and
+the pinned three-attempt conflict retry boundary. Connection retirement first
+disables access, then uses a five-minute lease and batches of 50 to reconcile
+identity/projection state; failed callbacks roll back their batch and release
+the lease so a later call resumes. `acquire_active_scim_user_link` provides the
+exact transaction-bound external-ID bridge intended for SSO [#31](https://github.com/lucid-softworks/auth/issues/31).
+
+There is no migration from pre-1.7 `scimProvider`/Account rows, Organization-
+backed Groups, legacy schemas, or bearer syntax. Deployments using any of those
+shapes require the official cutover and complete User/Group reprovisioning.
+The Infrastructure control plane wraps these primitives separately under
+[#92](https://github.com/lucid-softworks/auth/issues/92); shared schema and ID
+semantics remain governed by [#95](https://github.com/lucid-softworks/auth/issues/95)
+and [#97](https://github.com/lucid-softworks/auth/issues/97).
 
 ## API and token plugins
 
@@ -968,7 +1015,7 @@ span, payload attribute, or anonymous telemetry behavior is introduced.
 | PostgreSQL | Supported | The store evolves tables, physical columns, references, uniqueness, and indexes directly from the exact bound Better Auth schema, including configured model/field names, adapter-owned pluralization, additional fields, enabled official-plugin schema, and the database rate-limit table. Lucid-only extensions contribute separate opaque operations. Runtime reads and writes use the same bound catalog without legacy columns or JSON catch-alls. Lifecycle, identity, token rotation, concurrent signup, schema-evolution idempotence, organization transactions, atomic session refresh, verification consumption, request/API-key claims, and two-factor writes run in the live contract; [#68](https://github.com/lucid-softworks/auth/issues/68) and [#95](https://github.com/lucid-softworks/auth/issues/95). |
 | Verification challenges | Supported | Purpose-scoped, expiring values support database and Better Auth secondary-storage authority, remaining-expiry TTLs, ordered plain/SHA-256-base64url/custom identifier storage, hashed-to-plain fallback, optional database mirroring, atomic consumption and reservation, and no-resurrection behavior; [#8](https://github.com/lucid-softworks/auth/issues/8) and [#79](https://github.com/lucid-softworks/auth/issues/79). |
 | Local SQLite | Supported | Optional native SQLx `SqliteStore` targets Better Auth and `@better-auth/kysely-adapter` `1.7.1`. It accepts a supplied pool, URL, or caller-built connection options; supports file and one-connection `:memory:` databases; uses the resolved model/field/ID catalog for core and official-plugin rows; provides bound CRUD/predicates/sort/select/count plus atomic consume/increment and real transactions; and derives pinned additive ordinary-table migrations with exact drift, safety, index, and array-warning boundaries. The host owns foreign keys, WAL, synchronous mode, busy timeout, shared cache, pooling, retries, checkpoints, and vacuum. Standard upstream Kysely introspection includes views, while the pinned Node/Bun dialects and this native backend enumerate ordinary tables only; [#61](https://github.com/lucid-softworks/auth/issues/61). |
-| Cloudflare D1 | Supported | Optional native `D1Store` and `WorkersD1Database` target Better Auth and `@better-auth/kysely-adapter` `1.7.1` without enabling SQLx. Every configured core or supported-plugin model uses exact physical remaps and SQLite value types through bound `prepare().bind().all()` calls. Results preserve `results`, optional `meta.changes`, and optional `meta.last_row_id`; streaming and interactive transactions fail explicitly; consume and increment are single statements; introspection includes tables/views while excluding `sqlite_%`, `_cf_%`, and Kysely internals; only the closed `pragma_table_info` set is batched; additive migrations execute sequentially and preserve SQLite drift, unsafe-change, and index-conflict boundaries. SCIM remains excluded pending [#32](https://github.com/lucid-softworks/auth/issues/32); [#96](https://github.com/lucid-softworks/auth/issues/96). |
+| Cloudflare D1 | Supported | Optional native `D1Store` and `WorkersD1Database` target Better Auth and `@better-auth/kysely-adapter` `1.7.1` without enabling SQLx. Every configured core or supported-plugin model uses exact physical remaps and SQLite value types through bound `prepare().bind().all()` calls. Results preserve `results`, optional `meta.changes`, and optional `meta.last_row_id`; streaming and interactive transactions fail explicitly; consume and increment are single statements; introspection includes tables/views while excluding `sqlite_%`, `_cf_%`, and Kysely internals; only the closed `pragma_table_info` set is batched; additive migrations execute sequentially and preserve SQLite drift, unsafe-change, and index-conflict boundaries. SCIM is intentionally unavailable because D1 lacks the required native interactive transactions; [#32](https://github.com/lucid-softworks/auth/issues/32), [#96](https://github.com/lucid-softworks/auth/issues/96). |
 | MySQL | Planned | [#62](https://github.com/lucid-softworks/auth/issues/62). |
 | MongoDB | Planned | [#63](https://github.com/lucid-softworks/auth/issues/63). |
 | MS SQL and generic relational adapters | Planned | [#64](https://github.com/lucid-softworks/auth/issues/64). |

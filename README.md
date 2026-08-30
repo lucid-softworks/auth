@@ -96,6 +96,8 @@ The currently supported surface covers:
   filtering, additional fields, session revocation, bans, and impersonation
 - the complete official `organizationClient` surface as an optional native plugin,
   including invitations, teams, custom roles, and organization-owned API keys
+- the server-only `@better-auth/scim@1.7.1` inbound Users/Groups service,
+  discovery documents, identity/projection callbacks, and optional managed catalog
 - optional HIBP Pwned Passwords screening with Better Auth-compatible errors
 - Better Auth request rate limiting with global, special-route, plugin, and custom rules
 - optional operator-security policy for managed password replacement and local recovery
@@ -187,6 +189,53 @@ and the complete memory/PostgreSQL boundary. Existing installations that used
 the former UUID default must follow the
 [breaking database ID migration guide](docs/database-id-migration.md) before
 running migrations.
+
+### SCIM provisioning
+
+SCIM is an inbound, server-only plugin. Durable deployments must use the
+database-backed store over SQLite or PostgreSQL because authoritative resource
+mutations, callbacks, connection fencing, and retirement require native
+interactive transactions. D1 and sequential adapter fallbacks are not valid
+SCIM stores.
+
+```rust
+use lucid_auth::{
+    DatabaseScimStore, ScimBearerCredential, ScimConnection, ScimOptions,
+    ScimPlugin,
+};
+use std::sync::Arc;
+
+let scim = ScimPlugin::new(
+    ScimOptions {
+        connections: vec![ScimConnection::new(
+            "workforce-directory",
+            vec![ScimBearerCredential::new("primary", scim_bearer_secret)],
+        )],
+        ..ScimOptions::default()
+    },
+    Arc::new(DatabaseScimStore::new(auth_store.clone())),
+)?;
+config.add_plugin(scim)?;
+```
+
+Static bearer secrets remain in application configuration: they are not
+hashed, scoped, expiring, or audited by SCIM. Enable `managed_connections`
+with a dedicated secret of at least 32 characters when the application needs
+one-time plaintext issuance, HMAC-SHA256 digests, scopes, expiry, rotation,
+revocation, and lifecycle events. Keep that hashing secret out of logs and
+rotate it only with a deliberate credential cutover.
+
+`ScimIdentity` controls explicit stable-user linking and aggregate lifecycle;
+`ScimProjection` maps direct SCIM Group membership to application roles. SCIM
+never links by email, creates an Account/sign-in method, or depends on the
+Organization plugin. SSO can call `acquire_active_scim_user_link` inside its
+own resolver transaction to acquire an exact active external-ID link.
+
+This implementation intentionally has no compatibility migration from older
+`scimProvider`, Account-backed, Organization-backed, or legacy bearer shapes.
+Existing directories must follow a coordinated cutover and fully reprovision
+Users and Groups. See [SCIM 1.7.1](COMPATIBILITY.md#scim-171) for the exact
+supported and unsupported boundary.
 
 ### Expo and React Native
 
