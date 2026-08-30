@@ -278,6 +278,23 @@ async fn bearer_scope_media_and_json_errors_use_scim_envelopes() {
 }
 
 #[tokio::test]
+async fn unsupported_user_attributes_are_rejected_instead_of_discarded() {
+    let (app, _, _, _) = application();
+    for attribute in ["password", "groups", "customExtension"] {
+        let mut resource = user("unsupported@example.com");
+        resource[attribute] = json!("forbidden");
+        let (status, body) = send_json(app.clone(), "POST", "/scim/v2/Users", resource).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "attribute {attribute}");
+        assert_eq!(body["scimType"], "invalidValue");
+        assert!(
+            body["detail"]
+                .as_str()
+                .is_some_and(|detail| detail.contains("unknown field"))
+        );
+    }
+}
+
+#[tokio::test]
 async fn user_crud_normalizes_profile_filters_paginates_and_projects() {
     let (app, _, _, auth_store) = application();
     let (status, created) = send_json(
