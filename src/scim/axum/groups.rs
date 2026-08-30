@@ -2,9 +2,8 @@ use super::{query, support};
 use crate::{
     AuthService,
     scim::{
-        SCIM_GROUP_SCHEMA, ScimError, ScimErrorType, ScimGroup, ScimGroupMember,
-        ScimListResponse, ScimPatchRequest, ScimPlugin, plugin::store_error,
-        store::StoredScimGroup,
+        ScimError, ScimErrorType, ScimGroup, ScimListResponse, ScimPatchRequest, ScimPlugin,
+        plugin::store_error, store::StoredScimGroup,
     },
 };
 use axum::{
@@ -16,6 +15,8 @@ use axum::{
 use chrono::Utc;
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc};
+
+mod patch;
 
 const ENTRA_LEGACY_GROUP_SCHEMA: &str =
     "http://schemas.microsoft.com/2006/11/ResourceManagement/ADSCIM/2.0/Group";
@@ -187,7 +188,7 @@ pub(super) async fn patch(
         Err(error) => return support::error_response(store_error(error)),
     };
     let mut resource = existing.resource.clone();
-    if let Err(error) = apply_patch(&mut resource, patch) {
+    if let Err(error) = patch::apply(&mut resource, patch) {
         return support::error_response(error);
     }
     replace_authenticated(service, plugin, principal.connection_id, group_id, resource).await
@@ -306,78 +307,6 @@ async fn parse_group(request: Request, allow_entra_legacy: bool) -> Result<ScimG
             ScimErrorType::InvalidValue,
         ))
     })
-}
-
-fn apply_patch(resource: &mut ScimGroup, patch: ScimPatchRequest) -> Result<(), ScimError> {
-    for operation in patch.operations {
-        let op = operation.op.to_ascii_lowercase();
-        if !matches!(op.as_str(), "add" | "replace" | "remove") {
-            return Err(ScimError::typed(400, "Invalid PATCH operation", ScimErrorType::InvalidSyntax));
-        }
-        let path = operation.path.as_deref().map(str::trim).filter(|path| !path.is_empty());
-        if path.is_none() {
-            if op == "remove" {
-                return Err(ScimError::typed(400, "Pathless remove has no target", ScimErrorType::NoTarget));
-            }
-            let value = operation.value.and_then(|value| value.as_object().cloned()).ok_or_else(|| {
-                ScimError::typed(400, "Pathless PATCH value must be an object", ScimErrorType::InvalidValue)
-            })?;
-            if let Some(display_name) = value.get("displayName").and_then(Value::as_str) {
-                resource.display_name = display_name.into();
-            }
-            if let Some(external_id) = value.get("externalId").and_then(Value::as_str) {
-                resource.external_id = Some(external_id.into());
-            }
-            if let Some(members) = value.get("members") {
-                resource.members = serde_json::from_value(members.clone()).map_err(invalid_patch)?;
-            }
-            continue;
-        }
-        let path = path.unwrap();
-        let lower = path.to_ascii_lowercase();
-        if lower.starts_with("members[") {
-            let value = path
-                .split_once(" eq ")
-                .or_else(|| path.split_once(" EQ "))
-                .and_then(|(_, value)| value.split(']').next())
-                .map(|value| value.trim().trim_matches('"'))
-                .ok_or_else(|| ScimError::typed(400, "Invalid members filter", ScimErrorType::InvalidPath))?;
-            if op == "remove" {
-                resource.members.retain(|member| member.value != value);
-            } else {
-                return Err(ScimError::typed(400, "Filtered Group member targets support remove", ScimErrorType::InvalidPath));
-            }
-            continue;
-        }
-        match lower.as_str() {
-            "displayname" if op == "remove" => {
-                return Err(ScimError::typed(400, "displayName is required", ScimErrorType::Mutability));
-            }
-            "displayname" => resource.display_name = string_value(operation.value)?,
-            "externalid" if op == "remove" => resource.external_id = None,
-            "externalid" => resource.external_id = Some(string_value(operation.value)?),
-            "members" if op == "remove" => resource.members.clear(),
-            "members" if op == "add" => {
-                let mut additions: Vec<ScimGroupMember> = serde_json::from_value(operation.value.unwrap_or(Value::Null)).map_err(invalid_patch)?;
-                resource.members.append(&mut additions);
-            }
-            "members" => resource.members = serde_json::from_value(operation.value.unwrap_or(Value::Null)).map_err(invalid_patch)?,
-            "id" | "meta" | "schemas" => return Err(ScimError::typed(400, "PATCH target is read-only", ScimErrorType::Mutability)),
-            _ => return Err(ScimError::typed(400, "Unsupported SCIM Group PATCH path", ScimErrorType::InvalidPath)),
-        }
-    }
-    resource.schemas = vec![SCIM_GROUP_SCHEMA.into()];
-    Ok(())
-}
-
-fn string_value(value: Option<Value>) -> Result<String, ScimError> {
-    value.and_then(|value| value.as_str().map(str::to_owned)).ok_or_else(|| {
-        ScimError::typed(400, "PATCH value must be a string", ScimErrorType::InvalidValue)
-    })
-}
-
-fn invalid_patch(error: serde_json::Error) -> ScimError {
-    ScimError::typed(400, error.to_string(), ScimErrorType::InvalidValue)
 }
 
 fn present(service: &AuthService, stored: &StoredScimGroup) -> Value {
