@@ -6,13 +6,15 @@ use axum::{
     body::Body,
     http::{Request, StatusCode, header},
 };
+use chrono::{Duration, Utc};
 use http_body_util::BodyExt;
 use lucid_auth::{
     AuthConfig, AuthService, AuthStore, DatabaseScimStore, SCIM_GROUP_SCHEMA, SCIM_MEDIA_TYPE,
     SCIM_USER_SCHEMA, ScimAuthorizationSource, ScimBearerCredential, ScimConnection, ScimError,
     ScimIdentity, ScimIdentityResolution, ScimIdentityResolutionInput, ScimIdentityState,
-    ScimOptions, ScimPlugin, ScimProjectedUserState, ScimProjection, ScimRoleExistenceInput,
-    ScimRoleMappingInput, ScimRoleProjection, ScimStore, ScimTransactionContext,
+    ScimManagedConnectionOptions, ScimOptions, ScimPlugin, ScimProjectedUserState, ScimProjection,
+    ScimRoleExistenceInput, ScimRoleMappingInput, ScimRoleProjection, ScimScope, ScimStore,
+    ScimTransactionContext,
     sqlite::{SqliteAdapterConfig, SqliteStore},
 };
 use serde_json::{Value, json};
@@ -124,6 +126,7 @@ async fn application() -> (
     Arc<SqliteStore>,
     Arc<RecordingIdentity>,
     Arc<RecordingProjection>,
+    ScimPlugin,
 ) {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
@@ -141,12 +144,13 @@ async fn application() -> (
         )],
         identity: Some(identity.clone()),
         projection: Some(projection.clone()),
+        managed_connections: Some(ScimManagedConnectionOptions::new("m".repeat(32))),
         ..ScimOptions::default()
     };
     let plugin = ScimPlugin::new(options, scim_store.clone()).unwrap();
     let mut config = AuthConfig::new([232_u8; 32]).unwrap();
     config.set_base_url("https://example.com").unwrap();
-    config.add_plugin(plugin).unwrap();
+    config.add_plugin(plugin.clone()).unwrap();
     let service = Arc::new(AuthService::new(auth_store.clone(), config));
     auth_store
         .migrate(Arc::new(service.database_schema().clone()))
@@ -158,6 +162,7 @@ async fn application() -> (
         auth_store,
         identity,
         projection,
+        plugin,
     )
 }
 
@@ -190,7 +195,7 @@ async fn send_json(app: Router, method: &str, path: &str, body: Value) -> (Statu
 
 #[tokio::test]
 async fn core_resources_round_trip_through_native_sqlite_transactions() {
-    let (app, store, auth_store, identity, projection) = application().await;
+    let (app, store, auth_store, identity, projection, _) = application().await;
     let (status, user) = send_json(
         app.clone(),
         "POST",
@@ -363,4 +368,107 @@ async fn core_resources_round_trip_through_native_sqlite_transactions() {
             .user_id,
         auth_user_id
     );
+}
+
+#[tokio::test]
+async fn managed_catalog_round_trips_and_authenticates_through_sqlite() {
+    let (app, _, _, _, _, plugin) = application().await;
+    let expires_at = Utc::now() + Duration::hours(1);
+    let (connection, credential, token) = plugin
+        .create_managed_connection(
+            "managed-request-0001",
+            "managed-domain",
+            "operator-1",
+            ScimScope::ALL.to_vec(),
+            expires_at,
+        )
+        .await
+        .unwrap();
+    assert_eq!(connection.revision, 2);
+    assert_eq!(credential.status, "active");
+
+    let duplicate = plugin
+        .create_managed_connection(
+            "managed-request-0001",
+            "managed-domain",
+            "operator-1",
+            ScimScope::ALL.to_vec(),
+            expires_at,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(duplicate.status, 409, "{duplicate:?}");
+
+    let authenticated = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/auth/scim/v2/Users")
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(authenticated.status(), StatusCode::OK);
+
+    let (rotated_connection, rotated, _) = plugin
+        .rotate_managed_credential(
+            &connection.connection_id,
+            "managed-domain",
+            "operator-2",
+            ScimScope::ALL.to_vec(),
+            expires_at,
+        )
+        .await
+        .unwrap();
+    assert_eq!(rotated_connection.revision, 3);
+    assert_eq!(rotated.status, "active");
+
+    let (revoked_connection, credentials) = plugin
+        .revoke_managed_credential(
+            &connection.connection_id,
+            "managed-domain",
+            &credential.credential_id,
+            "operator-3",
+        )
+        .await
+        .unwrap();
+    assert_eq!(revoked_connection.revision, 4);
+    assert_eq!(credentials.len(), 2);
+    assert!(credentials.iter().any(|item| item.status == "revoked"));
+
+    let events = plugin
+        .list_managed_connection_events(&connection.connection_id, "managed-domain")
+        .await
+        .unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.sequence)
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3, 4]
+    );
+
+    let (decommissioned, credentials) = plugin
+        .decommission_managed_connection(&connection.connection_id, "managed-domain", "operator-4")
+        .await
+        .unwrap();
+    assert_eq!(decommissioned.status, "decommissioned");
+    assert_eq!(decommissioned.revision, 6);
+    assert!(credentials.iter().all(|item| item.status != "active"));
+
+    let rejected = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/auth/scim/v2/Users")
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
 }

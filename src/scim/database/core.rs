@@ -69,6 +69,9 @@ pub(super) fn store_error(error: AuthError) -> crate::scim::ScimStoreError {
         "Decommissioned" => crate::scim::ScimStoreError::Decommissioned,
         "ProfileConflict" => crate::scim::ScimStoreError::ProfileConflict,
         "ConcurrentMutation" => crate::scim::ScimStoreError::ConcurrentMutation,
+        "CreationRequestConflict" => crate::scim::ScimStoreError::CreationRequestConflict,
+        "CredentialLimit" => crate::scim::ScimStoreError::CredentialLimit,
+        "CredentialNotFound" => crate::scim::ScimStoreError::CredentialNotFound,
         _ => crate::scim::ScimStoreError::Storage(detail),
     }
 }

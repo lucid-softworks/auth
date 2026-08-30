@@ -10,6 +10,7 @@ use std::sync::Arc;
 mod codec;
 mod core;
 pub(super) mod keys;
+mod managed;
 
 /// SCIM persistence backed by the application's native Better Auth adapter.
 #[derive(Clone)]
@@ -127,79 +128,88 @@ impl ScimStore for DatabaseScimStore {
 
     async fn create_managed_connection(
         &self,
-        _creation_request_id: &str,
-        _connection: ScimManagedConnection,
-        _credential: ScimManagedCredential,
-        _events: Vec<ScimManagedConnectionEvent>,
+        creation_request_id: &str,
+        connection: ScimManagedConnection,
+        credential: ScimManagedCredential,
+        events: Vec<ScimManagedConnectionEvent>,
     ) -> Result<(ScimManagedConnection, ScimManagedCredential), ScimStoreError> {
-        Err(managed_pending())
+        managed::create_connection(self, creation_request_id, connection, credential, events).await
     }
 
     async fn list_managed_connections(
         &self,
-        _provisioning_domain_id: &str,
+        provisioning_domain_id: &str,
     ) -> Result<Vec<ScimManagedConnection>, ScimStoreError> {
-        Err(managed_pending())
+        managed::list_connections(self, provisioning_domain_id).await
     }
 
     async fn find_managed_connection(
         &self,
-        _connection_id: &str,
-        _provisioning_domain_id: &str,
+        connection_id: &str,
+        provisioning_domain_id: &str,
     ) -> Result<Option<ScimManagedConnection>, ScimStoreError> {
-        Err(managed_pending())
+        managed::find_connection(self, connection_id, provisioning_domain_id).await
     }
 
     async fn list_managed_credentials(
         &self,
-        _connection_record_id: &str,
+        connection_record_id: &str,
     ) -> Result<Vec<ScimManagedCredential>, ScimStoreError> {
-        Err(managed_pending())
+        managed::list_credentials(self, connection_record_id).await
     }
 
     async fn find_managed_credential(
         &self,
-        _credential_id: &str,
+        credential_id: &str,
     ) -> Result<Option<(ScimManagedConnection, ScimManagedCredential)>, ScimStoreError> {
-        Err(managed_pending())
+        managed::find_credential(self, credential_id).await
     }
 
     async fn rotate_managed_credential(
         &self,
-        _connection_id: &str,
-        _provisioning_domain_id: &str,
-        _credential: ScimManagedCredential,
-        _event: ScimManagedConnectionEvent,
-        _max_active_credentials: usize,
-        _now: DateTime<Utc>,
+        connection_id: &str,
+        provisioning_domain_id: &str,
+        credential: ScimManagedCredential,
+        event: ScimManagedConnectionEvent,
+        max_active_credentials: usize,
+        now: DateTime<Utc>,
     ) -> Result<(ScimManagedConnection, ScimManagedCredential), ScimStoreError> {
-        Err(managed_pending())
+        managed::rotate_credential(
+            self,
+            connection_id,
+            provisioning_domain_id,
+            credential,
+            event,
+            max_active_credentials,
+            now,
+        )
+        .await
     }
 
     async fn revoke_managed_credential(
         &self,
-        _connection_record_id: &str,
-        _credential_id: &str,
-        _actor_id: &str,
-        _now: DateTime<Utc>,
+        connection_record_id: &str,
+        credential_id: &str,
+        actor_id: &str,
+        now: DateTime<Utc>,
     ) -> Result<ScimManagedCredential, ScimStoreError> {
-        Err(managed_pending())
+        managed::revoke_credential(self, connection_record_id, credential_id, actor_id, now).await
     }
 
     async fn touch_managed_credential(
         &self,
-        _credential_id: &str,
-        _now: DateTime<Utc>,
-        _minimum_interval_seconds: u64,
+        credential_id: &str,
+        now: DateTime<Utc>,
+        minimum_interval_seconds: u64,
     ) -> Result<(), ScimStoreError> {
-        Err(managed_pending())
+        managed::touch_credential(self, credential_id, now, minimum_interval_seconds).await
     }
 
     async fn list_managed_events(
         &self,
-        _connection_record_id: &str,
+        connection_record_id: &str,
     ) -> Result<Vec<ScimManagedConnectionEvent>, ScimStoreError> {
-        Err(managed_pending())
+        managed::list_events(self, connection_record_id).await
     }
 
     async fn decommission_connection(
@@ -214,15 +224,11 @@ impl ScimStore for DatabaseScimStore {
 
     async fn decommission_managed_connection(
         &self,
-        _connection_id: &str,
-        _provisioning_domain_id: &str,
-        _actor_id: &str,
-        _now: DateTime<Utc>,
+        connection_id: &str,
+        provisioning_domain_id: &str,
+        actor_id: &str,
+        now: DateTime<Utc>,
     ) -> Result<ScimManagedConnection, ScimStoreError> {
-        Err(managed_pending())
+        managed::decommission(self, connection_id, provisioning_domain_id, actor_id, now).await
     }
-}
-
-fn managed_pending() -> ScimStoreError {
-    ScimStoreError::Storage("database-backed managed SCIM catalog is not configured".into())
 }
