@@ -12,6 +12,7 @@ mod model;
 mod plugin;
 mod schema;
 mod store;
+mod timestamp;
 
 pub use config::{
     ScimBearerCredential, ScimBearerTokenVerifier, ScimConnection, ScimManagedConnectionOptions,

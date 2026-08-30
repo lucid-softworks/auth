@@ -18,7 +18,8 @@ impl ScimPlugin {
         let options = self.managed_options()?;
         validate_text(creation_request_id, 16, "creationRequestId")?;
         validate_policy(provisioning_domain_id, actor_id, &scopes, expires_at)?;
-        let now = Utc::now();
+        let now = super::timestamp::now();
+        let expires_at = super::timestamp::milliseconds(expires_at);
         let record_id = super::random_urlsafe(32);
         let connection_id = format!("ba_scim_connection_{}", super::random_urlsafe(32));
         let credential_id = format!("ba_scim_credential_{}", super::random_urlsafe(32));
@@ -91,7 +92,10 @@ impl ScimPlugin {
             .list_managed_credentials(&connection.id)
             .await
             .map_err(store_error)?;
-        Ok((connection, observed_credentials(credentials, Utc::now())))
+        Ok((
+            connection,
+            observed_credentials(credentials, super::timestamp::now()),
+        ))
     }
 
     pub async fn rotate_managed_credential(
@@ -107,7 +111,8 @@ impl ScimPlugin {
         let connection = self
             .qualified_connection(connection_id, provisioning_domain_id)
             .await?;
-        let now = Utc::now();
+        let now = super::timestamp::now();
+        let expires_at = super::timestamp::milliseconds(expires_at);
         let credentials = self
             .store
             .list_managed_credentials(&connection.id)
@@ -168,7 +173,12 @@ impl ScimPlugin {
             .qualified_connection(connection_id, provisioning_domain_id)
             .await?;
         self.store
-            .revoke_managed_credential(&connection.id, credential_id, actor_id, Utc::now())
+            .revoke_managed_credential(
+                &connection.id,
+                credential_id,
+                actor_id,
+                super::timestamp::now(),
+            )
             .await
             .map_err(store_error)?;
         self.get_managed_connection(connection_id, provisioning_domain_id)
@@ -203,7 +213,7 @@ impl ScimPlugin {
                 connection_id,
                 provisioning_domain_id,
                 actor_id,
-                Utc::now(),
+                super::timestamp::now(),
             )
             .await
             .map_err(store_error)?;
@@ -217,7 +227,12 @@ impl ScimPlugin {
         provisioning_domain_id: &str,
     ) -> Result<usize, ScimError> {
         self.store
-            .decommission_connection(connection_id, provisioning_domain_id, "application", Utc::now())
+            .decommission_connection(
+                connection_id,
+                provisioning_domain_id,
+                "application",
+                super::timestamp::now(),
+            )
             .await
             .map_err(store_error)
     }
@@ -317,7 +332,7 @@ fn validate_policy(
     if scopes.is_empty() || scopes.iter().collect::<HashSet<_>>().len() != scopes.len() {
         return Err(invalid("Managed SCIM credential scopes must be non-empty and unique"));
     }
-    if expires_at <= Utc::now() {
+    if expires_at <= super::timestamp::now() {
         return Err(invalid("Managed SCIM credential expiry must be in the future"));
     }
     Ok(())

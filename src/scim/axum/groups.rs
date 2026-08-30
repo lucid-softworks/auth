@@ -12,11 +12,11 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::Response,
 };
-use chrono::Utc;
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc};
 
 mod patch;
+mod presentation;
 
 const ENTRA_LEGACY_GROUP_SCHEMA: &str =
     "http://schemas.microsoft.com/2006/11/ResourceManagement/ADSCIM/2.0/Group";
@@ -50,7 +50,7 @@ pub(super) async fn create(
         },
         Err(response) => return response,
     };
-    let now = Utc::now();
+    let now = super::super::timestamp::now();
     resource.id = Some(super::super::random_urlsafe(32));
     let stored = StoredScimGroup {
         resource,
@@ -61,7 +61,7 @@ pub(super) async fn create(
     };
     match plugin.store.create_group(stored).await {
         Ok(stored) => {
-            let complete = match present(&service, &plugin, &stored).await {
+            let complete = match presentation::present(&service, &plugin, &stored).await {
                 Ok(value) => value,
                 Err(error) => return support::error_response(store_error(error)),
             };
@@ -101,7 +101,7 @@ pub(super) async fn get(
         Err(error) => return support::error_response(error),
     };
     match plugin.store.find_group(&principal.connection_id, &group_id).await {
-        Ok(Some(group)) => match present(&service, &plugin, &group).await {
+        Ok(Some(group)) => match presentation::present(&service, &plugin, &group).await {
             Ok(value) => support::json(
                 StatusCode::OK,
                 query::project_value(value, &projection),
@@ -148,7 +148,7 @@ pub(super) async fn list(
     };
     let values = groups
         .iter()
-        .map(|group| present_with_users(&service, group, &users))
+        .map(|group| presentation::present_with_users(&service, group, &users))
         .collect();
     let values = match query::filter(values, &query, "Group") {
         Ok(values) => values,
@@ -312,11 +312,16 @@ async fn replace_authenticated(
     resource.id = Some(group_id.clone());
     match plugin
         .store
-        .replace_group(&connection_id, &group_id, resource, Utc::now())
+        .replace_group(
+            &connection_id,
+            &group_id,
+            resource,
+            super::super::timestamp::now(),
+        )
         .await
     {
         Ok(stored) => {
-            let complete = match present(&service, &plugin, &stored).await {
+            let complete = match presentation::present(&service, &plugin, &stored).await {
                 Ok(value) => value,
                 Err(error) => return support::error_response(store_error(error)),
             };
@@ -373,38 +378,4 @@ async fn parse_group(request: Request, allow_entra_legacy: bool) -> Result<ScimG
             ScimErrorType::InvalidValue,
         ))
     })
-}
-
-async fn present(
-    service: &AuthService,
-    plugin: &ScimPlugin,
-    stored: &StoredScimGroup,
-) -> Result<Value, crate::scim::ScimStoreError> {
-    let users = plugin.store.list_users(&stored.connection_id).await?;
-    Ok(present_with_users(service, stored, &users))
-}
-
-fn present_with_users(
-    service: &AuthService,
-    stored: &StoredScimGroup,
-    users: &[crate::scim::store::StoredScimUser],
-) -> Value {
-    let mut resource = stored.resource.clone();
-    let id = resource.id.clone().unwrap_or_default();
-    let base = service.scim_base_url();
-    for member in &mut resource.members {
-        member.reference = Some(format!("{base}/scim/v2/Users/{}", member.value));
-        member.display = users
-            .iter()
-            .find(|user| user.resource.id.as_deref() == Some(&member.value))
-            .and_then(|user| user.resource.display_name.clone());
-        member.kind = Some("User".into());
-    }
-    resource.meta = Some(crate::scim::model::ScimMeta {
-        resource_type: "Group".into(),
-        created: Some(stored.created_at),
-        last_modified: Some(stored.updated_at),
-        location: format!("{base}/scim/v2/Groups/{id}"),
-    });
-    serde_json::to_value(resource).unwrap_or(Value::Null)
 }

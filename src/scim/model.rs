@@ -364,9 +364,15 @@ fn looks_like_email(value: &str) -> bool {
 #[serde(rename_all = "camelCase")]
 pub struct ScimMeta {
     pub resource_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "super::timestamp::serialize_optional"
+    )]
     pub created: Option<DateTime<Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "super::timestamp::serialize_optional"
+    )]
     pub last_modified: Option<DateTime<Utc>>,
     pub location: String,
 }

@@ -373,6 +373,9 @@ async fn user_crud_normalizes_profile_filters_paginates_and_projects() {
     assert_eq!(created["emails"][0]["type"], "work");
     assert_eq!(created["emails"][0]["primary"], true);
     assert_eq!(created["meta"]["resourceType"], "User");
+    let created_at = created["meta"]["created"].as_str().unwrap();
+    assert!(created_at.ends_with('Z'));
+    assert_eq!(created_at.rsplit_once('.').unwrap().1.len(), 4);
     let auth_user = auth_store
         .find_user_by_email("luna@example.com")
         .await
@@ -788,6 +791,14 @@ async fn managed_catalog_rotates_revokes_isolates_and_decommissions() {
     assert_eq!(public["creationRequestId"], "managed-request-0001");
     assert!(public.get("id").is_none());
     let credential_public = serde_json::to_value(&first).unwrap();
+    for timestamp in [
+        public["createdAt"].as_str().unwrap(),
+        credential_public["expiresAt"].as_str().unwrap(),
+        credential_public["createdAt"].as_str().unwrap(),
+    ] {
+        assert!(timestamp.ends_with('Z'));
+        assert_eq!(timestamp.rsplit_once('.').unwrap().1.len(), 4);
+    }
     assert!(credential_public.get("tokenDigest").is_none());
     assert!(credential_public.get("connectionRecordId").is_none());
 

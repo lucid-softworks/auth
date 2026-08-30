@@ -13,10 +13,13 @@ pub struct ScimManagedConnection {
     pub status: String,
     #[serde(skip)]
     pub revision: u64,
+    #[serde(serialize_with = "crate::scim::timestamp::serialize")]
     pub created_at: DateTime<Utc>,
     pub created_by: String,
+    #[serde(serialize_with = "crate::scim::timestamp::serialize_optional")]
     pub decommission_started_at: Option<DateTime<Utc>>,
     pub decommission_started_by: Option<String>,
+    #[serde(serialize_with = "crate::scim::timestamp::serialize_optional")]
     pub decommissioned_at: Option<DateTime<Utc>>,
     pub decommissioned_by: Option<String>,
 }
@@ -39,10 +42,14 @@ pub struct ScimManagedCredential {
     pub scopes: Vec<ScimScope>,
     #[serde(skip)]
     pub serialized_scopes: String,
+    #[serde(serialize_with = "crate::scim::timestamp::serialize")]
     pub expires_at: DateTime<Utc>,
+    #[serde(serialize_with = "crate::scim::timestamp::serialize")]
     pub created_at: DateTime<Utc>,
     pub created_by: String,
+    #[serde(serialize_with = "crate::scim::timestamp::serialize_optional")]
     pub last_used_at: Option<DateTime<Utc>>,
+    #[serde(serialize_with = "crate::scim::timestamp::serialize_optional")]
     pub revoked_at: Option<DateTime<Utc>>,
     pub revoked_by: Option<String>,
     #[serde(skip)]
@@ -61,5 +68,6 @@ pub struct ScimManagedConnectionEvent {
     pub kind: String,
     pub actor_id: String,
     pub credential_id: Option<String>,
+    #[serde(serialize_with = "crate::scim::timestamp::serialize")]
     pub created_at: DateTime<Utc>,
 }

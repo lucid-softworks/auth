@@ -100,7 +100,7 @@ impl ScimPlugin {
             })
             .filter(|token| !token.is_empty())
             .ok_or_else(|| ScimError::unauthorized("SCIM bearer token is required"))?;
-        let now = Utc::now();
+        let now = super::timestamp::now();
         let mut principal = None;
         for connection in &self.options.connections {
             for credential in &connection.credentials {

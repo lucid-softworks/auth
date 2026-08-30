@@ -12,7 +12,6 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::Response,
 };
-use chrono::Utc;
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc};
 
@@ -63,7 +62,7 @@ pub(super) async fn create(
             ));
         }
     };
-    let now = Utc::now();
+    let now = super::super::timestamp::now();
     let mut resource = resource;
     resource.id = Some(super::super::random_urlsafe(32));
     let stored = StoredScimUser {
@@ -278,7 +277,11 @@ pub(super) async fn delete(
     };
     match plugin
         .store
-        .delete_user(&principal.connection_id, &user_id, Utc::now())
+        .delete_user(
+            &principal.connection_id,
+            &user_id,
+            super::super::timestamp::now(),
+        )
         .await
     {
         Ok(Some(user)) => {
@@ -349,7 +352,12 @@ async fn replace_authenticated(
     let active_changed_to_false = existing.resource.active && !resource.active;
     match plugin
         .store
-        .replace_user(&connection_id, &user_id, resource, Utc::now())
+        .replace_user(
+            &connection_id,
+            &user_id,
+            resource,
+            super::super::timestamp::now(),
+        )
         .await
     {
         Ok(stored) => {
