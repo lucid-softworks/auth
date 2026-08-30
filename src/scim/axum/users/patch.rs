@@ -120,11 +120,73 @@ fn patch_attribute(
         };
         if key == "name" && value.is_object() {
             merge_object(object, key, value)?;
+        } else if is_multi_valued(key) {
+            patch_multi_value(object, key, op, value)?;
         } else {
             object.insert(key.into(), value);
         }
     }
     Ok(())
+}
+
+fn is_multi_valued(key: &str) -> bool {
+    matches!(
+        key,
+        "emails" | "phoneNumbers" | "addresses" | "roles" | "entitlements"
+    )
+}
+
+fn patch_multi_value(
+    object: &mut serde_json::Map<String, Value>,
+    key: &str,
+    op: &str,
+    value: Value,
+) -> Result<(), ScimError> {
+    let additions = match value {
+        Value::Array(values) => values,
+        value => vec![value],
+    };
+    let first_primary = additions.iter().position(sets_primary);
+    if op == "add" {
+        let values = object
+            .entry(key)
+            .or_insert_with(|| Value::Array(Vec::new()))
+            .as_array_mut()
+            .ok_or_else(|| {
+                ScimError::typed(
+                    400,
+                    format!("{key} must be an array"),
+                    ScimErrorType::InvalidValue,
+                )
+            })?;
+        let original_len = values.len();
+        values.extend(additions);
+        if let Some(index) = first_primary {
+            enforce_primary(values, original_len + index);
+        }
+    } else {
+        let mut values = additions;
+        if let Some(index) = first_primary {
+            enforce_primary(&mut values, index);
+        }
+        object.insert(key.into(), Value::Array(values));
+    }
+    Ok(())
+}
+
+fn sets_primary(value: &Value) -> bool {
+    value.get("primary").and_then(Value::as_bool) == Some(true)
+}
+
+fn enforce_primary(values: &mut [Value], selected: usize) {
+    for (index, value) in values.iter_mut().enumerate() {
+        if index != selected && sets_primary(value) {
+            value
+                .as_object_mut()
+                .expect("a primary SCIM value is an object")
+                .insert("primary".into(), Value::Bool(false));
+        }
+    }
 }
 
 fn string_value(value: Option<Value>, attribute: &str) -> Result<String, ScimError> {

@@ -454,6 +454,12 @@ async fn user_patch_is_ordered_case_insensitive_and_atomic_at_the_store_boundary
             { "op": "replace", "path": "title", "value": "true" },
             { "op": "replace", "path": "userType", "value": "true" },
             { "op": "replace", "path": "active", "value": "false" },
+            { "op": "add", "path": "phoneNumbers", "value": { "value": "+44 20 1111 1111", "type": "work", "primary": true } },
+            { "op": "add", "path": "phoneNumbers", "value": [
+                { "value": "+44 20 2222 2222", "type": "home", "primary": true }
+            ] },
+            { "op": "add", "path": "roles[type eq \"application\"]", "value": { "value": "engineer" } },
+            { "op": "replace", "path": "roles[type eq \"application\"]", "value": [{ "display": "Engineer" }] },
             { "op": "remove", "path": "title" }
         ]
     });
@@ -467,6 +473,12 @@ async fn user_patch_is_ordered_case_insensitive_and_atomic_at_the_store_boundary
     assert_eq!(changed["emails"][0]["primary"], true);
     assert_eq!(changed["active"], false);
     assert_eq!(changed["userType"], "true");
+    assert_eq!(changed["phoneNumbers"].as_array().unwrap().len(), 2);
+    assert_eq!(changed["phoneNumbers"][0]["primary"], false);
+    assert_eq!(changed["phoneNumbers"][1]["primary"], true);
+    assert_eq!(changed["roles"][0]["value"], "engineer");
+    assert_eq!(changed["roles"][0]["type"], "application");
+    assert_eq!(changed["roles"][0]["display"], "Engineer");
     assert_eq!(
         changed[SCIM_ENTERPRISE_USER_SCHEMA],
         json!({ "division": "Platform" })

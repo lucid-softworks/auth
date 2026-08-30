@@ -1,4 +1,4 @@
-use super::canonical_user_key;
+use super::{canonical_user_key, enforce_primary};
 use crate::scim::{ScimError, ScimErrorType};
 use regex::Regex;
 use serde_json::Value;
@@ -86,11 +86,13 @@ pub(super) fn apply(
                 ScimErrorType::InvalidPath,
             )
         })?;
-    let index = values
+    let matches = values
         .iter()
-        .position(|entry| selector_matches(entry, &path.selector));
+        .enumerate()
+        .filter_map(|(index, entry)| selector_matches(entry, &path.selector).then_some(index))
+        .collect::<Vec<_>>();
     if op == "remove" {
-        remove(values, index, path.subattribute.as_deref());
+        remove(values, &matches, path.subattribute.as_deref());
         return Ok(());
     }
     let value = value.ok_or_else(|| {
@@ -100,32 +102,30 @@ pub(super) fn apply(
             ScimErrorType::InvalidValue,
         )
     })?;
-    let changed_index = match index {
-        Some(index) => {
-            replace(values, index, path.subattribute.as_deref(), value)?;
-            index
-        }
-        None if key == "emails" && path.selector == FilterSelector::Primary(true) => {
+    let preferred_primary = if matches.is_empty() {
+        if key == "emails" && path.selector == FilterSelector::Primary(true) {
             return Err(ScimError::typed(
                 400,
                 "No primary email matches the PATCH path",
                 ScimErrorType::NoTarget,
             ));
         }
-        None => create(
+        create(
             values,
             &path.selector,
             path.subattribute.as_deref(),
             value,
-        )?,
+        )?
+    } else {
+        replace(
+            values,
+            &matches,
+            path.subattribute.as_deref(),
+            value,
+        )?
     };
-    if values
-        .get(changed_index)
-        .and_then(|entry| entry.get("primary"))
-        .and_then(Value::as_bool)
-        == Some(true)
-    {
-        enforce_primary(values, changed_index);
+    if let Some(index) = preferred_primary {
+        enforce_primary(values, index);
     }
     Ok(())
 }
@@ -142,34 +142,53 @@ fn selector_matches(entry: &Value, selector: &FilterSelector) -> bool {
     }
 }
 
-fn remove(values: &mut Vec<Value>, index: Option<usize>, subattribute: Option<&str>) {
-    let Some(index) = index else { return };
+fn remove(values: &mut Vec<Value>, matches: &[usize], subattribute: Option<&str>) {
     if let Some(subattribute) = subattribute {
-        if let Some(object) = values[index].as_object_mut() {
-            object.remove(subattribute);
+        for index in matches {
+            if let Some(object) = values[*index].as_object_mut() {
+                object.remove(subattribute);
+            }
         }
     } else {
-        values.remove(index);
+        let mut index = 0;
+        values.retain(|_| {
+            let keep = !matches.contains(&index);
+            index += 1;
+            keep
+        });
     }
 }
 
 fn replace(
     values: &mut [Value],
-    index: usize,
+    matches: &[usize],
     subattribute: Option<&str>,
     value: Value,
-) -> Result<(), ScimError> {
+) -> Result<Option<usize>, ScimError> {
     if let Some(subattribute) = subattribute {
-        values[index]
-            .as_object_mut()
-            .ok_or_else(|| {
-                ScimError::typed(400, "Invalid PATCH target", ScimErrorType::InvalidPath)
-            })?
-            .insert(subattribute.into(), value);
+        for index in matches {
+            values[*index]
+                .as_object_mut()
+                .ok_or_else(|| {
+                    ScimError::typed(400, "Invalid PATCH target", ScimErrorType::InvalidPath)
+                })?
+                .insert(subattribute.into(), value.clone());
+        }
+        Ok((subattribute.eq_ignore_ascii_case("primary") && value == Value::Bool(true))
+            .then_some(matches[0]))
     } else {
-        values[index] = value;
+        let replacement = one_complex_value(value)?;
+        for index in matches {
+            values[*index]
+                .as_object_mut()
+                .ok_or_else(|| {
+                    ScimError::typed(400, "Invalid PATCH target", ScimErrorType::InvalidPath)
+                })?
+                .extend(replacement.clone());
+        }
+        Ok((replacement.get("primary").and_then(Value::as_bool) == Some(true))
+            .then_some(matches[0]))
     }
-    Ok(())
 }
 
 fn create(
@@ -177,8 +196,38 @@ fn create(
     selector: &FilterSelector,
     subattribute: Option<&str>,
     value: Value,
-) -> Result<usize, ScimError> {
+) -> Result<Option<usize>, ScimError> {
+    if subattribute.is_none() {
+        let additions = match value {
+            Value::Array(values) => values,
+            value => vec![value],
+        };
+        let start = values.len();
+        let mut preferred_primary = None;
+        for (offset, value) in additions.into_iter().enumerate() {
+            let mut entry = one_complex_value(value)?;
+            apply_selector(&mut entry, selector);
+            if preferred_primary.is_none()
+                && entry.get("primary").and_then(Value::as_bool) == Some(true)
+            {
+                preferred_primary = Some(start + offset);
+            }
+            values.push(Value::Object(entry));
+        }
+        return Ok(preferred_primary);
+    }
     let mut entry = serde_json::Map::new();
+    apply_selector(&mut entry, selector);
+    if let Some(subattribute) = subattribute {
+        entry.insert(subattribute.into(), value);
+    }
+    let index = values.len();
+    let primary = entry.get("primary").and_then(Value::as_bool) == Some(true);
+    values.push(Value::Object(entry));
+    Ok(primary.then_some(index))
+}
+
+fn apply_selector(entry: &mut serde_json::Map<String, Value>, selector: &FilterSelector) {
     match selector {
         FilterSelector::Type(kind) => {
             entry.insert("type".into(), Value::String(kind.clone()));
@@ -187,31 +236,18 @@ fn create(
             entry.insert("primary".into(), Value::Bool(*primary));
         }
     }
-    if let Some(subattribute) = subattribute {
-        entry.insert(subattribute.into(), value);
-    } else if let Some(object) = value.as_object() {
-        entry.extend(object.clone());
-    } else {
-        return Err(ScimError::typed(
-            400,
-            "Invalid PATCH value",
-            ScimErrorType::InvalidValue,
-        ));
-    }
-    let index = values.len();
-    values.push(Value::Object(entry));
-    Ok(index)
 }
 
-fn enforce_primary(values: &mut [Value], selected: usize) {
-    for (index, value) in values.iter_mut().enumerate() {
-        if index == selected {
-            continue;
-        }
-        if let Some(value) = value.as_object_mut()
-            && value.get("primary").and_then(Value::as_bool) == Some(true)
-        {
-            value.insert("primary".into(), Value::Bool(false));
-        }
-    }
+fn one_complex_value(value: Value) -> Result<serde_json::Map<String, Value>, ScimError> {
+    let value = match value {
+        Value::Array(mut values) if values.len() == 1 => values.remove(0),
+        value => value,
+    };
+    value.as_object().cloned().ok_or_else(|| {
+        ScimError::typed(
+            400,
+            "Filtered PATCH path requires one complex value",
+            ScimErrorType::InvalidValue,
+        )
+    })
 }
