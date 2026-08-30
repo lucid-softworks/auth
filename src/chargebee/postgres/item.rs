@@ -4,7 +4,7 @@ use crate::{
     postgres::{PostgresModel, PostgresWrite},
 };
 use serde_json::json;
-use sqlx::{Postgres, QueryBuilder};
+use sqlx::{Postgres, QueryBuilder, postgres::PgRow};
 use uuid::Uuid;
 
 pub(super) async fn create(
@@ -33,14 +33,12 @@ pub(super) async fn list(
         return Ok(Vec::new());
     };
     let mut query = filter_query(&model, id, false)?;
-    query
+    let rows = query
         .build()
         .fetch_all(store.pool())
         .await
-        .map_err(item_error)?
-        .iter()
-        .map(|row| rows::decode_item(&model, row))
-        .collect()
+        .map_err(item_error)?;
+    decode_items(&model, &rows)
 }
 pub(super) async fn delete(
     store: &PostgresChargebeeStore,
@@ -50,14 +48,24 @@ pub(super) async fn delete(
         return Ok(Vec::new());
     };
     let mut query = filter_query(&model, id, true)?;
-    query
+    let rows = query
         .build()
         .fetch_all(store.pool())
         .await
-        .map_err(item_error)?
+        .map_err(item_error)?;
+    decode_items(&model, &rows)
+}
+
+fn decode_items(
+    model: &PostgresModel<'_>,
+    rows: &[PgRow],
+) -> Result<Vec<ChargebeeSubscriptionItem>, ChargebeeStoreError> {
+    let mut items = rows
         .iter()
-        .map(|row| rows::decode_item(&model, row))
-        .collect()
+        .map(|row| rows::decode_item(model, row))
+        .collect::<Result<Vec<_>, _>>()?;
+    items.sort_by_key(|item| item.id);
+    Ok(items)
 }
 fn filter_query(
     model: &PostgresModel<'_>,
