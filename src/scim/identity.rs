@@ -4,6 +4,12 @@ use async_trait::async_trait;
 use serde_json::{Map, Value, json};
 use std::sync::Arc;
 
+mod acquire;
+
+pub use acquire::{
+    ScimActiveUserLink, ScimUserExternalIdReference, acquire_active_scim_user_link,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScimIdentityProfile {
     Manage,

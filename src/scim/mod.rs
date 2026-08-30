@@ -24,8 +24,9 @@ pub use config::{
 pub use database::DatabaseScimStore;
 pub use error::{ScimError, ScimErrorBody, ScimErrorType};
 pub use identity::{
-    ScimIdentity, ScimIdentityProfile, ScimIdentityResolution, ScimIdentityResolutionInput,
-    ScimIdentitySource, ScimIdentityState, ScimTransactionContext,
+    ScimActiveUserLink, ScimIdentity, ScimIdentityProfile, ScimIdentityResolution,
+    ScimIdentityResolutionInput, ScimIdentitySource, ScimIdentityState, ScimTransactionContext,
+    ScimUserExternalIdReference, acquire_active_scim_user_link,
 };
 pub use memory::MemoryScimStore;
 pub use model::{

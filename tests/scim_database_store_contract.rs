@@ -9,12 +9,13 @@ use axum::{
 use chrono::{Duration, Utc};
 use http_body_util::BodyExt;
 use lucid_auth::{
-    AuthConfig, AuthService, AuthStore, DatabaseScimStore, SCIM_GROUP_SCHEMA, SCIM_MEDIA_TYPE,
-    SCIM_USER_SCHEMA, ScimAuthorizationSource, ScimBearerCredential, ScimConnection, ScimError,
-    ScimIdentity, ScimIdentityResolution, ScimIdentityResolutionInput, ScimIdentityState,
-    ScimManagedConnectionOptions, ScimOptions, ScimPlugin, ScimProjectedUserState, ScimProjection,
-    ScimRoleExistenceInput, ScimRoleMappingInput, ScimRoleProjection, ScimScope, ScimStore,
-    ScimTransactionContext,
+    AuthConfig, AuthError, AuthService, AuthStore, DatabaseScimStore, SCIM_GROUP_SCHEMA,
+    SCIM_MEDIA_TYPE, SCIM_USER_SCHEMA, ScimActiveUserLink, ScimAuthorizationSource,
+    ScimBearerCredential, ScimConnection, ScimError, ScimIdentity, ScimIdentityResolution,
+    ScimIdentityResolutionInput, ScimIdentityState, ScimManagedConnectionOptions, ScimOptions,
+    ScimPlugin, ScimProjectedUserState, ScimProjection, ScimRoleExistenceInput,
+    ScimRoleMappingInput, ScimRoleProjection, ScimScope, ScimStore, ScimTransactionContext,
+    ScimUserExternalIdReference, acquire_active_scim_user_link, run_database_transaction,
     sqlite::{SqliteAdapterConfig, SqliteStore},
 };
 use serde_json::{Value, json};
@@ -193,6 +194,26 @@ async fn send_json(app: Router, method: &str, path: &str, body: Value) -> (Statu
     (status, body)
 }
 
+async fn acquire_link(
+    auth_store: &SqliteStore,
+    connection_id: &str,
+    external_id: &str,
+) -> Option<ScimActiveUserLink> {
+    let reference = ScimUserExternalIdReference {
+        connection_id: connection_id.into(),
+        external_id: external_id.into(),
+    };
+    run_database_transaction(auth_store, move |database| {
+        Box::pin(async move {
+            acquire_active_scim_user_link(reference, ScimTransactionContext { database })
+                .await
+                .map_err(|error| AuthError::Storage(error.to_string()))
+        })
+    })
+    .await
+    .unwrap()
+}
+
 #[tokio::test]
 async fn core_resources_round_trip_through_native_sqlite_transactions() {
     let (app, store, auth_store, identity, projection, _) = application().await;
@@ -219,6 +240,15 @@ async fn core_resources_round_trip_through_native_sqlite_transactions() {
         .unwrap();
     assert_eq!(persisted_user.resource.user_name, "luna@example.com");
     let auth_user_id = persisted_user.user_id.clone();
+    assert_eq!(
+        acquire_link(auth_store.as_ref(), "directory-1", "employee-1")
+            .await
+            .unwrap(),
+        ScimActiveUserLink {
+            scim_user_id: user_id.into(),
+            user_id: auth_user_id.clone(),
+        }
+    );
     assert_eq!(identity.resolutions.load(Ordering::SeqCst), 1);
     assert!(identity.states.lock().unwrap().last().unwrap().active);
 
@@ -336,6 +366,11 @@ async fn core_resources_round_trip_through_native_sqlite_transactions() {
             .is_none()
     );
     assert!(!identity.states.lock().unwrap().last().unwrap().active);
+    assert!(
+        acquire_link(auth_store.as_ref(), "directory-1", "employee-1")
+            .await
+            .is_none()
+    );
 
     let resolutions_before_relink = identity.resolutions.load(Ordering::SeqCst);
     let (status, relinked) = send_json(

@@ -6,7 +6,7 @@ pub(super) fn scoped(parts: &[&str]) -> String {
     URL_SAFE_NO_PAD.encode(Sha256::digest(encoded))
 }
 
-pub(super) fn connection(connection_id: &str) -> String {
+pub(in crate::scim) fn connection(connection_id: &str) -> String {
     scoped(&["scim-connection", connection_id])
 }
 
