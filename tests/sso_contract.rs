@@ -9,8 +9,9 @@ use lucid_auth::sso::{
     validate_saml_timestamp_at,
 };
 use lucid_auth::{
-    AdditionalFieldType, AuthPlugin, PluginHttpMethod, PluginProvenance, SSO_VERSION, SsoOptions,
-    SsoPlugin,
+    AdditionalFieldType, AuthPlugin, MemorySsoStore, NewSsoProvider, PluginHttpMethod,
+    PluginProvenance, SSO_VERSION, SsoOptions, SsoPlugin, SsoProviderUpdate, SsoStore,
+    SsoStoreError,
 };
 
 #[test]
@@ -218,4 +219,54 @@ fn local_response(response: &str) -> String {
         stream.write_all(response.as_bytes()).unwrap();
     });
     format!("http://{address}/.well-known/openid-configuration")
+}
+
+#[tokio::test]
+async fn memory_provider_catalog_enforces_identity_and_ordering() {
+    let store = MemorySsoStore::new();
+    let now = Utc.with_ymd_and_hms(2026, 8, 30, 13, 0, 0).unwrap();
+    let provider = NewSsoProvider {
+        id: "provider-row".into(),
+        issuer: "https://sp.example".into(),
+        oidc_config: Some(serde_json::json!({"clientSecret": "plaintext-upstream"})),
+        saml_config: None,
+        user_id: "owner".into(),
+        provider_id: "workforce".into(),
+        organization_id: Some("organization".into()),
+        domain: "example.com".into(),
+        domain_verified: Some(false),
+        now,
+    };
+    let created = store.create(provider.clone()).await.unwrap();
+    assert_eq!(created.provider_id, "workforce");
+    assert_eq!(
+        store
+            .create(NewSsoProvider {
+                id: "duplicate-row".into(),
+                ..provider
+            })
+            .await,
+        Err(SsoStoreError::DuplicateProviderId)
+    );
+    let updated = store
+        .update(
+            "provider-row",
+            SsoProviderUpdate {
+                domain: Some("login.example.com".into()),
+                domain_verified: Some(true),
+                updated_at: Some(now + chrono::Duration::seconds(1)),
+                ..SsoProviderUpdate::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(updated.domain, "login.example.com");
+    assert_eq!(updated.domain_verified, Some(true));
+    assert_eq!(store.list().await.unwrap(), vec![updated.clone()]);
+    assert_eq!(
+        store.find_by_provider_id("workforce").await.unwrap(),
+        Some(updated.clone())
+    );
+    assert_eq!(store.delete("provider-row").await.unwrap(), Some(updated));
+    assert!(store.list().await.unwrap().is_empty());
 }

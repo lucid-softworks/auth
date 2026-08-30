@@ -242,7 +242,10 @@ pub use scim::{
     ScimTransactionContext, ScimUser, ScimVerifiedBearer,
     ScimAuthorizationSource, ScimUserExternalIdReference, acquire_active_scim_user_link,
 };
-pub use sso::{SsoOptions, SsoPlugin, VERSION as SSO_VERSION};
+pub use sso::{
+    MemorySsoStore, NewSsoProvider, SsoOptions, SsoPlugin, SsoProvider, SsoProviderUpdate,
+    SsoStore, SsoStoreError, VERSION as SSO_VERSION,
+};
 pub use service::account_types::{
     LinkedAccount, ProviderAccountIdentity, ProviderAccountInfo, ProviderAccountUser,
     ProviderTokenResponse,
