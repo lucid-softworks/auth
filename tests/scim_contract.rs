@@ -334,7 +334,10 @@ async fn user_patch_is_ordered_case_insensitive_and_atomic_at_the_store_boundary
         "Operations": [
             { "op": "REPLACE", "path": "displayName", "value": "First" },
             { "op": "replace", "path": "displayName", "value": "Second" },
+            { "op": "replace", "path": "Name.GivenName", "value": "Nova" },
             { "op": "add", "path": "emails[type eq \"home\"].value", "value": "home@example.com" },
+            { "op": "remove", "path": format!("{SCIM_ENTERPRISE_USER_SCHEMA}:department") },
+            { "op": "add", "path": format!("{SCIM_ENTERPRISE_USER_SCHEMA}:division"), "value": "Platform" },
             { "op": "remove", "path": "title" }
         ]
     });
@@ -342,7 +345,12 @@ async fn user_patch_is_ordered_case_insensitive_and_atomic_at_the_store_boundary
         send_json(app.clone(), "PATCH", &format!("/scim/v2/Users/{id}"), patch).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(changed["displayName"], "Second");
+    assert_eq!(changed["name"]["givenName"], "Nova");
     assert_eq!(changed["emails"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        changed[SCIM_ENTERPRISE_USER_SCHEMA],
+        json!({ "division": "Platform" })
+    );
 
     let (status, body) = send_json(
         app,
