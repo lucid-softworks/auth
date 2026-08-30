@@ -19,6 +19,7 @@ axum = [
     "dep:serde_urlencoded",
     "dep:tokio-stream",
     "dep:tower",
+    "dep:x509-parser",
 ]
 postgres = [
     "dep:sqlx",
@@ -70,6 +71,7 @@ tokio-stream = { version = "0.1", optional = true }
 tower = { version = "0.5", features = ["util"], optional = true }
 tracing = "0.1"
 url = "2"
+x509-parser = { version = "0.18.1", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 hickory-resolver = { version = "0.26.1", optional = true, features = ["system-config", "tokio"] }

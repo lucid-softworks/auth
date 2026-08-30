@@ -200,6 +200,51 @@ async fn provider_catalog_requires_a_session_and_returns_only_owned_sanitized_en
 }
 
 #[tokio::test]
+async fn saml_provider_catalog_returns_safe_certificate_summaries() {
+    let fixture = fixture().await;
+    let owner = fixture
+        .providers
+        .find_by_provider_id("acme-sso!")
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id;
+    fixture
+        .providers
+        .create(NewSsoProvider {
+            id: "saml-certificate-row".into(),
+            issuer: "https://saml.example.com".into(),
+            oidc_config: None,
+            saml_config: Some(json!({
+                "entryPoint": "https://saml.example.com/sso",
+                "cert": "raw fallback must not be returned",
+                "idpMetadata": { "cert": ["invalid certificate"] }
+            })),
+            user_id: owner,
+            provider_id: "saml-certificate".into(),
+            organization_id: None,
+            domain: "saml.example.com".into(),
+            domain_verified: None,
+        })
+        .await
+        .unwrap();
+
+    let (status, body) = get(
+        fixture.app,
+        "/api/auth/sso/get-provider?providerId=saml-certificate",
+        Some(&fixture.owner_cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["samlConfig"]["certificate"],
+        json!([{ "error": "Failed to parse certificate" }])
+    );
+    assert!(!body.to_string().contains("raw fallback"));
+    assert!(!body.to_string().contains("invalid certificate"));
+}
+
+#[tokio::test]
 async fn provider_lookup_distinguishes_missing_and_forbidden_records() {
     let fixture = fixture().await;
     let (status, provider) = get(

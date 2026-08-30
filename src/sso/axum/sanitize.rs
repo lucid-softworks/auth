@@ -2,6 +2,8 @@ use super::super::SsoProvider;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use serde_json::{Map, Value, json};
 
+mod certificate;
+
 const URI_COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')
     .remove(b'_')
@@ -82,6 +84,9 @@ fn saml(config: &Map<String, Value>) -> Value {
         "digestAlgorithm",
     ] {
         copy(config, &mut output, field);
+    }
+    if let Some(certificate) = certificate::summaries(config) {
+        output.insert("certificate".into(), certificate);
     }
     Value::Object(output)
 }
