@@ -197,5 +197,30 @@ mod tests {
                 .is_none()
             );
         }
+        assert!(
+            cache_entry(
+                Map::new(),
+                CacheHeaders {
+                    vary: Some("accept, *".into()),
+                    ..Default::default()
+                },
+                Duration::from_secs(60),
+                0,
+            )
+            .is_none()
+        );
+        for value in ["no-cache", "max-age=10, max-age=20", "s-maxage=invalid"] {
+            let entry = cache_entry(
+                Map::new(),
+                CacheHeaders {
+                    cache_control: Some(value.into()),
+                    ..Default::default()
+                },
+                Duration::from_secs(60),
+                1_000,
+            )
+            .unwrap();
+            assert_eq!(entry.expires_at_ms, 1_000, "{value}");
+        }
     }
 }

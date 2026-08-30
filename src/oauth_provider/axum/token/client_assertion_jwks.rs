@@ -248,6 +248,7 @@ async fn fetch_client_jwks(
     client: &OAuthProviderClient,
     uri: &str,
 ) -> Result<JoseJwkSet, OAuthProviderError> {
+    validate_client_jwks_uri(service, client, uri)?;
     if let Some(discovery_id) = client.client_discovery_id.as_deref() {
         for extension in &config.extensions {
             if !extension
@@ -260,10 +261,7 @@ async fn fetch_client_jwks(
             if let Some(response) = extension
                 .fetch_client_metadata_resource(discovery_id, uri)
                 .await
-                .map_err(|error| match error {
-                    AuthError::OAuthProvider(error) => error,
-                    error => server(error),
-                })?
+                .map_err(|_| client_jwks_fetch_error())?
             {
                 if response.status != 200
                     || response.body.len() > MAX_JWKS_RESPONSE_BYTES
@@ -278,7 +276,6 @@ async fn fetch_client_jwks(
             "client discovery does not provide a metadata resource transport".into(),
         ));
     }
-    validate_client_jwks_uri(service, client, uri)?;
     let http = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(JWKS_FETCH_TIMEOUT)

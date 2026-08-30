@@ -308,17 +308,37 @@ impl OAuthProviderExtension for CimdClientDiscovery {
         uri: &str,
     ) -> Result<Option<OAuthClientMetadataResourceResponse>, AuthError> {
         if discovery_id != "cimd" { return Ok(None); }
-        let response = self.options.fetch_client_metadata_resource.fetch(CimdFetchRequest {
-            url: uri.into(),
-            method: "GET".into(),
-            headers: BTreeMap::from([("accept".into(), "application/json".into())]),
-            timeout: FETCH_TIMEOUT,
-            maximum_response_bytes: MAX_RESOURCE_BYTES,
-        }).await.map_err(|error| OAuthProviderError::InvalidClient(error.to_string()))?;
+        let response = tokio::time::timeout(
+            FETCH_TIMEOUT,
+            self.options.fetch_client_metadata_resource.fetch(CimdFetchRequest {
+                url: uri.into(),
+                method: "GET".into(),
+                headers: BTreeMap::from([("accept".into(), "application/json".into())]),
+                timeout: FETCH_TIMEOUT,
+                maximum_response_bytes: MAX_RESOURCE_BYTES,
+            }),
+        )
+        .await
+        .map_err(|_| OAuthProviderError::InvalidClient("metadata resource fetch timed out".into()))?
+        .map_err(|error| OAuthProviderError::InvalidClient(error.to_string()))?;
         if response.redirected {
             return Err(OAuthProviderError::InvalidClient(
                 "client metadata resource fetch must not follow redirects".into(),
             ).into());
+        }
+        if response.body.len() > MAX_RESOURCE_BYTES
+            || response
+                .headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                .map(|(_, value)| value)
+                .and_then(|value| value.parse::<usize>().ok())
+                .is_some_and(|length| length > MAX_RESOURCE_BYTES)
+        {
+            return Err(OAuthProviderError::InvalidClient(
+                "metadata resource exceeds response size limit".into(),
+            )
+            .into());
         }
         Ok(Some(OAuthClientMetadataResourceResponse {
             status: response.status,

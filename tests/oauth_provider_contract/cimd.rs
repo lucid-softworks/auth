@@ -73,7 +73,15 @@ struct CimdFixture {
 
 async fn fixture_with_cimd(options: CimdOptions) -> CimdFixture {
     let oauth = Arc::new(MemoryOAuthProviderStore::new());
-    let mut config = AuthConfig::new([119_u8; 32]).unwrap();
+    fixture_with_cimd_store(options, oauth, 119).await
+}
+
+async fn fixture_with_cimd_store(
+    options: CimdOptions,
+    oauth: Arc<MemoryOAuthProviderStore>,
+    secret: u8,
+) -> CimdFixture {
+    let mut config = AuthConfig::new([secret; 32]).unwrap();
     config.set_base_url("http://localhost/api/auth").unwrap();
     config.add_plugin(JwtPlugin::default()).unwrap();
     config
@@ -397,4 +405,34 @@ async fn stale_fetch_failure_leaves_the_last_valid_registration_intact() {
         .unwrap();
     assert_eq!(stored.name.as_deref(), Some("Stored"));
     assert_eq!(stored.client_discovery_id.as_deref(), Some("cimd"));
+}
+
+#[tokio::test]
+async fn same_owner_creation_race_converges_through_canonical_registration() {
+    let client_id = "https://metadata.example/race.json";
+    let lifecycle = Arc::new(LifecycleRecorder::default());
+    let response = || metadata_response(client_id, "Racing client", "max-age=60");
+    let first_fetcher = RecordedFetcher::new([response()]).delayed();
+    let second_fetcher = RecordedFetcher::new([response()]).delayed();
+    let mut first_options = CimdOptions::new(Arc::new(first_fetcher.clone()));
+    first_options.lifecycle = Some(lifecycle.clone());
+    let mut second_options = CimdOptions::new(Arc::new(second_fetcher.clone()));
+    second_options.lifecycle = Some(lifecycle.clone());
+    let oauth = Arc::new(MemoryOAuthProviderStore::new());
+    let first = fixture_with_cimd_store(first_options, oauth.clone(), 121).await;
+    let second = fixture_with_cimd_store(second_options, oauth.clone(), 122).await;
+
+    let (first_response, second_response) = tokio::join!(
+        authorize(&first.app, client_id),
+        authorize(&second.app, client_id),
+    );
+    assert_eq!(first_response.0, StatusCode::FOUND);
+    assert_eq!(second_response.0, StatusCode::FOUND);
+    assert_eq!(first_fetcher.requests.lock().unwrap().len(), 1);
+    assert_eq!(second_fetcher.requests.lock().unwrap().len(), 1);
+    assert_eq!(lifecycle.created.load(Ordering::SeqCst), 1);
+    assert_eq!(lifecycle.refreshed.load(Ordering::SeqCst), 1);
+    let stored = oauth.find_oauth_client(client_id).await.unwrap().unwrap();
+    assert_eq!(stored.client_discovery_id.as_deref(), Some("cimd"));
+    assert!(stored.client_secret.is_none());
 }

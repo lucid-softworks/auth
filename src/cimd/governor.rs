@@ -163,4 +163,70 @@ mod tests {
             "metadata document fetch is within the per-client minimum interval"
         );
     }
+
+    #[test]
+    fn per_origin_concurrency_and_rolling_budgets_are_independent() {
+        let mut options = CimdOptions::new(Arc::new(Fetcher));
+        options.metadata_fetch_policy.minimum_fetch_interval = 0_u64.into();
+        options.metadata_fetch_policy.maximum_concurrent_fetches = 3;
+        options.metadata_fetch_policy.maximum_concurrent_fetches_per_origin = 1;
+        options.metadata_fetch_policy.maximum_fetches_per_minute = 2;
+        options.metadata_fetch_policy.maximum_fetches_per_origin_per_minute = 1;
+        let mut governor = FetchGovernor::default();
+
+        let first = governor
+            .acquire("https://a.example/one", &options, 1_000)
+            .unwrap();
+        assert_eq!(
+            governor
+                .acquire("https://a.example/two", &options, 1_000)
+                .unwrap_err(),
+            "metadata fetch concurrency limit exceeded for client origin"
+        );
+        governor.release(&first);
+        assert_eq!(
+            governor
+                .acquire("https://a.example/two", &options, 1_001)
+                .unwrap_err(),
+            "metadata fetch rate limit exceeded for client origin"
+        );
+        let second = governor
+            .acquire("https://b.example/one", &options, 1_001)
+            .unwrap();
+        governor.release(&second);
+        assert_eq!(
+            governor
+                .acquire("https://c.example/one", &options, 1_002)
+                .unwrap_err(),
+            "global metadata fetch rate limit exceeded"
+        );
+        assert!(
+            governor
+                .acquire("https://a.example/two", &options, 61_001)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn bounded_state_evicts_only_records_outside_active_windows() {
+        let mut options = CimdOptions::new(Arc::new(Fetcher));
+        options.max_cache_entries = 1;
+        options.metadata_fetch_policy.minimum_fetch_interval = 60_u64.into();
+        let mut governor = FetchGovernor::default();
+        let origin = governor
+            .acquire("https://a.example/one", &options, 1_000)
+            .unwrap();
+        governor.release(&origin);
+        assert_eq!(
+            governor
+                .acquire("https://b.example/one", &options, 1_001)
+                .unwrap_err(),
+            "metadata fetch client state is at capacity"
+        );
+        assert!(
+            governor
+                .acquire("https://b.example/one", &options, 61_001)
+                .is_ok()
+        );
+    }
 }
