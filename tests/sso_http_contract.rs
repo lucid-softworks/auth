@@ -805,6 +805,88 @@ async fn saml_provider_catalog_returns_safe_certificate_summaries() {
 }
 
 #[tokio::test]
+async fn saml_sign_in_builds_a_bound_redirect_authn_request() {
+    use base64::Engine as _;
+    use std::io::Read as _;
+
+    let fixture = fixture().await;
+    let owner = fixture
+        .providers
+        .find_by_provider_id("acme-sso!")
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id;
+    fixture
+        .providers
+        .create(NewSsoProvider {
+            id: "saml-runtime-row".into(),
+            issuer: "https://sp.example.com/metadata".into(),
+            oidc_config: None,
+            saml_config: Some(json!({
+                "issuer": "https://sp.example.com/metadata",
+                "entryPoint": "https://idp.example.com/sso",
+                "identifierFormat": "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+                "idpMetadata": {"entityID": "https://idp.example.com"},
+                "wantAssertionsSigned": true,
+                "authnRequestsSigned": false
+            })),
+            user_id: owner,
+            provider_id: "saml-runtime".into(),
+            organization_id: None,
+            domain: "saml-runtime.example.com".into(),
+            domain_verified: None,
+        })
+        .await
+        .unwrap();
+    let response = fixture
+        .app
+        .oneshot(
+            Request::post("/api/auth/sign-in/sso")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "https://example.com")
+                .body(Body::from(
+                    json!({
+                        "providerId": "saml-runtime",
+                        "providerType": "saml",
+                        "callbackURL": "/dashboard"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response.headers().contains_key(header::SET_COOKIE));
+    let body: Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let redirect = url::Url::parse(body["url"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        redirect.as_str().split('?').next().unwrap(),
+        "https://idp.example.com/sso"
+    );
+    let query = redirect
+        .query_pairs()
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(query["RelayState"].len(), 32);
+    let compressed = base64::engine::general_purpose::STANDARD
+        .decode(&query["SAMLRequest"])
+        .unwrap();
+    let mut decoder = flate2::read::DeflateDecoder::new(compressed.as_slice());
+    let mut request = String::new();
+    decoder.read_to_string(&mut request).unwrap();
+    assert!(request.contains("<samlp:AuthnRequest"));
+    assert!(request.contains("ID=\"_"));
+    assert!(request.contains("Destination=\"https://idp.example.com/sso\""));
+    assert!(request.contains(
+        "AssertionConsumerServiceURL=\"https://example.com/api/auth/sso/saml2/sp/acs/saml-runtime\""
+    ));
+    assert!(request.contains("<saml:Issuer>https://sp.example.com/metadata</saml:Issuer>"));
+}
+
+#[tokio::test]
 async fn provider_lookup_distinguishes_missing_and_forbidden_records() {
     let fixture = fixture().await;
     let (status, provider) = get(
