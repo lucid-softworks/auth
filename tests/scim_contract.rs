@@ -686,7 +686,7 @@ async fn group_crud_enforces_same_connection_users_and_member_projection() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(changed.get("members").is_none());
+    assert_eq!(changed["members"], json!([]));
 
     let response = app
         .oneshot(

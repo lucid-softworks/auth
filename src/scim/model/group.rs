@@ -22,7 +22,7 @@ pub struct ScimGroup {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
     pub display_name: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub members: Vec<ScimGroupMember>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<ScimMeta>,
