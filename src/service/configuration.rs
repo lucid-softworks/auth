@@ -195,4 +195,19 @@ impl AuthService {
             .iter()
             .any(|trusted| trusted.matches(origin))
     }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn reserved_account_provider_ids(&self) -> Vec<&str> {
+        self.config
+            .social_providers
+            .iter()
+            .map(|provider| provider.id())
+            .chain(
+                self.config
+                    .trusted_social_providers
+                    .iter()
+                    .map(String::as_str),
+            )
+            .collect()
+    }
 }

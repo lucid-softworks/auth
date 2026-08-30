@@ -21,15 +21,16 @@ struct Fixture {
 }
 
 async fn fixture() -> Fixture {
+    fixture_with_options(SsoOptions::default()).await
+}
+
+async fn fixture_with_options(options: SsoOptions) -> Fixture {
     let mut config = AuthConfig::new([31_u8; 32]).unwrap();
     config.email_and_password.enabled = true;
     config.set_base_url("https://example.com").unwrap();
     let providers = Arc::new(MemorySsoStore::new());
     config
-        .add_plugin(SsoPlugin::with_store(
-            SsoOptions::default(),
-            providers.clone(),
-        ))
+        .add_plugin(SsoPlugin::with_store(options, providers.clone()))
         .unwrap();
     let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
     let owner = account(&service, "owner@example.com").await;
@@ -122,6 +123,23 @@ async fn get(app: Router, path: &str, cookie: Option<&str>) -> (StatusCode, Valu
     (status, body)
 }
 
+async fn post(app: Router, path: &str, cookie: Option<&str>, body: Value) -> (StatusCode, Value) {
+    let mut request = Request::post(path)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::ORIGIN, "https://example.com");
+    if let Some(cookie) = cookie {
+        request = request.header(header::COOKIE, cookie);
+    }
+    let response = app
+        .oneshot(request.body(Body::from(body.to_string())).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let body =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    (status, body)
+}
+
 #[tokio::test]
 async fn provider_catalog_requires_a_session_and_returns_only_owned_sanitized_entries() {
     let fixture = fixture().await;
@@ -183,4 +201,130 @@ async fn provider_lookup_distinguishes_missing_and_forbidden_records() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(missing["message"], "Provider not found");
+}
+
+#[tokio::test]
+async fn registration_enforces_boundaries_and_returns_the_upstream_creation_shape() {
+    let fixture = fixture().await;
+    let valid = json!({
+        "providerId": "new-provider",
+        "issuer": "https://new-idp.example.com",
+        "domain": "new.example.com",
+        "oidcConfig": {
+            "clientId": "new-client",
+            "clientSecret": "creation-secret",
+            "authorizationEndpoint": "https://new-idp.example.com/authorize",
+            "tokenEndpoint": "https://new-idp.example.com/token",
+            "jwksEndpoint": "https://new-idp.example.com/jwks",
+            "skipDiscovery": true,
+            "unknownNestedField": "stripped"
+        },
+        "overrideUserInfo": true,
+        "unknownTopLevelField": "stripped"
+    });
+    let (status, _) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/register",
+        None,
+        valid.clone(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let (status, reserved) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/register",
+        Some(&fixture.owner_cookie),
+        json!({
+            "providerId": "credential",
+            "issuer": "https://new-idp.example.com",
+            "domain": "new.example.com"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        reserved["message"],
+        "This providerId is reserved and cannot be used for an SSO provider"
+    );
+
+    let (status, missing_secret) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/register",
+        Some(&fixture.owner_cookie),
+        json!({
+            "providerId": "no-secret",
+            "issuer": "https://new-idp.example.com",
+            "domain": "new.example.com",
+            "oidcConfig": {
+                "clientId": "new-client",
+                "skipDiscovery": true
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        missing_secret["message"],
+        "clientSecret is required when using client_secret_basic or client_secret_post authentication"
+    );
+
+    let (status, created) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/register",
+        Some(&fixture.owner_cookie),
+        valid,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(created["providerId"], "new-provider");
+    assert_eq!(created["oidcConfig"]["clientSecret"], "creation-secret");
+    assert_eq!(created["oidcConfig"]["pkce"], true);
+    assert_eq!(created["oidcConfig"]["overrideUserInfo"], true);
+    assert_eq!(
+        created["oidcConfig"]["tokenEndpointAuthentication"],
+        "client_secret_basic"
+    );
+    assert_eq!(
+        created["redirectURI"],
+        "https://example.com/api/auth/sso/callback/new-provider"
+    );
+    assert!(created.get("domainVerified").is_none());
+    assert!(created["oidcConfig"].get("skipDiscovery").is_none());
+    assert!(created["oidcConfig"].get("unknownNestedField").is_none());
+    assert!(created.get("unknownTopLevelField").is_none());
+
+    let (_, catalog) = get(
+        fixture.app,
+        "/api/auth/sso/providers",
+        Some(&fixture.owner_cookie),
+    )
+    .await;
+    let serialized = catalog.to_string();
+    assert!(!serialized.contains("creation-secret"));
+}
+
+#[tokio::test]
+async fn registration_limit_counts_only_the_callers_providers() {
+    let fixture = fixture_with_options(SsoOptions {
+        providers_limit: 1,
+        ..SsoOptions::default()
+    })
+    .await;
+    let (status, body) = post(
+        fixture.app,
+        "/api/auth/sso/register",
+        Some(&fixture.owner_cookie),
+        json!({
+            "providerId": "over-limit",
+            "issuer": "https://idp.example.net",
+            "domain": "example.net"
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        body["message"],
+        "You have reached the maximum number of SSO providers"
+    );
 }
