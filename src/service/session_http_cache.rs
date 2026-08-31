@@ -105,8 +105,12 @@ impl AuthService {
             "session": payload.session,
             "user": payload.user,
         });
-        serde_json::from_value::<crate::protocol::better_auth::SessionResponse>(value.clone())
-            .ok()?;
+        if serde_json::from_value::<crate::protocol::better_auth::SessionResponse>(value.clone())
+            .is_err()
+        {
+            tracing::warn!("Cookie cache payload failed schema validation");
+            return None;
+        }
         Some((value, expires_at))
     }
 
@@ -242,8 +246,14 @@ fn normalize_javascript_dates(value: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::better_auth::BetterAuthSession;
+    use crate::{AuthConfig, MemoryStore, protocol::better_auth::BetterAuthSession};
     use chrono::Duration;
+    use std::sync::{Arc, Mutex};
+    use tracing::{
+        Event, Metadata, Subscriber,
+        field::{Field, Visit},
+        span::{Attributes, Id, Record},
+    };
     use uuid::Uuid;
 
     #[test]
@@ -269,5 +279,112 @@ mod tests {
 
         assert_eq!(session.authentication_method, None);
         assert_eq!(session.actor_user_id, Some(actor.to_string()));
+    }
+
+    #[tokio::test]
+    async fn invalid_signed_payload_warns_after_schema_validation() {
+        let mut config = AuthConfig::new([82; 32]).unwrap();
+        config.session.cookie_cache.enabled = true;
+        let service = AuthService::new(Arc::new(MemoryStore::default()), config);
+        let capture = Arc::new(WarningCapture::default());
+        let _guard = tracing::subscriber::set_default(capture.clone());
+
+        let valid = signed_cache(Value::Bool(false));
+        assert!(
+            service
+                .decode_session_cookie_cache("wire-token", &valid)
+                .await
+                .is_some()
+        );
+        assert!(capture.messages.lock().unwrap().is_empty());
+
+        let invalid = signed_cache(Value::Null);
+        assert!(
+            service
+                .decode_session_cookie_cache("wire-token", &invalid)
+                .await
+                .is_none()
+        );
+        assert_eq!(
+            capture.messages.lock().unwrap().as_slice(),
+            ["Cookie cache payload failed schema validation"]
+        );
+    }
+
+    fn signed_cache(email_verified: Value) -> String {
+        let now = Utc::now();
+        session_cache::encode(
+            SessionCachePayload {
+                session: serde_json::json!({
+                    "id": "session-id",
+                    "userId": "user-id",
+                    "token": "wire-token",
+                    "expiresAt": now + Duration::minutes(5),
+                    "createdAt": now,
+                    "updatedAt": now,
+                    "ipAddress": null,
+                    "userAgent": null
+                }),
+                user: serde_json::json!({
+                    "id": "user-id",
+                    "name": "Test User",
+                    "email": "test@example.com",
+                    "emailVerified": email_verified,
+                    "image": null,
+                    "createdAt": now,
+                    "updatedAt": now
+                }),
+                updated_at: now.timestamp_millis(),
+                version: "1".into(),
+            },
+            crate::CookieCacheStrategy::Compact,
+            &[82; 32],
+            300,
+        )
+        .unwrap()
+    }
+
+    #[derive(Default)]
+    struct WarningCapture {
+        messages: Mutex<Vec<String>>,
+    }
+
+    impl Subscriber for WarningCapture {
+        fn enabled(&self, metadata: &Metadata<'_>) -> bool {
+            *metadata.level() == tracing::Level::WARN
+        }
+
+        fn new_span(&self, _attributes: &Attributes<'_>) -> Id {
+            Id::from_u64(1)
+        }
+
+        fn record(&self, _span: &Id, _values: &Record<'_>) {}
+
+        fn record_follows_from(&self, _span: &Id, _follows: &Id) {}
+
+        fn event(&self, event: &Event<'_>) {
+            let mut visitor = MessageVisitor::default();
+            event.record(&mut visitor);
+            if let Some(message) = visitor.message {
+                self.messages.lock().unwrap().push(message);
+            }
+        }
+
+        fn enter(&self, _span: &Id) {}
+
+        fn exit(&self, _span: &Id) {}
+    }
+
+    #[derive(Default)]
+    struct MessageVisitor {
+        message: Option<String>,
+    }
+
+    impl Visit for MessageVisitor {
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            if field.name() == "message" {
+                self.message = Some(format!("{value:?}").trim_matches('"').to_owned());
+            }
+        }
     }
 }
