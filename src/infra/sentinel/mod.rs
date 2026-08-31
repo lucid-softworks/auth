@@ -9,6 +9,7 @@ mod plugin;
 mod pow;
 mod service;
 mod validation;
+mod lifecycle;
 
 #[cfg(feature = "axum")]
 mod axum;
@@ -28,6 +29,7 @@ pub use service::{
     CompromisedPasswordResult, SecurityCheck, SecurityVerdict, SentinelSecurityClient,
     VerdictAction,
 };
+pub use lifecycle::{FreeTrialReservation, ImpossibleTravelResult, StaleUserResult};
 pub use validation::{email_normalization_enabled, normalize_email};
 
 /// Published `@better-auth/infra` compatibility target.
