@@ -11,7 +11,7 @@ limitations, upgrade audit, and links to every tracked gap.
 
 ## Start here
 
-- [Install and run memory, D1, SQLite, or PostgreSQL storage](docs/installation.md)
+- [Install and run memory, D1, SQLite, MySQL, or PostgreSQL storage](docs/installation.md)
 - [Connect React, Vue, Svelte, Solid, vanilla, SSR, and extension clients](docs/frameworks.md)
 - [Connect the pinned Electron main, preload, renderer, and browser-proxy clients](docs/frameworks.md#electron)
 - [Review the production proxy, TLS, cookie, CORS, secret, and migration checklist](docs/production.md)
@@ -50,6 +50,15 @@ Cloudflare Workers use the separate `d1` feature and `D1Store`; it binds every
 runtime value through the Workers D1 prepared-statement API and does not enable
 SQLx or the local `sqlite` feature. See the
 [D1 quickstart](docs/installation.md#cloudflare-d1-quickstart).
+
+For a MySQL deployment, enable `mysql`, supply a pool whose sessions remain at
+UTC, and run the native example. Startup rejects a non-UTC session instead of
+serving with skewed Better Auth timestamps:
+
+```sh
+export DATABASE_URL="mysql://user:password@127.0.0.1:3306/lucid_auth"
+cargo run --example http_mysql --features axum,mysql
+```
 
 The currently supported surface covers:
 
