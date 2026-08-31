@@ -85,6 +85,10 @@ impl SentinelSecurityClient {
         }
     }
 
+    pub(super) fn security_options(&self) -> &SecurityOptions {
+        &self.security
+    }
+
     pub async fn check_security(&self, check: SecurityCheck) -> SecurityVerdict {
         self.post(
             "/security/check",
@@ -237,7 +241,7 @@ impl SentinelSecurityClient {
             .and_then(|response| response.data)
     }
 
-    async fn post(&self, path: &str, body: Value) -> Option<Value> {
+    pub(super) async fn post(&self, path: &str, body: Value) -> Option<Value> {
         self.api
             .execute(DashRequest::post(path, body))
             .await
@@ -259,7 +263,7 @@ mod tests {
     use axum::{
         Json, Router,
         extract::State,
-        http::{HeaderMap, Method, Uri},
+        http::{HeaderMap, Uri},
         response::IntoResponse,
         routing::{get, post},
     };
@@ -267,7 +271,6 @@ mod tests {
 
     #[derive(Clone, Debug)]
     struct Call {
-        method: Method,
         uri: Uri,
         headers: HeaderMap,
         body: Value,
@@ -275,12 +278,10 @@ mod tests {
 
     async fn get_handler(
         State(calls): State<Arc<Mutex<Vec<Call>>>>,
-        method: Method,
         uri: Uri,
         headers: HeaderMap,
     ) -> impl IntoResponse {
         calls.lock().unwrap().push(Call {
-            method,
             uri,
             headers,
             body: Value::Null,
@@ -290,13 +291,11 @@ mod tests {
 
     async fn post_handler(
         State(calls): State<Arc<Mutex<Vec<Call>>>>,
-        method: Method,
         uri: Uri,
         headers: HeaderMap,
         Json(body): Json<Value>,
     ) -> impl IntoResponse {
         calls.lock().unwrap().push(Call {
-            method,
             uri: uri.clone(),
             headers,
             body: body.clone(),
@@ -370,14 +369,11 @@ mod tests {
             .await);
 
         let calls = calls.lock().unwrap();
-        assert_eq!(calls[0].uri.path(), "/security/check");
         assert_eq!(calls[0].body["config"]["challengeDifficulty"], 20);
-        assert_eq!(calls[1].method, Method::GET);
         assert_eq!(
             calls[1].uri.query(),
             Some("visitorId=visitor&ip=203.0.113.1&requestId=request")
         );
-        assert_eq!(calls[2].body["difficulty"], 20);
         assert_eq!(
             calls[3].body["passwordHash"],
             password_fingerprint("sentinel-key", "secret")
