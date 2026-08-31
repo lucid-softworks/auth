@@ -112,10 +112,9 @@ async fn raw_store_with(adapter_config: MssqlAdapterConfig) -> MssqlStore {
     drop(connection);
     let mut config = tiberius::Config::from_ado_string(&connection_string).unwrap();
     config.database(&database);
-    let store = MssqlStore::connect_with(config, 16, adapter_config)
+    MssqlStore::connect_with(config, 16, adapter_config)
         .await
-        .unwrap();
-    store
+        .unwrap()
 }
 
 #[tokio::test]
