@@ -11,9 +11,9 @@ use lucid_auth::sso::{
     validate_saml_timestamp_at,
 };
 use lucid_auth::{
-    AdditionalFieldType, AuthPlugin, MemorySsoStore, NewSsoProvider, PluginHttpMethod,
-    PluginProvenance, SSO_VERSION, SsoOptions, SsoPlugin, SsoProviderUpdate, SsoStore,
-    SsoStoreError,
+    AdditionalField, AdditionalFieldType, AuthPlugin, MemorySsoStore, NewSsoProvider,
+    PluginHttpMethod, PluginProvenance, SSO_VERSION, SsoOptions, SsoPlugin, SsoProviderUpdate,
+    SsoStore, SsoStoreError,
 };
 
 #[test]
@@ -70,6 +70,86 @@ fn schema_and_domain_verification_are_conditional() {
     assert_eq!(verified.field_type, AdditionalFieldType::Boolean);
     assert!(!verified.required);
     assert_eq!(enabled.descriptor().endpoints.len(), 16);
+}
+
+#[test]
+fn schema_remapping_precedence_additional_fields_and_collisions_match_artifact() {
+    let mut options = SsoOptions {
+        model_name: Some("top_provider".into()),
+        domain_verification: true,
+        ..SsoOptions::default()
+    };
+    options.schema.sso_provider.model_name = Some("nested_provider".into());
+    options.fields.issuer = Some("top_issuer".into());
+    options.schema.sso_provider.fields.issuer = Some("nested_issuer".into());
+    options.schema.sso_provider.fields.domain_verified = Some("is_verified".into());
+    options.schema.sso_provider.additional_fields.insert(
+        "tenantCode".into(),
+        AdditionalField::new(AdditionalFieldType::String)
+            .field_name("tenant_code")
+            .input(false)
+            .returned(false),
+    );
+
+    let schema = SsoPlugin::new(options).schema();
+    let provider = &schema[0];
+    assert_eq!(provider.model_name.as_deref(), Some("top_provider"));
+    assert_eq!(
+        provider.fields["issuer"].field_name.as_deref(),
+        Some("top_issuer")
+    );
+    assert_eq!(
+        provider.fields["domainVerified"].field_name.as_deref(),
+        Some("is_verified")
+    );
+    let additional = &provider.fields["tenantCode"];
+    assert_eq!(additional.field_name.as_deref(), Some("tenant_code"));
+    assert!(!additional.input);
+    assert!(!additional.returned);
+
+    for (logical, expected) in [
+        (
+            "providerId",
+            "ssoProvider additional field \"providerId\" conflicts with a built-in field",
+        ),
+        (
+            "redirectURI",
+            "ssoProvider additional field \"redirectURI\" conflicts with a returned provider field",
+        ),
+    ] {
+        let mut options = SsoOptions::default();
+        options.schema.sso_provider.additional_fields.insert(
+            logical.into(),
+            AdditionalField::new(AdditionalFieldType::String),
+        );
+        let panic =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| SsoPlugin::new(options)))
+                .expect_err("colliding schema must be rejected");
+        let message = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+            .expect("panic message");
+        assert_eq!(message, expected);
+    }
+
+    let mut physical = SsoOptions::default();
+    physical.fields.provider_id = Some("provider_key".into());
+    physical.schema.sso_provider.additional_fields.insert(
+        "tenant".into(),
+        AdditionalField::new(AdditionalFieldType::String).field_name("provider_key"),
+    );
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| SsoPlugin::new(physical)))
+        .expect_err("physical collision must be rejected");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .expect("panic message");
+    assert_eq!(
+        message,
+        "ssoProvider additional field \"tenant\" maps to built-in field \"provider_key\""
+    );
 }
 
 #[test]

@@ -20,7 +20,10 @@ mod schema;
 mod store;
 mod timestamp;
 
-pub use config::{SsoDefaultProvider, SsoOptions};
+pub use config::{
+    SsoDefaultProvider, SsoFieldMappings, SsoOptions, SsoProviderFieldMappings,
+    SsoProviderSchema, SsoSchema,
+};
 pub use database::DatabaseSsoStore;
 #[cfg(feature = "axum")]
 pub use dns::{SsoDnsResolver, SystemSsoDnsResolver};
@@ -49,6 +52,7 @@ pub use saml::{
     KeyEncryptionAlgorithm, SamlAlgorithmError, SamlAlgorithmOptions, SamlConfigurationError,
     SamlServiceProviderPolicy, SignatureAlgorithm,
 };
+pub use schema::SsoSchemaError;
 #[cfg(feature = "axum")]
 pub use saml::{
     derive_saml_identity_provider_entity_id, derive_saml_service_provider_policy,

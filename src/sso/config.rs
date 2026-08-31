@@ -1,4 +1,75 @@
+use crate::AdditionalFieldSet;
 use serde_json::Value;
+
+/// Legacy top-level field remapping retained by the pinned SSO package.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SsoFieldMappings {
+    pub issuer: Option<String>,
+    pub oidc_config: Option<String>,
+    pub saml_config: Option<String>,
+    pub user_id: Option<String>,
+    pub provider_id: Option<String>,
+    pub organization_id: Option<String>,
+    pub domain: Option<String>,
+}
+
+impl SsoFieldMappings {
+    pub(crate) fn get(&self, logical: &str) -> Option<&str> {
+        match logical {
+            "issuer" => self.issuer.as_deref(),
+            "oidcConfig" => self.oidc_config.as_deref(),
+            "samlConfig" => self.saml_config.as_deref(),
+            "userId" => self.user_id.as_deref(),
+            "providerId" => self.provider_id.as_deref(),
+            "organizationId" => self.organization_id.as_deref(),
+            "domain" => self.domain.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+/// Field remapping nested below `schema.ssoProvider`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SsoProviderFieldMappings {
+    pub issuer: Option<String>,
+    pub oidc_config: Option<String>,
+    pub saml_config: Option<String>,
+    pub user_id: Option<String>,
+    pub provider_id: Option<String>,
+    pub organization_id: Option<String>,
+    pub domain: Option<String>,
+    pub domain_verified: Option<String>,
+}
+
+impl SsoProviderFieldMappings {
+    pub(crate) fn get(&self, logical: &str) -> Option<&str> {
+        match logical {
+            "issuer" => self.issuer.as_deref(),
+            "oidcConfig" => self.oidc_config.as_deref(),
+            "samlConfig" => self.saml_config.as_deref(),
+            "userId" => self.user_id.as_deref(),
+            "providerId" => self.provider_id.as_deref(),
+            "organizationId" => self.organization_id.as_deref(),
+            "domain" => self.domain.as_deref(),
+            "domainVerified" => self.domain_verified.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+/// Pinned `schema.ssoProvider` configuration.
+#[derive(Debug, Clone, Default)]
+pub struct SsoProviderSchema {
+    pub model_name: Option<String>,
+    pub fields: SsoProviderFieldMappings,
+    pub additional_fields: AdditionalFieldSet,
+}
+
+/// Pinned SSO plugin schema configuration.
+#[derive(Debug, Clone, Default)]
+pub struct SsoSchema {
+    pub sso_provider: SsoProviderSchema,
+}
 
 /// One non-persisted SSO provider with precedence over database providers.
 #[derive(Debug, Clone, PartialEq)]
@@ -36,7 +107,7 @@ impl SsoDefaultProvider {
 }
 
 /// Configuration for the pinned enterprise SSO plugin surface.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct SsoOptions {
     /// Non-persisted providers selected before database providers.
     pub default_sso: Vec<SsoDefaultProvider>,
@@ -46,6 +117,12 @@ pub struct SsoOptions {
     pub provision_user_on_every_login: bool,
     /// Enables the two published DNS domain-verification endpoints and field.
     pub domain_verification: bool,
+    /// Legacy top-level model remapping, which precedes nested schema mapping.
+    pub model_name: Option<String>,
+    /// Legacy top-level field remapping, which precedes nested schema mapping.
+    pub fields: SsoFieldMappings,
+    /// Schema remapping and additional provider fields.
+    pub schema: SsoSchema,
     /// Maximum providers one user may register. Upstream defaults to ten.
     pub providers_limit: usize,
     /// Publishes SAML single-logout bindings in generated SP metadata.
@@ -83,6 +160,9 @@ impl Default for SsoOptions {
             default_override_user_info: false,
             provision_user_on_every_login: false,
             domain_verification: false,
+            model_name: None,
+            fields: SsoFieldMappings::default(),
+            schema: SsoSchema::default(),
             providers_limit: 10,
             saml_enable_single_logout: false,
             saml_want_logout_request_signed: false,
