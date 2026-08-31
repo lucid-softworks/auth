@@ -60,28 +60,18 @@ pub(super) async fn finish(
         link: None,
         anonymous_user_id: None,
     };
-    let result = match service
-        .finish_sso_sign_in(
-            provider_id,
-            user_info,
-            state,
-            plugin.options().disable_implicit_sign_up,
-            crate::axum::http::user_agent(headers),
-        )
-        .await
-    {
-        Ok(result) => result,
-        Err(error) => {
-            let (code, description) = super::super::callback::exchange::callback_error(&error);
-            return failure(&callback, code, description);
-        }
-    };
-    if plugin.options().saml_enable_single_logout
-        && let Some(sign_in) = result.session.as_ref()
-    {
-        security::remember_session(service, provider_id, &session, sign_in).await;
-    }
-    super::super::callback::exchange::success(service, headers, provider_id, result).await
+    super::complete_sign_in(
+        service,
+        plugin,
+        &provider,
+        headers,
+        provider_id,
+        user_info,
+        state,
+        &session,
+        &callback,
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]

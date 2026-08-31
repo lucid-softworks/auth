@@ -14,7 +14,8 @@ use josekit::{
 use lucid_auth::{
     AuthConfig, AuthService, EmailSignUpInput, MemorySsoStore, MemoryStore, NewSsoProvider,
     SamlAlgorithmOptions, SignatureAlgorithm, SsoDefaultProvider, SsoDnsResolver, SsoOptions,
-    SsoPlugin, SsoPrivateKey, SsoProviderUpdate, SsoStore,
+    SsoPlugin, SsoPrivateKey, SsoProviderUpdate, SsoProvisioningInput, SsoStore,
+    SsoUserProvisioner,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -116,6 +117,22 @@ async fn fixture_with_private_key(
     trusted_origins: &[&str],
     private_key: Option<SsoPrivateKey>,
 ) -> Fixture {
+    fixture_with_extensions(options, trusted_origins, private_key, None).await
+}
+
+async fn fixture_with_provisioner(
+    options: SsoOptions,
+    provisioner: Arc<dyn SsoUserProvisioner>,
+) -> Fixture {
+    fixture_with_extensions(options, &[], None, Some(provisioner)).await
+}
+
+async fn fixture_with_extensions(
+    options: SsoOptions,
+    trusted_origins: &[&str],
+    private_key: Option<SsoPrivateKey>,
+    provisioner: Option<Arc<dyn SsoUserProvisioner>>,
+) -> Fixture {
     let mut config = AuthConfig::new([31_u8; 32]).unwrap();
     config.email_and_password.enabled = true;
     config.set_base_url("https://example.com").unwrap();
@@ -129,6 +146,9 @@ async fn fixture_with_private_key(
         SsoPlugin::with_store(options, providers.clone()).with_dns_resolver(dns.clone());
     if let Some(private_key) = private_key {
         plugin = plugin.with_default_private_key("acme-sso!", private_key);
+    }
+    if let Some(provisioner) = provisioner {
+        plugin = plugin.with_user_provisioner(provisioner);
     }
     config.add_plugin(plugin).unwrap();
     let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
@@ -180,6 +200,19 @@ async fn fixture_with_private_key(
         other_cookie: cookie(&service, &other.0),
         dns,
         providers,
+    }
+}
+
+#[derive(Default)]
+struct ProvisioningRecorder {
+    calls: tokio::sync::Mutex<Vec<SsoProvisioningInput>>,
+}
+
+#[async_trait]
+impl SsoUserProvisioner for ProvisioningRecorder {
+    async fn provision(&self, input: SsoProvisioningInput) -> Result<(), lucid_auth::AuthError> {
+        self.calls.lock().await.push(input);
+        Ok(())
     }
 }
 
@@ -618,7 +651,8 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
         axum::serve(listener, identity_provider).await.unwrap();
     });
 
-    let fixture = fixture_with_private_key(
+    let provisioning = Arc::new(ProvisioningRecorder::default());
+    let fixture = fixture_with_extensions(
         SsoOptions {
             trust_email_verified: true,
             disable_implicit_sign_up: true,
@@ -626,6 +660,7 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
         },
         &[idp_base.as_str()],
         Some(private_key_material),
+        Some(provisioning.clone()),
     )
     .await;
     fixture
@@ -726,6 +761,16 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(session["user"]["emailVerified"], true);
+    let calls = provisioning.calls.lock().await;
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].provider.provider_id, "acme-sso!");
+    assert_eq!(calls[0].user.email, "enterprise@example.com");
+    assert_eq!(calls[0].user_info.account_id, "enterprise-user-1");
+    assert_eq!(
+        calls[0].tokens.as_ref().unwrap().access_token.as_deref(),
+        Some("valid-code")
+    );
+    drop(calls);
     let token_request = assertion_receiver.recv().await.unwrap();
     assert_eq!(
         token_request["client_assertion_type"],
@@ -1066,15 +1111,19 @@ async fn saml_acs_verifies_a_signed_assertion_creates_a_session_and_rejects_repl
     const PRIVATE_KEY: &str = include_str!("fixtures/saml_private_key.pem");
     const CERTIFICATE: &str = include_str!("fixtures/saml_signing_cert.pem");
 
-    let fixture = fixture_with_options(SsoOptions {
-        saml_algorithms: SamlAlgorithmOptions {
-            allowed_signature_algorithms: Some(vec![SignatureAlgorithm::RSA_SHA256.into()]),
-            ..SamlAlgorithmOptions::default()
+    let provisioning = Arc::new(ProvisioningRecorder::default());
+    let fixture = fixture_with_provisioner(
+        SsoOptions {
+            saml_algorithms: SamlAlgorithmOptions {
+                allowed_signature_algorithms: Some(vec![SignatureAlgorithm::RSA_SHA256.into()]),
+                ..SamlAlgorithmOptions::default()
+            },
+            saml_allow_idp_initiated: true,
+            saml_idp_initiated_callback_url: Some("/idp-home".into()),
+            ..SsoOptions::default()
         },
-        saml_allow_idp_initiated: true,
-        saml_idp_initiated_callback_url: Some("/idp-home".into()),
-        ..SsoOptions::default()
-    })
+        provisioning.clone(),
+    )
     .await;
     fixture
         .providers
@@ -1246,6 +1295,13 @@ async fn saml_acs_verifies_a_signed_assertion_creates_a_session_and_rejects_repl
         serde_json::from_slice(&session.into_body().collect().await.unwrap().to_bytes()).unwrap();
     assert_eq!(session["user"]["email"], "employee@example.com");
     assert_eq!(session["user"]["name"], "Enterprise User");
+    let calls = provisioning.calls.lock().await;
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].provider.provider_id, "acme-sso!");
+    assert_eq!(calls[0].user.email, "employee@example.com");
+    assert_eq!(calls[0].user_info.account_id, "saml-user-1");
+    assert!(calls[0].tokens.is_none());
+    drop(calls);
 
     let replay = fixture.app.clone().oneshot(assertion()).await.unwrap();
     assert_eq!(replay.status(), StatusCode::BAD_REQUEST);

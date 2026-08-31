@@ -1,6 +1,6 @@
 use super::{redirect_error, support};
 use crate::{
-    AuthService, SsoPlugin, SsoPrivateKey, SsoPrivateKeyRequest, SsoProvider,
+    AuthService, SocialProvider as _, SsoPlugin, SsoPrivateKey, SsoPrivateKeyRequest, SsoProvider,
     service::OAuthState,
 };
 use axum::{
@@ -32,6 +32,7 @@ pub(super) async fn finish(
     let Some(config) = provider.oidc_config.as_ref().and_then(serde_json::Value::as_object) else {
         return redirect_error(&error_url, "invalid_provider", "provider not found");
     };
+    let override_user_info = override_user_info(plugin, config);
     provider.oidc_config = match super::super::runtime_oidc::ensure(
         service,
         &provider.issuer,
@@ -65,16 +66,64 @@ pub(super) async fn finish(
     if service.consume_oauth_state(&state_token).await.is_err() {
         return redirect_error(&error_url, "invalid_state", "state_already_used");
     }
+    let tokens = match dynamic
+        .exchange_code(&code, &state.code_verifier, &redirect_uri, None)
+        .await
+    {
+        Ok(tokens) => tokens,
+        Err(_) => return redirect_error(&error_url, "invalid_provider", "token_response_error"),
+    };
+    let user_info = match dynamic
+        .get_user_info(&tokens, state.id_token_nonce.as_deref(), None)
+        .await
+    {
+        Ok(user_info) => user_info,
+        Err(error) => {
+            let (code, description) = callback_error(&error);
+            return redirect_error(&error_url, code, description);
+        }
+    };
+    complete_sign_in(
+        service,
+        plugin,
+        headers,
+        provider,
+        state,
+        override_user_info,
+        tokens,
+        user_info,
+        &error_url,
+    )
+    .await
+}
+
+fn override_user_info(plugin: &SsoPlugin, config: &serde_json::Map<String, serde_json::Value>) -> bool {
+    config
+        .get("overrideUserInfo")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(plugin.options().default_override_user_info)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn complete_sign_in(
+    service: &AuthService,
+    plugin: &SsoPlugin,
+    headers: &HeaderMap,
+    provider: SsoProvider,
+    state: OAuthState,
+    override_user_info: bool,
+    tokens: crate::OAuthTokens,
+    user_info: crate::OAuthUserInfo,
+    error_url: &str,
+) -> Response {
     let result = match service
-        .oauth_callback_with_provider(
-            &dynamic,
-            &code,
+        .finish_sso_sign_in_with_tokens(
+            &provider.provider_id,
+            tokens.clone(),
+            user_info.clone(),
             state,
-            &redirect_uri,
-            None,
-            None,
-            None,
-            None,
+            plugin.options().disable_implicit_sign_up,
+            override_user_info,
             crate::axum::http::user_agent(headers),
         )
         .await
@@ -82,10 +131,44 @@ pub(super) async fn finish(
         Ok(result) => result,
         Err(error) => {
             let (code, description) = callback_error(&error);
-            return redirect_error(&error_url, code, description);
+            return redirect_error(error_url, code, description);
         }
     };
+    if let Err(response) = provision(plugin, &provider, &user_info, Some(tokens), &result).await {
+        return *response;
+    }
     success(service, headers, &provider.provider_id, result).await
+}
+
+pub(in crate::sso::axum) async fn provision(
+    plugin: &SsoPlugin,
+    provider: &SsoProvider,
+    user_info: &crate::OAuthUserInfo,
+    tokens: Option<crate::OAuthTokens>,
+    result: &crate::OAuthCallbackResult,
+) -> Result<(), Box<Response>> {
+    let Some(sign_in) = result.session.as_ref() else {
+        return Ok(());
+    };
+    plugin
+        .provision_user(
+            crate::SsoProvisioningInput {
+                user: sign_in.session.user.clone(),
+                user_info: user_info.clone(),
+                tokens,
+                provider: provider.clone(),
+            },
+            result.is_new_user,
+        )
+        .await
+        .map_err(|error| {
+            tracing::error!(error = %error, "SSO user provisioning failed");
+            Box::new(support::error(
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_SERVER_ERROR",
+                "Unable to provision SSO user",
+            ))
+        })
 }
 
 async fn resolve_private_key(

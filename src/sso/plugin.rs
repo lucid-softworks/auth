@@ -58,6 +58,7 @@ pub struct SsoPlugin {
     options: SsoOptions,
     store: Arc<dyn SsoStore>,
     private_key_resolver: Option<Arc<dyn SsoPrivateKeyResolver>>,
+    user_provisioner: Option<Arc<dyn super::SsoUserProvisioner>>,
     default_private_keys: BTreeMap<String, SsoPrivateKey>,
     #[cfg(feature = "axum")]
     dns_resolver: Arc<dyn super::SsoDnsResolver>,
@@ -88,6 +89,7 @@ impl SsoPlugin {
             options,
             store,
             private_key_resolver: None,
+            user_provisioner: None,
             default_private_keys: BTreeMap::new(),
             #[cfg(feature = "axum")]
             dns_resolver: Arc::new(super::SystemSsoDnsResolver),
@@ -150,6 +152,26 @@ impl SsoPlugin {
     pub fn with_private_key_resolver(mut self, resolver: Arc<dyn SsoPrivateKeyResolver>) -> Self {
         self.private_key_resolver = Some(resolver);
         self
+    }
+
+    pub fn with_user_provisioner(mut self, provisioner: Arc<dyn super::SsoUserProvisioner>) -> Self {
+        self.user_provisioner = Some(provisioner);
+        self
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) async fn provision_user(
+        &self,
+        input: super::SsoProvisioningInput,
+        is_new_user: bool,
+    ) -> Result<(), crate::AuthError> {
+        if !is_new_user && !self.options.provision_user_on_every_login {
+            return Ok(());
+        }
+        match &self.user_provisioner {
+            Some(provisioner) => provisioner.provision(input).await,
+            None => Ok(()),
+        }
     }
 
     pub fn with_default_private_key(
