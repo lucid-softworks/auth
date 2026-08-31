@@ -20,7 +20,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-/// Better Auth 1.7.1 `testUtils()` server plugin.
+/// Better Auth 1.7.2 `testUtils()` server plugin.
 #[derive(Clone)]
 pub struct TestUtilsPlugin {
     options: TestUtilsOptions,

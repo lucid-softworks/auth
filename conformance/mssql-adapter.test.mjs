@@ -137,12 +137,12 @@ async function resetSchema() {
   `.execute(db);
 }
 
-suite("@better-auth/kysely-adapter 1.7.1 MSSQL oracle", () => {
+suite("@better-auth/kysely-adapter 1.7.2 MSSQL oracle", () => {
   beforeEach(resetSchema);
   afterAll(async () => db?.destroy());
 
   test("pins the driver, dialect, capabilities, pagination, and OUTPUT paths", async () => {
-    expect(adapterPackage.version).toBe("1.7.1");
+    expect(adapterPackage.version).toBe("1.7.2");
     expect(driverPackage.version).toBe("19.2.1");
     expect(poolPackage.version).toBe("3.0.2");
     expect(getKyselyDatabaseType(dialect)).toBe("mssql");

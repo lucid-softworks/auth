@@ -99,7 +99,7 @@ mod tests {
         let plugin = I18nPlugin::new(config).unwrap();
         let descriptor = plugin.descriptor();
         assert_eq!(descriptor.id, "i18n");
-        assert_eq!(descriptor.version, "1.7.1");
+        assert_eq!(descriptor.version, "1.7.2");
         assert!(descriptor.dependencies.is_empty());
         assert!(descriptor.endpoints.is_empty());
         assert!(descriptor.cookies.is_empty());

@@ -199,7 +199,7 @@ function pluginConformance() {
   const plugin = openAPI();
   assert.deepEqual(Object.keys(plugin), ["id", "version", "endpoints", "options"]);
   assert.equal(plugin.id, "open-api");
-  assert.equal(plugin.version, "1.7.1");
+  assert.equal(plugin.version, "1.7.2");
   assert.equal(plugin.options, undefined);
   assert.deepEqual(Object.keys(plugin.endpoints), [
     "generateOpenAPISchema",
@@ -358,7 +358,7 @@ async function nativeDefaultConformance(origin, oracle) {
   const plugins = await jsonResponse(metadataResponse, "native plugin metadata");
   const descriptor = plugins.find((plugin) => plugin.id === "open-api");
   assert.ok(descriptor, "native Open API plugin descriptor is missing");
-  assert.equal(descriptor.version, "1.7.1");
+  assert.equal(descriptor.version, "1.7.2");
   assert.equal(descriptor.client, null);
   assert.deepEqual(
     descriptor.endpoints.map(({ method, path }) => [method, path]),
@@ -438,5 +438,5 @@ export async function openApiConformance(origin) {
   const oracle = await oracleConformance(origin);
   await nativeDefaultConformance(origin, oracle);
   await optionalNativeOptionsConformance(origin);
-  console.log("ok - Open API 1.7.1 oracle and native schema contract");
+  console.log("ok - Open API 1.7.2 oracle and native schema contract");
 }

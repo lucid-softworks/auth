@@ -8,7 +8,7 @@ const packageMetadata = JSON.parse(await readFile(
   new URL("node_modules/@better-auth/kysely-adapter/package.json", import.meta.url), "utf8",
 ));
 const dialectArtifact = await readFile(new URL(
-  "node_modules/@better-auth/kysely-adapter/dist/d1-sqlite-dialect-BZmaVTp8.mjs", import.meta.url,
+  "node_modules/@better-auth/kysely-adapter/dist/d1-sqlite-dialect-D4qp4-wW.mjs", import.meta.url,
 ), "utf8");
 
 class LocalD1 {
@@ -66,9 +66,9 @@ function options(database) {
   };
 }
 
-describe("@better-auth/kysely-adapter 1.7.1 Cloudflare D1 oracle", () => {
+describe("@better-auth/kysely-adapter 1.7.2 Cloudflare D1 oracle", () => {
   test("pins prepared all(), metadata, capability failures, and introspection", async () => {
-    expect(packageMetadata.version).toBe("1.7.1");
+    expect(packageMetadata.version).toBe("1.7.2");
     expect(dialectArtifact).toContain("prepare(compiledQuery.sql).bind(...compiledQuery.parameters).all()");
     expect(dialectArtifact).toContain("results.meta.changes");
     expect(dialectArtifact).toContain("results.meta.last_row_id");
@@ -135,7 +135,14 @@ describe("@better-auth/kysely-adapter 1.7.1 Cloudflare D1 oracle", () => {
       const second = await getMigrations(options(database));
       expect(await second.compileMigrations()).toBe(";");
       expect(database.batches.length).toBeGreaterThan(0);
-      expect(database.batches.every((batch) => batch.every((sql) => sql === "SELECT * FROM pragma_table_info(?)"))).toBe(true);
+      const introspection = database.batches.flat();
+      expect(introspection.some((sql) => sql.startsWith("PRAGMA index_list("))).toBe(true);
+      expect(introspection.some((sql) => sql.startsWith("PRAGMA index_info("))).toBe(true);
+      expect(introspection.every((sql) =>
+        sql === "SELECT * FROM pragma_table_info(?)" ||
+        sql.startsWith("PRAGMA index_list(") ||
+        sql.startsWith("PRAGMA index_info("),
+      )).toBe(true);
     } finally { database.close(); }
   });
 

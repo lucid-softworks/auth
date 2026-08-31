@@ -118,7 +118,7 @@ pub struct OpenApiModelSchema {
     pub extensions: BTreeMap<String, Value>,
 }
 
-/// Native input-schema vocabulary converted with Better Auth 1.7.1 semantics.
+/// Native input-schema vocabulary converted with Better Auth 1.7.2 semantics.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldSchema {
     pub kind: FieldSchemaKind,

@@ -1,4 +1,4 @@
-//! Native MongoDB persistence compatible with `@better-auth/mongo-adapter` 1.7.1.
+//! Native MongoDB persistence compatible with `@better-auth/mongo-adapter` 1.7.2.
 
 mod access;
 mod adapter;

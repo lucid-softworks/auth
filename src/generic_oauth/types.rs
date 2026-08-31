@@ -10,7 +10,7 @@ use std::{collections::BTreeMap, sync::Arc};
 const DESCRIPTOR: PluginDescriptor = PluginDescriptor {
     id: "generic-oauth",
     display_name: "Generic OAuth",
-    version: "1.7.1",
+    version: "1.7.2",
     provenance: crate::PluginProvenance::better_auth_plugin("genericOAuth"),
     dependencies: &[],
     conflicts: &[],

@@ -33,7 +33,7 @@ pub trait PasswordResetCallback: Send + Sync {
     async fn on_password_reset(&self, user: AuthUser) -> Result<(), AuthError>;
 }
 
-/// Better Auth 1.7.1 email-verification settings.
+/// Better Auth 1.7.2 email-verification settings.
 #[derive(Clone)]
 pub struct EmailVerificationConfig {
     pub sender: Option<Arc<dyn VerificationEmailSender>>,

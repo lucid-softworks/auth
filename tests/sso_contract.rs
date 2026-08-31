@@ -22,8 +22,8 @@ use lucid_auth::{
 fn descriptor_matches_the_pinned_server_and_official_client() {
     let descriptor = SsoPlugin::default().descriptor();
     assert_eq!(descriptor.id, "sso");
-    assert_eq!(descriptor.version, "1.7.1");
-    assert_eq!(SSO_VERSION, "1.7.1");
+    assert_eq!(descriptor.version, "1.7.2");
+    assert_eq!(SSO_VERSION, "1.7.2");
     assert!(matches!(
         descriptor.provenance,
         PluginProvenance::PinnedBetterAuthPort { .. }

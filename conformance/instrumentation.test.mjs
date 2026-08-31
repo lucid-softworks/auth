@@ -20,7 +20,7 @@ import {
   instrumentationArtifact,
 } from "./instrumentation.artifact.mjs";
 
-describe("Better Auth 1.7.1 instrumentation authority", () => {
+describe("Better Auth 1.7.2 instrumentation authority", () => {
   it("exports exact constants and span completion semantics", async () => {
     assertPinnedInstrumentationArtifact(await instrumentationArtifact());
     expect({
@@ -95,7 +95,7 @@ describe("Better Auth 1.7.1 instrumentation authority", () => {
     expect(success.kind).toBe(0);
     expect(success.instrumentationScope).toEqual({
       name: "better-auth",
-      version: "1.7.1",
+      version: "1.7.2",
       schemaUrl: undefined,
     });
     expect(success.attributes).toEqual({ [ATTR_HTTP_ROUTE]: "/safe/:id" });

@@ -100,12 +100,12 @@ class RecordingSecondaryStorage {
   }
 }
 
-describe("@better-auth/api-key 1.7.1 oracle", () => {
+describe("@better-auth/api-key 1.7.2 oracle", () => {
   test("pins package, plugin metadata, schema, and multi-configuration errors", () => {
-    expect(apiKeyPackage.version).toBe("1.7.1");
+    expect(apiKeyPackage.version).toBe("1.7.2");
     const plugin = apiKey();
     expect(plugin.id).toBe("api-key");
-    expect(plugin.version).toBe("1.7.1");
+    expect(plugin.version).toBe("1.7.2");
     expect(Object.keys(plugin.endpoints)).toEqual([
       "createApiKey",
       "verifyApiKey",

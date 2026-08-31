@@ -93,7 +93,7 @@ pub(crate) async fn get(fixture: &Fixture, path: &str) -> (StatusCode, Value) {
         fixture,
         Request::get(path)
             .header(header::HOST, "app.example.test")
-            .header(header::ORIGIN, "http://app.example.test")
+            .header(header::ORIGIN, "http://localhost")
             .header(header::COOKIE, &fixture.cookie)
             .body(Body::empty())
             .unwrap(),
@@ -106,7 +106,7 @@ pub(crate) async fn post(fixture: &Fixture, path: &str, body: Value) -> (StatusC
         fixture,
         Request::post(path)
             .header(header::HOST, "app.example.test")
-            .header(header::ORIGIN, "http://app.example.test")
+            .header(header::ORIGIN, "http://localhost")
             .header(header::COOKIE, &fixture.cookie)
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(body.to_string()))

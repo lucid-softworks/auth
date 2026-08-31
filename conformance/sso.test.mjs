@@ -45,11 +45,11 @@ const endpointInventory = [
   ["deleteSSOProvider", "/sso/delete-provider", "POST"],
 ];
 
-describe("@better-auth/sso@1.7.1 artifact oracle", () => {
+describe("@better-auth/sso@1.7.2 artifact oracle", () => {
   test("pins the immutable package and its two published subpaths", async () => {
     const pkg = await packageJson("@better-auth/sso");
     const locked = (await packageLock()).packages["node_modules/@better-auth/sso"];
-    expect(pkg.version).toBe("1.7.1");
+    expect(pkg.version).toBe("1.7.2");
     expect(pkg.exports).toEqual({
       ".": {
         "dev-source": "./src/index.ts",
@@ -63,12 +63,12 @@ describe("@better-auth/sso@1.7.1 artifact oracle", () => {
       },
     });
     expect(locked.resolved).toBe(
-      "https://registry.npmjs.org/@better-auth/sso/-/sso-1.7.1.tgz",
+      "https://registry.npmjs.org/@better-auth/sso/-/sso-1.7.2.tgz",
     );
     expect(locked.integrity).toBe(
-      "sha512-fkGNMO8W5uNJSHAlvSe4Gxm1NVTQT4JFS7JpCNIxUAl5UyskE1yFXc2NH0KjcvSbR1RfgrqUgUevOjOjcSUKcg==",
+      "sha512-8tmkAGdcVu8Tr/+LPfSRgs/5a8YE1uU8OeaN5mAzsSdMWR4iwZdwQlJJmU8f9qZyIpNL/B6mIfDc5vaVUy1ECQ==",
     );
-    expect("52d502f6460fd98a199184b7a8ba7343e4bf1606").toHaveLength(40);
+    expect("e8c24665c3bbe020c7ba24cdb8afd4f4c8c2be3a").toHaveLength(40);
     expect(Object.keys(ssoModule).sort()).toEqual(runtimeExports.sort());
     expect(Object.keys(ssoClientModule)).toEqual(["ssoClient"]);
   });
@@ -77,7 +77,7 @@ describe("@better-auth/sso@1.7.1 artifact oracle", () => {
     const plugin = ssoModule.sso();
     expect({ id: plugin.id, version: plugin.version }).toEqual({
       id: "sso",
-      version: "1.7.1",
+      version: "1.7.2",
     });
     expect(Object.entries(plugin.endpoints).map(([name, endpoint]) => [
       name,
@@ -96,7 +96,7 @@ describe("@better-auth/sso@1.7.1 artifact oracle", () => {
     ]);
     expect(ssoClientModule.ssoClient()).toMatchObject({
       id: "sso-client",
-      version: "1.7.1",
+      version: "1.7.2",
       pathMethods: {
         "/sso/providers": "GET",
         "/sso/get-provider": "GET",

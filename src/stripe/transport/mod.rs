@@ -8,7 +8,7 @@ pub use types::*;
 use async_trait::async_trait;
 use serde_json::Value;
 
-/// Narrow in-process Stripe API boundary used by Better Auth Stripe 1.7.1.
+/// Narrow in-process Stripe API boundary used by Better Auth Stripe 1.7.2.
 #[async_trait]
 pub trait StripeClient: Send + Sync {
     async fn create_customer(&self, params: Value) -> Result<StripeCustomer, StripeProviderError>;

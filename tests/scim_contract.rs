@@ -142,7 +142,7 @@ async fn descriptor_and_conditional_schema_match_the_pinned_package() {
         .iter()
         .find(|plugin| plugin.id == "scim")
         .unwrap();
-    assert_eq!(descriptor.version, "1.7.1");
+    assert_eq!(descriptor.version, "1.7.2");
     assert!(descriptor.client.is_none());
     assert_eq!(descriptor.endpoints.len(), 17);
     assert_eq!(

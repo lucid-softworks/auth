@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn duplicate_nonce_generation_and_request_origin_fallback_match_upstream() {
+async fn duplicate_nonce_generation_and_placeholder_email_match_upstream() {
     let (app, _) = application("repeat01");
     assert_sequential_and_concurrent_nonce_generation(&app).await;
 
@@ -39,50 +39,10 @@ async fn duplicate_nonce_generation_and_request_origin_fallback_match_upstream()
     assert_eq!(response.status(), StatusCode::OK);
     assert!(
         store
-            .find_user_by_email(&format!("{ADDRESS}@https://auth.example"))
-            .await
-            .unwrap()
-            .is_some()
-    );
-    assert_trusted_proxy_origin().await;
-}
-
-async fn assert_trusted_proxy_origin() {
-    let store = Arc::new(MemoryStore::default());
-    let mut config = AuthConfig::new([128_u8; 32]).unwrap();
-    config.trusted_proxy_headers = true;
-    let siwe = SiweConfig::new(
-        "auth.example",
-        Arc::new(Nonce("proxy001")),
-        Arc::new(Verifier),
-    );
-    config
-        .add_plugin(SiwePlugin::new(store.clone(), siwe))
-        .unwrap();
-    let app = lucid_auth::axum::router(Arc::new(AuthService::new(store.clone(), config)));
-    create_nonce_with_host(&app, "internal.example").await;
-    let response = app
-        .oneshot(
-            Request::post("/api/auth/siwe/verify")
-                .header(header::HOST, "internal.example")
-                .header("x-forwarded-host", "public.example")
-                .header("x-forwarded-proto", "https")
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(
-                    json!({
-                        "message":message("proxy001", "auth.example"),
-                        "signature":"signed"
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    assert!(
-        store
-            .find_user_by_email(&format!("{ADDRESS}@https://public.example"))
+            .find_user_by_email(&format!(
+                "{}@siwe.placeholder.invalid",
+                ADDRESS.to_lowercase()
+            ))
             .await
             .unwrap()
             .is_some()

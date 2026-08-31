@@ -27,7 +27,7 @@ impl StripeError {
     }
 }
 
-/// Better Auth Stripe 1.7.1's complete exported error dictionary.
+/// Better Auth Stripe 1.7.2's complete exported error dictionary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum StripeErrorCode {

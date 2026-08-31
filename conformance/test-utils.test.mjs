@@ -20,7 +20,7 @@ function helperNames(plugin, contextOptions) {
   return Object.keys(plugin.init(testContext(contextOptions)).context.test).sort();
 }
 
-describe("better-auth@1.7.1 Test Utils oracle", () => {
+describe("better-auth@1.7.2 Test Utils oracle", () => {
   test("snapshots the server plugin descriptor and sole option", () => {
     const defaults = testUtils();
     const capture = testUtils({ captureOTP: true });
@@ -42,7 +42,7 @@ describe("better-auth@1.7.1 Test Utils oracle", () => {
         ],
         "id": "test-utils",
         "options": {},
-        "version": "1.7.1",
+        "version": "1.7.2",
       }
     `);
     expect(capture.options).toEqual({ captureOTP: true });

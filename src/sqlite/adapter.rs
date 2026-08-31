@@ -106,7 +106,7 @@ impl SqliteStore {
         }
     }
 
-    /// Derives an additive Better Auth 1.7.1 migration plan from live SQLite
+    /// Derives an additive Better Auth 1.7.2 migration plan from live SQLite
     /// metadata. Planning does not execute SQL.
     pub async fn migration_plan(
         &self,

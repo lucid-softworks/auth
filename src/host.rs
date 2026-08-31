@@ -51,6 +51,7 @@ mod open_api;
 mod operator_security;
 mod organization;
 mod origin;
+#[cfg(any(feature = "axum", test))]
 mod url_composition;
 mod owner_policy;
 mod passkey;

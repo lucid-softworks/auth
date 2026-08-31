@@ -90,7 +90,7 @@ async fn send(fixture: &Fixture, mut request: Request<Body>) -> (StatusCode, Hea
         .insert(header::HOST, "app.example.test".parse().unwrap());
     request
         .headers_mut()
-        .insert(header::ORIGIN, "http://app.example.test".parse().unwrap());
+        .insert(header::ORIGIN, "http://localhost".parse().unwrap());
     request
         .headers_mut()
         .insert(header::COOKIE, fixture.cookie.parse().unwrap());

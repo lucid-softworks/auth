@@ -1,6 +1,6 @@
 # Install lucid-auth
 
-This guide starts a native Rust server that the official Better Auth `1.7.1`
+This guide starts a native Rust server that the official Better Auth `1.7.2`
 client can use at its default `/api/auth` path. Check the
 [compatibility matrix](../COMPATIBILITY.md) before enabling a Better Auth
 plugin: the client plugin and the native server plugin must both be supported.
@@ -10,18 +10,18 @@ plugin: the client plugin and the native server plugin must both be supported.
 | Component | Supported version |
 | --- | --- |
 | lucid-auth | `0.1.x` source release line |
-| Better Auth clients | exactly `1.7.1` |
+| Better Auth clients | exactly `1.7.2` |
 | Rust | `1.90` or newer |
 | Axum | `0.8` |
 | PostgreSQL | `16` in CI |
 | MySQL fixture | `mysql:8.4` in CI |
-| MySQL adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1` |
+| MySQL adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.2` |
 | MongoDB fixture | `mongo:8.2` standalone and single-node replica set in CI |
-| MongoDB adapter | `@better-auth/mongo-adapter` `1.7.1`; Node driver `7.1.0` oracle |
+| MongoDB adapter | `@better-auth/mongo-adapter` `1.7.2`; Node driver `7.1.0` oracle |
 | Microsoft SQL Server fixture | SQL Server 2022 container in CI |
-| MSSQL adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1`; Kysely `0.29.5` oracle |
-| SQLite adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1` |
-| Cloudflare D1 adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1` |
+| MSSQL adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.2`; Kysely `0.29.5` oracle |
+| SQLite adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.2` |
+| Cloudflare D1 adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.2` |
 
 The crate is not currently published to crates.io. Pin a reviewed Git commit;
 do not use a moving branch in production:
@@ -103,7 +103,7 @@ curl --fail-with-body -b cookies.txt \
 
 SQLite is a native in-process backend; it does not run Node, Bun,
 `better-sqlite3`, or a helper process. The JavaScript driver families are
-conformance references for `@better-auth/kysely-adapter@1.7.1`, not Rust APIs.
+conformance references for `@better-auth/kysely-adapter@1.7.2`, not Rust APIs.
 
 ```sh
 export DATABASE_URL="sqlite://lucid-auth.db"
@@ -193,7 +193,7 @@ supported on D1; its separate work is tracked in
 ## MySQL quickstart
 
 The native MySQL backend targets Better Auth and
-`@better-auth/kysely-adapter` `1.7.1`. The project tests `mysql:8.4`; that image
+`@better-auth/kysely-adapter` `1.7.2`. The project tests `mysql:8.4`; that image
 is a reproducible CI fixture, not a claimed MySQL or MariaDB support range.
 
 ```sh
@@ -226,7 +226,7 @@ helper process.
 ## MongoDB quickstart
 
 The optional native MongoDB backend targets `@better-auth/mongo-adapter`
-`1.7.1` through the official Rust driver. CI uses `mongo:8.2` as a reproducible
+`1.7.2` through the official Rust driver. CI uses `mongo:8.2` as a reproducible
 standalone and single-node replica-set fixture; this is not a claimed MongoDB
 server-version range.
 
@@ -263,7 +263,7 @@ does not run the Node driver, JavaScript, or a helper process.
 
 ## Microsoft SQL Server quickstart
 
-The optional `mssql` backend targets Better Auth 1.7.1's Kysely MSSQL path
+The optional `mssql` backend targets Better Auth 1.7.2's Kysely MSSQL path
 through native Tiberius and BB8. CI uses the SQL Server 2022 container as a
 reproducible fixture, not as a broader SQL Server or Azure SQL version promise.
 
@@ -329,7 +329,7 @@ against this schema.
 Pin the client compatibility target exactly:
 
 ```sh
-npm install --save-exact better-auth@1.7.1
+npm install --save-exact better-auth@1.7.2
 ```
 
 For a separate frontend origin, keep `config.trust_origin(...)` and

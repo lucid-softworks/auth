@@ -108,7 +108,7 @@ async fn send(fixture: &Fixture, mut request: Request<Body>) -> (StatusCode, Val
         .insert(header::HOST, "app.example.test".parse().unwrap());
     request
         .headers_mut()
-        .insert(header::ORIGIN, "http://app.example.test".parse().unwrap());
+        .insert(header::ORIGIN, "http://localhost".parse().unwrap());
     if let Some(cookie) = &fixture.cookie {
         request
             .headers_mut()

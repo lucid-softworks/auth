@@ -123,7 +123,7 @@ async function directVerify(auth, token, extra = {}) {
 function metadataConformance() {
   const server = oneTimeToken();
   assert.equal(server.id, "one-time-token");
-  assert.equal(server.version, "1.7.1");
+  assert.equal(server.version, "1.7.2");
   assert.equal(server.options, undefined);
   assert.deepEqual(Object.keys(server.endpoints), [
     "generateOneTimeToken",
@@ -144,7 +144,7 @@ function metadataConformance() {
   const client = oneTimeTokenClient();
   assert.deepEqual(client, {
     id: "one-time-token",
-    version: "1.7.1",
+    version: "1.7.2",
     $InferServerPlugin: {},
   });
 }

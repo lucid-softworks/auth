@@ -57,7 +57,7 @@ pub struct AuthConfig {
     /// Deprecated Better Auth `advanced.generateId` callback.
     ///
     /// Context-only generation paths evaluate this before
-    /// [`Self::database_id_generation`], matching Better Auth 1.7.1. Adapter
+    /// [`Self::database_id_generation`], matching Better Auth 1.7.2. Adapter
     /// create transforms do not use it.
     pub legacy_id_generator: Option<Arc<dyn DatabaseIdGenerator>>,
     /// Better Auth `advanced.database.generateId` behavior.
@@ -88,7 +88,7 @@ pub struct AuthConfig {
     pub(crate) cors_enabled: bool,
 }
 
-/// Core email/password settings matching Better Auth 1.7.1 defaults.
+/// Core email/password settings matching Better Auth 1.7.2 defaults.
 #[derive(Clone)]
 pub struct EmailPasswordConfig {
     pub enabled: bool,

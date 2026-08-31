@@ -87,7 +87,7 @@ pub struct MagicLinkConfig {
     pub disable_sign_up: bool,
     pub token_storage: MagicLinkTokenStorage,
     pub token_generator: Option<Arc<dyn MagicLinkTokenGenerator>>,
-    /// Better Auth 1.7.1 always consumes on the first attempt; values other
+    /// Better Auth 1.7.2 always consumes on the first attempt; values other
     /// than one are retained as configuration metadata but intentionally ignored.
     pub allowed_attempts: u32,
     pub rate_limit_window: Duration,

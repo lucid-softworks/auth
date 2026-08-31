@@ -6,7 +6,7 @@ import { createAdapterFactory } from "@better-auth/core/db/adapter";
 import { generateId } from "@better-auth/core/utils/id";
 
 const expected = JSON.parse(
-  await readFile(new URL("id-strategy-oracle-1.7.1.json", import.meta.url), "utf8"),
+  await readFile(new URL("id-strategy-oracle-1.7.2.json", import.meta.url), "utf8"),
 );
 const betterAuthPackage = JSON.parse(
   await readFile(new URL("node_modules/better-auth/package.json", import.meta.url), "utf8"),
@@ -106,7 +106,7 @@ function callbackShape(source, argument) {
   };
 }
 
-describe("Better Auth 1.7.1 database ID oracle", () => {
+describe("Better Auth 1.7.2 database ID oracle", () => {
   test("pins the package, direct generator defaults, errors, and alphabet order", () => {
     expect(betterAuthPackage.version).toBe(expected.betterAuthVersion);
     expect(shape(generateId())).toEqual({

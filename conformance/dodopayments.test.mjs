@@ -195,7 +195,7 @@ describe("@dodopayments/better-auth@1.6.5 executable oracle", () => {
     expect(await packageVersion("@dodopayments/better-auth")).toBe("1.6.5");
     expect(await packageVersion("@dodopayments/core")).toBe("0.3.14");
     expect(await packageVersion("dodopayments")).toBe("2.47.0");
-    expect(await packageVersion("better-auth")).toBe("1.7.1");
+    expect(await packageVersion("better-auth")).toBe("1.7.2");
     expect(await packageVersion("zod")).toBe("4.4.3");
     expect(Object.keys(dodoRootExports).sort()).toEqual([
       "checkout",

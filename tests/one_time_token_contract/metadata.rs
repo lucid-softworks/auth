@@ -47,7 +47,7 @@ async fn plugin_is_optional_and_declares_only_the_pinned_surface() {
         .iter()
         .find(|plugin| plugin.id == "one-time-token")
         .unwrap();
-    assert_eq!(descriptor.version, "1.7.1");
+    assert_eq!(descriptor.version, "1.7.2");
     assert!(descriptor.dependencies.is_empty());
     assert!(descriptor.conflicts.is_empty());
     assert!(descriptor.cookies.is_empty());
@@ -80,7 +80,7 @@ async fn plugin_is_optional_and_declares_only_the_pinned_surface() {
     assert_eq!(client.package, "better-auth");
     assert_eq!(client.import_path, "better-auth/client/plugins");
     assert_eq!(client.factory, "oneTimeTokenClient");
-    assert_eq!(client.better_auth_version, Some("1.7.1"));
+    assert_eq!(client.better_auth_version, Some("1.7.2"));
     assert!(fixture.service.plugin_migrations().is_empty());
 
     for model in [

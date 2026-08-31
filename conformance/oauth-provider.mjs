@@ -90,7 +90,7 @@ async function formOnlyEndpointConformance(auth) {
 async function metadataConformance() {
   const plugin = oauthProvider(pluginOptions());
   assert.equal(plugin.id, "oauth-provider");
-  assert.equal(plugin.version, "1.7.1");
+  assert.equal(plugin.version, "1.7.2");
   assert.equal(typeof plugin.onRequest, "function");
   assert.equal(typeof plugin.init, "function");
   assert.equal(plugin.hooks.before.length, 1);
@@ -256,7 +256,7 @@ function configurationConformance() {
 async function clientConformance() {
   const plugin = oauthProviderClient();
   assert.equal(plugin.id, "oauth-provider-client");
-  assert.equal(plugin.version, "1.7.1");
+  assert.equal(plugin.version, "1.7.2");
   assert.equal(plugin.fetchPlugins.length, 1);
   assert.equal(plugin.fetchPlugins[0].id, "oauth-provider-signin");
   assert.deepEqual(plugin.$InferServerPlugin, {});
@@ -298,7 +298,7 @@ async function clientConformance() {
 
   const resourcePlugin = oauthProviderResourceClient();
   assert.equal(resourcePlugin.id, "oauth-provider-resource-client");
-  assert.equal(resourcePlugin.version, "1.7.1");
+  assert.equal(resourcePlugin.version, "1.7.2");
   const actions = resourcePlugin.getActions();
   assert.deepEqual(Object.keys(actions), [
     "verifyBearerToken",

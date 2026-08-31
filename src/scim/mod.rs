@@ -1,4 +1,4 @@
-//! Native inbound SCIM 2.0 service compatible with `@better-auth/scim` 1.7.1.
+//! Native inbound SCIM 2.0 service compatible with `@better-auth/scim` 1.7.2.
 
 #[cfg(feature = "axum")]
 mod axum;
@@ -44,7 +44,7 @@ pub use projection::{
 pub use store::{ScimConnectionBinding, ScimStore, ScimStoreError};
 
 /// Published `@better-auth/scim` compatibility target.
-pub const VERSION: &str = "1.7.1";
+pub const VERSION: &str = "1.7.2";
 pub const SCIM_MEDIA_TYPE: &str = "application/scim+json";
 pub const SCIM_ERROR_SCHEMA: &str = "urn:ietf:params:scim:api:messages:2.0:Error";
 pub const SCIM_LIST_RESPONSE_SCHEMA: &str =

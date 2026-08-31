@@ -97,12 +97,12 @@ async function oracle() {
   })(options(pool));
 }
 
-suite("@better-auth/kysely-adapter 1.7.1 MySQL oracle", () => {
+suite("@better-auth/kysely-adapter 1.7.2 MySQL oracle", () => {
   beforeEach(resetSchema);
   afterAll(async () => pool?.end());
 
   test("pins the shipped driver, capabilities, warnings, and lookup order", async () => {
-    expect(adapterPackage.version).toBe("1.7.1");
+    expect(adapterPackage.version).toBe("1.7.2");
     expect(driverPackage.version).toBe("3.22.5");
     expect(getKyselyDatabaseType(pool)).toBe("mysql");
     expect(artifact).toContain('if (config?.type === "mysql")');

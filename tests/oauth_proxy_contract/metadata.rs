@@ -67,7 +67,7 @@ async fn plugin_is_optional_and_declares_only_the_pinned_server_surface() {
         .iter()
         .find(|plugin| plugin.id == "oauth-proxy")
         .unwrap();
-    assert_eq!(descriptor.version, "1.7.1");
+    assert_eq!(descriptor.version, "1.7.2");
     assert_eq!(descriptor.display_name, "Better Auth OAuth Proxy");
     assert!(descriptor.dependencies.is_empty());
     assert!(descriptor.conflicts.is_empty());

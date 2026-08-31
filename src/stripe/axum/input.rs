@@ -3,7 +3,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
-/// Better Auth 1.7.1's `/subscription/upgrade` request body.
+/// Better Auth 1.7.2's `/subscription/upgrade` request body.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpgradeSubscriptionInput {
@@ -40,7 +40,7 @@ impl UpgradeSubscriptionInput {
     }
 }
 
-/// Better Auth 1.7.1's `/subscription/cancel` request body.
+/// Better Auth 1.7.2's `/subscription/cancel` request body.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CancelSubscriptionInput {
@@ -61,7 +61,7 @@ impl CancelSubscriptionInput {
     }
 }
 
-/// Better Auth 1.7.1's `/subscription/restore` request body.
+/// Better Auth 1.7.2's `/subscription/restore` request body.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RestoreSubscriptionInput {
@@ -79,7 +79,7 @@ impl RestoreSubscriptionInput {
     }
 }
 
-/// Better Auth 1.7.1's optional `/subscription/list` query.
+/// Better Auth 1.7.2's optional `/subscription/list` query.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListSubscriptionsQuery {
@@ -95,7 +95,7 @@ impl ListSubscriptionsQuery {
     }
 }
 
-/// Better Auth 1.7.1's `/subscription/billing-portal` request body.
+/// Better Auth 1.7.2's `/subscription/billing-portal` request body.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BillingPortalInput {

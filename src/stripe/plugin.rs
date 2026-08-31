@@ -7,7 +7,7 @@ use crate::{
 };
 use std::{borrow::Cow, fmt, sync::Arc};
 
-/// Native Better Auth Stripe 1.7.1 plugin.
+/// Native Better Auth Stripe 1.7.2 plugin.
 #[derive(Clone)]
 pub struct StripePlugin {
     pub(crate) options: Arc<StripeOptions>,
@@ -108,7 +108,7 @@ impl AuthPlugin for StripePlugin {
                     "@better-auth/stripe/client",
                     "stripeClient",
                 )
-                .with_identity("stripe-client", "1.7.1"),
+                .with_identity("stripe-client", "1.7.2"),
             ),
         }
     }

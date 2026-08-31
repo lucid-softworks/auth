@@ -1,4 +1,4 @@
-//! Native enterprise SSO surface compatible with `@better-auth/sso` 1.7.1.
+//! Native enterprise SSO surface compatible with `@better-auth/sso` 1.7.2.
 
 mod config;
 mod database;
@@ -82,7 +82,7 @@ pub use timestamp::{
 };
 
 /// Published `@better-auth/sso` compatibility target.
-pub const VERSION: &str = "1.7.1";
+pub const VERSION: &str = "1.7.2";
 pub const DEFAULT_CLOCK_SKEW_MS: i64 = 300_000;
 pub const DEFAULT_MAX_SAML_RESPONSE_SIZE: usize = 256 * 1024;
 pub const DEFAULT_MAX_SAML_METADATA_SIZE: usize = 100 * 1024;

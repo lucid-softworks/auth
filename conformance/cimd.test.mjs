@@ -15,16 +15,16 @@ const packageJson = async (name) =>
     await readFile(new URL(`node_modules/${name}/package.json`, import.meta.url), "utf8"),
   );
 
-describe("@better-auth/cimd@1.7.1 oracle", () => {
+describe("@better-auth/cimd@1.7.2 oracle", () => {
   test("pins the server-only package and public plugin surface", async () => {
-    expect((await packageJson("@better-auth/cimd")).version).toBe("1.7.1");
-    expect((await packageJson("@better-auth/oauth-provider")).version).toBe("1.7.1");
-    expect((await packageJson("better-auth")).version).toBe("1.7.1");
+    expect((await packageJson("@better-auth/cimd")).version).toBe("1.7.2");
+    expect((await packageJson("@better-auth/oauth-provider")).version).toBe("1.7.2");
+    expect((await packageJson("better-auth")).version).toBe("1.7.2");
 
     const transport = async () => new Response("{}", { status: 200 });
     const plugin = cimd({ fetchClientMetadataResource: transport });
     const discovery = createCimdClientDiscovery({ fetchClientMetadataResource: transport });
-    expect(plugin).toMatchObject({ id: "cimd", version: "1.7.1" });
+    expect(plugin).toMatchObject({ id: "cimd", version: "1.7.2" });
     expect(plugin.endpoints).toBeUndefined();
     expect(discovery).toMatchObject({
       id: "cimd",

@@ -44,7 +44,7 @@ describe("@chargebee/better-auth@1.2.0 immutable artifact oracle", () => {
       },
     });
     expect((await packageJson("chargebee")).version).toBe("3.23.1");
-    expect((await packageJson("better-auth")).version).toBe("1.7.1");
+    expect((await packageJson("better-auth")).version).toBe("1.7.2");
     const lockedPackage = lock.packages["node_modules/@chargebee/better-auth"];
     expect(lockedPackage.resolved).toBe(
       "https://registry.npmjs.org/@chargebee/better-auth/-/better-auth-1.2.0.tgz",

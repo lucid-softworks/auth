@@ -108,7 +108,7 @@ pub struct SchemaTable {
     pub order: Option<u32>,
 }
 
-/// Immutable ordered equivalent of Better Auth 1.7.1 `buildAuthTables`.
+/// Immutable ordered equivalent of Better Auth 1.7.2 `buildAuthTables`.
 #[derive(Debug, Clone)]
 pub struct AuthSchemaCatalog {
     tables: IndexMap<String, SchemaTable>,

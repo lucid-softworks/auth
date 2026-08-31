@@ -26,7 +26,7 @@ const ENDPOINTS: &[PluginEndpoint] = &[
 ];
 const CLIENT_ACTIONS: &[&str] = &["getCookie", "authenticate", "requestAuth", "setupMain"];
 
-/// Exact server options published by `@better-auth/electron@1.7.1`.
+/// Exact server options published by `@better-auth/electron@1.7.2`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElectronOptions {
     pub code_expires_in: i64,
@@ -46,7 +46,7 @@ impl Default for ElectronOptions {
     }
 }
 
-/// Native server equivalent of `@better-auth/electron@1.7.1`'s `electron()` plugin.
+/// Native server equivalent of `@better-auth/electron@1.7.2`'s `electron()` plugin.
 #[derive(Clone)]
 pub struct ElectronPlugin {
     options: Arc<ElectronOptions>,
@@ -104,7 +104,7 @@ impl AuthPlugin for ElectronPlugin {
                     "@better-auth/electron/client",
                     "electronClient",
                 )
-                .with_identity("electron", "1.7.1")
+                .with_identity("electron", "1.7.2")
                 .with_custom_actions(CLIENT_ACTIONS),
             ),
         }

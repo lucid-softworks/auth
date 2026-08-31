@@ -11,7 +11,7 @@ pub const PASSWORD_COMPROMISED: &str = "PASSWORD_COMPROMISED";
 pub const DEFAULT_PASSWORD_COMPROMISED_MESSAGE: &str =
     "The password you entered has been compromised. Please choose a different password.";
 
-/// Better Auth 1.7.1's server-only `haveIBeenPwned()` plugin.
+/// Better Auth 1.7.2's server-only `haveIBeenPwned()` plugin.
 #[derive(Clone)]
 pub struct HaveIBeenPwnedPlugin {
     options: HaveIBeenPwnedOptions,

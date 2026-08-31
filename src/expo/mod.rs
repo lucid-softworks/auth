@@ -14,13 +14,13 @@ const NON_ACTION_PATHS: &[&str] = &["/expo-authorization-proxy"];
 const CLIENT_ACTIONS: &[&str] = &["getCookie"];
 const DEVELOPMENT_ORIGINS: &[&str] = &["exp://"];
 
-/// Exact server options published by `@better-auth/expo@1.7.1`.
+/// Exact server options published by `@better-auth/expo@1.7.2`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ExpoOptions {
     pub disable_origin_override: bool,
 }
 
-/// Native server equivalent of `@better-auth/expo@1.7.1`'s `expo()` plugin.
+/// Native server equivalent of `@better-auth/expo@1.7.2`'s `expo()` plugin.
 #[derive(Clone, Copy, Default)]
 pub struct ExpoPlugin {
     options: ExpoOptions,
@@ -70,7 +70,7 @@ impl AuthPlugin for ExpoPlugin {
                     "@better-auth/expo/client",
                     "expoClient",
                 )
-                .with_identity("expo", "1.7.1")
+                .with_identity("expo", "1.7.2")
                 .with_custom_actions(CLIENT_ACTIONS)
                 .with_non_action_paths(NON_ACTION_PATHS),
             ),

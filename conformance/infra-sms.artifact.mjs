@@ -30,8 +30,8 @@ describe("@better-auth/infra@0.4.3 SMS artifact oracle", () => {
       integrity: "sha512-wQAdFoFxD/waZYHyF9hKIf8jAnWxVK0R2S28Q/4vCrXWCDKBn5ZVZb1Sy8UHcmbnr1p7xuscBZJTPoFfE6y89A==",
       sha1: "f20fabec398194cae23ccc35c324eccf8796e4db",
     });
-    expect((await packageJson("better-auth")).version).toBe("1.7.1");
-    expect((await packageJson("@better-auth/core")).version).toBe("1.7.1");
+    expect((await packageJson("better-auth")).version).toBe("1.7.2");
+    expect((await packageJson("@better-auth/core")).version).toBe("1.7.2");
     expect((await packageJson("@better-fetch/fetch")).version).toBe("1.3.1");
   });
 

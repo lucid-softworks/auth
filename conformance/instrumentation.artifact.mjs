@@ -31,7 +31,7 @@ export async function instrumentationArtifact() {
 export function assertPinnedInstrumentationArtifact(entries) {
   const source = entries.map((entry) => entry.source).join("\n");
   expect(source).toContain('const INSTRUMENTATION_SCOPE = "better-auth"');
-  expect(source).toContain('const INSTRUMENTATION_VERSION = "1.7.1"');
+  expect(source).toContain('const INSTRUMENTATION_VERSION = "1.7.2"');
   expect(source).toContain("db incrementOne ${model}");
   expect(source).toContain("db updateMany.before ${model}");
   expect(source).toContain("middleware ${m.path} ${plugin.id}");

@@ -100,7 +100,7 @@ function assertRedirectError(response, baseURL, code) {
 async function metadataConformance() {
   const plugin = oAuthProxy();
   assert.equal(plugin.id, "oauth-proxy");
-  assert.equal(plugin.version, "1.7.1");
+  assert.equal(plugin.version, "1.7.2");
   assert.equal(plugin.options, undefined);
   assert.deepEqual(Object.keys(plugin.endpoints), ["oAuthProxy"]);
   assert.equal(plugin.endpoints.oAuthProxy.path, "/oauth-proxy-callback");

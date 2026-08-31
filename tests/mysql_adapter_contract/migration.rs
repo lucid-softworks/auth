@@ -260,7 +260,7 @@ async fn rejects_mismatched_and_prefix_indexes_but_allows_table_scoped_names() {
 async fn rejects_disabled_myisam_indexes() {
     let store = store().await;
     sqlx::query(
-        "create table widget (id varchar(36) not null primary key, value varchar(255) not null, index widget_value_idx (value)) engine=MyISAM",
+        "create table widget (id varchar(36) not null primary key, value varchar(255) character set latin1 not null, index widget_value_idx (value)) engine=MyISAM",
     )
     .execute(store.pool())
     .await

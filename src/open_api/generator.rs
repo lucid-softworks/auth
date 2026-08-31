@@ -21,7 +21,7 @@ struct CoreComponents {
     schemas: BTreeMap<String, OpenApiModelSchema>,
 }
 
-/// Generate the Better Auth 1.7.1 OpenAPI document for native callers.
+/// Generate the Better Auth 1.7.2 OpenAPI document for native callers.
 pub fn generate_open_api_schema(service: &AuthService) -> OpenApiSchema {
     generate_open_api_schema_with_base_url(service, direct_base_url(service))
 }

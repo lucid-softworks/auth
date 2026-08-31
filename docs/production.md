@@ -115,7 +115,7 @@ proxy trust.
   configuration. Enable `foreign_keys` in caller connection options when the
   generated `REFERENCES` clauses must be enforced; the store never toggles it.
 - SQLite schema evolution only adds the objects supported by the pinned Better
-  Auth 1.7.1 Kysely migration behavior. Treat unsafe required-column additions,
+  Auth 1.7.2 Kysely migration behavior. Treat unsafe required-column additions,
   type/nullable warnings, and index conflicts as manual deployment work. It
   never drops, renames, rewrites, or backfills existing objects.
 - For MySQL, preserve SQLx's `+00:00` session timezone and matched-row

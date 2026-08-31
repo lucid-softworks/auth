@@ -109,7 +109,7 @@ class HandlerTransport {
 function metadataConformance() {
   const server = jwt();
   assert.equal(server.id, "jwt");
-  assert.equal(server.version, "1.7.1");
+  assert.equal(server.version, "1.7.2");
   assert.equal(server.options, undefined);
   assert.deepEqual(Object.keys(server.endpoints), [
     "getJwks",
@@ -146,7 +146,7 @@ function metadataConformance() {
 
   const client = jwtClient();
   assert.equal(client.id, "better-auth-client");
-  assert.equal(client.version, "1.7.1");
+  assert.equal(client.version, "1.7.2");
   assert.deepEqual(client.$InferServerPlugin, {});
   assert.deepEqual(client.pathMethods, { "/jwks": "GET" });
   assert.equal(typeof client.getActions, "function");

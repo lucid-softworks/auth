@@ -41,28 +41,28 @@ function memoryStorage() {
   };
 }
 
-describe("@better-auth/electron@1.7.1 immutable artifact", () => {
+describe("@better-auth/electron@1.7.2 immutable artifact", () => {
   test("pins registry identity, dependencies, peers, and exact subpaths", async () => {
     const pkg = await packageJson();
     const lock = await packageLock();
     const installed = lock.packages["node_modules/@better-auth/electron"];
 
-    expect(pkg.version).toBe("1.7.1");
+    expect(pkg.version).toBe("1.7.2");
     expect(installed.resolved).toBe(
-      "https://registry.npmjs.org/@better-auth/electron/-/electron-1.7.1.tgz",
+      "https://registry.npmjs.org/@better-auth/electron/-/electron-1.7.2.tgz",
     );
     expect(installed.integrity).toBe(
-      "sha512-SJiS45HW4dtTVESpjV2B1fC+MPLtBU9FoOPPdgid4uxUAx4MmkxWYGvmfRazC1XEIQa8RlUPHZdffpQPP7bxhw==",
+      "sha512-dWTLBbjRLoY0S88Px6fcyz3GhW23/fiPjdFPuN0ce7KQqL61XozH7EHnpd4Jy+elGXgSKDzEWgFJi7ZvZS45Eg==",
     );
-    expect({ sha1: "644f9399843e1c6cafbe899ec071c15d71714db4" }).toEqual({
-      sha1: "644f9399843e1c6cafbe899ec071c15d71714db4",
+    expect({ sha1: "3a4a687593bfe4d0f1bbba381b527de11177c1f9" }).toEqual({
+      sha1: "3a4a687593bfe4d0f1bbba381b527de11177c1f9",
     });
     expect(pkg.dependencies).toEqual({ zod: "^4.3.6" });
     expect(pkg.peerDependencies).toEqual({
-      "@better-auth/core": "^1.7.1",
+      "@better-auth/core": "^1.7.2",
       "@better-auth/utils": "0.4.2",
       "@better-fetch/fetch": "1.3.1",
-      "better-auth": "^1.7.1",
+      "better-auth": "^1.7.2",
       "better-call": "1.4.0",
       conf: "^15.0.2",
       electron: ">=36.0.0",
@@ -96,7 +96,7 @@ describe("@better-auth/electron@1.7.1 immutable artifact", () => {
     ]);
     expect(plugin).toMatchObject({
       id: "electron",
-      version: "1.7.1",
+      version: "1.7.2",
       options: {
         codeExpiresIn: 300,
         redirectCookieExpiresIn: 120,
@@ -147,7 +147,7 @@ describe("@better-auth/electron@1.7.1 immutable artifact", () => {
   });
 });
 
-describe("@better-auth/electron@1.7.1 client and proxy boundary", () => {
+describe("@better-auth/electron@1.7.2 client and proxy boundary", () => {
   test("main requests use direct Origin, omitted credentials, cookies, UA, and skip header", async () => {
     processField("type", "browser");
     const storage = memoryStorage();

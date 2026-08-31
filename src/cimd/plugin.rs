@@ -78,7 +78,7 @@ mod tests {
         let plugin = cimd(CimdOptions::new(Arc::new(Fetcher))).unwrap();
         let descriptor = plugin.descriptor();
         assert_eq!(descriptor.id, "cimd");
-        assert_eq!(descriptor.version, "1.7.1");
+        assert_eq!(descriptor.version, "1.7.2");
         assert_eq!(descriptor.dependencies, &["oauth-provider"]);
         assert!(descriptor.endpoints.is_empty());
         assert!(descriptor.client.is_none());
