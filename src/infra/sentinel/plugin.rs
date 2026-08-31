@@ -38,6 +38,11 @@ pub(super) struct ReservationContext {
 impl SentinelPlugin {
     pub fn new(options: SentinelOptions) -> Self {
         let connection = options.connection.clone().resolve();
+        if connection.api_key().is_empty() {
+            tracing::warn!(
+                "[Sentinel] Missing BETTER_AUTH_API_KEY. Security checks may fall back to allow mode when the Infra API rejects requests."
+            );
+        }
         let security = SentinelSecurityClient::from_resolved(
             connection.clone(),
             options.security.clone(),
