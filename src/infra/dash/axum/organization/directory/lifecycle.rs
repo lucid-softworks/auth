@@ -1,4 +1,4 @@
-use super::{claims, managed, store};
+use super::{claims, contract, managed, store};
 use crate::{AuthService, DashPlugin};
 use axum::{
     Extension, Json,
@@ -23,13 +23,13 @@ pub(crate) async fn rotate(
     Extension(dash): Extension<Arc<DashPlugin>>,
     headers: HeaderMap,
     Path((organization_id, provider_id)): Path<(String, String)>,
-    Json(body): Json<managed::RotateBody>,
+    Json(body): Json<contract::RotateBody>,
 ) -> Response {
     let (scim, claims) = match claims::authorize(&service, &dash, &headers, &organization_id, false).await {
         Ok(value) => value,
         Err(response) => return response,
     };
-    let (scopes, expires_at) = match managed::policy(body.scopes, body.expires_at) {
+    let (scopes, expires_at) = match contract::policy(body.scopes, body.expires_at) {
         Ok(policy) => policy,
         Err(response) => return response,
     };

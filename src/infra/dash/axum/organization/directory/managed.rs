@@ -1,4 +1,4 @@
-use super::{claims, model::DirectoryRow, pairing, store};
+use super::{claims, contract, model::DirectoryRow, pairing, store};
 use crate::{AuthService, DashPlugin, ScimError, ScimManagedCredential, ScimScope};
 use axum::{
     Extension, Json,
@@ -6,26 +6,9 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use chrono::{DateTime, Duration, Utc};
-use serde::Deserialize;
+use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
-use std::{collections::HashSet, sync::Arc};
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct CreateBody {
-    provider_id: String,
-    pairing: Option<pairing::DirectoryPairing>,
-    scopes: Option<Vec<String>>,
-    expires_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct RotateBody {
-    pub scopes: Option<Vec<String>>,
-    pub expires_at: Option<DateTime<Utc>>,
-}
+use std::sync::Arc;
 
 pub(crate) async fn list(
     Extension(service): Extension<Arc<AuthService>>,
@@ -33,6 +16,12 @@ pub(crate) async fn list(
     headers: HeaderMap,
     Path(organization_id): Path<String>,
 ) -> Response {
+    if !claims::managed_mode(&service, &dash) {
+        return match claims::unconstrained(&dash, &headers).await {
+            Ok(()) => Json(json!([])).into_response(),
+            Err(response) => response,
+        };
+    }
     let (scim, _) = match claims::authorize(&service, &dash, &headers, &organization_id, false).await {
         Ok(value) => value,
         Err(response) => return response,
@@ -77,7 +66,7 @@ pub(crate) async fn create(
     Extension(dash): Extension<Arc<DashPlugin>>,
     headers: HeaderMap,
     Path(organization_id): Path<String>,
-    Json(body): Json<CreateBody>,
+    Json(body): Json<contract::CreateBody>,
 ) -> Response {
     let (scim, claims) = match claims::authorize(&service, &dash, &headers, &organization_id, true).await {
         Ok(value) => value,
@@ -93,18 +82,56 @@ pub(crate) async fn create(
         },
         None => None,
     };
-    let (scopes, expires_at) = match policy(body.scopes, body.expires_at) {
+    let (scopes, expires_at) = match contract::policy(body.scopes, body.expires_at) {
         Ok(policy) => policy,
         Err(response) => return response,
     };
+    if let Some(response) = recover_setup(
+        &service,
+        scim,
+        &organization_id,
+        body.provider_id.trim(),
+        &claims,
+        pairing.as_ref(),
+        &scopes,
+        expires_at,
+    )
+    .await
+    {
+        return response;
+    }
+    create_fresh(
+        &service,
+        scim,
+        &organization_id,
+        body.provider_id.trim(),
+        &claims,
+        pairing.as_ref(),
+        scopes,
+        expires_at,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn create_fresh(
+    service: &AuthService,
+    scim: &crate::ScimPlugin,
+    organization_id: &str,
+    provider_id: &str,
+    claims: &claims::DirectoryClaims,
+    pairing: Option<&pairing::ResolvedPairing>,
+    scopes: Vec<ScimScope>,
+    expires_at: DateTime<Utc>,
+) -> Response {
     let reserved = match store::reserve(
         service.database_store(),
         store::NewDirectory {
-            organization_id: &organization_id,
-            provider_id: body.provider_id.trim(),
+            organization_id,
+            provider_id,
             actor_id: claims.actor_id.trim(),
             creation_request_id: claims.setup_operation_id.as_deref(),
-            pairing: pairing.as_ref(),
+            pairing,
         },
     )
     .await
@@ -123,14 +150,128 @@ pub(crate) async fn create(
         .await;
     let (connection, credential, token) = match issued {
         Ok(value) => value,
-        Err(error) => return scim_error(error),
+        Err(error) => {
+            let _ = store::release_reservation(service.database_store(), &reserved).await;
+            return scim_error(error);
+        }
     };
     let row = match store::bind(service.database_store(), &reserved, &connection.connection_id).await {
         Ok(row) => row,
-        Err(error) => return catalog_error(error),
+        Err(error) => {
+            let _ = scim
+                .decommission_managed_connection(
+                    &connection.connection_id,
+                    &reserved.provisioning_domain_id,
+                    claims.actor_id.trim(),
+                )
+                .await;
+            let _ = store::release_reservation(service.database_store(), &reserved).await;
+            return catalog_error(error);
+        }
     };
+    created_response(service, &row, connection, credential, token)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn recover_setup(
+    service: &AuthService,
+    scim: &crate::ScimPlugin,
+    organization_id: &str,
+    provider_id: &str,
+    claims: &claims::DirectoryClaims,
+    pairing: Option<&pairing::ResolvedPairing>,
+    scopes: &[ScimScope],
+    expires_at: DateTime<Utc>,
+) -> Option<Response> {
+    let setup_id = claims.setup_operation_id.as_deref()?;
+    let row = match store::get(service.database_store(), organization_id, provider_id).await {
+        Ok(Some(row)) => row,
+        Ok(None) => return None,
+        Err(error) => return Some(super::super::support::route_error(error)),
+    };
+    let serialized_pairing = pairing.map(|pairing| {
+        serde_json::to_string(&pairing.pairing).expect("directory SSO pairing serializes")
+    });
+    if row.creation_request_id != setup_id
+        || row.status != "active"
+        || row.connection_id.is_none()
+        || row.serialized_sso_pairing != serialized_pairing
+    {
+        return Some(conflict_message(
+            "This directory sync alias belongs to a different setup operation",
+        ));
+    }
+    recover_existing(service, scim, row, claims, scopes, expires_at).await
+}
+
+async fn recover_existing(
+    service: &AuthService,
+    scim: &crate::ScimPlugin,
+    row: DirectoryRow,
+    claims: &claims::DirectoryClaims,
+    scopes: &[ScimScope],
+    expires_at: DateTime<Utc>,
+) -> Option<Response> {
+    let connection_id = row.connection_id.as_deref().expect("binding checked");
+    let state = match scim
+        .get_managed_connection(connection_id, &row.provisioning_domain_id)
+        .await
+    {
+        Ok(state) => state,
+        Err(error) => return Some(scim_error(error)),
+    };
+    if state.0.creation_request_id != row.creation_request_id || state.0.status != "active" {
+        return Some(conflict_message(
+            "Managed connection ownership changed before setup recovery",
+        ));
+    }
+    let updated = match store::touch_active(service.database_store(), &row, &claims.actor_id).await {
+        Ok(row) => row,
+        Err(error) => return Some(catalog_error(error)),
+    };
+    for credential in state.1.iter().filter(|credential| credential.status == "active") {
+        if let Err(error) = scim
+            .revoke_managed_credential(
+                connection_id,
+                &row.provisioning_domain_id,
+                &credential.credential_id,
+                claims.actor_id.trim(),
+            )
+            .await
+        {
+            return Some(scim_error(error));
+        }
+    }
+    match scim
+        .rotate_managed_credential(
+            connection_id,
+            &row.provisioning_domain_id,
+            claims.actor_id.trim(),
+            scopes.to_vec(),
+            expires_at,
+        )
+        .await
+    {
+        Ok((connection, credential, token)) => Some(created_response(
+            service,
+            &updated,
+            connection,
+            credential,
+            token,
+        )),
+        Err(error) => Some(scim_error(error)),
+    }
+}
+
+fn created_response(
+    service: &AuthService,
+    row: &DirectoryRow,
+    connection: crate::ScimManagedConnection,
+    credential: ScimManagedCredential,
+    token: String,
+) -> Response {
     let state = (connection.clone(), vec![credential.clone()]);
-    let mut body = row.response(&base_url(&service), Some(&state));
+    let mut body = row.response(&base_url(service), Some(&state));
     let object = body.as_object_mut().expect("directory response is an object");
     object.insert("connectionId".into(), json!(connection.connection_id));
     object.insert("credential".into(), credential_value(&credential));
@@ -138,44 +279,20 @@ pub(crate) async fn create(
     secured(Json(body).into_response())
 }
 
-pub(crate) async fn legacy_unavailable() -> Response {
+pub(crate) async fn legacy_unavailable(
+    Extension(service): Extension<Arc<AuthService>>,
+    Extension(dash): Extension<Arc<DashPlugin>>,
+    headers: HeaderMap,
+    Json(_body): Json<Value>,
+) -> Response {
+    if let Err(response) = claims::legacy(&service, &dash, &headers).await {
+        return response;
+    }
     super::super::support::error(
         StatusCode::BAD_REQUEST,
         "BAD_REQUEST",
-        "Legacy SCIM directory sync is not available with the managed SCIM plugin",
+        "SCIM plugin is not enabled or does not support this feature",
     )
-}
-
-#[allow(
-    clippy::result_large_err,
-    reason = "the error is an exact Axum response returned directly by the route"
-)]
-pub(super) fn policy(
-    requested: Option<Vec<String>>,
-    expires_at: Option<DateTime<Utc>>,
-) -> Result<(Vec<ScimScope>, DateTime<Utc>), Response> {
-    let expires_at = expires_at.unwrap_or_else(|| Utc::now() + Duration::days(365));
-    if expires_at <= Utc::now() {
-        return Err(bad_request("Directory sync credential expiry must be in the future"));
-    }
-    let values = requested.unwrap_or_else(|| {
-        ScimScope::ALL
-            .iter()
-            .map(|scope| scope.as_str().to_owned())
-            .collect()
-    });
-    if values.is_empty() || values.iter().collect::<HashSet<_>>().len() != values.len() {
-        return Err(bad_request("Directory sync credential scopes must be unique"));
-    }
-    let scopes = values
-        .iter()
-        .map(|value| scope(value).ok_or_else(|| bad_request("Invalid directory sync credential scope")))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok((scopes, expires_at))
-}
-
-fn scope(value: &str) -> Option<ScimScope> {
-    ScimScope::ALL.into_iter().find(|scope| scope.as_str() == value)
 }
 
 #[allow(
@@ -269,6 +386,10 @@ pub(super) fn scim_error(error: ScimError) -> Response {
 
 fn bad_request(message: &'static str) -> Response {
     super::super::support::error(StatusCode::BAD_REQUEST, "BAD_REQUEST", message)
+}
+
+fn conflict_message(message: &'static str) -> Response {
+    super::super::support::error(StatusCode::CONFLICT, "CONFLICT", message)
 }
 
 fn dynamic_error(status: StatusCode, code: &'static str, message: String) -> Response {

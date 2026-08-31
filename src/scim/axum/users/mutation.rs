@@ -291,6 +291,13 @@ async fn reconcile_identity(
     )
     .await?;
     let state = identity::state(&plugin.options, transaction, user_id).await?;
+    crate::infra::dash::membership_projection::reconcile(
+        service,
+        provisioning_domain_id,
+        user_id,
+        state.active,
+    )
+    .await?;
     if !state.active {
         service
             .scim_revoke_user_sessions(user_id)

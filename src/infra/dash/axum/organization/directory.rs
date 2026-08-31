@@ -1,4 +1,5 @@
 mod claims;
+mod contract;
 mod lifecycle;
 mod managed;
 mod model;
