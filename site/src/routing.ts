@@ -1,25 +1,24 @@
-import { docsBySource, type Doc } from "./content";
+import { findAnchorTarget, sourceRoot, type Doc } from "./content";
 
-export type Location = {
+export type DocLocation = {
   path: string;
   anchor: string;
 };
 
+export type ResolvedMarkdownLink =
+  | { external: true; href: string }
+  | { external: false; path: string; anchor: string };
+
 const REPOSITORY = "https://github.com/lucid-softworks/auth";
-
-export function readLocation(): Location {
-  const value = window.location.hash.slice(1) || "/";
-  const separator = value.indexOf("#");
-  const rawPath = separator === -1 ? value : value.slice(0, separator);
-  return {
-    path: rawPath.startsWith("/") ? rawPath : `/${rawPath}`,
-    anchor: separator === -1 ? "" : decodeURIComponent(value.slice(separator + 1)),
-  };
-}
-
-export function docHref(path: string, anchor = ""): string {
-  return `#${path}${anchor ? `#${anchor}` : ""}`;
-}
+const legacySources = new Map([
+  ["/", "README.md"],
+  ["/installation", "docs/installation.md"],
+  ["/frameworks", "docs/frameworks.md"],
+  ["/production", "docs/production.md"],
+  ["/database-id-migration", "docs/database-id-migration.md"],
+  ["/mssql", "docs/mssql.md"],
+  ["/compatibility", "COMPATIBILITY.md"],
+]);
 
 function normalizedSource(source: string, href: string): string {
   const sourceParts = source.split("/");
@@ -31,23 +30,58 @@ function normalizedSource(source: string, href: string): string {
   return sourceParts.join("/");
 }
 
-export function resolveMarkdownHref(current: Doc, href?: string): string | undefined {
-  if (!href) return href;
-  if (/^(?:https?:|mailto:)/.test(href)) return href;
-  if (href.startsWith("#")) return docHref(current.path, href.slice(1));
+function sourceLocation(source: string, anchor = ""): DocLocation | undefined {
+  if (anchor) {
+    const target = findAnchorTarget(source, decodeURIComponent(anchor).toLowerCase());
+    if (target) return target;
+  }
+  const root = sourceRoot(source);
+  if (root) return { path: root.path, anchor: "" };
+}
+
+export function normalizeDocPath(path: string): string {
+  if (!path || path === "/") return "/";
+  return `/${path.replace(/^\/+|\/+$/g, "")}`;
+}
+
+export function resolveMarkdownHref(current: Doc, href?: string): ResolvedMarkdownLink | undefined {
+  if (!href) return undefined;
+  if (/^(?:https?:|mailto:)/.test(href)) return { external: true, href };
+  if (href.startsWith("#")) {
+    const target = sourceLocation(current.source, href.slice(1));
+    return target ? { external: false, ...target } : undefined;
+  }
 
   const [relativePath, anchor = ""] = href.split("#", 2);
   const source = normalizedSource(current.source, relativePath);
-  const linkedDoc = docsBySource.get(source);
-  if (linkedDoc) return docHref(linkedDoc.path, anchor);
+  const target = sourceLocation(source, anchor);
+  if (target) return { external: false, ...target };
 
-  return `${REPOSITORY}/blob/main/${source}${anchor ? `#${anchor}` : ""}`;
+  return {
+    external: true,
+    href: `${REPOSITORY}/blob/main/${source}${anchor ? `#${anchor}` : ""}`,
+  };
+}
+
+export function legacyLocation(hash: string): DocLocation | undefined {
+  if (!hash.startsWith("#/")) return undefined;
+  const value = hash.slice(1);
+  const separator = value.indexOf("#");
+  const path = normalizeDocPath(separator === -1 ? value : value.slice(0, separator));
+  const anchor = separator === -1 ? "" : value.slice(separator + 1);
+  const source = legacySources.get(path);
+  return source ? sourceLocation(source, anchor) : undefined;
+}
+
+export function legacyPathLocation(path: string, anchor = ""): DocLocation | undefined {
+  const source = legacySources.get(normalizeDocPath(path));
+  return source ? sourceLocation(source, anchor) : undefined;
 }
 
 export function sourceUrl(doc: Doc): string {
-  return `${REPOSITORY}/blob/main/${doc.source}`;
+  return `${REPOSITORY}/blob/main/${doc.source}${doc.sourceAnchor ? `#${doc.sourceAnchor}` : ""}`;
 }
 
 export function editUrl(doc: Doc): string {
-  return `${REPOSITORY}/edit/main/${doc.source}`;
+  return `${REPOSITORY}/edit/main/${doc.source}${doc.sourceAnchor ? `#${doc.sourceAnchor}` : ""}`;
 }

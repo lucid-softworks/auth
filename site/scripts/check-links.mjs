@@ -1,16 +1,10 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, normalize, resolve } from "node:path";
+import { extractMarkdownHeadings, splitDocument } from "../lib/docs.mjs";
 
 const root = resolve(import.meta.dirname, "../..");
-const sources = [
-  "README.md",
-  "COMPATIBILITY.md",
-  "docs/database-id-migration.md",
-  "docs/frameworks.md",
-  "docs/installation.md",
-  "docs/mssql.md",
-  "docs/production.md",
-];
+const configs = JSON.parse(readFileSync(join(root, "site/content.config.json"), "utf8"));
+const sources = configs.map((config) => config.source);
 
 function markdownFiles(directory, prefix = "") {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -60,6 +54,27 @@ function anchors(markdown) {
 const content = new Map(sources.map((source) => [source, readFileSync(join(root, source), "utf8")]));
 const anchorMap = new Map([...content].map(([source, markdown]) => [source, anchors(markdown)]));
 const errors = [];
+const pages = configs.flatMap((config) => splitDocument(config, content.get(config.source)));
+const pagePaths = new Set();
+
+for (const page of pages) {
+  if (pagePaths.has(page.path)) errors.push(`duplicate documentation route ${page.path}`);
+  pagePaths.add(page.path);
+  const localAnchors = new Set(extractMarkdownHeadings(page.content).map((heading) => heading.slug));
+  for (const [sourceAnchor, localAnchor] of Object.entries(page.anchors)) {
+    if (localAnchor && !localAnchors.has(localAnchor)) {
+      errors.push(`${page.path}: missing rendered #${localAnchor} for source #${sourceAnchor}`);
+    }
+  }
+}
+
+for (const [source, markdown] of content) {
+  const sourcePages = pages.filter((page) => page.source === source);
+  for (const heading of extractMarkdownHeadings(markdown).filter((item) => item.depth > 1)) {
+    const owners = sourcePages.filter((page) => Object.hasOwn(page.anchors, heading.slug));
+    if (owners.length !== 1) errors.push(`${source}: #${heading.slug} has ${owners.length} route owners`);
+  }
+}
 
 for (const [source, markdown] of content) {
   let fenced = false;
@@ -86,4 +101,4 @@ for (const [source, markdown] of content) {
 }
 
 if (errors.length) throw new Error(`Broken documentation links:\n${errors.join("\n")}`);
-console.log(`Checked ${sources.length} Markdown sources and their local links.`);
+console.log(`Checked ${sources.length} Markdown sources, ${pages.length} routes, and their local links.`);

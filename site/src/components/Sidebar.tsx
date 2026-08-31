@@ -1,6 +1,6 @@
 import { BookOpen, Code2, ExternalLink, X } from "lucide-react";
-import { docs } from "../content";
-import { docHref } from "../routing";
+import { docs, sourceRoots } from "../content";
+import { DocLink } from "./DocLink";
 
 type SidebarProps = {
   activePath: string;
@@ -9,6 +9,10 @@ type SidebarProps = {
 };
 
 const groups = ["Overview", "Guides", "Reference"] as const;
+
+function inBranch(activePath: string, path: string) {
+  return activePath === path || activePath.startsWith(`${path}/`);
+}
 
 export function Sidebar({ activePath, open, onClose }: SidebarProps) {
   return (
@@ -23,16 +27,49 @@ export function Sidebar({ activePath, open, onClose }: SidebarProps) {
           {groups.map((group) => (
             <section className="nav-group" key={group}>
               <h2>{group}</h2>
-              {docs.filter((doc) => doc.group === group).map((doc) => (
-                <a
-                  key={doc.path}
-                  href={docHref(doc.path)}
-                  className={activePath === doc.path ? "active" : ""}
-                  onClick={onClose}
-                >
-                  {doc.title}
-                </a>
-              ))}
+              {sourceRoots.filter((root) => root.group === group).map((root) => {
+                const activeSource = inBranch(activePath, root.path === "/" ? "/overview" : root.path) || activePath === root.path;
+                const sections = docs.filter((doc) => doc.source === root.source && doc.depth === 2);
+                return (
+                  <div className="nav-source" key={root.path}>
+                    <DocLink
+                      path={root.path}
+                      className={activePath === root.path ? "active nav-root" : "nav-root"}
+                      ariaCurrent={activePath === root.path ? "page" : undefined}
+                      onClick={onClose}
+                    >
+                      {root.title}
+                    </DocLink>
+                    {activeSource && sections.map((section) => {
+                      const activeSection = inBranch(activePath, section.path);
+                      const children = docs.filter((doc) => doc.parentPath === section.path && doc.depth === 3);
+                      return (
+                        <div key={section.path}>
+                          <DocLink
+                            path={section.path}
+                            className={activePath === section.path ? "active nav-section" : "nav-section"}
+                            ariaCurrent={activePath === section.path ? "page" : undefined}
+                            onClick={onClose}
+                          >
+                            {section.title}
+                          </DocLink>
+                          {activeSection && children.map((child) => (
+                            <DocLink
+                              path={child.path}
+                              className={activePath === child.path ? "active nav-subsection" : "nav-subsection"}
+                              ariaCurrent={activePath === child.path ? "page" : undefined}
+                              onClick={onClose}
+                              key={child.path}
+                            >
+                              {child.title}
+                            </DocLink>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
             </section>
           ))}
         </nav>

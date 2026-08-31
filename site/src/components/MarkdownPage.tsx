@@ -7,7 +7,8 @@ import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
 import { docs, type Doc } from "../content";
 import type { Heading } from "../markdown";
-import { docHref, editUrl, resolveMarkdownHref, sourceUrl } from "../routing";
+import { editUrl, resolveMarkdownHref, sourceUrl } from "../routing";
+import { DocLink } from "./DocLink";
 
 type MarkdownPageProps = {
   doc: Doc;
@@ -16,29 +17,35 @@ type MarkdownPageProps = {
 };
 
 function Table({ children }: { children?: ReactNode }) {
-  return <div className="table-scroll"><table>{children}</table></div>;
+  return (
+    <div className="table-frame">
+      <div className="table-scroll" role="region" aria-label="Scrollable table" tabIndex={0}><table>{children}</table></div>
+      <span className="table-scroll-hint" aria-hidden="true">Swipe to see every column →</span>
+    </div>
+  );
 }
 
 export function MarkdownPage({ doc, headings, activeAnchor }: MarkdownPageProps) {
   const currentIndex = docs.findIndex((candidate) => candidate.path === doc.path);
   const previous = docs[currentIndex - 1];
   const next = docs[currentIndex + 1];
-  const pageTitle = headings.find((heading) => heading.depth === 1)?.title ?? doc.title;
-  const body = doc.content.replace(/^#\s+.+?\n+/, "");
   const components: Components = {
-    a({ href, children, ...props }) {
+    a({ href, children, node: _node, ...props }) {
       const resolved = resolveMarkdownHref(doc, href);
-      const external = resolved?.startsWith("http");
-      return <a href={resolved} target={external ? "_blank" : undefined} rel={external ? "noreferrer" : undefined} {...props}>{children}{external && <ExternalLink className="inline-external" size={12} />}</a>;
+      if (!resolved) return <span>{children}</span>;
+      if (!resolved.external) {
+        return <DocLink path={resolved.path} anchor={resolved.anchor} className={props.className}>{children}</DocLink>;
+      }
+      return <a href={resolved.href} target="_blank" rel="noreferrer" {...props}>{children}<ExternalLink className="inline-external" size={12} /></a>;
     },
     table: Table,
   };
 
   return (
-    <div className="page-grid">
+    <div className={`page-grid ${headings.length ? "" : "without-toc"}`}>
       <main className="content-column" id="main-content">
         <div className="page-kicker">{doc.group}</div>
-        <h1 className="page-title">{pageTitle}</h1>
+        <h1 className="page-title">{doc.title}</h1>
         <p className="page-summary">{doc.description}</p>
         <div className="source-actions">
           <a href={sourceUrl(doc)} target="_blank" rel="noreferrer"><ExternalLink size={14} /> View source</a>
@@ -50,31 +57,32 @@ export function MarkdownPage({ doc, headings, activeAnchor }: MarkdownPageProps)
             rehypePlugins={[rehypeSlug, [rehypeAutolinkHeadings, { behavior: "wrap" }], rehypeHighlight]}
             components={components}
           >
-            {body}
+            {doc.content}
           </ReactMarkdown>
         </article>
         <nav className="page-pagination" aria-label="Adjacent documentation pages">
-          {previous ? <a href={docHref(previous.path)}><small><ChevronLeft size={13} /> Previous</small><strong>{previous.title}</strong></a> : <span />}
-          {next && <a className="next" href={docHref(next.path)}><small>Next <ChevronRight size={13} /></small><strong>{next.title}</strong></a>}
+          {previous ? <DocLink path={previous.path}><small><ChevronLeft size={13} /> Previous</small><strong>{previous.title}</strong></DocLink> : <span />}
+          {next && <DocLink className="next" path={next.path}><small>Next <ChevronRight size={13} /></small><strong>{next.title}</strong></DocLink>}
         </nav>
         <footer className="content-footer">
           <span>lucid-auth</span> · Better Auth protocol, native Rust execution.
         </footer>
       </main>
-      <aside className="toc" aria-label="On this page">
+      {headings.length > 0 && <aside className="toc" aria-label="On this page">
         <h2>On this page</h2>
         <nav>
-          {headings.filter((heading) => heading.depth > 1).map((heading) => (
-            <a
-              className={`${heading.depth === 3 ? "toc-nested" : ""} ${activeAnchor === heading.slug ? "active" : ""}`}
-              href={docHref(doc.path, heading.slug)}
+          {headings.map((heading) => (
+            <DocLink
+              className={`${heading.depth > doc.depth + 1 ? "toc-nested" : ""} ${activeAnchor === heading.slug ? "active" : ""}`}
+              path={doc.path}
+              anchor={heading.slug}
               key={heading.slug}
             >
               {heading.title}
-            </a>
+            </DocLink>
           ))}
         </nav>
-      </aside>
+      </aside>}
     </div>
   );
 }

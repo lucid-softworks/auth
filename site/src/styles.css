@@ -81,6 +81,10 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5p
 .nav-group a { display: block; margin: 2px 0; padding: 6px 10px; border-radius: 7px; color: var(--muted); font-size: 13px; font-weight: 520; text-decoration: none; }
 .nav-group a:hover { color: var(--text); background: color-mix(in srgb, var(--line) 32%, transparent); }
 .nav-group a.active { color: var(--accent); background: var(--accent-soft); font-weight: 650; }
+.nav-source { margin-bottom: 2px; }
+.nav-group a.nav-root { font-weight: 620; }
+.nav-group a.nav-section { margin-left: 8px; padding-left: 13px; font-size: 12px; }
+.nav-group a.nav-subsection { margin-left: 20px; padding: 5px 9px 5px 13px; border-left: 1px solid var(--line); border-radius: 0 7px 7px 0; font-size: 11.5px; line-height: 1.35; }
 .sidebar-links { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line-soft); }
 .sidebar-links a { display: flex; align-items: center; gap: 8px; padding: 6px 8px; color: var(--muted); font-size: 12px; text-decoration: none; }
 .sidebar-links a svg:last-child { opacity: .6; }
@@ -88,6 +92,7 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5p
 
 .site-main { margin-left: 260px; padding-top: 64px; }
 .page-grid { display: grid; grid-template-columns: minmax(0, 820px) 210px; justify-content: center; gap: 72px; max-width: 1240px; margin: 0 auto; padding: 62px 48px 80px; }
+.page-grid.without-toc { grid-template-columns: minmax(0, 820px); }
 .content-column { min-width: 0; }
 .page-kicker { margin-bottom: 12px; color: var(--accent); font: 750 11px/1 ui-monospace, monospace; letter-spacing: .13em; text-transform: uppercase; }
 .page-title { margin: 0 0 15px; color: var(--text); font-size: clamp(2.35rem, 5vw, 4.1rem); font-weight: 720; line-height: 1.02; letter-spacing: -.055em; }
@@ -117,10 +122,16 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5p
 .markdown-body code { border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; background: color-mix(in srgb, var(--line) 35%, transparent); color: color-mix(in srgb, var(--text) 88%, var(--accent)); font: 500 .86em/1.5 "SFMono-Regular", Consolas, monospace; }
 .markdown-body pre { margin: 1.4rem 0 1.8rem; border: 1px solid #2a2e32; border-radius: 11px; padding: 18px 20px; background: var(--code); overflow-x: auto; box-shadow: 0 10px 32px rgba(0, 0, 0, .13); }
 .markdown-body pre code { border: 0; padding: 0; background: transparent; color: #d9dce2; font-size: 12.5px; line-height: 1.65; }
-.table-scroll { width: 100%; margin: 1.5rem 0 2rem; border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; }
-.markdown-body table { width: 100%; border-collapse: collapse; font-size: 12.5px; line-height: 1.55; }
+.table-frame { position: relative; width: 100%; margin: 1.5rem 0 2rem; }
+.table-scroll { width: 100%; border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; box-shadow: inset -14px 0 16px -18px color-mix(in srgb, var(--text) 70%, transparent); }
+.table-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.table-scroll-hint { display: none; margin-top: 7px; color: var(--faint); font: 600 10px/1.4 ui-monospace, monospace; text-align: right; }
+.markdown-body table { width: 100%; min-width: 48rem; border-collapse: collapse; font-size: 12.5px; line-height: 1.55; }
 .markdown-body th { padding: 10px 12px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--line) 30%, transparent); color: var(--text); font-size: 11px; font-weight: 700; text-align: left; letter-spacing: .02em; }
 .markdown-body td { padding: 11px 12px; border-bottom: 1px solid var(--line-soft); color: var(--muted); vertical-align: top; }
+.markdown-body th, .markdown-body td { min-width: 10rem; overflow-wrap: normal; word-break: normal; }
+.markdown-body th:first-child, .markdown-body td:first-child { min-width: 13rem; }
+.markdown-body th:last-child, .markdown-body td:last-child { min-width: 24rem; }
 .markdown-body tr:last-child td { border-bottom: 0; }
 .markdown-body td:first-child { color: var(--text); }
 
@@ -138,6 +149,11 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5p
 .page-pagination strong { color: var(--text); font-size: 13px; }
 .content-footer { margin-top: 50px; color: var(--faint); font-size: 11px; }
 .content-footer span { color: var(--accent); font-weight: 700; }
+.not-found { max-width: 720px; margin: 0 auto; padding: 14vh 42px 80px; }
+.not-found > span { color: var(--accent); font: 750 12px/1 ui-monospace, monospace; letter-spacing: .13em; }
+.not-found h1 { margin: 15px 0; font-size: clamp(2.2rem, 6vw, 4.5rem); line-height: 1.02; letter-spacing: -.05em; }
+.not-found p { max-width: 560px; color: var(--muted); }
+.not-found button { margin-top: 18px; border: 0; border-radius: 9px; padding: 10px 14px; background: var(--accent); color: #111; font-weight: 700; cursor: pointer; }
 
 .dialog-backdrop { position: fixed; z-index: 90; inset: 0; display: flex; align-items: flex-start; justify-content: center; padding: 12vh 20px 20px; background: rgba(4, 5, 5, .66); backdrop-filter: blur(7px); }
 .search-dialog { width: min(620px, 100%); border: 1px solid var(--line); border-radius: 14px; background: var(--panel-solid); box-shadow: var(--shadow); overflow: hidden; }
@@ -180,7 +196,8 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5p
   .mobile-sidebar-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; color: var(--text); font-size: 13px; font-weight: 700; }
   .page-pagination { grid-template-columns: 1fr; }
   .page-pagination > span { display: none; }
-  .table-scroll { width: calc(100vw - 42px); }
+  .table-frame, .table-scroll { width: calc(100vw - 42px); }
+  .table-scroll-hint { display: block; }
   .dialog-backdrop { padding-top: 7vh; }
 }
 

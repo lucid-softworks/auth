@@ -1,34 +1,40 @@
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Header } from "./components/Header";
 import { MarkdownPage } from "./components/MarkdownPage";
 import { SearchDialog } from "./components/SearchDialog";
 import { Sidebar } from "./components/Sidebar";
-import { docs, docsByPath } from "./content";
+import { docsByPath } from "./content";
 import { extractHeadings } from "./markdown";
-import { readLocation } from "./routing";
+import { legacyLocation, legacyPathLocation, normalizeDocPath, type DocLocation } from "./routing";
 
 export default function App() {
-  const [location, setLocation] = useState(readLocation);
+  const location = useRouterState({ select: (state) => state.location });
+  const navigate = useNavigate();
+  const path = normalizeDocPath(location.pathname);
+  const doc = docsByPath.get(path);
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const doc = docsByPath.get(location.path) ?? docs[0];
-  const headings = useMemo(() => extractHeadings(doc.content), [doc]);
-  const [activeAnchor, setActiveAnchor] = useState(location.anchor);
+  const headings = useMemo(() => extractHeadings(doc?.content ?? ""), [doc]);
+  const [activeAnchor, setActiveAnchor] = useState(location.hash);
 
   useEffect(() => {
-    const onHashChange = () => setLocation(readLocation());
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, []);
+    const target = legacyLocation(window.location.hash) ??
+      (!doc ? legacyPathLocation(path, location.hash) : undefined);
+    if (!target) return;
+    const options = { hash: target.anchor || undefined, replace: true } as const;
+    if (target.path === "/") void navigate({ to: "/", ...options });
+    else void navigate({ to: "/$", params: { _splat: target.path.slice(1) }, ...options });
+  }, [doc, location.hash, navigate, path]);
 
   useEffect(() => {
-    document.title = `${doc.title} · Lucid Auth`;
-    setActiveAnchor(location.anchor);
+    document.title = doc ? `${doc.title} · Lucid Auth` : "Page not found · Lucid Auth";
+    setActiveAnchor(location.hash);
     requestAnimationFrame(() => {
-      if (location.anchor) document.getElementById(location.anchor)?.scrollIntoView();
+      if (location.hash) document.getElementById(location.hash)?.scrollIntoView();
       else window.scrollTo({ top: 0 });
     });
-  }, [doc, location.anchor]);
+  }, [doc, location.hash]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -46,8 +52,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!doc) return;
     const elements = headings
-      .filter((heading) => heading.depth > 1)
       .map((heading) => document.getElementById(heading.slug))
       .filter((element): element is HTMLElement => element !== null);
     if (!elements.length) return;
@@ -62,13 +68,27 @@ export default function App() {
     return () => observer.disconnect();
   }, [doc, headings]);
 
+  const navigateTo = (target: DocLocation) => {
+    if (target.path === "/") void navigate({ to: "/", hash: target.anchor || undefined });
+    else void navigate({ to: "/$", params: { _splat: target.path.slice(1) }, hash: target.anchor || undefined });
+  };
+
   return (
     <>
       <a className="skip-link" href="#main-content">Skip to content</a>
       <Header onMenu={() => setMenuOpen(true)} onSearch={() => setSearchOpen(true)} />
-      <Sidebar activePath={doc.path} open={menuOpen} onClose={() => setMenuOpen(false)} />
+      <Sidebar activePath={doc?.path ?? path} open={menuOpen} onClose={() => setMenuOpen(false)} />
       <div className="site-main">
-        <MarkdownPage doc={doc} headings={headings} activeAnchor={activeAnchor} />
+        {doc ? (
+          <MarkdownPage doc={doc} headings={headings} activeAnchor={activeAnchor} />
+        ) : (
+          <main className="not-found" id="main-content">
+            <span>404</span>
+            <h1>That documentation page does not exist.</h1>
+            <p>The guide may have moved when the documentation was split into focused sections.</p>
+            <button onClick={() => navigateTo({ path: "/", anchor: "" })}>Return to the introduction</button>
+          </main>
+        )}
       </div>
       <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />
     </>

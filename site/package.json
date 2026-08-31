@@ -4,12 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "npm run check-links && tsc --noEmit && vite build",
+    "build": "npm run check-links && tsc --noEmit && vite build && node scripts/generate-route-entries.mjs",
     "check-links": "node scripts/check-links.mjs",
     "dev": "vite --host 0.0.0.0",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
+    "@tanstack/react-router": "1.170.32",
     "lucide-react": "1.38.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",

@@ -2,7 +2,7 @@ import { ArrowRight, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { docs } from "../content";
 import { plainText } from "../markdown";
-import { docHref } from "../routing";
+import { DocLink } from "./DocLink";
 
 type SearchDialogProps = {
   open: boolean;
@@ -45,10 +45,10 @@ export function SearchDialog({ open, onClose }: SearchDialogProps) {
         <div className="search-results">
           {results.length === 0 && <p className="empty-results">No documentation matches “{query}”.</p>}
           {results.map(({ doc }) => (
-            <a key={doc.path} href={docHref(doc.path)} onClick={onClose}>
+            <DocLink key={doc.path} path={doc.path} onClick={onClose}>
               <span><strong>{doc.title}</strong><small>{doc.description}</small></span>
               <ArrowRight size={16} />
-            </a>
+            </DocLink>
           ))}
         </div>
         <footer><kbd>Esc</kbd> to close <span>·</span> Search covers every Markdown guide</footer>
