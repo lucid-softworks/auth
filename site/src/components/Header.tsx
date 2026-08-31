@@ -1,5 +1,6 @@
 import { Code2, Menu, Moon, Search, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
+import { DocLink } from "./DocLink";
 
 type HeaderProps = {
   onMenu: () => void;
@@ -20,11 +21,11 @@ export function Header({ onMenu, onSearch }: HeaderProps) {
         <button className="icon-button mobile-only" onClick={onMenu} aria-label="Open navigation">
           <Menu size={19} />
         </button>
-        <a className="brand" href="#/" aria-label="Lucid Auth documentation home">
+        <DocLink className="brand" path="/" ariaLabel="Lucid Auth documentation home">
           <span className="brand-mark">L</span>
           <span>lucid<span className="brand-muted">/auth</span></span>
           <span className="version">v1.7.2</span>
-        </a>
+        </DocLink>
         <div className="header-actions">
           <button className="search-trigger" onClick={onSearch} aria-label="Search documentation">
             <Search size={16} />

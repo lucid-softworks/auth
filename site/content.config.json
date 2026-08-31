@@ -1,0 +1,65 @@
+[
+  {
+    "source": "README.md",
+    "path": "/",
+    "sectionPath": "/overview",
+    "title": "Introduction",
+    "description": "Native Rust authentication with the Better Auth protocol.",
+    "group": "Overview",
+    "splitDepth": 3
+  },
+  {
+    "source": "docs/installation.md",
+    "path": "/guides/installation",
+    "sectionPath": "/guides/installation",
+    "title": "Installation",
+    "description": "Install lucid-auth and connect your storage adapter.",
+    "group": "Guides",
+    "splitDepth": 2
+  },
+  {
+    "source": "docs/frameworks.md",
+    "path": "/guides/frameworks",
+    "sectionPath": "/guides/frameworks",
+    "title": "Clients & frameworks",
+    "description": "Connect Better Auth clients across browser, SSR, mobile, and Electron.",
+    "group": "Guides",
+    "splitDepth": 2
+  },
+  {
+    "source": "docs/production.md",
+    "path": "/guides/production",
+    "sectionPath": "/guides/production",
+    "title": "Production",
+    "description": "Security, proxy, database, and deployment checklist.",
+    "group": "Guides",
+    "splitDepth": 2
+  },
+  {
+    "source": "docs/database-id-migration.md",
+    "path": "/guides/database-id-migration",
+    "sectionPath": "/guides/database-id-migration",
+    "title": "Database ID migration",
+    "description": "Choose and safely migrate database ID strategies.",
+    "group": "Guides",
+    "splitDepth": 2
+  },
+  {
+    "source": "docs/mssql.md",
+    "path": "/reference/mssql",
+    "sectionPath": "/reference/mssql",
+    "title": "Microsoft SQL Server",
+    "description": "Configure, migrate, and secure the native MSSQL adapter.",
+    "group": "Reference",
+    "splitDepth": 2
+  },
+  {
+    "source": "COMPATIBILITY.md",
+    "path": "/reference/compatibility",
+    "sectionPath": "/reference/compatibility",
+    "title": "Compatibility",
+    "description": "Method-level Better Auth 1.7.2 compatibility and known boundaries.",
+    "group": "Reference",
+    "splitDepth": 3
+  }
+]
