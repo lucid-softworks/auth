@@ -7,6 +7,7 @@
 mod options;
 mod plugin;
 mod pow;
+mod service;
 
 pub use options::{
     BooleanSecurityRule, CompromisedPasswordOptions, CredentialStuffingOptions,
@@ -18,6 +19,10 @@ pub use plugin::SentinelPlugin;
 pub use pow::{
     CHALLENGE_TTL, DEFAULT_DIFFICULTY, PoWChallenge, PoWSolution, decode_pow_challenge,
     encode_pow_solution, solve_pow_challenge, verify_pow_solution,
+};
+pub use service::{
+    CompromisedPasswordResult, SecurityCheck, SecurityVerdict, SentinelSecurityClient,
+    VerdictAction,
 };
 
 /// Published `@better-auth/infra` compatibility target.
