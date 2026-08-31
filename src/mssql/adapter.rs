@@ -138,6 +138,7 @@ impl MssqlStore {
         schema: Arc<AuthSchemaCatalog>,
         mode: super::MssqlMigrationMode,
     ) -> Result<super::MssqlMigrationPlan, super::MssqlMigrationError> {
+        self.debug_operation("migration-plan", None);
         self.bind_schema(schema)
             .map_err(|error| super::MssqlMigrationError::Configuration(error.to_string()))?;
         let bound = self
@@ -168,6 +169,7 @@ impl MssqlStore {
         model: &str,
         record: serde_json::Map<String, serde_json::Value>,
     ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        self.debug_operation("insert", Some(model));
         let schema = self.physical_schema()?;
         let mut connection = self.pool.get().await.map_err(storage)?;
         super::query::execute::insert(
@@ -195,6 +197,7 @@ impl MssqlStore {
         filters: &[super::MssqlFilter],
         select: &[String],
     ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        self.debug_operation("find-one", Some(model));
         let schema = self.physical_schema()?;
         let mut connection = self.pool.get().await.map_err(storage)?;
         super::query::execute::find_one(
@@ -214,6 +217,7 @@ impl MssqlStore {
         filters: &[super::MssqlFilter],
         options: &super::MssqlFindOptions,
     ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        self.debug_operation("find-one-joined", Some(model));
         let schema = self.physical_schema()?;
         let mut connection = self.pool.get().await.map_err(storage)?;
         super::query::execute::find_one_with_options(
@@ -232,6 +236,7 @@ impl MssqlStore {
         filters: &[super::MssqlFilter],
         options: &super::MssqlFindOptions,
     ) -> Result<Vec<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        self.debug_operation("find-many", Some(model));
         let schema = self.physical_schema()?;
         let mut connection = self.pool.get().await.map_err(storage)?;
         super::query::execute::find_many(
@@ -250,6 +255,7 @@ impl MssqlStore {
         filters: &[super::MssqlFilter],
         values: serde_json::Map<String, serde_json::Value>,
     ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        self.debug_operation("update-one", Some(model));
         let schema = self.physical_schema()?;
         let mut connection = self.pool.get().await.map_err(storage)?;
         super::query::execute::update_one(
@@ -268,6 +274,7 @@ impl MssqlStore {
         filters: &[super::MssqlFilter],
         values: serde_json::Map<String, serde_json::Value>,
     ) -> Result<u64, AuthError> {
+        self.debug_operation("update-many", Some(model));
         let schema = self.physical_schema()?;
         let mut connection = self.pool.get().await.map_err(storage)?;
         super::query::execute::update_many(
@@ -285,6 +292,7 @@ impl MssqlStore {
         model: &str,
         filters: &[super::MssqlFilter],
     ) -> Result<u64, AuthError> {
+        self.debug_operation("count", Some(model));
         let schema = self.physical_schema()?;
         let mut connection = self.pool.get().await.map_err(storage)?;
         super::query::execute::count(
@@ -301,6 +309,7 @@ impl MssqlStore {
         model: &str,
         filters: &[super::MssqlFilter],
     ) -> Result<u64, AuthError> {
+        self.debug_operation("delete-many", Some(model));
         let schema = self.physical_schema()?;
         let mut connection = self.pool.get().await.map_err(storage)?;
         super::query::execute::delete_many(
@@ -317,6 +326,7 @@ impl MssqlStore {
         model: &str,
         filters: &[super::MssqlFilter],
     ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        self.debug_operation("consume-one", Some(model));
         let schema = self.physical_schema()?;
         let mut connection = self.pool.get().await.map_err(storage)?;
         super::query::execute::consume_one(
@@ -335,6 +345,7 @@ impl MssqlStore {
         increments: serde_json::Map<String, serde_json::Value>,
         set: serde_json::Map<String, serde_json::Value>,
     ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        self.debug_operation("increment-one", Some(model));
         let schema = self.physical_schema()?;
         let mut connection = self.pool.get().await.map_err(storage)?;
         super::query::execute::increment_one(
@@ -354,6 +365,17 @@ impl MssqlStore {
                 "MSSQL adapter schema is not bound to an AuthService".into(),
             )
         })
+    }
+
+    fn debug_operation(&self, operation: &'static str, model: Option<&str>) {
+        if self.adapter_config.debug_logs {
+            tracing::debug!(
+                target: "lucid_auth::mssql",
+                operation,
+                model,
+                "executing MSSQL adapter operation"
+            );
+        }
     }
 }
 
