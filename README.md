@@ -9,6 +9,8 @@ The compatibility target is Better Auth `1.7.2`. See the
 [compatibility matrix](COMPATIBILITY.md) for method-level coverage, known
 limitations, upgrade audit, and links to every tracked gap.
 
+Read the complete guide at **[lucid-softworks.github.io/auth](https://lucid-softworks.github.io/auth/)**.
+
 ## Start here
 
 - [Install and run memory, D1, SQLite, MySQL, MongoDB, MSSQL, or PostgreSQL storage](docs/installation.md)
