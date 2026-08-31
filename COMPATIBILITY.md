@@ -581,7 +581,7 @@ aliases or permissive alternate request/response shapes:
 | Chargebee | Supported | Optional `ChargebeePlugin` matches Better Auth `1.7.1`, the Chargebee-maintained `@chargebee/better-auth@1.2.0`, and its `chargebee@3.23.1` runtime: eight always-mounted server routes; the official client's five explicit `pathMethods` plus its inferred GET cancel-callback action; exact validation, reference/origin rules, hosted checkout, portal, cancellation, local lifecycle, and declaration/runtime edges; conditional user/organization/subscription/item schema; an injected native provider gateway; eight webhook mappings, custom listeners, and optional awaited event-bus processing; and equivalent memory/PostgreSQL stores. One intentional hardening awaits webhook authentication, processing, listeners, and queue persistence instead of reproducing the package's unsafe early acknowledgement race. Pinned npm-oracle, official-client, native HTTP/lifecycle/webhook, memory, and live PostgreSQL contracts cover the boundary; see [Chargebee 1.2.0](#chargebee-120) and [#52](https://github.com/lucid-softworks/auth/issues/52). |
 | Dub | Supported | Optional `DubPlugin` matches Better Auth `1.7.1`, `@dub/better-auth@0.0.6`, and `dub@0.66.5` for its actual published surface: one post-commit user-create lead hook, exact `dub_id` parsing and pathless deletion, default/custom/disabled tracking behavior, and `POST /dub/link` validation/security/failure outcomes. The package exports no installable client, and its configured OAuth flow is broken with Better Auth 1.7.1; the native plugin preserves the empty 500 and adds no callback or fabricated repair. There is no schema, migration, local attribution state, webhook, sale/update tracking, job, retry, or idempotency layer; see [Dub 0.0.6](#dub-006) and [#53](https://github.com/lucid-softworks/auth/issues/53). |
 | Dashboard and audit logs | Supported | `DashPlugin` matches all 79 hosted/browser `/dash/*` routes and four local-session event-query routes from `@better-auth/infra@0.4.3`: the 26-route core family; all 35 organization, member, team, invitation, and managed two-factor routes; the exact 18-route SSO/directory/SCIM control plane; managed JWT/JTI policy; opt-in activity tracking; five raw adapter actions; the exact 39-value event catalog and 35-event projection; one-shot remote tracking; remote event transformation/filtering; local membership/role authorization; and the two-action `dashClient()` declaration. The integrated pinned-artifact oracle locks all 83 endpoint functions over 82 unique paths, the 29 GET/54 POST split, conditional schema, projected-event inventory, and both official client actions. Organization, SSO, SCIM, and two-factor state reuse the native plugins and stores; public invitation completion preserves the managed-token/local-session boundary and exact remote egress. See [Dash core routes 0.4.3](#dash-core-routes-043), [Dash organization and two-factor routes 0.4.3](#dash-organization-and-two-factor-routes-043), [Dash directory, SSO, and SCIM control plane 0.4.3](#dash-directory-sso-and-scim-control-plane-043), [Dash event projection 0.4.3](#dash-event-projection-043), [Dash event queries 0.4.3](#dash-event-queries-043), and [Dash substrate 0.4.3](#dash-substrate-043). |
-| Sentinel security | Planned | [#55](https://github.com/lucid-softworks/auth/issues/55). |
+| Sentinel security | Supported | Optional `SentinelPlugin` matches `sentinel()`, `sentinelClient()`, and `sentinelNativeClient()` from `@better-auth/infra@0.4.3`: exact server/client descriptors, option precedence, request identification and cookie behavior, protected-route policy, PoW, email/phone checks, account/session lifecycle, ten security-signal types, aggregate telemetry, native storage/RNG behavior, and fixed per-operation outage fallbacks. It adds no endpoint, schema, migration, rate rule, durable local decision/device/location state, configurable circuit breaker, or local audit log. Fingerprint, identity, location, credential-derived, and security-outcome data can leave the process; see [Sentinel 0.4.3](#sentinel-043) and [#55](https://github.com/lucid-softworks/auth/issues/55). |
 | Managed email service | Supported | Standalone `infra::email` client matching `@better-auth/infra@0.4.3`: exact reusable and one-shot send operations, bulk send, remote template listing, all 13 published templates and their typed variables, configuration/environment/timeout precedence, URL and header construction, result normalization, and one-request failure behavior. This is not an auth plugin: it adds no route, client plugin, schema, migration, lifecycle mapping, queue, retry, idempotency, locale, or provider transport. Recipients and template payloads leave the process for the configured API origin; see [Managed email 0.4.3](#managed-email-043) and [#56](https://github.com/lucid-softworks/auth/issues/56). |
 | Managed SMS service | Supported | Standalone `infra::sms` client matching the root-only SMS exports from `@better-auth/infra@0.4.3`: exact reusable and one-shot sends, three templates plus the generic send, configuration/environment/timeout precedence, optional client-IP header, URL/header/body construction, unchecked provider message IDs, result normalization, and one-request failure behavior. This is not an auth plugin and is not automatically wired by `dash` or `sentinel`; it adds no route, client plugin, schema, migration, validation, queue, retry, idempotency, locale, or provider transport. Phone numbers, OTPs, and optional end-user IPs leave the process for the configured origin; see [Managed SMS 0.4.3](#managed-sms-043) and [#57](https://github.com/lucid-softworks/auth/issues/57). |
 
@@ -954,12 +954,69 @@ and honors the advanced IP-disable switch.
 The substrate alone owns no public Dash endpoint, browser client, database model,
 migration, persisted credential, background queue, retry
 ledger, local audit store, issuer/audience validation, or generic remote-admin
-framework. Core and event-query endpoints are owned by `DashPlugin`; event
-projection remains with #93. The API
+framework. Core, event projection, and event-query endpoints are owned by
+`DashPlugin`. The API
 origin receives API keys, hosted JWT/JTI data, and JWKS requests; the KV origin
 receives request identifiers, while loaded identification can include visitor,
 IP, location, browser, confidence, incognito, and bot data. Configure only
 trusted origins and review that PII egress.
+
+### Sentinel 0.4.3
+
+`infra::sentinel::SentinelPlugin` is the native server equivalent of
+`sentinel()` from `@better-auth/infra@0.4.3`. The browser and native metadata
+pin `sentinelClient()` from `@better-auth/infra/client` and
+`sentinelNativeClient()` from `@better-auth/infra/native`; both publish the
+`sentinel-fingerprint` then `sentinel-pow-solver` fetch-plugin order. The server
+has only before/after request hooks and user/session database hooks. Its sole
+cookie is the ten-minute, HTTP-only, SameSite=Lax `__infra-rid` request-id
+bridge. There is no Sentinel endpoint, model, migration, rate declaration,
+durable local security state, or configurable global failure policy.
+
+The exact connection inputs are `apiUrl`, `kvUrl`, `apiKey`, nested API/KV
+timeouts, KV retry values, and only the published deprecated `apiTimeout` and
+`kvTimeout` aliases. `SecurityOptions` preserves the artifact's credential
+stuffing, impossible-travel, geo, bot, suspicious-IP, velocity, free-trial,
+compromised-password, email, stale-user, unknown-device, and challenge inputs
+without inventing local threshold defaults. A missing key emits the artifact's
+startup warning. Remote general evaluation, cooldown lookup, PoW generation,
+failed-attempt state, travel/location, reservations, breached-password prefix
+lookup, stale-account policy, email policy/validity, managed notification, and
+event operations each retain their published fixed fallback; most transport
+failures allow or log, while enabled free-trial protection blocks creation
+without bound identification.
+
+Identification runs on every non-GET and the two OAuth callback GET patterns,
+excluding Dash. Only a visitor ID bound by the KV record is trusted for
+enforcement. Protected routes perform the one-check allow/block/challenge
+pipeline, use the published SHA-256 proof-of-work encoding, send only a SHA-1
+five-character prefix for breached-password lookup, and use API-keyed
+HMAC-SHA256 for failed-login password fingerprints. Email normalization and
+remote validation apply only to their pinned route sets; phone validation is
+unconditional on the artifact's exact five paths. Lifecycle hooks reserve and
+confirm free trials, evaluate impossible travel, preserve the 0.4.3
+unknown-device-always-false quirk, store last location remotely, and can delete
+a newly issued stale-account session before returning the exact block.
+
+The browser client collects the published high-entropy browser, hardware,
+locale, timezone, canvas, WebGL, font, storage, feature, connection, and audio
+components. The native client instead stores a stable visitor ID in explicit
+storage, optional AsyncStorage, or memory, and requires Web Crypto or optional
+Expo Crypto; it never uses `Math.random`. Optional Expo Constants and Device
+metadata remain failure-tolerant. Both clients identify remotely, rotate the
+request ID after expiry, and perform at most two 423 PoW retry rounds with the
+artifact's rebuilt-header/original-body quirks.
+
+KV egress comprises browser/native `POST /identify`, server
+`GET /identify/{requestId}`, and `POST /email/validate`. Infra API egress
+comprises every `/security/*` operation and `/events/track`; stale-account
+notices use managed email. Fingerprint components, stable IDs, request IDs,
+IP/location, identifiers, account IDs, emails, user agents, outcomes, and keyed
+password fingerprints may leave the deployment. Operators own consent,
+privacy notice, processor terms, retention, residency, and regional compliance.
+The pinned npm root/client/native oracle and deterministic Rust fake transports
+cover this boundary without real credentials, recipients, or outbound service
+calls.
 
 ### Managed email 0.4.3
 
