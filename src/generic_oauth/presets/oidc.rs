@@ -106,7 +106,7 @@ impl GenericOAuthUserInfo for MicrosoftProfile {
         if oid.is_none() {
             return Ok(None);
         }
-        let token_user = microsoft_user_info(&claims, None);
+        let token_user = microsoft_user_info(&claims, None)?;
         let Some(token_sub) = claims.get("sub").and_then(Value::as_str) else {
             return Ok(Some(token_user));
         };
@@ -116,11 +116,11 @@ impl GenericOAuthUserInfo for MicrosoftProfile {
         if graph.get("sub").and_then(Value::as_str) != Some(token_sub) {
             return Ok(Some(token_user));
         }
-        Ok(Some(microsoft_user_info(&claims, Some(&graph))))
+        Ok(Some(microsoft_user_info(&claims, Some(&graph))?))
     }
 }
 
-fn microsoft_user_info(token: &Value, graph: Option<&Value>) -> Value {
+fn microsoft_user_info(token: &Value, graph: Option<&Value>) -> Result<Value, AuthError> {
     let mut object = graph
         .and_then(Value::as_object)
         .cloned()
@@ -131,28 +131,30 @@ fn microsoft_user_info(token: &Value, graph: Option<&Value>) -> Value {
     let token_name = profile_name(token);
     let graph_name = graph.and_then(profile_name);
     let name = token_name.or(graph_name);
-    let email = text(token, &["email"])
-        .or_else(|| graph.and_then(|profile| text(profile, &["email"])))
-        .or_else(|| text(token, &["preferred_username"]))
-        .or_else(|| graph.and_then(|profile| text(profile, &["preferred_username"])));
+    let oid = text(token, &["oid"]).ok_or(AuthError::OAuthUserInfoUnavailable)?;
+    let claimed_email = text(token, &["email"])
+        .or_else(|| graph.and_then(|profile| text(profile, &["email"])));
+    let email = claimed_email
+        .clone()
+        .map(Ok)
+        .unwrap_or_else(|| crate::email::placeholder_email(&oid, "microsoft-entra-id"))?;
     let image =
         text(token, &["picture"]).or_else(|| graph.and_then(|profile| text(profile, &["picture"])));
-    let verified = token
-        .get("email_verified")
-        .and_then(Value::as_bool)
-        .or_else(|| graph.and_then(|profile| profile.get("email_verified")?.as_bool()))
-        .unwrap_or(false);
+    let verified = claimed_email.is_some()
+        && token
+            .get("email_verified")
+            .and_then(Value::as_bool)
+            .or_else(|| graph.and_then(|profile| profile.get("email_verified")?.as_bool()))
+            .unwrap_or(false);
     if let Some(name) = name {
         object.insert("name".into(), Value::String(name));
     }
-    if let Some(email) = email {
-        object.insert("email".into(), Value::String(email));
-    }
+    object.insert("email".into(), Value::String(email));
     if let Some(image) = image {
         object.insert("image".into(), Value::String(image));
     }
     object.insert("emailVerified".into(), Value::Bool(verified));
-    Value::Object(object)
+    Ok(Value::Object(object))
 }
 
 fn profile_name(profile: &Value) -> Option<String> {
@@ -183,4 +185,45 @@ fn text(value: &Value, fields: &[&str]) -> Option<String> {
             .filter(|value| !value.is_empty())
             .map(str::to_owned)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::microsoft_user_info;
+    use serde_json::json;
+
+    #[test]
+    fn microsoft_uses_a_namespaced_placeholder_without_an_email_claim() {
+        let profile = microsoft_user_info(
+            &json!({
+                "oid": "stable-object-id",
+                "preferred_username": "sign-in-name@example.com",
+                "email_verified": true
+            }),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(
+            profile["email"],
+            "stable-object-id@microsoft-entra-id.placeholder.invalid"
+        );
+        assert_eq!(profile["emailVerified"], false);
+    }
+
+    #[test]
+    fn microsoft_preserves_a_verified_email_claim() {
+        let profile = microsoft_user_info(
+            &json!({
+                "oid": "stable-object-id",
+                "email": "person@example.com",
+                "email_verified": true
+            }),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(profile["email"], "person@example.com");
+        assert_eq!(profile["emailVerified"], true);
+    }
 }

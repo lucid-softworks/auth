@@ -54,3 +54,72 @@ impl Default for EmailVerificationConfig {
         }
     }
 }
+
+const PLACEHOLDER_EMAIL_DOMAIN: &str = "placeholder.invalid";
+
+pub(crate) fn placeholder_email(
+    identifier: &str,
+    namespace: &str,
+) -> Result<String, AuthError> {
+    let email = format!("{identifier}@{namespace}.{PLACEHOLDER_EMAIL_DOMAIN}");
+    valid_address(&email)
+        .then_some(email)
+        .ok_or(AuthError::InvalidEmail)
+}
+
+pub(crate) fn valid_address(email: &str) -> bool {
+    let Some((local, domain)) = email.split_once('@') else {
+        return false;
+    };
+    if domain.contains('@')
+        || local.starts_with('.')
+        || local.contains("..")
+        || local.is_empty()
+        || !local
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "_'+-.".contains(character))
+        || !local
+            .chars()
+            .last()
+            .is_some_and(|character| character.is_ascii_alphanumeric() || "_+-".contains(character))
+    {
+        return false;
+    }
+    let labels: Vec<_> = domain.split('.').collect();
+    labels.len() >= 2
+        && labels.iter().all(|label| {
+            !label.is_empty()
+                && label
+                    .chars()
+                    .next()
+                    .is_some_and(|character| character.is_ascii_alphanumeric())
+                && label
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || character == '-')
+        })
+        && labels.last().is_some_and(|label| {
+            label.len() >= 2
+                && label
+                    .chars()
+                    .all(|character| character.is_ascii_alphabetic())
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn placeholder_emails_are_namespaced_and_non_routable() {
+        assert_eq!(
+            placeholder_email("account-42", "provider").unwrap(),
+            "account-42@provider.placeholder.invalid"
+        );
+    }
+
+    #[test]
+    fn placeholder_emails_reject_invalid_identifiers_and_namespaces() {
+        assert!(placeholder_email("bad@identifier", "provider").is_err());
+        assert!(placeholder_email("account", "bad_namespace").is_err());
+    }
+}

@@ -176,10 +176,25 @@ fn providers_without_email_use_better_auth_synthetic_domains() {
         Kind::Reddit,
         json!({"id":"r1","name":"redditor","icon_img":"r.png"}),
     );
-    assert_eq!(reddit.email, "r1@reddit.invalid");
+    assert_eq!(reddit.email, "r1@reddit.placeholder.invalid");
+    let roblox = profile(
+        Kind::Roblox,
+        json!({"sub":"rb1","preferred_username":"builder","nickname":"Builder","picture":"rb.png"}),
+    );
+    assert_eq!(roblox.email, "rb1@roblox.placeholder.invalid");
+    let tiktok = profile(
+        Kind::Tiktok,
+        json!({"data":{"user":{"open_id":"tt1","username":"creator","display_name":"Creator"}}}),
+    );
+    assert_eq!(tiktok.email, "tt1@tiktok.placeholder.invalid");
+    let twitter = profile(
+        Kind::Twitter,
+        json!({"data":{"id":"x1","username":"handle","name":"Handle"}}),
+    );
+    assert_eq!(twitter.email, "x1@twitter.placeholder.invalid");
     let wechat = profile(
         Kind::Wechat,
         json!({"openid":"w1","nickname":"W","headimgurl":"w.png"}),
     );
-    assert_eq!(wechat.email, "w1@wechat.invalid");
+    assert_eq!(wechat.email, "w1@wechat.placeholder.invalid");
 }

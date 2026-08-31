@@ -185,7 +185,8 @@ async fn anonymous_email(config: &AnonymousPluginConfig, id: &str) -> Result<Str
         Some(generator) => generator.generate().await?,
         None => match &config.email_domain_name {
             Some(domain) => format!("temp-{id}@{domain}"),
-            None => format!("temp@{id}.com"),
+            None => crate::email::placeholder_email(id, "anonymous")
+                .map_err(|_| AuthError::AnonymousInvalidEmail)?,
         },
     };
     normalize_email(&email).map_err(|_| AuthError::AnonymousInvalidEmail)

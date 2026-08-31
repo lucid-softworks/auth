@@ -212,41 +212,7 @@ pub(super) fn normalize_email(email: &str) -> Result<String, AuthError> {
 }
 
 pub(crate) fn valid_email(email: &str) -> bool {
-    let Some((local, domain)) = email.split_once('@') else {
-        return false;
-    };
-    if domain.contains('@')
-        || local.starts_with('.')
-        || local.contains("..")
-        || local.is_empty()
-        || !local
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || "_'+-.".contains(character))
-        || !local
-            .chars()
-            .last()
-            .is_some_and(|character| character.is_ascii_alphanumeric() || "_+-".contains(character))
-    {
-        return false;
-    }
-    let labels: Vec<_> = domain.split('.').collect();
-    labels.len() >= 2
-        && labels.iter().all(|label| {
-            !label.is_empty()
-                && label
-                    .chars()
-                    .next()
-                    .is_some_and(|character| character.is_ascii_alphanumeric())
-                && label
-                    .chars()
-                    .all(|character| character.is_ascii_alphanumeric() || character == '-')
-        })
-        && labels.last().is_some_and(|label| {
-            label.len() >= 2
-                && label
-                    .chars()
-                    .all(|character| character.is_ascii_alphabetic())
-        })
+    crate::email::valid_address(email)
 }
 
 fn synthetic_signup(
