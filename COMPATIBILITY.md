@@ -155,8 +155,48 @@ UUID option or generator name is accepted as an alias.
 | Admin | Supported | Optional `AdminPlugin`; all 15 official `adminClient` methods pass against Better Auth 1.7.1. This includes passwordless creation, flattened additional user fields, get/update, permission checks, safe filtering/sorting/pagination, multiple roles, configurable access-control statements and admin IDs, ban defaults/messages, bounded impersonation, and exact response/error shapes. Its routes and user fields are absent when disabled; [#18](https://github.com/lucid-softworks/auth/issues/18), [#75](https://github.com/lucid-softworks/auth/issues/75). |
 | Lucid owner policy | Native only | Optional `OwnerPolicyPlugin`, composed with `AdminPlugin::new(OwnerPolicyPlugin::admin_config())`, owns lucid-auth's fixed owner/member/viewer vocabulary, owner-only gates, last-owner protection, and owner-promotion session revocation. Invalid or mismatched composition is rejected before serving; [#75](https://github.com/lucid-softworks/auth/issues/75). |
 | Organization | Supported | Optional `OrganizationPlugin`; every official `organizationClient` method, active organization/team session fields, configurable static and dynamic access control, custom roles, organization/member/invitation/team lifecycle hooks, creation/membership/invitation/team/role limits, email delivery, team assignment on invitation, last-owner protection, and memory/SQLite/PostgreSQL transactional stores; [#30](https://github.com/lucid-softworks/auth/issues/30). |
-| SSO | Planned | Native OIDC/OAuth2/SAML and provisioning: [#31](https://github.com/lucid-softworks/auth/issues/31). |
+| SSO | Supported | Optional `SsoPlugin` matches `@better-auth/sso@1.7.1`: official provider management and `ssoClient`, OIDC discovery/manual endpoints/PKCE/private-key JWT, verified identity and transactional resolution, SAML metadata/ACS/SLO/signature/encryption policy/replay controls, domain verification, schema/additional fields, provisioning, and Organization assignment; [Enterprise SSO 1.7.1](#enterprise-sso-171), [#31](https://github.com/lucid-softworks/auth/issues/31). |
 | SCIM | Supported | Native server-only `@better-auth/scim@1.7.1` Users/Groups provisioning, public discovery, static/application/managed bearer resolution, identity lifecycle, role projection, managed credentials/events, and resumable connection retirement; [SCIM 1.7.1](#scim-171), [#32](https://github.com/lucid-softworks/auth/issues/32). |
+
+## Enterprise SSO 1.7.1
+
+`SsoPlugin` pins the server package and official `ssoClient` to
+`@better-auth/sso@1.7.1`. The client boundary contains `signIn.sso`, provider
+register/list/get/update/delete, and the two conditional domain-verification
+methods. OIDC callbacks and SAML ACS/SLO are public IdP-facing routes hidden
+from generated client metadata, and both OIDC callback shapes remain
+registered. API requests use `callbackURL`, `errorCallbackURL`,
+`newUserCallbackURL`, `requestSignUp`, `providerType`, and `loginHint`; the
+distinct SAML configuration fields remain `callbackUrl` and
+`idpInitiatedCallbackUrl`.
+
+OIDC provider identity is keyed by verified issuer and subject. Discovery and
+runtime server fetches validate issuer, trusted origins, DNS/public hosts,
+redirects, required endpoints, signatures, audience/`azp`, and matching
+UserInfo `sub`. State binds the provider row/source and non-secret
+authentication fingerprint. SAML parsing bounds response size, disables XML
+entities, validates signatures, audience, recipient, destination, bearer
+confirmation, timestamps, algorithms, request correlation, and atomic
+assertion replay reservation. IdP initiation and single logout are opt-in.
+
+The `ssoProvider` table supports the package's top-level-over-nested model and
+field mapping precedence, conditional `domainVerified`, collision rejection,
+and additional-field input/returned transforms. Configuration JSON—including
+client secrets, certificates, and private keys—is plaintext at rest to match
+the pinned upstream package, while management responses remain sanitized.
+`DatabaseSsoStore` uses the shared logical schema and native adapter ID policy.
+
+Provisioning and Organization assignment occur after successful identity
+finalization. Explicit provider organizations require registration-time admin
+access; verified-domain assignment requires a verified canonical email and one
+unambiguous verified organization mapping. Existing membership and live
+invitations win. `resolveUser` and guarded update/delete run in native
+interactive transactions; ordinary registration and provisioning do not.
+
+There is no separate `oauth2Config`, provider SDK, JavaScript subprocess,
+secret vault, background queue, broad standards claim, or implicit SCIM
+dependency. SCIM-to-SSO linking is an explicit `resolveUser` choice, and hosted
+directory/SSO administration remains in [#92](https://github.com/lucid-softworks/auth/issues/92).
 
 ## SCIM 1.7.1
 
