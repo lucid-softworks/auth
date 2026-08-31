@@ -8,6 +8,7 @@ mod options;
 mod plugin;
 mod pow;
 mod service;
+mod validation;
 
 pub use options::{
     BooleanSecurityRule, CompromisedPasswordOptions, CredentialStuffingOptions,
@@ -24,6 +25,7 @@ pub use service::{
     CompromisedPasswordResult, SecurityCheck, SecurityVerdict, SentinelSecurityClient,
     VerdictAction,
 };
+pub use validation::{email_normalization_enabled, normalize_email};
 
 /// Published `@better-auth/infra` compatibility target.
 pub const VERSION: &str = "0.4.3";
