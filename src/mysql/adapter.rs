@@ -15,9 +15,14 @@ pub struct MySqlAdapterConfig {
 /// In-process SQLx MySQL backend.
 #[derive(Clone)]
 pub struct MySqlStore {
-    pool: MySqlPool,
+    pub(super) pool: MySqlPool,
     adapter_config: MySqlAdapterConfig,
-    schema: Arc<OnceLock<ResolvedAdapterSchema>>,
+    schema: Arc<OnceLock<BoundMySqlSchema>>,
+}
+
+struct BoundMySqlSchema {
+    resolved: ResolvedAdapterSchema,
+    physical: super::schema::MySqlSchema,
 }
 
 impl MySqlStore {
@@ -86,15 +91,29 @@ impl MySqlStore {
         )
         .map_err(|error| AuthError::InvalidConfiguration(error.to_string()))?;
         let requested = resolved.fingerprint().clone();
+        let database_generated_ids = resolved.catalog().id_generation()
+            == crate::DatabaseIdGenerationKind::Database;
+        let bound = BoundMySqlSchema {
+            physical: super::schema::MySqlSchema::new(&resolved)?,
+            resolved,
+        };
         if let Some(bound) = self.schema.get() {
-            return compare(bound.fingerprint(), &requested);
+            return compare(bound.resolved.fingerprint(), &requested);
         }
-        match self.schema.set(resolved) {
-            Ok(()) => Ok(()),
+        match self.schema.set(bound) {
+            Ok(()) => {
+                if database_generated_ids {
+                    tracing::warn!(
+                        "[Kysely Adapter] MySQL does not support INSERT...RETURNING. With generateId set to false, the adapter uses best-effort fallback strategies (unique columns, full-field match) to retrieve inserted rows. For reliable behavior, use Better Auth's default ID generation, a custom generateId function, or generateId: \"serial\" for auto-increment."
+                    );
+                }
+                Ok(())
+            }
             Err(_) => compare(
                 self.schema
                     .get()
                     .expect("a failed OnceLock set has a winning value")
+                    .resolved
                     .fingerprint(),
                 &requested,
             ),
@@ -103,10 +122,16 @@ impl MySqlStore {
 
     /// Returns the bound shared schema descriptor.
     pub fn resolved_schema(&self) -> Result<&ResolvedAdapterSchema, AuthError> {
+        self.bound_schema().map(|schema| &schema.resolved)
+    }
+
+    pub(super) fn physical_schema(&self) -> Result<&super::schema::MySqlSchema, AuthError> {
+        self.bound_schema().map(|schema| &schema.physical)
+    }
+
+    fn bound_schema(&self) -> Result<&BoundMySqlSchema, AuthError> {
         self.schema.get().ok_or_else(|| {
-            AuthError::InvalidConfiguration(
-                "MySQL adapter schema is not bound to an AuthService".into(),
-            )
+            AuthError::InvalidConfiguration("MySQL adapter schema is not bound to an AuthService".into())
         })
     }
 }
