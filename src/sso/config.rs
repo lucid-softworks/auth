@@ -13,6 +13,14 @@ pub struct SsoOptions {
     pub trust_email_verified: bool,
     /// Requires callers to opt into creating a new user with `requestSignUp`.
     pub disable_implicit_sign_up: bool,
+    /// SAML signature, digest, and encryption algorithm policy.
+    pub saml_algorithms: super::SamlAlgorithmOptions,
+    /// SAML response-size ceiling in bytes. Upstream defaults to 256 KiB.
+    pub saml_max_response_size: usize,
+    /// SAML clock-skew tolerance in milliseconds.
+    pub saml_clock_skew_ms: i64,
+    /// Requires at least one assertion Conditions timestamp.
+    pub saml_require_timestamps: bool,
 }
 
 impl Default for SsoOptions {
@@ -24,6 +32,10 @@ impl Default for SsoOptions {
             redirect_uri: None,
             trust_email_verified: false,
             disable_implicit_sign_up: false,
+            saml_algorithms: super::SamlAlgorithmOptions::default(),
+            saml_max_response_size: super::DEFAULT_MAX_SAML_RESPONSE_SIZE,
+            saml_clock_skew_ms: super::DEFAULT_CLOCK_SKEW_MS,
+            saml_require_timestamps: false,
         }
     }
 }

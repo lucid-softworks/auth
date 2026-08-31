@@ -13,7 +13,8 @@ use josekit::{
 };
 use lucid_auth::{
     AuthConfig, AuthService, EmailSignUpInput, MemorySsoStore, MemoryStore, NewSsoProvider,
-    SsoDnsResolver, SsoOptions, SsoPlugin, SsoPrivateKey, SsoProviderUpdate, SsoStore,
+    SamlAlgorithmOptions, SignatureAlgorithm, SsoDnsResolver, SsoOptions, SsoPlugin, SsoPrivateKey,
+    SsoProviderUpdate, SsoStore,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -1010,7 +1011,14 @@ async fn saml_acs_verifies_a_signed_assertion_creates_a_session_and_rejects_repl
     const PRIVATE_KEY: &str = include_str!("fixtures/saml_private_key.pem");
     const CERTIFICATE: &str = include_str!("fixtures/saml_signing_cert.pem");
 
-    let fixture = fixture().await;
+    let fixture = fixture_with_options(SsoOptions {
+        saml_algorithms: SamlAlgorithmOptions {
+            allowed_signature_algorithms: Some(vec![SignatureAlgorithm::RSA_SHA256.into()]),
+            ..SamlAlgorithmOptions::default()
+        },
+        ..SsoOptions::default()
+    })
+    .await;
     fixture
         .providers
         .update(
@@ -1348,6 +1356,41 @@ async fn registration_limit_counts_only_the_callers_providers() {
     assert_eq!(
         body["message"],
         "You have reached the maximum number of SSO providers"
+    );
+}
+
+#[tokio::test]
+async fn saml_registration_enforces_the_configured_algorithm_allow_list() {
+    let fixture = fixture_with_options(SsoOptions {
+        saml_algorithms: SamlAlgorithmOptions {
+            allowed_signature_algorithms: Some(vec![SignatureAlgorithm::RSA_SHA512.into()]),
+            ..SamlAlgorithmOptions::default()
+        },
+        ..SsoOptions::default()
+    })
+    .await;
+    let (status, body) = post(
+        fixture.app,
+        "/api/auth/sso/register",
+        Some(&fixture.owner_cookie),
+        json!({
+            "providerId": "algorithm-policy",
+            "issuer": "https://sp.example.com",
+            "domain": "example.com",
+            "samlConfig": {
+                "entryPoint": "https://idp.example.com/sso",
+                "idpMetadata": {"entityID": "https://idp.example.com"},
+                "cert": "certificate",
+                "signatureAlgorithm": "sha256"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["code"], "SAML_ALGORITHM_NOT_ALLOWED");
+    assert_eq!(
+        body["message"],
+        "SAML signature algorithm not in allow-list: sha256"
     );
 }
 

@@ -1,9 +1,11 @@
 use chrono::{TimeZone as _, Utc};
 use lucid_auth::sso::{
     DEFAULT_CLOCK_SKEW_MS, DEFAULT_MAX_SAML_METADATA_SIZE, DEFAULT_MAX_SAML_RESPONSE_SIZE,
-    DiscoveryErrorCode, OidcConfig, OidcDiscoveryDocument, REQUIRED_DISCOVERY_FIELDS,
-    SamlConditions, SamlTimestampError, SamlTimestampOptions, SsoTokenEndpointAuthentication,
-    compute_discovery_url, fetch_discovery_document, needs_runtime_discovery,
+    DataEncryptionAlgorithm, DigestAlgorithm, DiscoveryErrorCode, KeyEncryptionAlgorithm,
+    OidcConfig, OidcDiscoveryDocument, REQUIRED_DISCOVERY_FIELDS, SamlConditions,
+    SamlTimestampError, SamlTimestampOptions, SignatureAlgorithm, SsoTokenEndpointAuthentication,
+    compute_discovery_url, derive_saml_identity_provider_entity_id,
+    derive_saml_service_provider_policy, fetch_discovery_document, needs_runtime_discovery,
     normalize_discovery_urls, normalize_url, select_token_endpoint_auth_method,
     validate_discovery_document, validate_discovery_url, validate_oidc_endpoint_url,
     validate_saml_timestamp_at,
@@ -143,6 +145,53 @@ fn discovery_url_and_document_rules_match_the_artifact() {
         jwks_endpoint: Some("jwks".into()),
         ..OidcConfig::default()
     })));
+}
+
+#[test]
+fn saml_runtime_exports_and_metadata_policy_match_the_artifact() {
+    assert_eq!(
+        SignatureAlgorithm::RSA_SHA256,
+        "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"
+    );
+    assert_eq!(
+        DigestAlgorithm::SHA384,
+        "http://www.w3.org/2001/04/xmldsig-more#sha384"
+    );
+    assert_eq!(
+        KeyEncryptionAlgorithm::RSA_OAEP_SHA256,
+        "http://www.w3.org/2009/xmlenc11#rsa-oaep"
+    );
+    assert_eq!(
+        DataEncryptionAlgorithm::AES_256_GCM,
+        "http://www.w3.org/2009/xmlenc11#aes256-gcm"
+    );
+    assert!(
+        derive_saml_service_provider_policy(&serde_json::json!({
+            "wantAssertionsSigned": true
+        }))
+        .unwrap()
+        .want_assertions_signed
+    );
+    assert!(
+        derive_saml_service_provider_policy(&serde_json::json!({
+            "wantAssertionsSigned": false,
+            "spMetadata": {"metadata": concat!(
+                "<EntityDescriptor entityID=\"sp\" xmlns=\"urn:oasis:names:tc:SAML:2.0:metadata\">",
+                "<SPSSODescriptor WantAssertionsSigned=\"true\">",
+                "<AssertionConsumerService Binding=\"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST\" Location=\"https://sp.example/acs\"/>",
+                "</SPSSODescriptor></EntityDescriptor>"
+            )}
+        }))
+        .unwrap()
+        .want_assertions_signed
+    );
+    assert_eq!(
+        derive_saml_identity_provider_entity_id(&serde_json::json!({
+            "idpMetadata": {"entityID": "https://idp.example/metadata"}
+        }))
+        .unwrap(),
+        "https://idp.example/metadata"
+    );
 }
 
 #[test]

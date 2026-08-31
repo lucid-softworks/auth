@@ -53,7 +53,7 @@ pub(super) async fn register(
         None => None,
     };
     let saml_config = match body.saml_config.as_ref() {
-        Some(config) => match saml::prepare(&body.issuer, config) {
+        Some(config) => match saml::prepare(&body.issuer, config, plugin.options()) {
             Ok(config) => Some(config),
             Err(response) => return *response,
         },
