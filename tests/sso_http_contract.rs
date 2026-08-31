@@ -14,12 +14,16 @@ use josekit::{
 use lucid_auth::{
     AuthConfig, AuthService, AuthStore, DatabaseModel, DatabaseRecord, EmailSignUpInput,
     MemorySsoStore, MemoryStore, NewSsoProvider, SamlAlgorithmOptions, SignatureAlgorithm,
-    SsoDefaultProvider, SsoDnsResolver, SsoOptions, SsoPlugin, SsoPrivateKey, SsoProviderUpdate,
-    SsoProvisioningInput, SsoStore, SsoUserProfilePolicy, SsoUserProvisioner, SsoUserResolution,
-    SsoUserResolutionContext, SsoUserResolutionInput, SsoUserResolver,
+    SsoDefaultProvider, SsoDnsResolver, SsoOptions, SsoPlugin, SsoPrivateKey,
+    SsoProviderMutationGuard, SsoProviderMutationGuardContext, SsoProviderMutationGuardInput,
+    SsoProviderUpdate, SsoProvisioningInput, SsoStore, SsoUserProfilePolicy, SsoUserProvisioner,
+    SsoUserResolution, SsoUserResolutionContext, SsoUserResolutionInput, SsoUserResolver,
 };
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use tokio::sync::RwLock;
 use tower::ServiceExt;
 
@@ -120,7 +124,11 @@ async fn fixture_with_private_key(
     trusted_origins: &[&str],
     private_key: Option<SsoPrivateKey>,
 ) -> Fixture {
-    fixture_with_extensions(options, trusted_origins, private_key, None, None).await
+    fixture_with_extensions(options, trusted_origins, private_key, None, None, None).await
+}
+
+async fn fixture_with_mutation_guard(guard: Arc<dyn SsoProviderMutationGuard>) -> Fixture {
+    fixture_with_extensions(SsoOptions::default(), &[], None, None, None, Some(guard)).await
 }
 
 async fn fixture_with_extensions(
@@ -129,6 +137,7 @@ async fn fixture_with_extensions(
     private_key: Option<SsoPrivateKey>,
     provisioner: Option<Arc<dyn SsoUserProvisioner>>,
     resolver: Option<Arc<dyn SsoUserResolver>>,
+    mutation_guard: Option<Arc<dyn SsoProviderMutationGuard>>,
 ) -> Fixture {
     let mut config = AuthConfig::new([31_u8; 32]).unwrap();
     config.email_and_password.enabled = true;
@@ -149,6 +158,9 @@ async fn fixture_with_extensions(
     }
     if let Some(resolver) = resolver {
         plugin = plugin.with_user_resolver(resolver);
+    }
+    if let Some(mutation_guard) = mutation_guard {
+        plugin = plugin.with_provider_mutation_guard(mutation_guard);
     }
     config.add_plugin(plugin).unwrap();
     let auth_store = Arc::new(MemoryStore::default());
@@ -223,6 +235,40 @@ impl SsoUserProvisioner for ProvisioningRecorder {
 struct TransactionalResolver {
     target_user_id: RwLock<Option<String>>,
     calls: tokio::sync::Mutex<Vec<SsoUserResolutionInput>>,
+}
+
+#[derive(Default)]
+struct MutationGuardRecorder {
+    target_user_id: RwLock<Option<String>>,
+    reject_delete: AtomicBool,
+    calls: tokio::sync::Mutex<Vec<SsoProviderMutationGuardInput>>,
+}
+
+#[async_trait]
+impl SsoProviderMutationGuard for MutationGuardRecorder {
+    async fn guard(
+        &self,
+        input: SsoProviderMutationGuardInput,
+        context: SsoProviderMutationGuardContext,
+    ) -> Result<(), lucid_auth::AuthError> {
+        let reject = matches!(input, SsoProviderMutationGuardInput::Delete { .. })
+            && self.reject_delete.load(Ordering::Acquire);
+        self.calls.lock().await.push(input);
+        if !reject {
+            return Ok(());
+        }
+        let user_id = self.target_user_id.read().await.clone().unwrap();
+        let Some(DatabaseRecord::User(mut user)) = context
+            .database
+            .find_by_id(DatabaseModel::User, &user_id)
+            .await?
+        else {
+            return Err(lucid_auth::AuthError::NotFound);
+        };
+        user.name = "This mutation must roll back".into();
+        context.database.update(DatabaseRecord::User(user)).await?;
+        Err(lucid_auth::AuthError::Forbidden)
+    }
 }
 
 #[async_trait]
@@ -707,6 +753,7 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
         Some(private_key_material),
         Some(provisioning.clone()),
         Some(resolver.clone()),
+        None,
     )
     .await;
     *resolver.target_user_id.write().await = Some(fixture.other_user_id.clone());
@@ -1188,6 +1235,7 @@ async fn saml_acs_verifies_a_signed_assertion_creates_a_session_and_rejects_repl
         None,
         Some(provisioning.clone()),
         Some(resolver.clone()),
+        None,
     )
     .await;
     *resolver.target_user_id.write().await = Some(fixture.other_user_id.clone());
@@ -1775,7 +1823,9 @@ async fn saml_registration_enforces_authority_certificates_redirects_and_sp_poli
 
 #[tokio::test]
 async fn provider_mutations_enforce_access_merge_configs_reset_domains_and_delete() {
-    let fixture = fixture().await;
+    let guard = Arc::new(MutationGuardRecorder::default());
+    let fixture = fixture_with_mutation_guard(guard.clone()).await;
+    *guard.target_user_id.write().await = Some(fixture.other_user_id.clone());
     let (status, empty) = post(
         fixture.app.clone(),
         "/api/auth/sso/update-provider",
@@ -1823,6 +1873,18 @@ async fn provider_mutations_enforce_access_merge_configs_reset_domains_and_delet
     let serialized = updated.to_string();
     assert!(!serialized.contains("replacement-secret"));
     assert!(!serialized.contains("unknownNestedField"));
+    let calls = guard.calls.lock().await;
+    let SsoProviderMutationGuardInput::Update {
+        provider,
+        is_authentication_boundary_change,
+        ..
+    } = &calls[0]
+    else {
+        panic!("expected update mutation guard input");
+    };
+    assert_eq!(provider.id, "provider-row-1");
+    assert!(!is_authentication_boundary_change);
+    drop(calls);
 
     let (status, forbidden) = post(
         fixture.app.clone(),
@@ -1836,6 +1898,33 @@ async fn provider_mutations_enforce_access_merge_configs_reset_domains_and_delet
         forbidden["message"],
         "You don't have access to this provider"
     );
+
+    guard.reject_delete.store(true, Ordering::Release);
+    let (status, rejected) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/delete-provider",
+        Some(&fixture.owner_cookie),
+        json!({"providerId": "acme-sso!"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(rejected["code"], "SSO_PROVIDER_MUTATION_REJECTED");
+    let rolled_back = fixture
+        .auth_store
+        .find_user_by_id(&fixture.other_user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(rolled_back.name, "other@example.com");
+    assert!(
+        fixture
+            .providers
+            .find_by_provider_id("acme-sso!")
+            .await
+            .unwrap()
+            .is_some()
+    );
+    guard.reject_delete.store(false, Ordering::Release);
 
     let (status, deleted) = post(
         fixture.app.clone(),

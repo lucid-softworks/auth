@@ -201,6 +201,10 @@ pub enum AuthError {
     },
     #[error("SSO user resolution requires a verified ID token")]
     SsoUserResolutionIdTokenRequired,
+    #[error("SSO provider mutation is not allowed")]
+    SsoProviderMutationRejected,
+    #[error(transparent)]
+    SsoStore(#[from] crate::SsoStoreError),
     #[error("the account was not found")]
     AccountNotFound,
     #[error("the final account cannot be unlinked")]

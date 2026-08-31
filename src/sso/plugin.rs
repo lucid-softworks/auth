@@ -60,6 +60,7 @@ pub struct SsoPlugin {
     private_key_resolver: Option<Arc<dyn SsoPrivateKeyResolver>>,
     user_provisioner: Option<Arc<dyn super::SsoUserProvisioner>>,
     user_resolver: Option<Arc<dyn super::SsoUserResolver>>,
+    mutation_guard: Option<Arc<dyn super::SsoProviderMutationGuard>>,
     default_private_keys: BTreeMap<String, SsoPrivateKey>,
     #[cfg(feature = "axum")]
     dns_resolver: Arc<dyn super::SsoDnsResolver>,
@@ -92,6 +93,7 @@ impl SsoPlugin {
             private_key_resolver: None,
             user_provisioner: None,
             user_resolver: None,
+            mutation_guard: None,
             default_private_keys: BTreeMap::new(),
             #[cfg(feature = "axum")]
             dns_resolver: Arc::new(super::SystemSsoDnsResolver),
@@ -164,6 +166,40 @@ impl SsoPlugin {
     pub fn with_user_resolver(mut self, resolver: Arc<dyn super::SsoUserResolver>) -> Self {
         self.user_resolver = Some(resolver);
         self
+    }
+
+    pub fn with_provider_mutation_guard(
+        mut self,
+        guard: Arc<dyn super::SsoProviderMutationGuard>,
+    ) -> Self {
+        self.mutation_guard = Some(guard);
+        self
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn has_provider_mutation_guard(&self) -> bool {
+        self.mutation_guard.is_some()
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) async fn guard_provider_mutation(
+        &self,
+        input: super::SsoProviderMutationGuardInput,
+        database: Arc<dyn crate::DatabaseTransaction>,
+    ) -> Result<(), crate::AuthError> {
+        let Some(guard) = &self.mutation_guard else {
+            return Ok(());
+        };
+        guard
+            .guard(
+                input,
+                super::SsoProviderMutationGuardContext { database },
+            )
+            .await
+            .map_err(|error| {
+                tracing::error!(error = %error, "SSO provider mutation guard rejected mutation");
+                crate::AuthError::SsoProviderMutationRejected
+            })
     }
 
     #[cfg(feature = "axum")]

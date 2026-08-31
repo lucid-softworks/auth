@@ -8,6 +8,7 @@ mod discovery;
 #[cfg(feature = "axum")]
 mod axum;
 mod plugin;
+mod mutation_guard;
 mod private_key;
 mod provisioning;
 mod resolution;
@@ -32,6 +33,10 @@ pub use discovery::{
     validate_oidc_endpoint_egress, validate_oidc_endpoint_url,
 };
 pub use plugin::SsoPlugin;
+pub use mutation_guard::{
+    SsoMutationProvider, SsoProviderMutationGuard, SsoProviderMutationGuardContext,
+    SsoProviderMutationGuardInput,
+};
 pub use private_key::{SsoPrivateKey, SsoPrivateKeyRequest, SsoPrivateKeyResolver};
 pub use provider_reference::{SsoProviderReference, SsoProviderSource};
 pub use provisioning::{SsoProvisioningInput, SsoUserProvisioner};
