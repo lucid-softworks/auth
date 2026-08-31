@@ -96,9 +96,15 @@ impl SentinelSecurityClient {
         if let Some(pow_solution) = pow_solution {
             body["powSolution"] = Value::String(pow_solution.to_owned());
         }
-        self.post("/security/impossible-travel", body)
+        let result: Option<ImpossibleTravelResult> = self
+            .post("/security/impossible-travel", body)
             .await
-            .and_then(|value| serde_json::from_value(value).ok())
+            .and_then(|value| serde_json::from_value(value).ok());
+        if let Some(result) = result.as_ref() {
+            self.track_impossible_travel(result, user_id, visitor_id, current_location)
+                .await;
+        }
+        result
     }
 
     pub async fn store_last_location(
@@ -140,7 +146,8 @@ impl SentinelSecurityClient {
         {
             return FreeTrialReservation::allow();
         }
-        self.post(
+        let result: FreeTrialReservation = self
+            .post(
             "/security/free-trial-abuse/reserve",
             json!({
                 "visitorId": visitor_id,
@@ -149,9 +156,11 @@ impl SentinelSecurityClient {
                 "config": self.security_options(),
             }),
         )
-        .await
-        .and_then(|value| serde_json::from_value(value).ok())
-        .unwrap_or_else(FreeTrialReservation::allow)
+            .await
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_else(FreeTrialReservation::allow);
+        self.track_free_trial_abuse(&result, visitor_id).await;
+        result
     }
 
     pub async fn confirm_free_trial_signup(
@@ -195,7 +204,8 @@ impl SentinelSecurityClient {
         {
             return StaleUserResult::default();
         }
-        self.post(
+        let result: StaleUserResult = self
+            .post(
             "/security/stale-user",
             json!({
                 "userId": user_id,
@@ -203,9 +213,11 @@ impl SentinelSecurityClient {
                 "config": self.security_options(),
             }),
         )
-        .await
-        .and_then(|value| serde_json::from_value(value).ok())
-        .unwrap_or_default()
+            .await
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default();
+        self.track_stale_account(&result, user_id).await;
+        result
     }
 
     /// Preserve the published 0.4.3 no-op quirk.
@@ -328,11 +340,16 @@ mod tests {
         assert!(!client.check_unknown_device("user", "visitor"));
 
         let calls = calls.lock().unwrap();
-        assert_eq!(calls[0].1["powSolution"], "encoded");
-        assert_eq!(calls[1].1["config"]["freeTrialAbuse"]["maxAccountsPerVisitor"], 2);
-        assert_eq!(calls[2].0, "/security/free-trial-abuse/confirm");
-        assert_eq!(calls[3].0, "/security/store-last-login");
-        assert_eq!(calls[4].1["config"]["staleUsers"]["staleDays"], 90);
+        let body = |path: &str| &calls.iter().find(|call| call.0 == path).unwrap().1;
+        assert_eq!(body("/security/impossible-travel")["powSolution"], "encoded");
+        assert_eq!(
+            body("/security/free-trial-abuse/reserve")["config"]["freeTrialAbuse"]
+                ["maxAccountsPerVisitor"],
+            2
+        );
+        assert!(calls.iter().any(|call| call.0 == "/security/free-trial-abuse/confirm"));
+        assert!(calls.iter().any(|call| call.0 == "/security/store-last-login"));
+        assert_eq!(body("/security/stale-user")["config"]["staleUsers"]["staleDays"], 90);
     }
 
     #[tokio::test]

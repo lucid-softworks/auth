@@ -1,12 +1,12 @@
-use super::{SecurityAction, SecurityOptions};
+use super::{
+    SecurityAction, SecurityEventAction, SecurityOptions,
+    events::{SecuritySignal, verdict_event_type},
+};
 use crate::infra::dash::{
     DashApiClient, DashKvClient, DashRequest, InfraConnectionOptions, ResolvedConnectionOptions,
 };
-use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sha1::{Digest as _, Sha1};
-use sha2::Sha256;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -63,7 +63,7 @@ pub struct CompromisedPasswordResult {
 
 #[derive(Clone, Debug)]
 pub struct SentinelSecurityClient {
-    api: DashApiClient,
+    pub(super) api: DashApiClient,
     pub(super) kv: DashKvClient,
     pub(super) connection: ResolvedConnectionOptions,
     pub(super) security: SecurityOptions,
@@ -92,7 +92,8 @@ impl SentinelSecurityClient {
     }
 
     pub async fn check_security(&self, check: SecurityCheck) -> SecurityVerdict {
-        self.post(
+        let verdict = self
+            .post(
             "/security/check",
             json!({
                 "visitorId": check.visitor_id,
@@ -104,9 +105,29 @@ impl SentinelSecurityClient {
                 "config": self.security,
             }),
         )
-        .await
-        .and_then(|value| serde_json::from_value(value).ok())
-        .unwrap_or_else(SecurityVerdict::allow)
+            .await
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_else(SecurityVerdict::allow);
+        if verdict.action != VerdictAction::Allow {
+            self.track_security_signal(SecuritySignal {
+                event_type: verdict_event_type(verdict.reason.as_deref()),
+                user_id: None,
+                visitor_id: check.visitor_id.as_deref(),
+                ip: check.ip.as_deref(),
+                country: None,
+                action: match verdict.action {
+                    VerdictAction::Block => SecurityEventAction::Blocked,
+                    VerdictAction::Challenge => SecurityEventAction::Challenged,
+                    VerdictAction::Allow => SecurityEventAction::Logged,
+                },
+                details: verdict
+                    .details
+                    .clone()
+                    .unwrap_or_else(|| json!({ "reason": verdict.reason })),
+            })
+            .await;
+        }
+        verdict
     }
 
     pub async fn is_blocked(
@@ -155,86 +176,6 @@ impl SentinelSecurityClient {
         .unwrap_or_default()
     }
 
-    pub async fn track_failed_attempt(
-        &self,
-        identifier: &str,
-        visitor_id: &str,
-        password: &str,
-        ip: Option<&str>,
-        request_id: Option<&str>,
-    ) -> bool {
-        if self.connection.api_key().is_empty() {
-            tracing::warn!(
-                "[Sentinel] Missing apiKey; failed-login password fingerprint is skipped."
-            );
-            return false;
-        }
-        let password_hash = password_fingerprint(self.connection.api_key(), password);
-        self.post(
-            "/security/track-failed-login",
-            json!({
-                "identifier": identifier,
-                "visitorId": visitor_id,
-                "passwordHash": password_hash,
-                "ip": ip,
-                "requestId": request_id,
-                "config": self.security,
-            }),
-        )
-        .await
-        .and_then(|value| value.get("blocked").and_then(Value::as_bool))
-        .unwrap_or(false)
-    }
-
-    pub async fn clear_failed_attempts(&self, identifier: &str) {
-        let _ = self
-            .post(
-                "/security/clear-failed-attempts",
-                json!({ "identifier": identifier }),
-            )
-            .await;
-    }
-
-    pub async fn check_compromised_password(
-        &self,
-        password: &str,
-    ) -> CompromisedPasswordResult {
-        let hash = hex::encode_upper(Sha1::digest(password.as_bytes()));
-        let (prefix, suffix) = hash.split_at(5);
-        let Some(value) = self
-            .post(
-                "/security/breached-passwords",
-                json!({ "passwordPrefix": prefix, "config": self.security }),
-            )
-            .await
-        else {
-            return CompromisedPasswordResult::default();
-        };
-        if !value.get("enabled").and_then(Value::as_bool).unwrap_or(false) {
-            return CompromisedPasswordResult::default();
-        }
-        let breach_count = value
-            .get("suffixes")
-            .and_then(|suffixes| suffixes.get(suffix))
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        let minimum = value
-            .get("minBreachCount")
-            .and_then(Value::as_u64)
-            .unwrap_or(1);
-        let action = value
-            .get("action")
-            .cloned()
-            .and_then(|value| serde_json::from_value(value).ok())
-            .unwrap_or(SecurityAction::Block);
-        let compromised = breach_count >= minimum;
-        CompromisedPasswordResult {
-            compromised,
-            breach_count: (breach_count > 0).then_some(breach_count),
-            action: compromised.then_some(action),
-        }
-    }
-
     async fn get(&self, path: &str) -> Option<Value> {
         self.api
             .execute(DashRequest::get(path))
@@ -253,16 +194,10 @@ impl SentinelSecurityClient {
 
 }
 
-fn password_fingerprint(api_key: &str, password: &str) -> String {
-    let mut mac = Hmac::<Sha256>::new_from_slice(api_key.as_bytes())
-        .expect("HMAC accepts arbitrary key lengths");
-    mac.update(password.as_bytes());
-    hex::encode(mac.finalize().into_bytes())
-}
-
 #[cfg(all(test, feature = "axum"))]
 mod tests {
     use super::*;
+    use crate::infra::sentinel::credentials::password_fingerprint;
     use axum::{
         Json, Router,
         extract::State,
@@ -271,6 +206,7 @@ mod tests {
         routing::{get, post},
     };
     use std::sync::{Arc, Mutex};
+    use sha1::{Digest as _, Sha1};
 
     #[derive(Clone, Debug)]
     struct Call {
@@ -372,16 +308,28 @@ mod tests {
             .await);
 
         let calls = calls.lock().unwrap();
-        assert_eq!(calls[0].body["config"]["challengeDifficulty"], 20);
+        let security = calls
+            .iter()
+            .find(|call| call.uri.path() == "/security/check")
+            .unwrap();
+        assert_eq!(security.body["config"]["challengeDifficulty"], 20);
+        let blocked = calls
+            .iter()
+            .find(|call| call.uri.path() == "/security/is-blocked")
+            .unwrap();
         assert_eq!(
-            calls[1].uri.query(),
+            blocked.uri.query(),
             Some("visitorId=visitor&ip=203.0.113.1&requestId=request")
         );
+        let failed = calls
+            .iter()
+            .find(|call| call.uri.path() == "/security/track-failed-login")
+            .unwrap();
         assert_eq!(
-            calls[3].body["passwordHash"],
+            failed.body["passwordHash"],
             password_fingerprint("sentinel-key", "secret")
         );
-        assert_eq!(calls[3].headers["x-api-key"], "sentinel-key");
+        assert_eq!(failed.headers["x-api-key"], "sentinel-key");
     }
 
     #[tokio::test]
@@ -396,7 +344,11 @@ mod tests {
                 action: Some(SecurityAction::Challenge),
             }
         );
-        let call = calls.lock().unwrap().pop().unwrap();
+        let calls = calls.lock().unwrap();
+        let call = calls
+            .iter()
+            .find(|call| call.uri.path() == "/security/breached-passwords")
+            .unwrap();
         assert_eq!(call.body["passwordPrefix"], "5BAA6");
         assert!(call.body.get("password").is_none());
     }

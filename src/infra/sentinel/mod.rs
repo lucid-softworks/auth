@@ -13,6 +13,8 @@ mod validation;
 mod lifecycle;
 mod notifications;
 mod database;
+mod credentials;
+mod events;
 
 #[cfg(feature = "axum")]
 mod axum;
@@ -34,6 +36,7 @@ pub use service::{
     VerdictAction,
 };
 pub use lifecycle::{FreeTrialReservation, ImpossibleTravelResult, StaleUserResult};
+pub use events::{SecurityEventAction, SecurityEventType};
 pub use validation::{
     EmailValidationResult, email_normalization_enabled, email_validation_enabled,
     is_valid_email_format_local, normalize_email,
