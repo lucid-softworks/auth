@@ -413,5 +413,9 @@ name = "mysql_adapter_contract"
 required-features = ["mysql"]
 
 [[test]]
+name = "mongodb_adapter_contract"
+required-features = ["mongodb"]
+
+[[test]]
 name = "d1_adapter_contract"
 required-features = ["d1"]

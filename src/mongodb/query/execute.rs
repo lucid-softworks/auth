@@ -118,7 +118,7 @@ pub(in crate::mongodb) async fn count_with_session(
     let model = store.physical_schema()?.model(model_name)?;
     let pipeline = vec![
         doc! { "$match": predicate::build(&model, filters)? },
-        doc! { "$count_with_session": "total" },
+        doc! { "$count": "total" },
     ];
     let documents = aggregate(collection(store, &model), pipeline, session).await?;
     Ok(documents
