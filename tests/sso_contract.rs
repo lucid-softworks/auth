@@ -1,3 +1,5 @@
+#![cfg(feature = "axum")]
+
 use chrono::{TimeZone as _, Utc};
 use lucid_auth::sso::{
     DEFAULT_CLOCK_SKEW_MS, DEFAULT_MAX_SAML_METADATA_SIZE, DEFAULT_MAX_SAML_RESPONSE_SIZE,

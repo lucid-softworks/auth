@@ -3,8 +3,12 @@ mod algorithms;
 pub use algorithms::{
     DataEncryptionAlgorithm, DigestAlgorithm, KeyEncryptionAlgorithm, SignatureAlgorithm,
 };
+#[cfg(any(feature = "axum", test))]
 use algorithms::{normalize_digest, normalize_signature, secure_digests, secure_signatures};
-use serde_json::{Map, Value};
+#[cfg(any(feature = "axum", test))]
+use serde_json::Map;
+#[cfg(any(feature = "axum", test))]
+use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum DeprecatedAlgorithmBehavior {
@@ -105,6 +109,7 @@ pub fn derive_saml_identity_provider_entity_id(
         .ok_or(SamlConfigurationError::MissingIdentityProviderEntityId)
 }
 
+#[cfg(any(feature = "axum", test))]
 pub(crate) fn validate_configuration_algorithms(
     config: &Map<String, Value>,
     options: &SamlAlgorithmOptions,
@@ -145,6 +150,7 @@ pub(crate) fn validate_response_algorithms(
     validate_encryption_algorithms(&session.raw_flow().saml_content, options)
 }
 
+#[cfg(feature = "axum")]
 fn validate_response_signature(
     algorithm: &str,
     options: &SamlAlgorithmOptions,
@@ -216,6 +222,7 @@ fn encryption_algorithms<'a>(
         .fold(found, |found, child| encryption_algorithms(child, found))
 }
 
+#[cfg(feature = "axum")]
 fn validate_encryption_algorithm(
     algorithm: Option<&str>,
     allowed: Option<&Vec<String>>,
@@ -243,6 +250,7 @@ fn validate_encryption_algorithm(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(any(feature = "axum", test))]
 fn validate_config_algorithm(
     algorithm: &str,
     allowed: &Option<Vec<String>>,
@@ -273,6 +281,7 @@ fn validate_config_algorithm(
         .ok_or_else(|| unknown(kind, algorithm))
 }
 
+#[cfg(any(feature = "axum", test))]
 fn deprecated(
     behavior: DeprecatedAlgorithmBehavior,
     message: String,
@@ -290,6 +299,7 @@ fn deprecated(
     }
 }
 
+#[cfg(any(feature = "axum", test))]
 fn deprecated_config(
     behavior: DeprecatedAlgorithmBehavior,
     message: String,
@@ -300,6 +310,7 @@ fn deprecated_config(
     })
 }
 
+#[cfg(any(feature = "axum", test))]
 fn not_allowed(kind: &str, algorithm: &str) -> SamlAlgorithmError {
     SamlAlgorithmError {
         code: "SAML_ALGORITHM_NOT_ALLOWED",
@@ -307,6 +318,7 @@ fn not_allowed(kind: &str, algorithm: &str) -> SamlAlgorithmError {
     }
 }
 
+#[cfg(any(feature = "axum", test))]
 fn unknown(kind: &str, algorithm: &str) -> SamlAlgorithmError {
     SamlAlgorithmError {
         code: "SAML_UNKNOWN_ALGORITHM",

@@ -82,6 +82,7 @@ pub struct SsoDefaultProvider {
 }
 
 impl SsoDefaultProvider {
+    #[cfg(feature = "axum")]
     pub(crate) fn into_provider(self, domain_verification: bool) -> super::SsoProvider {
         let issuer = self
             .oidc_config
