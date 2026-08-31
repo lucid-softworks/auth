@@ -23,6 +23,8 @@ mod timestamp;
 
 #[cfg(feature = "axum")]
 pub(crate) use axum::sanitize::provider as sanitize_provider;
+#[cfg(feature = "axum")]
+pub(crate) use axum::mutation::guard::delete as delete_provider_guarded;
 
 pub use config::{
     SsoDefaultProvider, SsoFieldMappings, SsoOptions, SsoProviderFieldMappings,

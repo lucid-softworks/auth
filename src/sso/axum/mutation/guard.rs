@@ -42,7 +42,7 @@ pub(super) async fn update(
     .await
 }
 
-pub(super) async fn delete(
+pub(crate) async fn delete(
     service: &AuthService,
     plugin: &SsoPlugin,
     accepted: &SsoProvider,

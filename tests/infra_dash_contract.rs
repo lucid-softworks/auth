@@ -820,6 +820,52 @@ async fn dash_sso_listing_is_tenant_bound_and_never_returns_secrets() {
             .domain_verified,
         Some(false)
     );
+
+    let requested = post_json(
+        &app,
+        &format!(
+            "/api/auth/dash/organization/{organization_id}/sso-provider/request-verification-token"
+        ),
+        &organization_token,
+        json!({"providerId": "managed-oidc"}),
+    )
+    .await;
+    assert_eq!(requested.status(), StatusCode::OK);
+    let requested = json_body(requested).await;
+    assert_eq!(
+        requested["txtRecordName"],
+        "_better-auth-token-managed-oidc"
+    );
+    assert_eq!(requested["verificationToken"].as_str().unwrap().len(), 24);
+    let requested_again = post_json(
+        &app,
+        &format!(
+            "/api/auth/dash/organization/{organization_id}/sso-provider/request-verification-token"
+        ),
+        &organization_token,
+        json!({"providerId": "managed-oidc"}),
+    )
+    .await;
+    assert_eq!(
+        json_body(requested_again).await["verificationToken"],
+        requested["verificationToken"]
+    );
+
+    let deleted = post_json(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/sso-provider/delete"),
+        &organization_token,
+        json!({"providerId": "managed-oidc"}),
+    )
+    .await;
+    assert_eq!(deleted.status(), StatusCode::OK);
+    assert_eq!(json_body(deleted).await["success"], true);
+    assert!(
+        sso.find_by_provider_id("managed-oidc")
+            .await
+            .unwrap()
+            .is_none()
+    );
     server.abort();
 }
 

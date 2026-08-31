@@ -1,7 +1,7 @@
 mod domain;
 mod callback;
 mod management;
-mod mutation;
+pub(crate) mod mutation;
 mod registration;
 mod resolution;
 mod runtime_oidc;
