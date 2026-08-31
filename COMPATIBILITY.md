@@ -198,6 +198,11 @@ secret vault, background queue, broad standards claim, or implicit SCIM
 dependency. SCIM-to-SSO linking is an explicit `resolveUser` choice, and hosted
 directory/SSO administration remains in [#92](https://github.com/lucid-softworks/auth/issues/92).
 
+Compatibility evidence: [CI run 33372998762](https://github.com/lucid-softworks/auth/actions/runs/33372998762)
+passes the Rust 1.90 check, both Clippy feature matrices, SQLite, D1, full
+all-feature and encrypted-SAML contracts, live PostgreSQL persistence, the
+pinned official Better Auth client/oracle suite, and package verification.
+
 ## SCIM 1.7.1
 
 `ScimPlugin` targets the immutable `@better-auth/scim@1.7.1` server package.
