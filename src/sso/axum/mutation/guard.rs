@@ -8,11 +8,19 @@ pub(crate) async fn update(
     identity_boundary_changed: bool,
 ) -> Result<SsoProvider, AuthError> {
     let store = service.database_store();
+    let service = service.clone();
     let plugin = plugin.clone();
     let accepted = accepted.clone();
     crate::run_database_transaction(store.as_ref(), move |transaction| {
         Box::pin(async move {
             let provider = current(&plugin, &accepted).await?;
+            guard_directory_pairing(
+                &service,
+                transaction.clone(),
+                &provider,
+                identity_boundary_changed,
+            )
+            .await?;
             if plugin.has_provider_mutation_guard() {
                 plugin
                     .guard_provider_mutation(
@@ -48,11 +56,13 @@ pub(crate) async fn delete(
     accepted: &SsoProvider,
 ) -> Result<bool, AuthError> {
     let store = service.database_store();
+    let service = service.clone();
     let plugin = plugin.clone();
     let accepted = accepted.clone();
     crate::run_database_transaction(store.as_ref(), move |transaction| {
         Box::pin(async move {
             let provider = current(&plugin, &accepted).await?;
+            guard_directory_pairing(&service, transaction.clone(), &provider, true).await?;
             if plugin.has_provider_mutation_guard() {
                 plugin
                     .guard_provider_mutation(
@@ -74,6 +84,51 @@ pub(crate) async fn delete(
         })
     })
     .await
+}
+
+async fn guard_directory_pairing(
+    service: &AuthService,
+    database: std::sync::Arc<dyn crate::DatabaseTransaction>,
+    provider: &SsoProvider,
+    boundary_change: bool,
+) -> Result<(), AuthError> {
+    if !boundary_change
+        || !service
+            .plugins()
+            .find::<crate::DashPlugin>()
+            .is_some_and(|dash| {
+                dash.options().managed_directory_sync.enabled
+                    && dash.options().managed_directory_sync.sso_pairing
+            })
+    {
+        return Ok(());
+    }
+    let equal = |field: &str, value: serde_json::Value| crate::DashAdapterWhere {
+        field: field.into(),
+        value,
+        operator: crate::DashAdapterOperator::Eq,
+        connector: None,
+    };
+    let paired = database
+        .find_records(
+            "directorySyncConnection",
+            &[
+                equal("ssoProviderRecordId", serde_json::json!(provider.id)),
+                equal("ssoProviderId", serde_json::json!(provider.provider_id)),
+                equal("organizationId", serde_json::json!(provider.organization_id)),
+                equal("pairingEnforced", serde_json::json!(true)),
+            ],
+            Some(1),
+            0,
+            None,
+            &[],
+        )
+        .await?;
+    if paired.is_empty() {
+        Ok(())
+    } else {
+        Err(AuthError::SsoProviderMutationRejected)
+    }
 }
 
 async fn current(plugin: &SsoPlugin, accepted: &SsoProvider) -> Result<SsoProvider, AuthError> {

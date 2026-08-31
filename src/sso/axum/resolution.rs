@@ -17,7 +17,14 @@ pub(super) async fn finish(
     plugin: &SsoPlugin,
     input: FinishInput,
 ) -> Result<crate::OAuthCallbackResult, AuthError> {
-    if !plugin.has_user_resolver() {
+    let directory_pairing_enabled = service
+        .plugins()
+        .find::<crate::DashPlugin>()
+        .is_some_and(|dash| {
+            dash.options().managed_directory_sync.enabled
+                && dash.options().managed_directory_sync.sso_pairing
+        });
+    if !plugin.has_user_resolver() && !directory_pairing_enabled {
         return service
             .finish_sso_sign_in_with_tokens(
                 &input.provider.provider_id,
@@ -44,7 +51,11 @@ pub(super) async fn finish(
                 return Err(provider_changed());
             }
             let resolution = plugin
-                .resolve_user(input.resolution_input, transaction)
+                .resolve_user(
+                    input.resolution_input,
+                    transaction,
+                    directory_pairing_enabled,
+                )
                 .await?;
             let selected_user = match resolution {
                 crate::SsoUserResolution::Continue => None,

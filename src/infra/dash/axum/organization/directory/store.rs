@@ -1,4 +1,4 @@
-use super::model::DirectoryRow;
+use super::{model::DirectoryRow, pairing::ResolvedPairing};
 use crate::{
     AuthError, AuthStore, DashAdapterOperator, DashAdapterSort, DashAdapterWhere,
     DatabaseTransaction, run_database_transaction,
@@ -15,6 +15,7 @@ pub(super) struct NewDirectory<'a> {
     pub provider_id: &'a str,
     pub actor_id: &'a str,
     pub creation_request_id: Option<&'a str>,
+    pub pairing: Option<&'a ResolvedPairing>,
 }
 
 pub(super) async fn list(
@@ -76,6 +77,13 @@ pub(super) async fn reserve(
         .creation_request_id
         .map(str::to_owned)
         .unwrap_or_else(|| crate::scim::random_urlsafe(32));
+    let pairing = input.pairing.map(|resolved| {
+        (
+            resolved.provider.provider_id.clone(),
+            resolved.provider.id.clone(),
+            serde_json::to_string(&resolved.pairing).expect("directory SSO pairing serializes"),
+        )
+    });
     run_database_transaction(store.as_ref(), move |transaction| {
         Box::pin(async move {
             if find(
@@ -90,37 +98,73 @@ pub(super) async fn reserve(
                 ));
             }
             let alias_key = alias_key(&organization_id, &provider_id);
-            let now = Utc::now();
-            let row = DirectoryRow {
-                id: crate::scim::random_urlsafe(32),
-                organization_id: organization_id.clone(),
-                provider_id: provider_id.clone(),
-                alias_key: alias_key.clone(),
-                provisioning_domain_id: provisioning_domain_id(&organization_id, &provider_id),
-                active_organization_key: format!("directory-sync-active:{}", digest(&organization_id)),
-                connection_id: None,
+            if let Some((_, record_id, _)) = &pairing
+                && find(
+                    transaction.as_ref(),
+                    &[
+                        equal("ssoProviderRecordId", record_id.clone()),
+                        equal("pairingEnforced", true),
+                    ],
+                )
+                .await?
+                .is_some()
+            {
+                return Err(AuthError::Storage(
+                    "This SSO provider is already paired with directory sync".into(),
+                ));
+            }
+            let row = new_row(
+                organization_id,
+                provider_id,
+                actor_id,
                 creation_request_id,
-                status: "active".into(),
-                revision: 0,
-                created_at: now,
-                created_by_actor_id: actor_id.clone(),
-                updated_at: now,
-                last_actor_id: actor_id,
-                sso_provider_id: None,
-                sso_provider_record_id: None,
-                active_sso_provider_key: format!("directory-sync-sso-inactive:{alias_key}"),
-                serialized_sso_pairing: None,
-                pairing_enforced: false,
-                unpaired_at: None,
-                unpaired_by: None,
-                decommission_started_at: None,
-                decommissioned_at: None,
-                last_error: None,
-            };
+                alias_key,
+                pairing,
+            );
             parse(transaction.create_record(MODEL, row.into_map().map_err(json_error)?).await?)
         })
     })
     .await
+}
+
+fn new_row(
+    organization_id: String,
+    provider_id: String,
+    actor_id: String,
+    creation_request_id: String,
+    alias_key: String,
+    pairing: Option<(String, String, String)>,
+) -> DirectoryRow {
+    let now = Utc::now();
+    DirectoryRow {
+        id: crate::scim::random_urlsafe(32),
+        provisioning_domain_id: provisioning_domain_id(&organization_id, &provider_id),
+        active_organization_key: format!("directory-sync-active:{}", digest(&organization_id)),
+        active_sso_provider_key: pairing.as_ref().map_or_else(
+            || format!("directory-sync-sso-inactive:{alias_key}"),
+            |value| format!("directory-sync-sso-active:{}", digest(&value.1)),
+        ),
+        sso_provider_id: pairing.as_ref().map(|value| value.0.clone()),
+        sso_provider_record_id: pairing.as_ref().map(|value| value.1.clone()),
+        serialized_sso_pairing: pairing.as_ref().map(|value| value.2.clone()),
+        pairing_enforced: pairing.is_some(),
+        organization_id,
+        provider_id,
+        alias_key,
+        connection_id: None,
+        creation_request_id,
+        status: "active".into(),
+        revision: 0,
+        created_at: now,
+        created_by_actor_id: actor_id.clone(),
+        updated_at: now,
+        last_actor_id: actor_id,
+        unpaired_at: None,
+        unpaired_by: None,
+        decommission_started_at: None,
+        decommissioned_at: None,
+        last_error: None,
+    }
 }
 
 pub(super) async fn bind(

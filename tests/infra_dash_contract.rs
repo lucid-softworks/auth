@@ -980,6 +980,29 @@ async fn managed_directory_routes_bind_scim_and_protect_one_time_credentials() {
         .as_str()
         .unwrap()
         .to_owned();
+    let organization_token =
+        token_with(&private_key, 0, json!({"organizationId": organization_id}));
+    let sso_provider = post_json(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/sso-provider/create"),
+        &organization_token,
+        json!({
+            "providerId": "directory-login",
+            "domain": "directory.example.com",
+            "protocol": "OIDC",
+            "userId": user_id,
+            "oidcConfig": {
+                "clientId": "directory-client",
+                "clientSecret": "directory-secret",
+                "issuer": "https://directory.example.com",
+                "authorizationEndpoint": "https://directory.example.com/authorize",
+                "tokenEndpoint": "https://directory.example.com/token",
+                "jwksEndpoint": "https://directory.example.com/jwks"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(sso_provider.status(), StatusCode::OK);
     let setup_token = token_with(
         &private_key,
         0,
@@ -994,7 +1017,14 @@ async fn managed_directory_routes_bind_scim_and_protect_one_time_credentials() {
         &app,
         &format!("/api/auth/dash/organization/{organization_id}/directories"),
         &setup_token,
-        json!({"providerId": "entra"}),
+        json!({
+            "providerId": "entra",
+            "pairing": {
+                "ssoProviderId": "directory-login",
+                "protocol": "oidc",
+                "externalIdSource": {"kind": "subject"}
+            }
+        }),
     )
     .await;
     assert_eq!(created.status(), StatusCode::OK);
@@ -1013,6 +1043,17 @@ async fn managed_directory_routes_bind_scim_and_protect_one_time_credentials() {
     assert!(connection_id.starts_with("ba_scim_connection_"));
     assert!(first_token.starts_with("ba_scim_credential_"));
     assert_eq!(created["credentials"].as_array().unwrap().len(), 1);
+    assert_eq!(created["pairingEnforced"], true);
+    assert_eq!(created["pairing"]["ssoProviderId"], "directory-login");
+
+    let guarded_delete = post_json(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/sso-provider/delete"),
+        &organization_token,
+        json!({"providerId": "directory-login"}),
+    )
+    .await;
+    assert_eq!(guarded_delete.status(), StatusCode::CONFLICT);
 
     let setup_forbidden = request(
         &app,
@@ -1124,6 +1165,14 @@ async fn managed_directory_routes_bind_scim_and_protect_one_time_credentials() {
     .await;
     assert_eq!(unpaired.status(), StatusCode::OK);
     assert_eq!(json_body(unpaired).await["pairingEnforced"], false);
+    let deleted_sso = post_json(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/sso-provider/delete"),
+        &organization_token,
+        json!({"providerId": "directory-login"}),
+    )
+    .await;
+    assert_eq!(deleted_sso.status(), StatusCode::OK);
     server.abort();
 }
 

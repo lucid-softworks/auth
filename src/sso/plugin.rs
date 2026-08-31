@@ -232,7 +232,14 @@ impl SsoPlugin {
         &self,
         input: super::SsoUserResolutionInput,
         database: Arc<dyn crate::DatabaseTransaction>,
+        directory_pairing_enabled: bool,
     ) -> Result<super::SsoUserResolution, crate::AuthError> {
+        if directory_pairing_enabled {
+            let paired = super::directory_pairing::resolve(&input, database.clone()).await?;
+            if !matches!(paired, super::SsoUserResolution::Continue) {
+                return Ok(paired);
+            }
+        }
         let Some(resolver) = &self.user_resolver else {
             return Ok(super::SsoUserResolution::Continue);
         };
