@@ -38,7 +38,10 @@ pub use model::{
     DashAdapterAction, DashAdapterConnector, DashAdapterOperator, DashAdapterSort,
     DashAdapterWhere, DashPeriod, DashSortDirection, DashUserListQuery,
 };
-pub use plugin::{DashActivityTracking, DashOptions, DashPlugin};
+pub use plugin::{
+    DashActivityTracking, DashDirectoryMembershipProjection, DashManagedDirectorySync, DashOptions,
+    DashPlugin,
+};
 
 /// Published `@better-auth/infra` compatibility target.
 pub const VERSION: &str = "0.4.3";

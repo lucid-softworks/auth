@@ -94,6 +94,7 @@ fn dash_plugin_schema(tables: Vec<crate::PluginSchemaTable>) -> Value {
 fn dash_plugin_options(plugin: &crate::DashPlugin) -> Value {
     let connection = plugin.resolved_connection();
     let activity = plugin.options().activity_tracking;
+    let managed = &plugin.options().managed_directory_sync;
     json!({
         "apiUrl": connection.api_url,
         "kvUrl": connection.kv_url,
@@ -112,9 +113,12 @@ fn dash_plugin_options(plugin: &crate::DashPlugin) -> Value {
             "updateInterval": activity.update_interval.as_millis(),
         },
         "managedDirectorySync": {
-            "enabled": false,
-            "ssoPairing": true,
-            "membershipProjection": {"enabled": true, "role": "member"},
+            "enabled": managed.enabled,
+            "ssoPairing": managed.sso_pairing,
+            "membershipProjection": {
+                "enabled": managed.membership_projection.enabled,
+                "role": managed.membership_projection.role,
+            },
         },
     })
 }
