@@ -31,6 +31,7 @@ postgres = [
     "sqlx/postgres",
     "sqlx/uuid",
 ]
+mysql = ["dep:sqlx", "sqlx/chrono", "sqlx/json", "sqlx/macros", "sqlx/mysql"]
 sqlite = ["dep:sqlx", "sqlx/chrono", "sqlx/json", "sqlx/sqlite"]
 d1 = ["dep:worker"]
 
