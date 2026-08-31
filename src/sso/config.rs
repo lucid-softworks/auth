@@ -13,6 +13,10 @@ pub struct SsoOptions {
     pub saml_want_logout_response_signed: bool,
     /// Lifetime of an SP-initiated LogoutRequest correlation record.
     pub saml_logout_request_ttl_ms: i64,
+    /// Accepts signed unsolicited IdP-initiated SAML responses.
+    pub saml_allow_idp_initiated: bool,
+    /// Plugin-wide fallback callback for IdP-initiated SAML responses.
+    pub saml_idp_initiated_callback_url: Option<String>,
     /// Shared OIDC callback URI. Relative values resolve below the auth base URL.
     pub redirect_uri: Option<String>,
     /// Trusts the provider's mapped `email_verified` claim.
@@ -38,6 +42,8 @@ impl Default for SsoOptions {
             saml_want_logout_request_signed: false,
             saml_want_logout_response_signed: false,
             saml_logout_request_ttl_ms: 300_000,
+            saml_allow_idp_initiated: false,
+            saml_idp_initiated_callback_url: None,
             redirect_uri: None,
             trust_email_verified: false,
             disable_implicit_sign_up: false,

@@ -1016,6 +1016,8 @@ async fn saml_acs_verifies_a_signed_assertion_creates_a_session_and_rejects_repl
             allowed_signature_algorithms: Some(vec![SignatureAlgorithm::RSA_SHA256.into()]),
             ..SamlAlgorithmOptions::default()
         },
+        saml_allow_idp_initiated: true,
+        saml_idp_initiated_callback_url: Some("/idp-home".into()),
         ..SsoOptions::default()
     })
     .await;
@@ -1030,6 +1032,7 @@ async fn saml_acs_verifies_a_signed_assertion_creates_a_session_and_rejects_repl
                     "entryPoint": "https://idp.example.com/sso",
                     "cert": CERTIFICATE,
                     "idpMetadata": {"entityID": "https://idp.example.com/metadata"},
+                    "idpInitiatedCallbackUrl": "https://example.com/api/auth/sso/saml2/sp/acs/acme-sso!",
                     "wantAssertionsSigned": true,
                     "mapping": {
                         "email": "mail",
@@ -1189,7 +1192,7 @@ async fn saml_acs_verifies_a_signed_assertion_creates_a_session_and_rejects_repl
     assert_eq!(session["user"]["email"], "employee@example.com");
     assert_eq!(session["user"]["name"], "Enterprise User");
 
-    let replay = fixture.app.oneshot(assertion()).await.unwrap();
+    let replay = fixture.app.clone().oneshot(assertion()).await.unwrap();
     assert_eq!(replay.status(), StatusCode::BAD_REQUEST);
     let body: Value =
         serde_json::from_slice(&replay.into_body().collect().await.unwrap().to_bytes()).unwrap();
@@ -1197,6 +1200,38 @@ async fn saml_acs_verifies_a_signed_assertion_creates_a_session_and_rejects_repl
         body["message"],
         "State error: failed to validate relay state"
     );
+
+    let unsolicited = idp
+        .create_login_response(
+            &sp,
+            Binding::Post,
+            &User {
+                name_id: "idp-user-2".into(),
+                attributes: vec![
+                    ("email".into(), "idp-user@example.com".into()),
+                    ("first_name".into(), "IdP".into()),
+                    ("last_name".into(), "User".into()),
+                ],
+                session_index: Some("session-2".into()),
+            },
+            &LoginResponseOptions::default(),
+        )
+        .unwrap();
+    let form =
+        serde_urlencoded::to_string([("SAMLResponse", unsolicited.context.as_str())]).unwrap();
+    let response = fixture
+        .app
+        .oneshot(
+            Request::post("/api/auth/sso/saml2/sp/acs/acme-sso!")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header("sec-fetch-site", "cross-site")
+                .body(Body::from(form))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(response.headers()[header::LOCATION], "/idp-home");
 }
 
 #[tokio::test]

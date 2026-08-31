@@ -40,6 +40,15 @@ pub(super) async fn remember_session(
         .await;
 }
 
+pub(super) async fn reserve_unsolicited_assertion(
+    service: &AuthService,
+    provider_id: &str,
+    session: &SsoSession,
+    clock_skew_ms: i64,
+) -> Result<(), ()> {
+    reserve_assertion(service, provider_id, session, clock_skew_ms).await
+}
+
 pub(super) async fn load_state(
     service: &AuthService,
     relay_state: &str,
