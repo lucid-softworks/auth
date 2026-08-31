@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 mod core;
 mod delete;
+mod directory;
 mod invitation;
 mod member;
 mod sso;
@@ -42,6 +43,16 @@ pub(super) fn routes(plugin: Arc<DashPlugin>) -> Vec<AxumPluginRoute> {
         route("/dash/organization/{id}/sso-provider/verify-domain", post(sso::domain::verify).layer(Extension(plugin.clone()))),
         route("/dash/organization/{id}/sso-provider/delete", post(sso::delete).layer(Extension(plugin.clone()))),
         route("/dash/organization/{id}/sso-provider/mark-domain-verified", post(sso::mark_domain_verified).layer(Extension(plugin.clone()))),
+        route("/dash/organization/{id}/directories", get(directory::list).post(directory::create).layer(Extension(plugin.clone()))),
+        route("/dash/organization/{id}/directories/{provider_id}", get(directory::get_one).layer(Extension(plugin.clone()))),
+        route("/dash/organization/{id}/directories/{provider_id}/credentials/rotate", post(directory::rotate).layer(Extension(plugin.clone()))),
+        route("/dash/organization/{id}/directories/{provider_id}/credentials/{credential_id}/revoke", post(directory::revoke).layer(Extension(plugin.clone()))),
+        route("/dash/organization/{id}/directories/{provider_id}/events", get(directory::events).layer(Extension(plugin.clone()))),
+        route("/dash/organization/{id}/directories/{provider_id}/decommission", post(directory::decommission).layer(Extension(plugin.clone()))),
+        route("/dash/organization/{id}/directories/{provider_id}/unpair", post(directory::unpair).layer(Extension(plugin.clone()))),
+        route("/dash/organization/directory/create", post(directory::legacy_unavailable).layer(Extension(plugin.clone()))),
+        route("/dash/organization/directory/delete", post(directory::legacy_unavailable).layer(Extension(plugin.clone()))),
+        route("/dash/organization/directory/regenerate-token", post(directory::legacy_unavailable).layer(Extension(plugin.clone()))),
         route("/dash/accept-invitation", get(invitation::accept).layer(Extension(plugin.clone()))),
         route("/dash/complete-invitation", post(invitation::complete).layer(Extension(plugin.clone()))),
         route("/dash/complete-invitation-handoff", get(invitation::handoff).layer(Extension(plugin.clone()))),

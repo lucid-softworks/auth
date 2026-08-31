@@ -11,10 +11,11 @@ use josekit::{
     jws::{self, JwsHeader, RS256},
 };
 use lucid_auth::{
-    AuthConfig, AuthService, DashOptions, DashPlugin, InfraConnectionOptions,
-    MemoryOrganizationStore, MemorySsoStore, MemoryStore, MemoryTwoFactorStore, NewPasswordUser,
-    NewSsoProvider, OrganizationPlugin, OrganizationPluginConfig, SsoOptions, SsoPlugin, SsoStore,
-    TwoFactorConfig, TwoFactorPlugin,
+    AuthConfig, AuthService, DashManagedDirectorySync, DashOptions, DashPlugin,
+    InfraConnectionOptions, MemoryOrganizationStore, MemorySsoStore, MemoryStore,
+    MemoryTwoFactorStore, NewPasswordUser, NewSsoProvider, OrganizationPlugin,
+    OrganizationPluginConfig, ScimManagedConnectionOptions, ScimOptions, ScimPlugin, SsoOptions,
+    SsoPlugin, SsoStore, TwoFactorConfig, TwoFactorPlugin,
 };
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -195,11 +196,26 @@ async fn fixture() -> (
         ))
         .unwrap();
     config
+        .add_plugin(
+            ScimPlugin::in_memory(ScimOptions {
+                managed_connections: Some(ScimManagedConnectionOptions::new(
+                    "dash-managed-scim-secret-at-least-32-bytes",
+                )),
+                ..ScimOptions::default()
+            })
+            .unwrap(),
+        )
+        .unwrap();
+    config
         .add_plugin(DashPlugin::new(DashOptions {
             connection: InfraConnectionOptions {
                 api_url: Some(format!("http://{address}")),
                 api_key: Some("managed-contract-key".into()),
                 ..InfraConnectionOptions::default()
+            },
+            managed_directory_sync: DashManagedDirectorySync {
+                enabled: true,
+                ..DashManagedDirectorySync::default()
             },
             ..DashOptions::default()
         }))
@@ -866,6 +882,178 @@ async fn dash_sso_listing_is_tenant_bound_and_never_returns_secrets() {
             .unwrap()
             .is_none()
     );
+    server.abort();
+}
+
+#[tokio::test]
+async fn managed_directory_routes_bind_scim_and_protect_one_time_credentials() {
+    let (app, private_key, _jti, _queries, _events, _invites, _sso, server) = fixture().await;
+    let base_token = token(&private_key, 0);
+    let users = request(&app, "/api/auth/dash/list-users", &base_token).await;
+    let user_id = json_body(users).await["users"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let user_token = token_with(
+        &private_key,
+        0,
+        json!({"userId": user_id, "skipDefaultTeam": true}),
+    );
+    let created_organization = post_json(
+        &app,
+        "/api/auth/dash/organization/create",
+        &user_token,
+        json!({"name": "Directory Acme", "slug": "directory-acme"}),
+    )
+    .await;
+    let organization_id = json_body(created_organization).await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let setup_token = token_with(
+        &private_key,
+        0,
+        json!({
+            "purpose": "directory-sync-management",
+            "organizationId": organization_id,
+            "actorId": "setup-actor",
+            "setupOperationId": "setup-operation-0001"
+        }),
+    );
+    let created = post_json(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/directories"),
+        &setup_token,
+        json!({"providerId": "entra"}),
+    )
+    .await;
+    assert_eq!(created.status(), StatusCode::OK);
+    assert_eq!(
+        created.headers()[header::CACHE_CONTROL],
+        "no-store, max-age=0"
+    );
+    assert_eq!(created.headers()[header::PRAGMA], "no-cache");
+    let created = json_body(created).await;
+    let connection_id = created["connectionId"].as_str().unwrap().to_owned();
+    let credential_id = created["credential"]["credentialId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let first_token = created["scimToken"].as_str().unwrap().to_owned();
+    assert!(connection_id.starts_with("ba_scim_connection_"));
+    assert!(first_token.starts_with("ba_scim_credential_"));
+    assert_eq!(created["credentials"].as_array().unwrap().len(), 1);
+
+    let setup_forbidden = request(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/directories"),
+        &setup_token,
+    )
+    .await;
+    assert_eq!(setup_forbidden.status(), StatusCode::FORBIDDEN);
+
+    let management_token = token_with(
+        &private_key,
+        0,
+        json!({
+            "purpose": "directory-sync-management",
+            "organizationId": organization_id,
+            "actorId": "management-actor"
+        }),
+    );
+    let listed = request(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/directories"),
+        &management_token,
+    )
+    .await;
+    assert_eq!(listed.status(), StatusCode::OK);
+    let listed = json_body(listed).await;
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+    assert_eq!(listed[0]["providerId"], "entra");
+    assert!(!listed.to_string().contains(&first_token));
+
+    let duplicate = post_json(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/directories"),
+        &management_token,
+        json!({"providerId": "okta"}),
+    )
+    .await;
+    assert_eq!(duplicate.status(), StatusCode::CONFLICT);
+
+    let rotated = post_json(
+        &app,
+        &format!(
+            "/api/auth/dash/organization/{organization_id}/directories/entra/credentials/rotate"
+        ),
+        &management_token,
+        json!({"scopes": ["scim.users.read"]}),
+    )
+    .await;
+    assert_eq!(rotated.status(), StatusCode::OK);
+    assert_eq!(
+        rotated.headers()[header::CACHE_CONTROL],
+        "no-store, max-age=0"
+    );
+    let rotated = json_body(rotated).await;
+    assert_ne!(rotated["scimToken"], first_token);
+    assert_eq!(rotated["credential"]["scopes"], json!(["scim.users.read"]));
+
+    let revoked = post_json(
+        &app,
+        &format!(
+            "/api/auth/dash/organization/{organization_id}/directories/entra/credentials/{credential_id}/revoke"
+        ),
+        &management_token,
+        json!({}),
+    )
+    .await;
+    assert_eq!(revoked.status(), StatusCode::OK);
+    let revoked = json_body(revoked).await;
+    assert!(
+        revoked["credentials"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| {
+                value["credentialId"] == credential_id && value["status"] == "revoked"
+            })
+    );
+
+    let events = request(
+        &app,
+        &format!(
+            "/api/auth/dash/organization/{organization_id}/directories/entra/events?limit=2&sortDirection=asc"
+        ),
+        &management_token,
+    )
+    .await;
+    assert_eq!(events.status(), StatusCode::OK);
+    let events = json_body(events).await;
+    assert_eq!(events["limit"], 2);
+    assert_eq!(events["offset"], 0);
+    assert_eq!(events["events"].as_array().unwrap().len(), 2);
+    assert_eq!(events["events"][0]["type"], "connection.created");
+
+    let decommissioned = post_json(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/directories/entra/decommission"),
+        &management_token,
+        json!({}),
+    )
+    .await;
+    assert_eq!(decommissioned.status(), StatusCode::OK);
+    assert_eq!(json_body(decommissioned).await["status"], "decommissioned");
+    let unpaired = post_json(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/directories/entra/unpair"),
+        &management_token,
+        json!({}),
+    )
+    .await;
+    assert_eq!(unpaired.status(), StatusCode::OK);
+    assert_eq!(json_body(unpaired).await["pairingEnforced"], false);
     server.abort();
 }
 

@@ -15,6 +15,11 @@ impl AuthService {
         self.plugins.find::<crate::SsoPlugin>()
     }
 
+    #[cfg(feature = "axum")]
+    pub(crate) fn scim_plugin(&self) -> Option<&crate::ScimPlugin> {
+        self.plugins.find::<crate::ScimPlugin>()
+    }
+
     pub fn plugin_metadata(&self) -> &[PluginDescriptor] {
         self.plugins.descriptors()
     }
