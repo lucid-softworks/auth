@@ -12,8 +12,9 @@ use josekit::{
 };
 use lucid_auth::{
     AuthConfig, AuthService, DashOptions, DashPlugin, InfraConnectionOptions,
-    MemoryOrganizationStore, MemoryStore, MemoryTwoFactorStore, NewPasswordUser,
-    OrganizationPlugin, OrganizationPluginConfig, TwoFactorConfig, TwoFactorPlugin,
+    MemoryOrganizationStore, MemorySsoStore, MemoryStore, MemoryTwoFactorStore, NewPasswordUser,
+    NewSsoProvider, OrganizationPlugin, OrganizationPluginConfig, SsoOptions, SsoPlugin, SsoStore,
+    TwoFactorConfig, TwoFactorPlugin,
 };
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -131,6 +132,7 @@ async fn fixture() -> (
     Arc<Mutex<Vec<String>>>,
     Arc<Mutex<Vec<Value>>>,
     Arc<Mutex<Vec<Value>>>,
+    Arc<MemorySsoStore>,
     tokio::task::JoinHandle<()>,
 ) {
     let mut private_key = Jwk::generate_rsa_key(2_048).unwrap();
@@ -182,6 +184,16 @@ async fn fixture() -> (
             TwoFactorConfig::default(),
         ))
         .unwrap();
+    let sso_store = Arc::new(MemorySsoStore::new());
+    config
+        .add_plugin(SsoPlugin::with_store(
+            SsoOptions {
+                domain_verification: true,
+                ..SsoOptions::default()
+            },
+            sso_store.clone(),
+        ))
+        .unwrap();
     config
         .add_plugin(DashPlugin::new(DashOptions {
             connection: InfraConnectionOptions {
@@ -210,6 +222,7 @@ async fn fixture() -> (
         event_queries,
         tracked_events,
         invitation_requests,
+        sso_store,
         server,
     )
 }
@@ -309,7 +322,7 @@ async fn local_cookie(app: &Router) -> String {
 
 #[tokio::test]
 async fn core_routes_use_managed_jwt_policy_and_return_dash_shapes() {
-    let (app, private_key, jti_checks, _event_queries, _tracked_events, _invites, server) =
+    let (app, private_key, jti_checks, _event_queries, _tracked_events, _invites, _sso, server) =
         fixture().await;
     let old_token = token(&private_key, 60);
 
@@ -348,7 +361,7 @@ async fn core_routes_use_managed_jwt_policy_and_return_dash_shapes() {
 
 #[tokio::test]
 async fn core_routes_reject_missing_managed_authorization() {
-    let (app, _private_key, _jti_checks, _event_queries, _tracked_events, _invites, server) =
+    let (app, _private_key, _jti_checks, _event_queries, _tracked_events, _invites, _sso, server) =
         fixture().await;
     let response = app
         .oneshot(
@@ -368,7 +381,7 @@ async fn core_routes_reject_missing_managed_authorization() {
 
 #[tokio::test]
 async fn event_queries_use_local_sessions_transform_and_filter_remote_records() {
-    let (app, _private_key, _jti_checks, event_queries, _tracked_events, _invites, server) =
+    let (app, _private_key, _jti_checks, event_queries, _tracked_events, _invites, _sso, server) =
         fixture().await;
     let cookie = local_cookie(&app).await;
 
@@ -438,7 +451,7 @@ async fn event_queries_use_local_sessions_transform_and_filter_remote_records() 
 
 #[tokio::test]
 async fn auth_hooks_project_exact_events_once_and_ignore_remote_500s() {
-    let (app, _private_key, _jti_checks, _event_queries, tracked_events, _invites, server) =
+    let (app, _private_key, _jti_checks, _event_queries, tracked_events, _invites, _sso, server) =
         fixture().await;
     assert!(tracked_events.lock().unwrap().is_empty());
 
@@ -494,7 +507,7 @@ async fn auth_hooks_project_exact_events_once_and_ignore_remote_500s() {
 
 #[tokio::test]
 async fn organization_hooks_project_in_order_and_keep_remote_failures_non_fatal() {
-    let (app, _private_key, _jti_checks, _event_queries, tracked_events, _invites, server) =
+    let (app, _private_key, _jti_checks, _event_queries, tracked_events, _invites, _sso, server) =
         fixture().await;
     let cookie = local_cookie(&app).await;
     wait_for_events(&tracked_events, 2).await;
@@ -532,7 +545,7 @@ async fn organization_hooks_project_in_order_and_keep_remote_failures_non_fatal(
 
 #[tokio::test]
 async fn managed_organization_team_and_two_factor_routes_use_native_stores() {
-    let (app, private_key, _jti_checks, _event_queries, _tracked_events, _invites, server) =
+    let (app, private_key, _jti_checks, _event_queries, _tracked_events, _invites, _sso, server) =
         fixture().await;
     let base_token = token(&private_key, 0);
     let users = request(&app, "/api/auth/dash/list-users", &base_token).await;
@@ -703,6 +716,114 @@ async fn managed_organization_team_and_two_factor_routes_use_native_stores() {
 }
 
 #[tokio::test]
+async fn dash_sso_listing_is_tenant_bound_and_never_returns_secrets() {
+    let (app, private_key, _jti, _queries, _events, _invites, sso, server) = fixture().await;
+    let base_token = token(&private_key, 0);
+    let users = request(&app, "/api/auth/dash/list-users", &base_token).await;
+    let user_id = json_body(users).await["users"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let user_token = token_with(
+        &private_key,
+        0,
+        json!({"userId": user_id.clone(), "skipDefaultTeam": true}),
+    );
+    let created = post_json(
+        &app,
+        "/api/auth/dash/organization/create",
+        &user_token,
+        json!({"name": "SSO Acme", "slug": "sso-acme"}),
+    )
+    .await;
+    let organization_id = json_body(created).await["id"].as_str().unwrap().to_owned();
+    sso.create(NewSsoProvider {
+        id: "dash-sso-row".into(),
+        issuer: "https://issuer.example.com".into(),
+        oidc_config: Some(json!({
+            "clientId": "managed-client-1234",
+            "clientSecret": "never-return-this",
+            "authorizationEndpoint": "https://issuer.example.com/authorize",
+            "tokenEndpoint": "https://issuer.example.com/token",
+            "jwksEndpoint": "https://issuer.example.com/jwks"
+        })),
+        saml_config: None,
+        user_id: user_id.clone(),
+        provider_id: "managed-oidc".into(),
+        organization_id: Some(organization_id.clone()),
+        domain: "example.com".into(),
+        domain_verified: Some(true),
+        additional_fields: serde_json::Map::new(),
+    })
+    .await
+    .unwrap();
+    sso.create(NewSsoProvider {
+        id: "foreign-sso-row".into(),
+        issuer: "https://foreign.example.com".into(),
+        oidc_config: None,
+        saml_config: None,
+        user_id,
+        provider_id: "foreign".into(),
+        organization_id: Some("foreign-organization".into()),
+        domain: "foreign.example.com".into(),
+        domain_verified: Some(true),
+        additional_fields: serde_json::Map::new(),
+    })
+    .await
+    .unwrap();
+    let organization_token = token_with(
+        &private_key,
+        0,
+        json!({"organizationId": organization_id.clone()}),
+    );
+
+    let listed = request(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/sso-providers"),
+        &organization_token,
+    )
+    .await;
+    assert_eq!(listed.status(), StatusCode::OK);
+    let listed = json_body(listed).await;
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+    assert_eq!(listed[0]["providerId"], "managed-oidc");
+    assert_eq!(listed[0]["oidcConfig"]["clientIdLastFour"], "****1234");
+    assert!(!listed.to_string().contains("never-return-this"));
+
+    let wrong_token = token_with(
+        &private_key,
+        0,
+        json!({"organizationId": "foreign-organization"}),
+    );
+    let forbidden = request(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/sso-providers"),
+        &wrong_token,
+    )
+    .await;
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+
+    let unmarked = post_json(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/sso-provider/mark-domain-verified"),
+        &organization_token,
+        json!({"providerId": "managed-oidc", "verified": false}),
+    )
+    .await;
+    assert_eq!(unmarked.status(), StatusCode::OK);
+    assert_eq!(json_body(unmarked).await["domainVerified"], false);
+    assert_eq!(
+        sso.find_by_provider_id("managed-oidc")
+            .await
+            .unwrap()
+            .unwrap()
+            .domain_verified,
+        Some(false)
+    );
+    server.abort();
+}
+
+#[tokio::test]
 async fn public_invitation_acceptance_uses_managed_egress_and_mints_local_session() {
     let (
         app,
@@ -711,6 +832,7 @@ async fn public_invitation_acceptance_uses_managed_egress_and_mints_local_sessio
         _event_queries,
         _tracked_events,
         invitation_requests,
+        _sso,
         server,
     ) = fixture().await;
     let response = app
@@ -758,7 +880,7 @@ async fn public_invitation_acceptance_uses_managed_egress_and_mints_local_sessio
 
 #[tokio::test]
 async fn social_create_no_session_invitation_revokes_the_local_session() {
-    let (app, _private_key, _jti_checks, _event_queries, _tracked_events, _invites, server) =
+    let (app, _private_key, _jti_checks, _event_queries, _tracked_events, _invites, _sso, server) =
         fixture().await;
     let cookie = local_cookie(&app).await;
     let response = app

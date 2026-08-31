@@ -8,7 +8,7 @@ mod runtime_oidc;
 mod saml_acs;
 mod saml_metadata;
 mod saml_slo;
-mod sanitize;
+pub(crate) mod sanitize;
 mod sign_in;
 mod support;
 

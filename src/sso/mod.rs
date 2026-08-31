@@ -21,6 +21,9 @@ mod schema;
 mod store;
 mod timestamp;
 
+#[cfg(feature = "axum")]
+pub(crate) use axum::sanitize::provider as sanitize_provider;
+
 pub use config::{
     SsoDefaultProvider, SsoFieldMappings, SsoOptions, SsoProviderFieldMappings,
     SsoProviderSchema, SsoSchema,

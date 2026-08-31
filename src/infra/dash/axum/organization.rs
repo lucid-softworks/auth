@@ -7,6 +7,7 @@ mod core;
 mod delete;
 mod invitation;
 mod member;
+mod sso;
 pub(super) mod support;
 mod team;
 
@@ -36,6 +37,8 @@ pub(super) fn routes(plugin: Arc<DashPlugin>) -> Vec<AxumPluginRoute> {
         route("/dash/organization/cancel-invitation", post(invitation::cancel).layer(Extension(plugin.clone()))),
         route("/dash/organization/resend-invitation", post(invitation::resend).layer(Extension(plugin.clone()))),
         route("/dash/organization/check-user-by-email", post(invitation::check_user_by_email).layer(Extension(plugin.clone()))),
+        route("/dash/organization/{id}/sso-providers", get(sso::list).layer(Extension(plugin.clone()))),
+        route("/dash/organization/{id}/sso-provider/mark-domain-verified", post(sso::mark_domain_verified).layer(Extension(plugin.clone()))),
         route("/dash/accept-invitation", get(invitation::accept).layer(Extension(plugin.clone()))),
         route("/dash/complete-invitation", post(invitation::complete).layer(Extension(plugin.clone()))),
         route("/dash/complete-invitation-handoff", get(invitation::handoff).layer(Extension(plugin.clone()))),
