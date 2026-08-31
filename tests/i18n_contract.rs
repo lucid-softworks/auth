@@ -256,6 +256,7 @@ async fn ordered_detection_exact_matching_and_default_limitations_match() {
             ("accept-language".into(), "fr-CA;q=0.9,en;q=0.1".into()),
             ("cookie".into(), "language=en; language=fr".into()),
         ]),
+        body: None,
     };
     assert_eq!(
         plugin

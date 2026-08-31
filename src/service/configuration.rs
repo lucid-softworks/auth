@@ -145,6 +145,16 @@ impl AuthService {
     }
 
     #[cfg(feature = "axum")]
+    pub(crate) fn ip_address_headers(&self) -> &[String] {
+        &self.config.ip_address.ip_address_headers
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn disable_ip_tracking(&self) -> bool {
+        self.config.ip_address.disable_ip_tracking
+    }
+
+    #[cfg(feature = "axum")]
     pub(crate) fn auth_base_url(&self) -> Option<url::Url> {
         self.config.base_url.as_ref().map(|base| {
             let mut base = base.clone();

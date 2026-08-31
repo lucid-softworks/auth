@@ -40,6 +40,7 @@ impl AuthService {
             path: "/api-key/verify".into(),
             query: None,
             headers: BTreeMap::new(),
+            body: None,
         };
         let verified = self
             .verify_api_key_in_context(

@@ -10,6 +10,9 @@ mod pow;
 mod service;
 mod validation;
 
+#[cfg(feature = "axum")]
+mod axum;
+
 pub use options::{
     BooleanSecurityRule, CompromisedPasswordOptions, CredentialStuffingOptions,
     EmailNormalizationOptions, EmailStrictness, EmailValidationOptions, FreeTrialAbuseOptions,

@@ -1,4 +1,6 @@
-use super::{SentinelOptions, VERSION};
+use super::{SentinelOptions, SentinelSecurityClient, VERSION};
+#[cfg(feature = "axum")]
+use crate::infra::dash::IdentificationService;
 use crate::{
     AuthPlugin, PluginArtifactMetadata, PluginClientMetadata, PluginCookie, PluginDescriptor,
     PluginProvenance,
@@ -13,17 +15,39 @@ const COOKIES: &[PluginCookie] = &[PluginCookie {
 #[derive(Clone)]
 pub struct SentinelPlugin {
     options: Arc<SentinelOptions>,
+    security: SentinelSecurityClient,
+    #[cfg(feature = "axum")]
+    identification: IdentificationService,
 }
 
 impl SentinelPlugin {
     pub fn new(options: SentinelOptions) -> Self {
+        let connection = options.connection.clone().resolve();
+        let security = SentinelSecurityClient::from_resolved(
+            connection.clone(),
+            options.security.clone(),
+        );
+        #[cfg(feature = "axum")]
+        let identification = IdentificationService::new(&connection);
         Self {
             options: Arc::new(options),
+            security,
+            #[cfg(feature = "axum")]
+            identification,
         }
     }
 
     pub fn options(&self) -> &SentinelOptions {
         &self.options
+    }
+
+    pub fn security_client(&self) -> &SentinelSecurityClient {
+        &self.security
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn identification_service(&self) -> &IdentificationService {
+        &self.identification
     }
 
     /// Metadata for the separately published React Native/Expo client.
@@ -83,6 +107,35 @@ impl AuthPlugin for SentinelPlugin {
                 .with_identity("sentinel", VERSION),
             ),
         }
+    }
+
+    #[cfg(feature = "axum")]
+    async fn on_request(
+        &self,
+        service: &crate::AuthService,
+        request: axum::extract::Request,
+    ) -> Result<axum::extract::Request, axum::response::Response> {
+        super::axum::intercept(service, self, request).await
+    }
+
+    #[cfg(feature = "axum")]
+    fn contributes_on_request(&self) -> bool {
+        true
+    }
+
+    #[cfg(feature = "axum")]
+    async fn after_response(
+        &self,
+        service: &crate::AuthService,
+        request: &crate::PluginRequestContext,
+        response: axum::response::Response,
+    ) -> axum::response::Response {
+        super::axum::after_response(service, self, request, response).await
+    }
+
+    #[cfg(feature = "axum")]
+    fn contributes_on_response(&self) -> bool {
+        true
     }
 }
 

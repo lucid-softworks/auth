@@ -66,6 +66,10 @@ pub(super) async fn after_response(
                     .map(|value| (name.to_string(), value.to_owned()))
             })
             .collect::<BTreeMap<_, _>>(),
+        body: request
+            .extensions()
+            .get::<crate::plugin::CapturedPluginRequestBody>()
+            .map(|body| body.0.clone()),
     };
     let mut response = next.run(request).await;
     for plugin in service.plugins().plugins() {
