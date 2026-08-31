@@ -302,8 +302,7 @@ async fn anonymous_email_entropy_is_independent_from_callback_user_ids() {
         .session
         .user
         .email
-        .strip_prefix("temp@")
-        .and_then(|email| email.strip_suffix(".com"))
+        .strip_suffix("@anonymous.placeholder.invalid")
         .expect("default anonymous email shape");
     assert!(is_base62(entropy, 32));
     assert_ne!(entropy, result.session.user.id);

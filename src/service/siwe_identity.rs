@@ -19,14 +19,12 @@ impl AuthService {
         address: &str,
         chain_id: f64,
         supplied_email: Option<&str>,
-        request_base_origin: Option<&str>,
+        _request_base_origin: Option<&str>,
     ) -> Result<AuthUser, AuthError> {
         if let Some(user) = self.existing_siwe_user(address, chain_id).await? {
             return Ok(user);
         }
-        let email = self
-            .siwe_email_choice(address, supplied_email, request_base_origin)
-            .await?;
+        let email = self.siwe_email_choice(address, supplied_email).await?;
         let profile = self.siwe_ens_profile(address).await?;
         let result = self
             .create_siwe_user(address, chain_id, email.preferred.clone(), profile.clone())
@@ -84,9 +82,8 @@ impl AuthService {
         &self,
         address: &str,
         supplied_email: Option<&str>,
-        request_base_origin: Option<&str>,
     ) -> Result<SiweEmailChoice, AuthError> {
-        let wallet = self.siwe_wallet_email(address, request_base_origin)?;
+        let wallet = self.siwe_wallet_email(address)?;
         if self.siwe_plugin()?.config.anonymous {
             return Ok(SiweEmailChoice {
                 preferred: wallet.clone(),
@@ -232,25 +229,12 @@ impl AuthService {
         .await
     }
 
-    fn siwe_wallet_email(
-        &self,
-        address: &str,
-        request_base_origin: Option<&str>,
-    ) -> Result<String, AuthError> {
+    fn siwe_wallet_email(&self, address: &str) -> Result<String, AuthError> {
         let plugin = self.siwe_plugin()?;
-        let domain = plugin
-            .config
-            .email_domain_name
-            .clone()
-            .or_else(|| {
-                self.config
-                    .base_url
-                    .as_ref()
-                    .map(|url| url.origin().ascii_serialization())
-            })
-            .or_else(|| request_base_origin.map(str::to_owned))
-            .ok_or_else(|| AuthError::InvalidConfiguration("SIWE requires a base URL".into()))?;
-        Ok(format!("{address}@{domain}"))
+        match plugin.config.email_domain_name.as_deref() {
+            Some(domain) => Ok(format!("{address}@{domain}")),
+            None => crate::email::placeholder_email(address, "siwe"),
+        }
     }
 }
 

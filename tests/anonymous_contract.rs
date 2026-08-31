@@ -169,7 +169,9 @@ async fn plugin_owns_sign_in_replay_and_deletion_routes() {
     let (body, cookie) = anonymous_sign_in(&fixture.app, None).await;
     let user_id = body["user"]["id"].as_str().unwrap();
     assert_eq!(body["user"]["name"], "Anonymous");
-    assert!(body["user"]["email"].as_str().unwrap().starts_with("temp@"));
+    let email = body["user"]["email"].as_str().unwrap();
+    assert!(email.ends_with("@anonymous.placeholder.invalid"));
+    assert_ne!(email, format!("{user_id}@anonymous.placeholder.invalid"));
     let repeated = fixture
         .app
         .clone()

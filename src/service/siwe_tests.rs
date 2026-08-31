@@ -269,6 +269,33 @@ async fn email_mode_and_generated_nonce_bounds_are_exact() {
 }
 
 #[tokio::test]
+async fn default_wallet_email_is_namespaced_and_non_routable() {
+    let (service, store, _) = fixture("email002", |siwe| siwe.email_domain_name = None);
+    service.create_siwe_nonce().await.unwrap();
+    let verified = service
+        .verify_siwe_message(
+            message("email002", "1", "example.com"),
+            "signature".into(),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        store
+            .find_user_by_id(&verified.user_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .email,
+        format!("{}@siwe.placeholder.invalid", ADDRESS.to_lowercase())
+    );
+}
+
+#[tokio::test]
 async fn concurrent_duplicate_email_falls_back_to_the_wallet_address() {
     const SECOND_ADDRESS: &str = "0xde709f2102306220921060314715629080e2fb77";
 
