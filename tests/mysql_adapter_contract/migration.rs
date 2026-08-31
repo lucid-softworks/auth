@@ -257,6 +257,35 @@ async fn rejects_mismatched_and_prefix_indexes_but_allows_table_scoped_names() {
 
 #[tokio::test]
 #[ignore = "requires MySQL in MYSQL_DATABASE_URL"]
+async fn rejects_disabled_myisam_indexes() {
+    let store = store().await;
+    sqlx::query(
+        "create table widget (id varchar(36) not null primary key, value varchar(255) not null, index widget_value_idx (value)) engine=MyISAM",
+    )
+    .execute(store.pool())
+    .await
+    .unwrap();
+    sqlx::query("alter table widget disable keys")
+        .execute(store.pool())
+        .await
+        .unwrap();
+    let schema = catalog(
+        PluginSchemaTable::new("widget")
+            .field("value", AdditionalField::new(AdditionalFieldType::String))
+            .index(DatabaseSchemaIndex::new(["value"]).named("widget_value_idx")),
+        [61; 32],
+    );
+
+    assert!(matches!(
+        store
+            .migration_plan(schema, MySqlMigrationMode::Compile)
+            .await,
+        Err(MySqlMigrationError::Conflict(_))
+    ));
+}
+
+#[tokio::test]
+#[ignore = "requires MySQL in MYSQL_DATABASE_URL"]
 async fn static_defaults_are_safe_but_optional_unique_and_date_factories_are_not() {
     let safe = store().await;
     sqlx::query("create table widget (id varchar(36) not null primary key)")
