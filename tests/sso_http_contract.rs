@@ -13,8 +13,8 @@ use josekit::{
 };
 use lucid_auth::{
     AuthConfig, AuthService, EmailSignUpInput, MemorySsoStore, MemoryStore, NewSsoProvider,
-    SamlAlgorithmOptions, SignatureAlgorithm, SsoDnsResolver, SsoOptions, SsoPlugin, SsoPrivateKey,
-    SsoProviderUpdate, SsoStore,
+    SamlAlgorithmOptions, SignatureAlgorithm, SsoDefaultProvider, SsoDnsResolver, SsoOptions,
+    SsoPlugin, SsoPrivateKey, SsoProviderUpdate, SsoStore,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -47,6 +47,61 @@ async fn fixture() -> Fixture {
 
 async fn fixture_with_options(options: SsoOptions) -> Fixture {
     fixture_with_options_and_trusted_origins(options, &[]).await
+}
+
+#[tokio::test]
+async fn configured_default_sso_precedes_database_providers_and_matches_subdomains() {
+    let fixture = fixture_with_options(SsoOptions {
+        default_sso: vec![SsoDefaultProvider {
+            domain: "EXAMPLE.com, subsidiary.example".into(),
+            provider_id: "acme-sso!".into(),
+            oidc_config: Some(json!({
+                "issuer": "https://configured-idp.example.com",
+                "authorizationEndpoint": "https://configured-idp.example.com/authorize",
+                "tokenEndpoint": "https://configured-idp.example.com/token",
+                "jwksEndpoint": "https://configured-idp.example.com/jwks",
+                "clientId": "configured-client",
+                "clientSecret": "configured-secret",
+                "skipDiscovery": true,
+                "pkce": true
+            })),
+            saml_config: None,
+            private_key: None,
+        }],
+        ..SsoOptions::default()
+    })
+    .await;
+    let response = fixture
+        .app
+        .oneshot(
+            Request::post("/api/auth/sign-in/sso")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "https://example.com")
+                .body(Body::from(
+                    json!({
+                        "email": "person@login.staff.example.com",
+                        "callbackURL": "/dashboard"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    let authorization = url::Url::parse(body["url"].as_str().unwrap()).unwrap();
+    assert_eq!(authorization.host_str(), Some("configured-idp.example.com"));
+    assert_eq!(authorization.path(), "/authorize");
+    assert_eq!(
+        authorization
+            .query_pairs()
+            .find(|(key, _)| key == "client_id")
+            .unwrap()
+            .1,
+        "configured-client"
+    );
 }
 
 async fn fixture_with_options_and_trusted_origins(

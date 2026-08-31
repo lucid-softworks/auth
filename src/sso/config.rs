@@ -1,6 +1,45 @@
+use serde_json::Value;
+
+/// One non-persisted SSO provider with precedence over database providers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SsoDefaultProvider {
+    pub domain: String,
+    pub provider_id: String,
+    pub oidc_config: Option<Value>,
+    pub saml_config: Option<Value>,
+    pub private_key: Option<super::SsoPrivateKey>,
+}
+
+impl SsoDefaultProvider {
+    pub(crate) fn into_provider(self, domain_verification: bool) -> super::SsoProvider {
+        let issuer = self
+            .oidc_config
+            .as_ref()
+            .or(self.saml_config.as_ref())
+            .and_then(Value::as_object)
+            .and_then(|config| config.get("issuer"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        super::SsoProvider {
+            id: format!("default-sso:{}", self.provider_id),
+            issuer,
+            oidc_config: self.oidc_config,
+            saml_config: self.saml_config,
+            user_id: "default".into(),
+            provider_id: self.provider_id,
+            organization_id: None,
+            domain: self.domain,
+            domain_verified: domain_verification.then_some(true),
+        }
+    }
+}
+
 /// Configuration for the pinned enterprise SSO plugin surface.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SsoOptions {
+    /// Non-persisted providers selected before database providers.
+    pub default_sso: Vec<SsoDefaultProvider>,
     /// Enables the two published DNS domain-verification endpoints and field.
     pub domain_verification: bool,
     /// Maximum providers one user may register. Upstream defaults to ten.
@@ -36,6 +75,7 @@ pub struct SsoOptions {
 impl Default for SsoOptions {
     fn default() -> Self {
         Self {
+            default_sso: Vec::new(),
             domain_verification: false,
             providers_limit: 10,
             saml_enable_single_logout: false,

@@ -261,7 +261,7 @@ async fn provider_entities(
     plugin: &SsoPlugin,
     provider_id: &str,
 ) -> Option<(crate::SsoProvider, config::SamlEntities)> {
-    let provider = plugin.store().find_by_provider_id(provider_id).await.ok()??;
+    let provider = plugin.find_auth_provider(provider_id).await.ok()??;
     let source = provider.saml_config.as_ref()?.as_object()?;
     let entities = config::entities(service, &provider, source, plugin.options()).ok()?;
     Some((provider, entities))

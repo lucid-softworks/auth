@@ -247,8 +247,9 @@ pub use sso::{
     DataEncryptionAlgorithm, DatabaseSsoStore, DeprecatedAlgorithmBehavior, DigestAlgorithm,
     KeyEncryptionAlgorithm, MemorySsoStore, NewSsoProvider, SamlAlgorithmError,
     SamlAlgorithmOptions, SamlConfigurationError, SamlServiceProviderPolicy, SignatureAlgorithm,
-    SsoOptions, SsoPlugin, SsoPrivateKey, SsoPrivateKeyRequest, SsoPrivateKeyResolver, SsoProvider,
-    SsoProviderUpdate, SsoStore, SsoStoreError, VERSION as SSO_VERSION,
+    SsoDefaultProvider, SsoOptions, SsoPlugin, SsoPrivateKey, SsoPrivateKeyRequest,
+    SsoPrivateKeyResolver, SsoProvider, SsoProviderUpdate, SsoStore, SsoStoreError,
+    VERSION as SSO_VERSION,
 };
 #[cfg(feature = "axum")]
 pub use sso::{

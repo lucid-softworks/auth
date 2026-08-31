@@ -25,8 +25,7 @@ pub(super) async fn metadata(
     Query(query): Query<MetadataQuery>,
 ) -> Response {
     let provider = match plugin
-        .store()
-        .find_by_provider_id(&query.provider_id)
+        .find_auth_provider(&query.provider_id)
         .await
     {
         Ok(Some(provider)) => provider,

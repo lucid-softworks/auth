@@ -13,7 +13,7 @@ pub(super) async fn finish(
     provider_id: &str,
     saml_response: String,
 ) -> Response {
-    let provider = match plugin.store().find_by_provider_id(provider_id).await {
+    let provider = match plugin.find_auth_provider(provider_id).await {
         Ok(Some(provider)) => provider,
         Ok(None) => return super::support::error(axum::http::StatusCode::NOT_FOUND, "NOT_FOUND", "No SAML provider found"),
         Err(error) => return super::support::storage(error),

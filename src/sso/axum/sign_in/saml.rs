@@ -50,7 +50,7 @@ pub(super) async fn start(
     };
     let request_id = format!("_{}", uuid::Uuid::new_v4().simple());
     let relay_state = uuid::Uuid::new_v4().simple().to_string();
-    let reference = super::super::super::provider_reference::persisted(provider);
+    let reference = super::super::super::provider_reference::current(provider);
     let saved = match save_state(service, &relay_state, &request_id, &reference, &body).await {
         Ok(saved) => saved,
         Err(response) => return *response,
