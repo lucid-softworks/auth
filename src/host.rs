@@ -80,6 +80,8 @@ mod username;
 pub mod axum;
 #[cfg(feature = "d1")]
 pub mod d1;
+#[cfg(feature = "mysql")]
+pub mod mysql;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 pub mod protocol;

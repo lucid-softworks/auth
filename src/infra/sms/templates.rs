@@ -27,7 +27,8 @@ pub static SMS_TEMPLATES: LazyLock<BTreeMap<SmsTemplateId, serde_json::Value>> =
 
 /// The declaration-only variable shape published for all three SMS templates.
 ///
-/// The callable managed SMS API accepts `code` directly on [`SendSmsOptions`]
+/// The callable managed SMS API accepts `code` directly on
+/// [`SendSmsOptions`](crate::infra::sms::SendSmsOptions)
 /// and has no variables input.
 #[derive(Clone, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

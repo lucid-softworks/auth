@@ -1,5 +1,10 @@
 use super::{AuthSchemaCatalog, SchemaFingerprint, SchemaTable};
-#[cfg(any(feature = "postgres", feature = "sqlite", feature = "d1"))]
+#[cfg(any(
+    feature = "postgres",
+    feature = "mysql",
+    feature = "sqlite",
+    feature = "d1"
+))]
 use crate::AdditionalField;
 use std::sync::Arc;
 
@@ -84,7 +89,12 @@ impl ResolvedAdapterSchema {
         })
     }
 
-    #[cfg(any(feature = "postgres", feature = "sqlite", feature = "d1"))]
+    #[cfg(any(
+        feature = "postgres",
+        feature = "mysql",
+        feature = "sqlite",
+        feature = "d1"
+    ))]
     pub(crate) fn adapter_model_name(&self, table: &SchemaTable) -> String {
         if self.options.use_plural {
             format!("{}s", table.model_name)
@@ -93,7 +103,12 @@ impl ResolvedAdapterSchema {
         }
     }
 
-    #[cfg(any(feature = "postgres", feature = "sqlite", feature = "d1"))]
+    #[cfg(any(
+        feature = "postgres",
+        feature = "mysql",
+        feature = "sqlite",
+        feature = "d1"
+    ))]
     pub(crate) fn adapter_field_name<'a>(
         &self,
         logical: &'a str,
@@ -106,7 +121,12 @@ impl ResolvedAdapterSchema {
             .unwrap_or(logical)
     }
 
-    #[cfg(any(feature = "postgres", feature = "sqlite", feature = "d1"))]
+    #[cfg(any(
+        feature = "postgres",
+        feature = "mysql",
+        feature = "sqlite",
+        feature = "d1"
+    ))]
     pub(crate) fn adapter_reference_names(
         &self,
         model: &str,

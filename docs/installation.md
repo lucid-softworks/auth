@@ -14,6 +14,8 @@ plugin: the client plugin and the native server plugin must both be supported.
 | Rust | `1.90` or newer |
 | Axum | `0.8` |
 | PostgreSQL | `16` in CI |
+| MySQL fixture | `mysql:8.4` in CI |
+| MySQL adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1` |
 | SQLite adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1` |
 | Cloudflare D1 adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1` |
 
@@ -27,7 +29,7 @@ lucid-auth = { git = "https://github.com/lucid-softworks/auth", rev = "d4d0e9961
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
 ```
 
-Enable `sqlite` or `postgres` for a bundled SQLx store. The feature
+Enable `sqlite`, `mysql`, or `postgres` for a bundled SQLx store. The feature
 surface is intentionally small:
 
 | Cargo feature | Default | Adds |
@@ -35,6 +37,7 @@ surface is intentionally small:
 | `axum` | yes | Better Auth HTTP router, cookies, browser security, CORS |
 | `sqlite` | no | Native local `SqliteStore` and additive schema migration |
 | `d1` | no | Native non-transactional `D1Store` and Workers D1 binding |
+| `mysql` | no | Native SQLx `MySqlStore` and additive schema migration |
 | `postgres` | no | `PostgresStore`, bound-schema migration, Lucid extension operations |
 
 `--no-default-features` is useful only for native in-process service calls; it
@@ -180,6 +183,39 @@ explicitly. `consume_record` and `increment_record` remain one bound statement.
 Do not log D1 credentials, tokens, cookies, or bound values. SCIM is not
 supported on D1; its separate work is tracked in
 [#32](https://github.com/lucid-softworks/auth/issues/32).
+
+## MySQL quickstart
+
+The native MySQL backend targets Better Auth and
+`@better-auth/kysely-adapter` `1.7.1`. The project tests `mysql:8.4`; that image
+is a reproducible CI fixture, not a claimed MySQL or MariaDB support range.
+
+```sh
+docker run --rm --name lucid-auth-mysql \
+  -e MYSQL_ROOT_PASSWORD=root \
+  -e MYSQL_DATABASE=lucid_auth \
+  -e MYSQL_USER=user \
+  -e MYSQL_PASSWORD=password \
+  -p 3306:3306 mysql:8.4
+
+export DATABASE_URL="mysql://user:password@127.0.0.1:3306/lucid_auth"
+cargo run --example http_mysql --features axum,mysql
+```
+
+The [MySQL HTTP example](../examples/http_mysql.rs) verifies the SQLx session
+timezone, binds the exact service schema, and executes the additive migration
+plan before serving. SQLx negotiates MySQL's matched-row `FOUND_ROWS`
+capability and initializes its own connections at `+00:00`. A caller-supplied
+pool must preserve both invariants; call `MySqlStore::ready` during startup.
+The store fails readiness when `@@session.time_zone` is not `+00:00`.
+
+Migrations inspect ordinary tables, columns, and table-scoped indexes in
+`information_schema`, execute approved statements sequentially, and keep no
+release ledger. Compile mode records unsafe required-column changes without
+executing them. Runtime one-time claims and increments use `FOR UPDATE` on the
+exact selected row. Values remain bound, configured identifiers are quoted,
+and the production implementation does not run mysql2, Kysely, Node, or a
+helper process.
 
 ## PostgreSQL quickstart
 

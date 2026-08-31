@@ -28,6 +28,20 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: lucid_auth_test
+          MYSQL_PASSWORD: password
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_USER: user
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -49,6 +63,15 @@ jobs:
         run: cargo clippy --no-default-features --features sqlite --lib --test sqlite_adapter_contract -- -D warnings
       - name: Test native SQLite storage
         run: cargo test --no-default-features --features sqlite --lib --test sqlite_adapter_contract
+      - name: Lint native MySQL storage
+        run: cargo clippy --no-default-features --features mysql --lib --test mysql_adapter_contract -- -D warnings
+      - name: Test native MySQL storage
+        run: cargo test --no-default-features --features mysql --lib --test mysql_adapter_contract
+      - name: Test live MySQL storage
+        env:
+          MYSQL_ADMIN_DATABASE_URL: mysql://root:root@127.0.0.1:3306/mysql
+          MYSQL_DATABASE_URL: mysql://user:password@127.0.0.1:3306/lucid_auth_test
+        run: cargo test --no-default-features --features mysql --test mysql_adapter_contract -- --ignored --test-threads=1
       - name: Lint native Cloudflare D1 storage
         run: cargo clippy --no-default-features --features d1 --lib --test d1_adapter_contract -- -D warnings
       - name: Test native Cloudflare D1 storage
@@ -69,6 +92,10 @@ jobs:
         run: npm ci --prefix conformance --ignore-scripts
       - name: Test the official Better Auth clients
         run: npm test --prefix conformance
+      - name: Test the pinned Better Auth MySQL oracle
+        env:
+          MYSQL_ORACLE_DATABASE_URL: mysql://user:password@127.0.0.1:3306/lucid_auth_test
+        run: npm run test:mysql-adapter --prefix conformance
       - name: Verify the package
         run: cargo package
 

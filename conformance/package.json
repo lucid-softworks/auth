@@ -7,6 +7,7 @@
     "test:schema-oracle": "vitest run schema-oracle.test.mjs",
     "test:id-strategy-oracle": "vitest run id-strategy-oracle.test.mjs",
     "test:sqlite-adapter": "vitest run sqlite-adapter.test.mjs",
+    "test:mysql-adapter": "vitest run mysql-adapter.test.mjs",
     "test:d1-adapter": "vitest run d1-adapter.test.mjs",
     "test:lifecycle-tokens": "vitest run lifecycle-token.test.mjs",
     "test:autumn": "vitest run autumn.test.mjs autumn-schema.test.mjs && npm run check:autumn-schema",
@@ -78,6 +79,7 @@
     "expo-network": "file:expo-fixtures/expo-network",
     "expo-web-browser": "file:expo-fixtures/expo-web-browser",
     "kysely": "0.29.5",
+    "mysql2": "3.22.5",
     "react-native": "file:expo-fixtures/react-native",
     "stripe": "22.0.1",
     "zod": "4.4.3"
