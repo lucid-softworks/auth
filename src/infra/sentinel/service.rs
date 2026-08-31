@@ -1,4 +1,4 @@
-use super::{PoWSolution, SecurityAction, SecurityOptions};
+use super::{SecurityAction, SecurityOptions};
 use crate::infra::dash::{
     DashApiClient, DashRequest, InfraConnectionOptions, ResolvedConnectionOptions,
 };
@@ -51,7 +51,7 @@ pub struct SecurityCheck {
     pub path: String,
     pub identifier: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub pow_solution: Option<PoWSolution>,
+    pub pow_solution: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -71,6 +71,13 @@ pub struct SentinelSecurityClient {
 impl SentinelSecurityClient {
     pub fn new(connection: InfraConnectionOptions, security: SecurityOptions) -> Self {
         let connection = connection.resolve();
+        Self::from_resolved(connection, security)
+    }
+
+    pub(crate) fn from_resolved(
+        connection: ResolvedConnectionOptions,
+        security: SecurityOptions,
+    ) -> Self {
         Self {
             api: DashApiClient::new(&connection),
             connection,
@@ -102,19 +109,19 @@ impl SentinelSecurityClient {
         ip: Option<&str>,
         request_id: Option<&str>,
     ) -> bool {
-        let mut query = url::form_urlencoded::Serializer::new(String::new());
-        query.append_pair("visitorId", visitor_id);
-        if let Some(ip) = ip {
-            query.append_pair("ip", ip);
-        }
-        if let Some(request_id) = request_id {
-            query.append_pair("requestId", request_id);
-        }
-        self.get(&format!(
-            "/security/is-blocked?{}",
-            query.finish()
-        ))
-        .await
+        let query = {
+            let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+            serializer.append_pair("visitorId", visitor_id);
+            if let Some(ip) = ip {
+                serializer.append_pair("ip", ip);
+            }
+            if let Some(request_id) = request_id {
+                serializer.append_pair("requestId", request_id);
+            }
+            serializer.finish()
+        };
+        self.get(&format!("/security/is-blocked?{query}"))
+            .await
         .and_then(|value| value.get("blocked").and_then(Value::as_bool))
         .unwrap_or(false)
     }

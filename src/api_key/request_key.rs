@@ -27,6 +27,7 @@ pub(super) fn from_headers(
         path: path.into(),
         query: query.map(str::to_owned),
         headers: public_headers(headers),
+        body: None,
     }
 }
 
@@ -39,6 +40,7 @@ pub(super) fn marked_context(headers: &HeaderMap) -> Option<PluginRequestContext
             .and_then(|value| value.to_str().ok())
             .map(str::to_owned),
         headers: public_headers(headers),
+        body: None,
     })
 }
 

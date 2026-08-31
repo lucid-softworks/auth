@@ -13,6 +13,7 @@ pub struct PluginRequestContext {
     pub path: String,
     pub query: Option<String>,
     pub headers: std::collections::BTreeMap<String, String>,
+    pub body: Option<serde_json::Value>,
 }
 
 #[cfg(feature = "axum")]
