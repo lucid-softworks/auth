@@ -25,6 +25,7 @@ impl AccessStore for MssqlStore {
             limit: Some(input.limit as u64),
             offset: Some(input.offset as u64),
             select: Vec::new(),
+            joins: Vec::new(),
         };
         self.find_records("user", &filters, &options)
             .await?

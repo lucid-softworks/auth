@@ -37,5 +37,6 @@ pub use migration::{
 };
 pub use query::{
     MssqlComparisonMode, MssqlFilter, MssqlFilterConnector, MssqlFilterOperator,
-    MssqlFindOptions, MssqlSort, MssqlSortDirection, MssqlTransaction,
+    MssqlFindOptions, MssqlJoin, MssqlJoinRelation, MssqlSort, MssqlSortDirection,
+    MssqlTransaction,
 };

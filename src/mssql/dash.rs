@@ -32,6 +32,7 @@ pub(super) async fn find(
                 }),
                 limit: limit.map(|limit| limit as u64),
                 offset: Some(offset as u64),
+                joins: Vec::new(),
             },
         )
         .await

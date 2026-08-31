@@ -91,6 +91,21 @@ pub(in crate::mssql) async fn find_many_for_update(
     find_many_with_lock(connection, schema, model_name, filters, options, true).await
 }
 
+pub(in crate::mssql) async fn find_one_with_options(
+    connection: &mut MssqlClient,
+    schema: &MssqlSchema,
+    model_name: &str,
+    filters: &[MssqlFilter],
+    options: &MssqlFindOptions,
+) -> Result<Option<Map<String, Value>>, AuthError> {
+    if options.joins.is_empty() {
+        return find_one(connection, schema, model_name, filters, &options.select).await;
+    }
+    super::join::find(connection, schema, model_name, filters, options, true, false)
+        .await
+        .map(|rows| rows.into_iter().next())
+}
+
 pub(in crate::mssql) async fn find_one(
     connection: &mut MssqlClient,
     schema: &MssqlSchema,
@@ -151,6 +166,18 @@ async fn find_many_with_lock(
     options: &MssqlFindOptions,
     lock: bool,
 ) -> Result<Vec<Map<String, Value>>, AuthError> {
+    if !options.joins.is_empty() {
+        return super::join::find(
+            connection,
+            schema,
+            model_name,
+            filters,
+            options,
+            false,
+            lock,
+        )
+        .await;
+    }
     let model = schema.model(model_name)?;
     let projection = if options.select.is_empty() {
         model.all_projection()
@@ -159,7 +186,7 @@ async fn find_many_with_lock(
     };
     let mut query = MssqlStatement::new("select ");
     if options.offset.is_none()
-        && let Some(limit) = options.limit.filter(|limit| *limit > 0)
+        && let Some(limit) = options.limit
     {
         query.push("top (").bind(integer_parameter(limit)?).push(") ");
     }
@@ -187,7 +214,9 @@ async fn find_many_with_lock(
             .push(" offset ")
             .bind(integer_parameter(offset)?)
             .push(" rows fetch next ")
-            .bind(integer_parameter(options.limit.unwrap_or(100).max(1))?)
+            .bind(integer_parameter(
+                options.limit.filter(|limit| *limit > 0).unwrap_or(100),
+            )?)
             .push(" rows only");
     }
     query
@@ -295,7 +324,7 @@ pub(in crate::mssql) async fn delete_many(
         .map(clamp_affected)
 }
 
-fn decode_row(
+pub(super) fn decode_row(
     model: &MssqlModel<'_>,
     row: &Row,
     select: &[String],
@@ -328,7 +357,9 @@ fn push_writes(query: &mut MssqlStatement, writes: Vec<MssqlWrite>) {
     }
 }
 
-fn integer_parameter(value: u64) -> Result<crate::mssql::value::MssqlValue, AuthError> {
+pub(super) fn integer_parameter(
+    value: u64,
+) -> Result<crate::mssql::value::MssqlValue, AuthError> {
     i64::try_from(value)
         .map(|value| crate::mssql::value::MssqlValue::Integer(Some(value)))
         .map_err(|_| AuthError::InvalidConfiguration("MSSQL pagination exceeds i64".into()))

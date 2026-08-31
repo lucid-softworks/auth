@@ -207,6 +207,25 @@ impl MssqlStore {
         .await
     }
 
+    /// Finds one row and optionally applies Better Auth-compatible left joins.
+    pub async fn find_record_with_options(
+        &self,
+        model: &str,
+        filters: &[super::MssqlFilter],
+        options: &super::MssqlFindOptions,
+    ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        let schema = self.physical_schema()?;
+        let mut connection = self.pool.get().await.map_err(storage)?;
+        super::query::execute::find_one_with_options(
+            &mut connection,
+            schema,
+            model,
+            filters,
+            options,
+        )
+        .await
+    }
+
     pub async fn find_records(
         &self,
         model: &str,

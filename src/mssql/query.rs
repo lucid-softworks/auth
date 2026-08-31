@@ -1,5 +1,6 @@
 mod predicate;
 pub(in crate::mssql) mod execute;
+mod join;
 
 use serde_json::Value;
 use std::ops::{Deref, DerefMut};
@@ -69,12 +70,31 @@ pub enum MssqlSortDirection {
     Descending,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MssqlJoinRelation {
+    OneToOne,
+    #[default]
+    OneToMany,
+}
+
+/// One Better Auth left join using logical model and field names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MssqlJoin {
+    pub model: String,
+    pub local_field: String,
+    pub foreign_field: String,
+    pub relation: MssqlJoinRelation,
+    /// Per-relation result limit. Better Auth defaults to 100 when omitted.
+    pub limit: Option<u64>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MssqlFindOptions {
     pub select: Vec<String>,
     pub sort: Option<MssqlSort>,
     pub limit: Option<u64>,
     pub offset: Option<u64>,
+    pub joins: Vec<MssqlJoin>,
 }
 
 /// One explicit SQL Server transaction pinned to a pooled Tiberius connection.

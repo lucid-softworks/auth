@@ -1,7 +1,7 @@
 use crate::{
-    AdditionalField, AdditionalFieldType, ApiKey, ApiKeyConfiguration, ApiKeyPlugin, ApiKeyStore,
-    AuthConfig, AuthSchemaCatalog, AuthService, AuthStore, AuthUser, DatabaseCreate,
-    DatabaseIdGeneration, DatabaseIdInput, DatabaseIdPlan, PluginSchemaTable,
+    AdditionalField, AdditionalFieldReference, AdditionalFieldType, ApiKey, ApiKeyConfiguration,
+    ApiKeyPlugin, ApiKeyStore, AuthConfig, AuthSchemaCatalog, AuthService, AuthStore, AuthUser,
+    DatabaseCreate, DatabaseIdGeneration, DatabaseIdInput, DatabaseIdPlan, PluginSchemaTable,
     run_database_transaction,
     mssql::{
         MssqlAdapterConfig, MssqlComparisonMode, MssqlFilter, MssqlFilterConnector,
@@ -9,7 +9,11 @@ use crate::{
         MssqlSortDirection, MssqlStore,
     },
 };
-use serde_json::{Map, Value, json};
+
+mod joins;
+mod fixture;
+use fixture::record;
+use serde_json::{Map, json};
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
@@ -19,6 +23,7 @@ static DATABASE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 fn counter() -> PluginSchemaTable {
     PluginSchemaTable::new("counter")
+        .model_name("auth_counter")
         .field(
             "name",
             AdditionalField::new(AdditionalFieldType::String).unique(true),
@@ -47,6 +52,23 @@ fn counter() -> PluginSchemaTable {
             "note",
             AdditionalField::new(AdditionalFieldType::String).optional(),
         )
+        .field(
+            "groupId",
+            AdditionalField::new(AdditionalFieldType::String)
+                .field_name("group_id")
+                .optional()
+                .references(AdditionalFieldReference {
+                    model: "group".into(),
+                    field: "id".into(),
+                    on_delete: None,
+                }),
+        )
+}
+
+fn group() -> PluginSchemaTable {
+    PluginSchemaTable::new("group")
+        .model_name("auth_group")
+        .field("name", AdditionalField::new(AdditionalFieldType::String))
 }
 
 fn catalog(serial: bool) -> Arc<AuthSchemaCatalog> {
@@ -54,7 +76,7 @@ fn catalog(serial: bool) -> Arc<AuthSchemaCatalog> {
     if serial {
         config.database_id_generation = crate::DatabaseIdGeneration::Serial;
     }
-    Arc::new(AuthSchemaCatalog::build(&config, [counter()]).unwrap())
+    Arc::new(AuthSchemaCatalog::build(&config, [group(), counter()]).unwrap())
 }
 
 async fn store(serial: bool) -> MssqlStore {
@@ -96,41 +118,14 @@ async fn raw_store_with(adapter_config: MssqlAdapterConfig) -> MssqlStore {
     store
 }
 
-fn record(id: Option<&str>, name: &str, value: i64) -> Map<String, Value> {
-    let mut record = Map::from_iter([
-        ("name".into(), json!(name)),
-        ("value".into(), json!(value)),
-        ("active".into(), json!(true)),
-        ("when".into(), json!("2026-08-31T12:34:56.123456Z")),
-        ("metadata".into(), json!({"nested": true})),
-        ("tags".into(), json!(["one", "two"])),
-        ("note".into(), Value::Null),
-    ]);
-    if let Some(id) = id {
-        record.insert("id".into(), json!(id));
-    }
-    record
-}
-
 #[tokio::test]
 #[ignore = "requires SQL Server in MSSQL_DATABASE_URL"]
 async fn migrates_and_matches_runtime_query_semantics() {
     let store = store(false).await;
-    let inserted = store
-        .insert_record("counter", record(Some("one"), "Alpha", 4))
-        .await
-        .unwrap()
-        .unwrap();
+    let inserted = fixture::seed(&store).await;
     assert_eq!(inserted["when"], json!("2026-08-31T12:34:56.123Z"));
     assert_eq!(inserted["metadata"], json!({"nested": true}));
     assert_eq!(inserted["tags"], json!(["one", "two"]));
-
-    for (id, name, value) in [("two", "Beta", 7), ("three", "Alpine", 9)] {
-        store
-            .insert_record("counter", record(Some(id), name, value))
-            .await
-            .unwrap();
-    }
     let insensitive = MssqlFilter {
         field: "name".into(),
         value: json!("ALP"),
@@ -151,11 +146,14 @@ async fn migrates_and_matches_runtime_query_semantics() {
                 }),
                 limit: Some(1),
                 offset: Some(1),
+                joins: Vec::new(),
             },
         )
         .await
         .unwrap();
     assert_eq!(page[0]["name"], json!("Beta"));
+
+    joins::assert_joins(&store).await;
 
     let id = [MssqlFilter::equal("id", json!("one"))];
     let updated = store

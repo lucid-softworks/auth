@@ -142,6 +142,10 @@ impl MssqlModel<'_> {
         &self.physical.quoted_table
     }
 
+    pub(super) fn logical_name(&self) -> &str {
+        self.logical_name
+    }
+
     pub(super) fn id_type(&self) -> DatabaseIdType {
         self.logical.id_type
     }
@@ -184,6 +188,25 @@ impl MssqlModel<'_> {
             .map(|fields| fields.join(", "))
     }
 
+    pub(super) fn logical_projection_for<'a>(
+        &self,
+        source: &str,
+        fields: impl IntoIterator<Item = &'a str>,
+    ) -> Result<String, AuthError> {
+        fields
+            .into_iter()
+            .map(|field| {
+                self.quoted_column(field)?;
+                Ok(format!(
+                    "{source}.{} as {}",
+                    quote(field),
+                    quote(field)
+                ))
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|fields| fields.join(", "))
+    }
+
     pub(super) fn all_projection(&self) -> String {
         std::iter::once("[id] as [id]".to_owned())
             .chain(
@@ -203,6 +226,39 @@ impl MssqlModel<'_> {
             }))
             .collect::<Vec<_>>()
             .join(", ")
+    }
+
+    pub(super) fn aliased_projection_for(&self, source: &str, prefix: &str) -> String {
+        std::iter::once(format!(
+            "{source}.[id] as {}",
+            quote(&format!("{prefix}id"))
+        ))
+        .chain(self.logical.columns.iter().map(|(logical, column)| {
+            format!(
+                "{source}.{} as {}",
+                column.quoted,
+                quote(&format!("{prefix}{logical}"))
+            )
+        }))
+        .collect::<Vec<_>>()
+        .join(", ")
+    }
+
+    pub(super) fn logical_fields(&self) -> impl Iterator<Item = &str> {
+        std::iter::once("id").chain(self.logical.columns.keys().map(String::as_str))
+    }
+
+    pub(super) fn decode_field_as(
+        &self,
+        row: &Row,
+        logical: &str,
+        source: &str,
+    ) -> Result<Value, AuthError> {
+        if logical == "id" {
+            return super::value::decode_id(row, source, self.logical.id_type);
+        }
+        let (field_type, bigint, reference_id_type) = self.field_type(logical)?;
+        super::value::decode(row, source, field_type, bigint, reference_id_type)
     }
 
     pub(super) fn encode(
