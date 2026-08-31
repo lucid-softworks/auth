@@ -1,5 +1,5 @@
 use super::support::{OrganizationClaims, claims, error, plugin as organization_plugin, route_error};
-use crate::{AuthService, DashPlugin, SsoProviderUpdate};
+use crate::{AuthService, DashPlugin, SsoPlugin, SsoProvider, SsoProviderUpdate};
 use axum::{
     Extension, Json,
     extract::Path,
@@ -10,11 +10,19 @@ use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 
+pub(super) mod domain;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct MarkDomainBody {
     provider_id: String,
     verified: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct ProviderBody {
+    provider_id: String,
 }
 
 pub(super) async fn list(
@@ -128,6 +136,47 @@ pub(super) async fn mark_domain_verified(
     .into_response()
 }
 
+pub(super) async fn delete(
+    Extension(service): Extension<Arc<AuthService>>,
+    Extension(dash): Extension<Arc<DashPlugin>>,
+    headers: HeaderMap,
+    Path(organization_id): Path<String>,
+    Json(body): Json<ProviderBody>,
+) -> Response {
+    let sso = match authorized_sso(
+        &service,
+        &dash,
+        &headers,
+        &organization_id,
+        false,
+    )
+    .await
+    {
+        Ok(sso) => sso,
+        Err(response) => return *response,
+    };
+    let provider = match organization_provider(sso, &organization_id, &body.provider_id).await {
+        Ok(provider) => provider,
+        Err(response) => return *response,
+    };
+    match crate::sso::delete_provider_guarded(&service, sso, &provider).await {
+        Ok(true) => Json(json!({
+            "success": true,
+            "message": "SSO provider deleted successfully",
+        }))
+        .into_response(),
+        Ok(false) | Err(crate::AuthError::SsoStore(crate::SsoStoreError::NotFound)) => {
+            provider_not_found()
+        }
+        Err(crate::AuthError::SsoProviderMutationRejected) => error(
+            StatusCode::CONFLICT,
+            "SSO_PROVIDER_MUTATION_REJECTED",
+            "SSO provider mutation is not allowed",
+        ),
+        Err(storage) => route_error(storage),
+    }
+}
+
 fn has_access(claims: &OrganizationClaims, organization_id: &str) -> bool {
     claims.organization_id == organization_id
 }
@@ -145,5 +194,64 @@ fn sso_domain_feature_error() -> Response {
         StatusCode::BAD_REQUEST,
         "BAD_REQUEST",
         "SSO plugin with domain verification is not enabled or feature is not supported in your plugin version",
+    )
+}
+
+async fn authorized_sso<'a>(
+    service: &'a AuthService,
+    dash: &DashPlugin,
+    headers: &HeaderMap,
+    organization_id: &str,
+    require_domain_verification: bool,
+) -> Result<&'a SsoPlugin, Box<Response>> {
+    let claims = claims::<OrganizationClaims>(dash, headers)
+        .await
+        .map_err(Box::new)?;
+    organization_plugin(service).map_err(Box::new)?;
+    if !has_access(&claims, organization_id) {
+        return Err(Box::new(forbidden()));
+    }
+    let Some(sso) = service.sso_plugin() else {
+        return Err(Box::new(if require_domain_verification {
+            sso_domain_feature_error()
+        } else {
+            sso_feature_error()
+        }));
+    };
+    if require_domain_verification && !sso.options().domain_verification {
+        return Err(Box::new(sso_domain_feature_error()));
+    }
+    Ok(sso)
+}
+
+async fn organization_provider(
+    sso: &SsoPlugin,
+    organization_id: &str,
+    provider_id: &str,
+) -> Result<SsoProvider, Box<Response>> {
+    match sso.store().find_by_provider_id(provider_id).await {
+        Ok(Some(provider))
+            if provider.organization_id.as_deref() == Some(organization_id) =>
+        {
+            Ok(provider)
+        }
+        Ok(_) => Err(Box::new(provider_not_found())),
+        Err(storage) => Err(Box::new(route_error(crate::AuthError::SsoStore(storage)))),
+    }
+}
+
+fn provider_not_found() -> Response {
+    error(
+        StatusCode::NOT_FOUND,
+        "NOT_FOUND",
+        "SSO provider not found",
+    )
+}
+
+fn sso_feature_error() -> Response {
+    error(
+        StatusCode::BAD_REQUEST,
+        "BAD_REQUEST",
+        "SSO plugin is not enabled or feature is not supported in your plugin version",
     )
 }

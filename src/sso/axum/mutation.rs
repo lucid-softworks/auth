@@ -1,5 +1,5 @@
 mod config;
-mod guard;
+pub(crate) mod guard;
 
 use super::{sanitize, support};
 use crate::{AuthService, SsoPlugin, SsoStoreError};
