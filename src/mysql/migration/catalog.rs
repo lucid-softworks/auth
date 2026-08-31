@@ -59,7 +59,7 @@ impl Catalog {
 
         let mut indexes = HashMap::<(String, String), Index>::new();
         for row in sqlx::query(
-            "select cast(table_name as char), cast(index_name as char), non_unique, seq_in_index, cast(column_name as char), sub_part, cast(expression as char) from information_schema.statistics where table_schema = database() order by table_name, index_name, seq_in_index",
+            "select cast(table_name as char), cast(index_name as char), non_unique, seq_in_index, cast(column_name as char), sub_part, cast(expression as char), cast(comment as char) from information_schema.statistics where table_schema = database() order by table_name, index_name, seq_in_index",
         )
         .fetch_all(pool)
         .await?
@@ -70,6 +70,7 @@ impl Catalog {
             let column = row.try_get::<Option<String>, _>(4)?;
             let sub_part = row.try_get::<Option<i64>, _>(5)?;
             let expression = row.try_get::<Option<String>, _>(6)?;
+            let comment = row.try_get::<Option<String>, _>(7)?;
             let index = indexes
                 .entry((table.clone(), portable(&name)))
                 .or_insert_with(|| Index {
@@ -79,7 +80,10 @@ impl Catalog {
                     valid_full_columns: true,
                 });
             index.valid_full_columns &=
-                column.is_some() && sub_part.is_none() && expression.is_none();
+                column.is_some()
+                    && sub_part.is_none()
+                    && expression.is_none()
+                    && !disabled_index(comment.as_deref());
             if let Some(column) = column {
                 index.columns.push(column);
             }
@@ -112,4 +116,21 @@ pub(super) async fn table_has_rows(
 
 fn portable(value: &str) -> String {
     value.to_lowercase()
+}
+
+fn disabled_index(comment: Option<&str>) -> bool {
+    comment.is_some_and(|comment| comment.eq_ignore_ascii_case("disabled"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::disabled_index;
+
+    #[test]
+    fn only_mysql_disabled_index_comments_are_invalid() {
+        assert!(disabled_index(Some("disabled")));
+        assert!(disabled_index(Some("DISABLED")));
+        assert!(!disabled_index(Some("")));
+        assert!(!disabled_index(None));
+    }
 }
