@@ -165,6 +165,7 @@ async fn finish(
         service,
         plugin,
         &provider,
+        state_reference,
         headers,
         provider_id,
         user_info,
@@ -188,6 +189,7 @@ async fn complete_sign_in(
     service: &AuthService,
     plugin: &SsoPlugin,
     provider: &crate::SsoProvider,
+    provider_reference: crate::SsoProviderReference,
     headers: &HeaderMap,
     provider_id: &str,
     user_info: crate::OAuthUserInfo,
@@ -196,21 +198,30 @@ async fn complete_sign_in(
     error_url: &str,
 ) -> Response {
     let provisioning_user_info = user_info.clone();
-    let result = match service
-        .finish_sso_sign_in(
-            provider_id,
+    let resolution_input = super::resolution::saml_input(
+        provider,
+        provider_reference.clone(),
+        &user_info,
+    );
+    let result = match super::resolution::finish(
+        service,
+        plugin,
+        super::resolution::FinishInput {
+            provider: provider.clone(),
+            provider_reference,
+            resolution_input,
+            tokens: crate::OAuthTokens::default(),
             user_info,
             state,
-            plugin.options().disable_implicit_sign_up,
-            plugin.options().default_override_user_info,
-            crate::axum::http::user_agent(headers),
-        )
+            override_user_info: plugin.options().default_override_user_info,
+            user_agent: crate::axum::http::user_agent(headers),
+        },
+    )
         .await
     {
         Ok(result) => result,
         Err(error) => {
-            let (code, description) = callback::exchange::callback_error(&error);
-            return failure(error_url, code, description);
+            return callback::exchange::callback_error_response(error_url, &error);
         }
     };
     if let Err(response) = callback::exchange::provision(

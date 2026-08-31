@@ -116,7 +116,9 @@ impl AuthService {
                 .create_additional_fields(DatabaseModel::Session, serde_json::Map::new())?,
         };
         let session = self.prepare_session_create(session).await?;
-        if self.config.session.storage_mode == crate::SessionStorageMode::Database {
+        if self.config.session.storage_mode == crate::SessionStorageMode::Database
+            && crate::database_hooks::current_transaction().is_none()
+        {
             self.store.delete_expired_sessions(now).await?;
         }
         let session = self.persist_session(&token, session, &user).await?;

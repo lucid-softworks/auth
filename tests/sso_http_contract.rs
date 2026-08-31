@@ -12,10 +12,11 @@ use josekit::{
     jws::{self, JwsHeader, RS256},
 };
 use lucid_auth::{
-    AuthConfig, AuthService, EmailSignUpInput, MemorySsoStore, MemoryStore, NewSsoProvider,
-    SamlAlgorithmOptions, SignatureAlgorithm, SsoDefaultProvider, SsoDnsResolver, SsoOptions,
-    SsoPlugin, SsoPrivateKey, SsoProviderUpdate, SsoProvisioningInput, SsoStore,
-    SsoUserProvisioner,
+    AuthConfig, AuthService, AuthStore, DatabaseModel, DatabaseRecord, EmailSignUpInput,
+    MemorySsoStore, MemoryStore, NewSsoProvider, SamlAlgorithmOptions, SignatureAlgorithm,
+    SsoDefaultProvider, SsoDnsResolver, SsoOptions, SsoPlugin, SsoPrivateKey, SsoProviderUpdate,
+    SsoProvisioningInput, SsoStore, SsoUserProfilePolicy, SsoUserProvisioner, SsoUserResolution,
+    SsoUserResolutionContext, SsoUserResolutionInput, SsoUserResolver,
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -24,6 +25,8 @@ use tower::ServiceExt;
 
 struct Fixture {
     app: Router,
+    auth_store: Arc<MemoryStore>,
+    other_user_id: String,
     owner_cookie: String,
     other_cookie: String,
     dns: Arc<FixtureDnsResolver>,
@@ -117,14 +120,7 @@ async fn fixture_with_private_key(
     trusted_origins: &[&str],
     private_key: Option<SsoPrivateKey>,
 ) -> Fixture {
-    fixture_with_extensions(options, trusted_origins, private_key, None).await
-}
-
-async fn fixture_with_provisioner(
-    options: SsoOptions,
-    provisioner: Arc<dyn SsoUserProvisioner>,
-) -> Fixture {
-    fixture_with_extensions(options, &[], None, Some(provisioner)).await
+    fixture_with_extensions(options, trusted_origins, private_key, None, None).await
 }
 
 async fn fixture_with_extensions(
@@ -132,6 +128,7 @@ async fn fixture_with_extensions(
     trusted_origins: &[&str],
     private_key: Option<SsoPrivateKey>,
     provisioner: Option<Arc<dyn SsoUserProvisioner>>,
+    resolver: Option<Arc<dyn SsoUserResolver>>,
 ) -> Fixture {
     let mut config = AuthConfig::new([31_u8; 32]).unwrap();
     config.email_and_password.enabled = true;
@@ -150,8 +147,12 @@ async fn fixture_with_extensions(
     if let Some(provisioner) = provisioner {
         plugin = plugin.with_user_provisioner(provisioner);
     }
+    if let Some(resolver) = resolver {
+        plugin = plugin.with_user_resolver(resolver);
+    }
     config.add_plugin(plugin).unwrap();
-    let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
+    let auth_store = Arc::new(MemoryStore::default());
+    let service = Arc::new(AuthService::new(auth_store.clone(), config));
     let owner = account(&service, "owner@example.com").await;
     let other = account(&service, "other@example.com").await;
     providers
@@ -196,6 +197,8 @@ async fn fixture_with_extensions(
         .unwrap();
     Fixture {
         app: lucid_auth::axum::router(service.clone()),
+        auth_store,
+        other_user_id: other.1.clone(),
         owner_cookie: cookie(&service, &owner.0),
         other_cookie: cookie(&service, &other.0),
         dns,
@@ -213,6 +216,46 @@ impl SsoUserProvisioner for ProvisioningRecorder {
     async fn provision(&self, input: SsoProvisioningInput) -> Result<(), lucid_auth::AuthError> {
         self.calls.lock().await.push(input);
         Ok(())
+    }
+}
+
+#[derive(Default)]
+struct TransactionalResolver {
+    target_user_id: RwLock<Option<String>>,
+    calls: tokio::sync::Mutex<Vec<SsoUserResolutionInput>>,
+}
+
+#[async_trait]
+impl SsoUserResolver for TransactionalResolver {
+    async fn resolve(
+        &self,
+        input: SsoUserResolutionInput,
+        context: SsoUserResolutionContext,
+    ) -> Result<SsoUserResolution, lucid_auth::AuthError> {
+        let mut calls = self.calls.lock().await;
+        let call_index = calls.len();
+        calls.push(input);
+        drop(calls);
+        let user_id = self.target_user_id.read().await.clone().unwrap();
+        if call_index == 0 {
+            return Ok(SsoUserResolution::Link {
+                user_id,
+                profile: SsoUserProfilePolicy::Update,
+            });
+        }
+        let Some(DatabaseRecord::User(mut user)) = context
+            .database
+            .find_by_id(DatabaseModel::User, &user_id)
+            .await?
+        else {
+            return Err(lucid_auth::AuthError::NotFound);
+        };
+        user.name = "This update must roll back".into();
+        context.database.update(DatabaseRecord::User(user)).await?;
+        Ok(SsoUserResolution::Reject {
+            code: "tenant_denied".into(),
+            message: Some("Tenant policy denied this login".into()),
+        })
     }
 }
 
@@ -652,17 +695,21 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
     });
 
     let provisioning = Arc::new(ProvisioningRecorder::default());
+    let resolver = Arc::new(TransactionalResolver::default());
     let fixture = fixture_with_extensions(
         SsoOptions {
             trust_email_verified: true,
             disable_implicit_sign_up: true,
+            provision_user_on_every_login: true,
             ..SsoOptions::default()
         },
         &[idp_base.as_str()],
         Some(private_key_material),
         Some(provisioning.clone()),
+        Some(resolver.clone()),
     )
     .await;
+    *resolver.target_user_id.write().await = Some(fixture.other_user_id.clone());
     fixture
         .providers
         .update(
@@ -771,6 +818,19 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
         Some("valid-code")
     );
     drop(calls);
+    let resolutions = resolver.calls.lock().await;
+    assert_eq!(resolutions.len(), 1);
+    let SsoUserResolutionInput::Oidc {
+        provider_claims,
+        verified_id_token_claims,
+        ..
+    } = &resolutions[0]
+    else {
+        panic!("expected OIDC resolution input");
+    };
+    assert_eq!(provider_claims["sub"], "enterprise-user-1");
+    assert_eq!(verified_id_token_claims["iss"], "https://idp.example.com");
+    drop(resolutions);
     let token_request = assertion_receiver.recv().await.unwrap();
     assert_eq!(
         token_request["client_assertion_type"],
@@ -1112,7 +1172,8 @@ async fn saml_acs_verifies_a_signed_assertion_creates_a_session_and_rejects_repl
     const CERTIFICATE: &str = include_str!("fixtures/saml_signing_cert.pem");
 
     let provisioning = Arc::new(ProvisioningRecorder::default());
-    let fixture = fixture_with_provisioner(
+    let resolver = Arc::new(TransactionalResolver::default());
+    let fixture = fixture_with_extensions(
         SsoOptions {
             saml_algorithms: SamlAlgorithmOptions {
                 allowed_signature_algorithms: Some(vec![SignatureAlgorithm::RSA_SHA256.into()]),
@@ -1120,11 +1181,16 @@ async fn saml_acs_verifies_a_signed_assertion_creates_a_session_and_rejects_repl
             },
             saml_allow_idp_initiated: true,
             saml_idp_initiated_callback_url: Some("/idp-home".into()),
+            provision_user_on_every_login: true,
             ..SsoOptions::default()
         },
-        provisioning.clone(),
+        &[],
+        None,
+        Some(provisioning.clone()),
+        Some(resolver.clone()),
     )
     .await;
+    *resolver.target_user_id.write().await = Some(fixture.other_user_id.clone());
     fixture
         .providers
         .update(
@@ -1293,7 +1359,10 @@ async fn saml_acs_verifies_a_signed_assertion_creates_a_session_and_rejects_repl
     assert_eq!(session.status(), StatusCode::OK);
     let session: Value =
         serde_json::from_slice(&session.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    assert_eq!(session["user"]["email"], "employee@example.com");
+    assert_eq!(
+        session["user"]["email"], "employee@example.com",
+        "{session}"
+    );
     assert_eq!(session["user"]["name"], "Enterprise User");
     let calls = provisioning.calls.lock().await;
     assert_eq!(calls.len(), 1);
@@ -1302,6 +1371,23 @@ async fn saml_acs_verifies_a_signed_assertion_creates_a_session_and_rejects_repl
     assert_eq!(calls[0].user_info.account_id, "saml-user-1");
     assert!(calls[0].tokens.is_none());
     drop(calls);
+    let resolutions = resolver.calls.lock().await;
+    assert_eq!(resolutions.len(), 1);
+    let SsoUserResolutionInput::Saml {
+        provider_id,
+        account_issuer,
+        account_id,
+        provider_attributes,
+        ..
+    } = &resolutions[0]
+    else {
+        panic!("expected SAML resolution input");
+    };
+    assert_eq!(provider_id, "acme-sso!");
+    assert_eq!(account_issuer, "https://idp.example.com/metadata");
+    assert_eq!(account_id, "saml-user-1");
+    assert_eq!(provider_attributes["mail"], "employee@example.com");
+    drop(resolutions);
 
     let replay = fixture.app.clone().oneshot(assertion()).await.unwrap();
     assert_eq!(replay.status(), StatusCode::BAD_REQUEST);
@@ -1342,7 +1428,18 @@ async fn saml_acs_verifies_a_signed_assertion_creates_a_session_and_rejects_repl
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::FOUND);
-    assert_eq!(response.headers()[header::LOCATION], "/idp-home");
+    assert_eq!(
+        response.headers()[header::LOCATION],
+        "/idp-home?error=tenant_denied&error_description=Tenant+policy+denied+this+login"
+    );
+    let selected = fixture
+        .auth_store
+        .find_user_by_id(&fixture.other_user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(selected.name, "Enterprise User");
+    assert_eq!(resolver.calls.lock().await.len(), 2);
 }
 
 #[tokio::test]

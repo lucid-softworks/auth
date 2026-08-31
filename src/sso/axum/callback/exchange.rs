@@ -10,6 +10,7 @@ use axum::{
 
 pub(super) struct Input {
     pub provider: SsoProvider,
+    pub provider_reference: crate::SsoProviderReference,
     pub code: String,
     pub state_token: String,
     pub state: OAuthState,
@@ -24,6 +25,7 @@ pub(super) async fn finish(
 ) -> Response {
     let Input {
         mut provider,
+        provider_reference,
         code,
         state_token,
         state,
@@ -66,28 +68,27 @@ pub(super) async fn finish(
     if service.consume_oauth_state(&state_token).await.is_err() {
         return redirect_error(&error_url, "invalid_state", "state_already_used");
     }
-    let tokens = match dynamic
-        .exchange_code(&code, &state.code_verifier, &redirect_uri, None)
-        .await
-    {
-        Ok(tokens) => tokens,
-        Err(_) => return redirect_error(&error_url, "invalid_provider", "token_response_error"),
+    let (tokens, user_info) = match exchange_identity(&dynamic, &code, &state, &redirect_uri).await {
+        Ok(identity) => identity,
+        Err(error) => return callback_error_response(&error_url, &error),
     };
-    let user_info = match dynamic
-        .get_user_info(&tokens, state.id_token_nonce.as_deref(), None)
-        .await
-    {
-        Ok(user_info) => user_info,
-        Err(error) => {
-            let (code, description) = callback_error(&error);
-            return redirect_error(&error_url, code, description);
-        }
+    let resolution_input = match super::super::resolution::oidc_input(
+        plugin,
+        &provider,
+        provider_reference.clone(),
+        &tokens,
+        &user_info,
+    ) {
+        Ok(input) => input,
+        Err(error) => return callback_error_response(&error_url, &error),
     };
     complete_sign_in(
         service,
         plugin,
         headers,
         provider,
+        provider_reference,
+        resolution_input,
         state,
         override_user_info,
         tokens,
@@ -95,6 +96,22 @@ pub(super) async fn finish(
         &error_url,
     )
     .await
+}
+
+async fn exchange_identity(
+    provider: &crate::generic_oauth::GenericOAuthProvider,
+    code: &str,
+    state: &OAuthState,
+    redirect_uri: &str,
+) -> Result<(crate::OAuthTokens, crate::OAuthUserInfo), crate::AuthError> {
+    let tokens = provider
+        .exchange_code(code, &state.code_verifier, redirect_uri, None)
+        .await
+        .map_err(|_| crate::AuthError::OAuthInvalidCode)?;
+    let user_info = provider
+        .get_user_info(&tokens, state.id_token_nonce.as_deref(), None)
+        .await?;
+    Ok((tokens, user_info))
 }
 
 fn override_user_info(plugin: &SsoPlugin, config: &serde_json::Map<String, serde_json::Value>) -> bool {
@@ -110,29 +127,32 @@ async fn complete_sign_in(
     plugin: &SsoPlugin,
     headers: &HeaderMap,
     provider: SsoProvider,
+    provider_reference: crate::SsoProviderReference,
+    resolution_input: crate::SsoUserResolutionInput,
     state: OAuthState,
     override_user_info: bool,
     tokens: crate::OAuthTokens,
     user_info: crate::OAuthUserInfo,
     error_url: &str,
 ) -> Response {
-    let result = match service
-        .finish_sso_sign_in_with_tokens(
-            &provider.provider_id,
-            tokens.clone(),
-            user_info.clone(),
+    let result = match super::super::resolution::finish(
+        service,
+        plugin,
+        super::super::resolution::FinishInput {
+            provider: provider.clone(),
+            provider_reference,
+            resolution_input,
+            tokens: tokens.clone(),
+            user_info: user_info.clone(),
             state,
-            plugin.options().disable_implicit_sign_up,
             override_user_info,
-            crate::axum::http::user_agent(headers),
-        )
+            user_agent: crate::axum::http::user_agent(headers),
+        },
+    )
         .await
     {
         Ok(result) => result,
-        Err(error) => {
-            let (code, description) = callback_error(&error);
-            return redirect_error(error_url, code, description);
-        }
+        Err(error) => return callback_error_response(error_url, &error),
     };
     if let Err(response) = provision(plugin, &provider, &user_info, Some(tokens), &result).await {
         return *response;
@@ -224,6 +244,34 @@ pub(in crate::sso::axum) fn callback_error(
             crate::axum::oauth_callback_error_code(error),
             "token_response_error",
         ),
+    }
+}
+
+pub(in crate::sso::axum) fn callback_error_response(
+    base: &str,
+    error: &crate::AuthError,
+) -> Response {
+    match error {
+        crate::AuthError::SsoUserResolutionRejected { code, message } => {
+            crate::axum::oauth_redirect_error(base, code, message.as_deref())
+        }
+        crate::AuthError::SsoUserResolutionFailed => crate::axum::oauth_redirect_error(
+            base,
+            "SSO_USER_RESOLUTION_FAILED",
+            Some("Unable to resolve the SSO user"),
+        ),
+        crate::AuthError::SsoAuthenticationConflict { code, message } => {
+            crate::axum::oauth_redirect_error(base, code, Some(message))
+        }
+        crate::AuthError::SsoUserResolutionIdTokenRequired => crate::axum::oauth_redirect_error(
+            base,
+            "invalid_provider",
+            Some("id_token_required_for_user_resolution"),
+        ),
+        _ => {
+            let (code, description) = callback_error(error);
+            crate::axum::oauth_redirect_error(base, code, Some(description))
+        }
     }
 }
 

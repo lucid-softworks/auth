@@ -3,7 +3,7 @@
 use lucid_auth::{
     AuthConfig, AuthService, DatabaseCreate, DatabaseIdGeneration, DatabaseIdInput, DatabaseIdPlan,
     DatabaseSsoStore, EmailSignUpInput, NewSsoProvider, OAuthAccount, OAuthAccountStore,
-    SsoOptions, SsoPlugin, SsoProviderUpdate, SsoStore, SsoStoreError,
+    SsoOptions, SsoPlugin, SsoProviderUpdate, SsoStore, SsoStoreError, run_database_transaction,
     sqlite::{SqliteAdapterConfig, SqliteStore},
 };
 use sqlx::sqlite::SqlitePoolOptions;
@@ -101,6 +101,25 @@ async fn provider_catalog_round_trips_through_native_sqlite_transactions() {
         ))
         .await
         .unwrap();
+    let transaction_owner = run_database_transaction(auth_store.as_ref(), |transaction| {
+        Box::pin(async move {
+            transaction
+                .find_oauth_account_owner("https://idp.example", "subject-1")
+                .await
+        })
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(transaction_owner.user.id, owner.id);
+    assert_eq!(transaction_owner.account.provider_id, "workforce");
+    let transaction_user = run_database_transaction(auth_store.as_ref(), move |transaction| {
+        Box::pin(async move { transaction.find_user_by_email("OWNER@EXAMPLE.COM").await })
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(transaction_user.id, owner.id);
     assert_eq!(
         sso_store
             .update_guarded(

@@ -187,6 +187,20 @@ pub enum AuthError {
     OAuthUnableToCreateSession,
     #[error("unable to link the OAuth account")]
     OAuthUnableToLinkAccount,
+    #[error("unable to resolve the SSO user")]
+    SsoUserResolutionFailed,
+    #[error("SSO user resolution rejected authentication: {code}")]
+    SsoUserResolutionRejected {
+        code: String,
+        message: Option<String>,
+    },
+    #[error("SSO authentication binding conflict: {code}")]
+    SsoAuthenticationConflict {
+        code: &'static str,
+        message: &'static str,
+    },
+    #[error("SSO user resolution requires a verified ID token")]
+    SsoUserResolutionIdTokenRequired,
     #[error("the account was not found")]
     AccountNotFound,
     #[error("the final account cannot be unlinked")]

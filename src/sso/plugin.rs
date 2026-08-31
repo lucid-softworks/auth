@@ -59,6 +59,7 @@ pub struct SsoPlugin {
     store: Arc<dyn SsoStore>,
     private_key_resolver: Option<Arc<dyn SsoPrivateKeyResolver>>,
     user_provisioner: Option<Arc<dyn super::SsoUserProvisioner>>,
+    user_resolver: Option<Arc<dyn super::SsoUserResolver>>,
     default_private_keys: BTreeMap<String, SsoPrivateKey>,
     #[cfg(feature = "axum")]
     dns_resolver: Arc<dyn super::SsoDnsResolver>,
@@ -90,6 +91,7 @@ impl SsoPlugin {
             store,
             private_key_resolver: None,
             user_provisioner: None,
+            user_resolver: None,
             default_private_keys: BTreeMap::new(),
             #[cfg(feature = "axum")]
             dns_resolver: Arc::new(super::SystemSsoDnsResolver),
@@ -157,6 +159,43 @@ impl SsoPlugin {
     pub fn with_user_provisioner(mut self, provisioner: Arc<dyn super::SsoUserProvisioner>) -> Self {
         self.user_provisioner = Some(provisioner);
         self
+    }
+
+    pub fn with_user_resolver(mut self, resolver: Arc<dyn super::SsoUserResolver>) -> Self {
+        self.user_resolver = Some(resolver);
+        self
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn has_user_resolver(&self) -> bool {
+        self.user_resolver.is_some()
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) async fn resolve_user(
+        &self,
+        input: super::SsoUserResolutionInput,
+        database: Arc<dyn crate::DatabaseTransaction>,
+    ) -> Result<super::SsoUserResolution, crate::AuthError> {
+        let Some(resolver) = &self.user_resolver else {
+            return Ok(super::SsoUserResolution::Continue);
+        };
+        let resolution = resolver
+            .resolve(input, super::SsoUserResolutionContext { database })
+            .await
+            .map_err(|error| {
+                tracing::error!(error = %error, "SSO user resolution failed");
+                crate::AuthError::SsoUserResolutionFailed
+            })?;
+        match &resolution {
+            super::SsoUserResolution::Link { user_id, .. } if user_id.trim().is_empty() => {
+                Err(crate::AuthError::SsoUserResolutionFailed)
+            }
+            super::SsoUserResolution::Reject { code, .. } if code.trim().is_empty() => {
+                Err(crate::AuthError::SsoUserResolutionFailed)
+            }
+            _ => Ok(resolution),
+        }
     }
 
     #[cfg(feature = "axum")]

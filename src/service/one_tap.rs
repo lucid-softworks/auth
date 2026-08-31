@@ -47,6 +47,8 @@ impl AuthService {
             require_email_verification: google
                 .is_some_and(|provider| provider.require_email_verification()),
             override_user_info: false,
+            selected_user: None,
+            require_exact_account_binding: false,
         };
         let tokens = OAuthTokens {
             id_token: Some(id_token.into()),

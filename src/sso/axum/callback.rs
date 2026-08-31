@@ -129,6 +129,7 @@ async fn handle_with_state(
         headers,
         exchange::Input {
             provider,
+            provider_reference: reference,
             code: query.code.expect("authorization code checked"),
             state_token: query.state.unwrap_or_default(),
             state,

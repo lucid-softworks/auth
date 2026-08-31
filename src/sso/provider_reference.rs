@@ -7,15 +7,15 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct ProviderReference {
-    provider_id: String,
-    source: ProviderSource,
-    authentication_configuration_fingerprint: String,
+pub struct SsoProviderReference {
+    pub provider_id: String,
+    pub source: SsoProviderSource,
+    pub authentication_configuration_fingerprint: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
-enum ProviderSource {
+pub enum SsoProviderSource {
     Configured,
     Persisted {
         #[serde(rename = "recordId")]
@@ -23,10 +23,12 @@ enum ProviderSource {
     },
 }
 
-pub(super) fn persisted(provider: &SsoProvider) -> ProviderReference {
-    ProviderReference {
+pub(super) type ProviderReference = SsoProviderReference;
+
+pub(super) fn persisted(provider: &SsoProvider) -> SsoProviderReference {
+    SsoProviderReference {
         provider_id: provider.provider_id.clone(),
-        source: ProviderSource::Persisted {
+        source: SsoProviderSource::Persisted {
             record_id: provider.id.clone(),
         },
         authentication_configuration_fingerprint: fingerprint(provider),
@@ -34,11 +36,11 @@ pub(super) fn persisted(provider: &SsoProvider) -> ProviderReference {
 }
 
 #[cfg(feature = "axum")]
-pub(super) fn current(provider: &SsoProvider) -> ProviderReference {
+pub(super) fn current(provider: &SsoProvider) -> SsoProviderReference {
     if provider.id == format!("default-sso:{}", provider.provider_id) {
-        ProviderReference {
+        SsoProviderReference {
             provider_id: provider.provider_id.clone(),
-            source: ProviderSource::Configured,
+            source: SsoProviderSource::Configured,
             authentication_configuration_fingerprint: fingerprint(provider),
         }
     } else {
@@ -47,12 +49,12 @@ pub(super) fn current(provider: &SsoProvider) -> ProviderReference {
 }
 
 #[cfg(feature = "axum")]
-pub(super) fn parse(value: &Value) -> Option<ProviderReference> {
+pub(super) fn parse(value: &Value) -> Option<SsoProviderReference> {
     serde_json::from_value(value.clone()).ok()
 }
 
 #[cfg(feature = "axum")]
-impl ProviderReference {
+impl SsoProviderReference {
     pub(super) fn provider_id(&self) -> &str {
         &self.provider_id
     }
