@@ -9,6 +9,7 @@ mod discovery;
 mod axum;
 mod plugin;
 mod mutation_guard;
+mod organization_provisioning;
 mod private_key;
 mod provisioning;
 mod resolution;
@@ -39,6 +40,10 @@ pub use plugin::SsoPlugin;
 pub use mutation_guard::{
     SsoMutationProvider, SsoProviderMutationGuard, SsoProviderMutationGuardContext,
     SsoProviderMutationGuardInput,
+};
+pub use organization_provisioning::{
+    SsoOrganizationProvisioningOptions, SsoOrganizationRole, SsoOrganizationRoleInput,
+    SsoOrganizationRoleResolver,
 };
 pub use private_key::{SsoPrivateKey, SsoPrivateKeyRequest, SsoPrivateKeyResolver};
 pub use provider_reference::{SsoProviderReference, SsoProviderSource};

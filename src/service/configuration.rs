@@ -10,6 +10,11 @@ use crate::{
 };
 
 impl AuthService {
+    #[cfg(feature = "axum")]
+    pub(crate) fn sso_plugin(&self) -> Option<&crate::SsoPlugin> {
+        self.plugins.find::<crate::SsoPlugin>()
+    }
+
     pub fn plugin_metadata(&self) -> &[PluginDescriptor] {
         self.plugins.descriptors()
     }

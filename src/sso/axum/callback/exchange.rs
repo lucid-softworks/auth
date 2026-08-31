@@ -154,13 +154,23 @@ async fn complete_sign_in(
         Ok(result) => result,
         Err(error) => return callback_error_response(error_url, &error),
     };
-    if let Err(response) = provision(plugin, &provider, &user_info, Some(tokens), &result).await {
+    if let Err(response) = provision(
+        service,
+        plugin,
+        &provider,
+        &user_info,
+        Some(tokens),
+        &result,
+    )
+    .await
+    {
         return *response;
     }
     success(service, headers, &provider.provider_id, result).await
 }
 
 pub(in crate::sso::axum) async fn provision(
+    service: &AuthService,
     plugin: &SsoPlugin,
     provider: &SsoProvider,
     user_info: &crate::OAuthUserInfo,
@@ -175,7 +185,7 @@ pub(in crate::sso::axum) async fn provision(
             crate::SsoProvisioningInput {
                 user: sign_in.session.user.clone(),
                 user_info: user_info.clone(),
-                tokens,
+                tokens: tokens.clone(),
                 provider: provider.clone(),
             },
             result.is_new_user,
@@ -188,7 +198,24 @@ pub(in crate::sso::axum) async fn provision(
                 "INTERNAL_SERVER_ERROR",
                 "Unable to provision SSO user",
             ))
-        })
+        })?;
+    super::super::super::organization_provisioning::assign_from_provider(
+        service,
+        plugin,
+        &sign_in.session.user,
+        user_info,
+        tokens,
+        provider,
+    )
+    .await
+    .map_err(|error| {
+        tracing::error!(error = %error, "SSO organization provisioning failed");
+        Box::new(support::error(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_SERVER_ERROR",
+            "Unable to provision SSO organization membership",
+        ))
+    })
 }
 
 async fn resolve_private_key(

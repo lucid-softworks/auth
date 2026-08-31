@@ -124,6 +124,8 @@ pub struct SsoOptions {
     pub fields: SsoFieldMappings,
     /// Schema remapping and additional provider fields.
     pub schema: SsoSchema,
+    /// Optional organization membership provisioning after successful SSO.
+    pub organization_provisioning: super::SsoOrganizationProvisioningOptions,
     /// Maximum providers one user may register. Upstream defaults to ten.
     pub providers_limit: usize,
     /// Publishes SAML single-logout bindings in generated SP metadata.
@@ -164,6 +166,7 @@ impl Default for SsoOptions {
             model_name: None,
             fields: SsoFieldMappings::default(),
             schema: SsoSchema::default(),
+            organization_provisioning: super::SsoOrganizationProvisioningOptions::default(),
             providers_limit: 10,
             saml_enable_single_logout: false,
             saml_want_logout_request_signed: false,

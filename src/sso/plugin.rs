@@ -61,6 +61,7 @@ pub struct SsoPlugin {
     user_provisioner: Option<Arc<dyn super::SsoUserProvisioner>>,
     user_resolver: Option<Arc<dyn super::SsoUserResolver>>,
     mutation_guard: Option<Arc<dyn super::SsoProviderMutationGuard>>,
+    organization_role_resolver: Option<Arc<dyn super::SsoOrganizationRoleResolver>>,
     default_private_keys: BTreeMap<String, SsoPrivateKey>,
     #[cfg(feature = "axum")]
     dns_resolver: Arc<dyn super::SsoDnsResolver>,
@@ -97,6 +98,7 @@ impl SsoPlugin {
             user_provisioner: None,
             user_resolver: None,
             mutation_guard: None,
+            organization_role_resolver: None,
             default_private_keys: BTreeMap::new(),
             #[cfg(feature = "axum")]
             dns_resolver: Arc::new(super::SystemSsoDnsResolver),
@@ -177,6 +179,21 @@ impl SsoPlugin {
     ) -> Self {
         self.mutation_guard = Some(guard);
         self
+    }
+
+    pub fn with_organization_role_resolver(
+        mut self,
+        resolver: Arc<dyn super::SsoOrganizationRoleResolver>,
+    ) -> Self {
+        self.organization_role_resolver = Some(resolver);
+        self
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) fn organization_role_resolver(
+        &self,
+    ) -> Option<&Arc<dyn super::SsoOrganizationRoleResolver>> {
+        self.organization_role_resolver.as_ref()
     }
 
     #[cfg(feature = "axum")]

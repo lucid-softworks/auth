@@ -225,6 +225,7 @@ async fn complete_sign_in(
         }
     };
     if let Err(response) = callback::exchange::provision(
+        service,
         plugin,
         provider,
         &provisioning_user_info,
