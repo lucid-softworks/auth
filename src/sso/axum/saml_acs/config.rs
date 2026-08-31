@@ -3,12 +3,12 @@ use samlet::raw::metadata::{Endpoint, IdpMetadataConfig, SpMetadata, SpMetadataC
 use samlet::raw::{Binding, EntitySetting, IdentityProvider, ServiceProvider};
 use serde_json::{Map, Value};
 
-pub(super) struct SamlEntities {
-    pub(super) sp: ServiceProvider,
-    pub(super) idp: IdentityProvider,
+pub(in crate::sso::axum) struct SamlEntities {
+    pub(in crate::sso::axum) sp: ServiceProvider,
+    pub(in crate::sso::axum) idp: IdentityProvider,
 }
 
-pub(super) fn entities(
+pub(in crate::sso::axum) fn entities(
     service: &AuthService,
     provider: &SsoProvider,
     config: &Map<String, Value>,
@@ -46,6 +46,11 @@ fn service_provider(
         super::super::support::base_url(service),
         provider.provider_id
     );
+    let slo = format!(
+        "{}/sso/saml2/sp/slo/{}",
+        super::super::support::base_url(service),
+        provider.provider_id
+    );
     let mut setting = entity_setting(config, "spMetadata", options);
     setting.want_assertions_signed = want_assertions_signed;
     setting.validate_audience = true;
@@ -58,6 +63,14 @@ fn service_provider(
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
             assertion_consumer_service: vec![Endpoint::new(Binding::Post, acs)],
+            single_logout_service: if options.saml_enable_single_logout {
+                vec![
+                    Endpoint::new(Binding::Post, slo.clone()),
+                    Endpoint::new(Binding::Redirect, slo),
+                ]
+            } else {
+                Vec::new()
+            },
             ..Default::default()
         },
         setting,
@@ -92,6 +105,7 @@ fn identity_provider(
             entity_id: entity_id.into(),
             signing_certs,
             single_sign_on_service: vec![Endpoint::new(Binding::Redirect, entry_point)],
+            single_logout_service: logout_services(idp),
             ..Default::default()
         },
         setting,
@@ -111,6 +125,12 @@ fn entity_setting(
         options.saml_clock_skew_ms,
     );
     setting.xml_limits.max_bytes = options.saml_max_response_size;
+    setting.want_logout_request_signed = options.saml_want_logout_request_signed;
+    setting.want_logout_response_signed = options.saml_want_logout_response_signed;
+    setting.private_key = string(source, "privateKey")
+        .or_else(|| config.get("privateKey").and_then(Value::as_str))
+        .map(str::to_owned);
+    setting.private_key_pass = string(source, "privateKeyPass").map(str::to_owned);
     setting.is_assertion_encrypted = boolean(source, "isAssertionEncrypted");
     setting.enc_private_key = string(source, "encPrivateKey").map(str::to_owned);
     setting.enc_private_key_pass = string(source, "encPrivateKeyPass").map(str::to_owned);
@@ -147,4 +167,24 @@ fn certificates(value: &Value) -> Vec<String> {
             .collect(),
         _ => Vec::new(),
     }
+}
+
+fn logout_services(idp: &Map<String, Value>) -> Vec<Endpoint> {
+    idp.get("singleLogoutService")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object)
+        .filter_map(|service| {
+            let location = service.get("Location")?.as_str()?;
+            let binding = match service.get("Binding")?.as_str()? {
+                "post" | "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" => Binding::Post,
+                "redirect" | "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" => {
+                    Binding::Redirect
+                }
+                _ => return None,
+            };
+            Some(Endpoint::new(binding, location))
+        })
+        .collect()
 }

@@ -7,6 +7,12 @@ pub struct SsoOptions {
     pub providers_limit: usize,
     /// Publishes SAML single-logout bindings in generated SP metadata.
     pub saml_enable_single_logout: bool,
+    /// Requires signed inbound IdP LogoutRequest messages.
+    pub saml_want_logout_request_signed: bool,
+    /// Requires signed inbound IdP LogoutResponse messages.
+    pub saml_want_logout_response_signed: bool,
+    /// Lifetime of an SP-initiated LogoutRequest correlation record.
+    pub saml_logout_request_ttl_ms: i64,
     /// Shared OIDC callback URI. Relative values resolve below the auth base URL.
     pub redirect_uri: Option<String>,
     /// Trusts the provider's mapped `email_verified` claim.
@@ -29,6 +35,9 @@ impl Default for SsoOptions {
             domain_verification: false,
             providers_limit: 10,
             saml_enable_single_logout: false,
+            saml_want_logout_request_signed: false,
+            saml_want_logout_response_signed: false,
+            saml_logout_request_ttl_ms: 300_000,
             redirect_uri: None,
             trust_email_verified: false,
             disable_implicit_sign_up: false,

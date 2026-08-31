@@ -6,6 +6,7 @@ mod registration;
 mod runtime_oidc;
 mod saml_acs;
 mod saml_metadata;
+mod saml_slo;
 mod sanitize;
 mod sign_in;
 mod support;
@@ -41,6 +42,16 @@ pub(super) fn routes(
             get(saml_acs::get)
                 .post(saml_acs::post)
                 .layer(Extension(plugin.clone())),
+        ),
+        AxumPluginRoute::new(
+            "/sso/saml2/sp/slo/{provider_id}",
+            get(saml_slo::get)
+                .post(saml_slo::post)
+                .layer(Extension(plugin.clone())),
+        ),
+        AxumPluginRoute::new(
+            "/sso/saml2/logout/{provider_id}",
+            axum::routing::post(saml_slo::initiate).layer(Extension(plugin.clone())),
         ),
         AxumPluginRoute::new(
             "/sso/providers",

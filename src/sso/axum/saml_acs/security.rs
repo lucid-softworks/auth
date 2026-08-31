@@ -6,6 +6,39 @@ use samlet::SsoSession;
 use serde_json::{Value, json};
 
 type ProviderReference = super::super::super::provider_reference::ProviderReference;
+const SESSION_PREFIX: &str = "saml-session:";
+const SESSION_BY_ID_PREFIX: &str = "saml-session-by-id:";
+
+pub(super) async fn remember_session(
+    service: &AuthService,
+    provider_id: &str,
+    saml: &SsoSession,
+    sign_in: &crate::service::SignInResult,
+) {
+    let name_id = saml.name_id().value();
+    if name_id.is_empty() {
+        return;
+    }
+    let key = format!("{SESSION_PREFIX}{provider_id}:{name_id}");
+    let by_id = format!("{SESSION_BY_ID_PREFIX}{}", sign_in.session.session.id);
+    let value = json!({
+        "sessionId": sign_in.session.session.id,
+        "sessionToken": sign_in.token,
+        "providerId": provider_id,
+        "nameID": name_id,
+        "sessionIndex": saml.authn_session().session_index().map(|value| value.as_str())
+    })
+    .to_string();
+    let expires_at = sign_in.session.session.expires_at;
+    let _ = service.delete_verification_value(&key).await;
+    let _ = service
+        .create_verification_value(VerificationValue::new(&key, value, expires_at))
+        .await;
+    let _ = service.delete_verification_value(&by_id).await;
+    let _ = service
+        .create_verification_value(VerificationValue::new(&by_id, key, expires_at))
+        .await;
+}
 
 pub(super) async fn load_state(
     service: &AuthService,
