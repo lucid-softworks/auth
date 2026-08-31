@@ -244,12 +244,17 @@ pub use scim::{
 };
 pub use sso::{
     DEFAULT_CLOCK_SKEW_MS, DEFAULT_MAX_SAML_METADATA_SIZE, DEFAULT_MAX_SAML_RESPONSE_SIZE,
-    DatabaseSsoStore, MemorySsoStore, NewSsoProvider, SsoOptions, SsoPlugin, SsoPrivateKey,
-    SsoPrivateKeyRequest, SsoPrivateKeyResolver, SsoProvider, SsoProviderUpdate, SsoStore,
-    SsoStoreError, VERSION as SSO_VERSION,
+    DataEncryptionAlgorithm, DatabaseSsoStore, DeprecatedAlgorithmBehavior, DigestAlgorithm,
+    KeyEncryptionAlgorithm, MemorySsoStore, NewSsoProvider, SamlAlgorithmError,
+    SamlAlgorithmOptions, SamlConfigurationError, SamlServiceProviderPolicy, SignatureAlgorithm,
+    SsoOptions, SsoPlugin, SsoPrivateKey, SsoPrivateKeyRequest, SsoPrivateKeyResolver, SsoProvider,
+    SsoProviderUpdate, SsoStore, SsoStoreError, VERSION as SSO_VERSION,
 };
 #[cfg(feature = "axum")]
-pub use sso::{SsoDnsResolver, SystemSsoDnsResolver};
+pub use sso::{
+    SsoDnsResolver, SystemSsoDnsResolver, derive_saml_identity_provider_entity_id,
+    derive_saml_service_provider_policy,
+};
 pub use service::account_types::{
     LinkedAccount, ProviderAccountIdentity, ProviderAccountInfo, ProviderAccountUser,
     ProviderTokenResponse,

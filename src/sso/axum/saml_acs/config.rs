@@ -12,10 +12,11 @@ pub(super) fn entities(
     service: &AuthService,
     provider: &SsoProvider,
     config: &Map<String, Value>,
+    options: &crate::SsoOptions,
 ) -> Result<SamlEntities, ()> {
     Ok(SamlEntities {
-        sp: service_provider(service, provider, config)?,
-        idp: identity_provider(config)?,
+        sp: service_provider(service, provider, config, options)?,
+        idp: identity_provider(config, options)?,
     })
 }
 
@@ -23,6 +24,7 @@ fn service_provider(
     service: &AuthService,
     provider: &SsoProvider,
     config: &Map<String, Value>,
+    options: &crate::SsoOptions,
 ) -> Result<ServiceProvider, ()> {
     let custom = nested_string(config, "spMetadata", "metadata")
         .map(SpMetadata::from_xml)
@@ -44,7 +46,7 @@ fn service_provider(
         super::super::support::base_url(service),
         provider.provider_id
     );
-    let mut setting = entity_setting(config, "spMetadata");
+    let mut setting = entity_setting(config, "spMetadata", options);
     setting.want_assertions_signed = want_assertions_signed;
     setting.validate_audience = true;
     ServiceProvider::from_config(
@@ -63,12 +65,15 @@ fn service_provider(
     .map_err(|_| ())
 }
 
-fn identity_provider(config: &Map<String, Value>) -> Result<IdentityProvider, ()> {
+fn identity_provider(
+    config: &Map<String, Value>,
+    options: &crate::SsoOptions,
+) -> Result<IdentityProvider, ()> {
     let idp = config
         .get("idpMetadata")
         .and_then(Value::as_object)
         .ok_or(())?;
-    let setting = entity_setting(config, "idpMetadata");
+    let setting = entity_setting(config, "idpMetadata", options);
     if let Some(metadata) = idp.get("metadata").and_then(Value::as_str) {
         return IdentityProvider::from_metadata(metadata, setting).map_err(|_| ());
     }
@@ -94,14 +99,18 @@ fn identity_provider(config: &Map<String, Value>) -> Result<IdentityProvider, ()
     .map_err(|_| ())
 }
 
-fn entity_setting(config: &Map<String, Value>, nested: &str) -> EntitySetting {
+fn entity_setting(
+    config: &Map<String, Value>,
+    nested: &str,
+    options: &crate::SsoOptions,
+) -> EntitySetting {
     let source = config.get(nested).and_then(Value::as_object);
     let mut setting = EntitySetting::default();
     setting.clock_drifts = (
-        -crate::sso::DEFAULT_CLOCK_SKEW_MS,
-        crate::sso::DEFAULT_CLOCK_SKEW_MS,
+        -options.saml_clock_skew_ms,
+        options.saml_clock_skew_ms,
     );
-    setting.xml_limits.max_bytes = crate::sso::DEFAULT_MAX_SAML_RESPONSE_SIZE;
+    setting.xml_limits.max_bytes = options.saml_max_response_size;
     setting.is_assertion_encrypted = boolean(source, "isAssertionEncrypted");
     setting.enc_private_key = string(source, "encPrivateKey").map(str::to_owned);
     setting.enc_private_key_pass = string(source, "encPrivateKeyPass").map(str::to_owned);

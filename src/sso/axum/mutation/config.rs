@@ -102,7 +102,7 @@ pub(super) fn prepare(
                     "Cannot update SAML config for a provider that doesn't have SAML configured",
                 ))
             })?;
-            let merged = merge_saml(issuer, current, changes);
+            let merged = merge_saml(issuer, current, changes, plugin.options())?;
             let changed = changed(current, &merged, &["audience", "callbackUrl"]);
             (Some(Some(Value::Object(merged))), changed)
         }
@@ -186,14 +186,26 @@ fn merge_saml(
     issuer: &str,
     current: &Map<String, Value>,
     changes: &Map<String, Value>,
-) -> Map<String, Value> {
+    options: &crate::SsoOptions,
+) -> Result<Map<String, Value>, Box<Response>> {
     let mut merged = current.clone();
     copy_known(&mut merged, changes, &SAML_FIELDS);
     if changes.get("idpInitiatedCallbackUrl") == Some(&Value::Null) {
         merged.remove("idpInitiatedCallbackUrl");
     }
     merged.insert("issuer".into(), json!(issuer));
-    merged
+    crate::sso::validate_configuration_algorithms(
+        &merged,
+        &options.saml_algorithms,
+    )
+    .map_err(|error| {
+        Box::new(super::super::support::error(
+            StatusCode::BAD_REQUEST,
+            error.code,
+            error.message,
+        ))
+    })?;
+    Ok(merged)
 }
 
 fn copy_known(target: &mut Map<String, Value>, changes: &Map<String, Value>, fields: &[&str]) {

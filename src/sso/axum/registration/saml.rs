@@ -1,7 +1,11 @@
 use axum::{http::StatusCode, response::Response};
 use serde_json::{Map, Value, json};
 
-pub(super) fn prepare(issuer: &str, config: &Value) -> Result<Value, Box<Response>> {
+pub(super) fn prepare(
+    issuer: &str,
+    config: &Value,
+    options: &crate::SsoOptions,
+) -> Result<Value, Box<Response>> {
     let Some(config) = config.as_object() else {
         return Err(Box::new(super::super::support::error(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -10,6 +14,15 @@ pub(super) fn prepare(issuer: &str, config: &Value) -> Result<Value, Box<Respons
         )));
     };
     validate(config)?;
+    crate::sso::validate_configuration_algorithms(config, &options.saml_algorithms).map_err(
+        |error| {
+            Box::new(super::super::support::error(
+                StatusCode::BAD_REQUEST,
+                error.code,
+                error.message,
+            ))
+        },
+    )?;
     let mut persisted = Map::new();
     persisted.insert("issuer".into(), json!(issuer));
     for field in [

@@ -12,6 +12,7 @@ mod private_key;
 #[cfg(feature = "axum")]
 mod oidc_provider;
 mod provider_reference;
+mod saml;
 mod schema;
 mod store;
 mod timestamp;
@@ -30,6 +31,17 @@ pub use discovery::{
 };
 pub use plugin::SsoPlugin;
 pub use private_key::{SsoPrivateKey, SsoPrivateKeyRequest, SsoPrivateKeyResolver};
+pub use saml::{
+    DataEncryptionAlgorithm, DeprecatedAlgorithmBehavior, DigestAlgorithm,
+    KeyEncryptionAlgorithm, SamlAlgorithmError, SamlAlgorithmOptions, SamlConfigurationError,
+    SamlServiceProviderPolicy, SignatureAlgorithm,
+};
+#[cfg(feature = "axum")]
+pub use saml::{
+    derive_saml_identity_provider_entity_id, derive_saml_service_provider_policy,
+};
+#[cfg(feature = "axum")]
+pub(crate) use saml::{validate_configuration_algorithms, validate_response_algorithms};
 pub use store::{
     MemorySsoStore, NewSsoProvider, SsoProvider, SsoProviderUpdate, SsoStore, SsoStoreError,
 };
