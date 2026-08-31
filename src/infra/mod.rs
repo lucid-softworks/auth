@@ -2,4 +2,5 @@
 
 pub mod dash;
 pub mod email;
+pub mod sentinel;
 pub mod sms;
