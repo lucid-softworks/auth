@@ -14,6 +14,7 @@ pub(super) fn create_record(provider: NewSsoProvider) -> Result<Map<String, Valu
         "domain": provider.domain,
     }))?;
     insert(&mut record, "domainVerified", domain_verified);
+    record.extend(provider.additional_fields);
     Ok(record)
 }
 
@@ -28,10 +29,16 @@ pub(super) fn update_record(
     insert(&mut record, "organizationId", update.organization_id);
     insert(&mut record, "domain", update.domain);
     insert(&mut record, "domainVerified", update.domain_verified);
+    record.extend(update.additional_fields);
     Ok(record)
 }
 
 pub(super) fn decode(record: &Map<String, Value>) -> Result<SsoProvider, SsoStoreError> {
+    let additional_fields = record
+        .iter()
+        .filter(|(field, _)| !is_built_in(field))
+        .map(|(field, value)| (field.clone(), value.clone()))
+        .collect();
     Ok(SsoProvider {
         id: string(record, "id")?,
         issuer: string(record, "issuer")?,
@@ -42,7 +49,23 @@ pub(super) fn decode(record: &Map<String, Value>) -> Result<SsoProvider, SsoStor
         organization_id: optional_string(record, "organizationId")?,
         domain: string(record, "domain")?,
         domain_verified: optional_bool(record, "domainVerified")?,
+        additional_fields,
     })
+}
+
+fn is_built_in(field: &str) -> bool {
+    [
+        "id",
+        "issuer",
+        "oidcConfig",
+        "samlConfig",
+        "userId",
+        "providerId",
+        "organizationId",
+        "domain",
+        "domainVerified",
+    ]
+    .contains(&field)
 }
 
 fn encode_config(value: Option<Value>) -> Result<Option<String>, SsoStoreError> {

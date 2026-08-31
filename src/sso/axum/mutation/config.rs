@@ -56,11 +56,13 @@ pub(super) fn prepare(
     plugin: &SsoPlugin,
     provider: &SsoProvider,
     body: &UpdateBody,
+    additional_fields: Map<String, Value>,
 ) -> Result<Prepared, Box<Response>> {
     if body.issuer.is_none()
         && body.domain.is_none()
         && body.oidc_config.is_none()
         && body.saml_config.is_none()
+        && additional_fields.is_empty()
     {
         return Err(Box::new(error("No fields provided for update")));
     }
@@ -123,6 +125,7 @@ pub(super) fn prepare(
             saml_config,
             domain: body.domain.clone(),
             domain_verified: (domain_changed && provider.domain_verified.is_some()).then_some(false),
+            additional_fields,
             ..SsoProviderUpdate::default()
         },
         identity_boundary_changed: issuer_changed || oidc_changed || saml_changed,

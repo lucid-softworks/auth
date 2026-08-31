@@ -3,7 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::Response,
 };
-use serde_json::json;
+use serde_json::{Map, Value, json};
 
 pub(super) async fn required_session(
     service: &AuthService,
@@ -32,6 +32,55 @@ pub(super) fn storage(error: super::super::SsoStoreError) -> Response {
         "INTERNAL_SERVER_ERROR",
         "Failed to read SSO providers",
     )
+}
+
+pub(super) fn create_additional_fields(
+    plugin: &SsoPlugin,
+    supplied: Map<String, Value>,
+) -> Result<Map<String, Value>, Box<Response>> {
+    let configured = &plugin.options().schema.sso_provider.additional_fields;
+    reject_blocked_additional_fields(configured, &supplied)?;
+    crate::additional_fields::validate_create_fields(configured, supplied.clone())
+        .and_then(|_| crate::additional_fields::transform_create_fields(configured, supplied))
+        .map_err(additional_field_error)
+}
+
+pub(super) fn update_additional_fields(
+    plugin: &SsoPlugin,
+    supplied: Map<String, Value>,
+) -> Result<Map<String, Value>, Box<Response>> {
+    let configured = &plugin.options().schema.sso_provider.additional_fields;
+    reject_blocked_additional_fields(configured, &supplied)?;
+    crate::additional_fields::parse_update_fields(configured, supplied)
+        .map_err(additional_field_error)
+}
+
+fn reject_blocked_additional_fields(
+    configured: &crate::AdditionalFieldSet,
+    supplied: &Map<String, Value>,
+) -> Result<(), Box<Response>> {
+    for (field, options) in configured {
+        if !options.input && supplied.contains_key(field) {
+            return Err(Box::new(error(
+                StatusCode::BAD_REQUEST,
+                "BAD_REQUEST",
+                format!("{field} is not allowed to be set"),
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn additional_field_error(error: crate::AuthError) -> Box<Response> {
+    let message = match error {
+        crate::AuthError::InvalidRequest(message) => message,
+        error => error.to_string(),
+    };
+    Box::new(self::error(
+        StatusCode::BAD_REQUEST,
+        "BAD_REQUEST",
+        message,
+    ))
 }
 
 pub(super) async fn has_access(

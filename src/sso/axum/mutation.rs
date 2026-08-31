@@ -20,6 +20,8 @@ pub(super) struct UpdateBody {
     domain: Option<String>,
     oidc_config: Option<Map<String, Value>>,
     saml_config: Option<Map<String, Value>>,
+    #[serde(flatten)]
+    additional_fields: Map<String, Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -39,7 +41,11 @@ pub(super) async fn update(
         Ok(authorized) => authorized,
         Err(response) => return *response,
     };
-    let prepared = match config::prepare(&service, &plugin, &provider, &body) {
+    let additional_fields = match support::update_additional_fields(&plugin, body.additional_fields.clone()) {
+        Ok(fields) => fields,
+        Err(response) => return *response,
+    };
+    let prepared = match config::prepare(&service, &plugin, &provider, &body, additional_fields) {
         Ok(prepared) => prepared,
         Err(response) => return *response,
     };
@@ -65,7 +71,12 @@ pub(super) async fn update(
         Err(crate::AuthError::SsoStore(error)) => return support::storage(error),
         Err(error) => return support::error(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR", error.to_string()),
     };
-    Json(sanitize::provider(&provider, &support::base_url(&service))).into_response()
+    Json(sanitize::provider(
+        &provider,
+        &support::base_url(&service),
+        &plugin.options().schema.sso_provider.additional_fields,
+    ))
+    .into_response()
 }
 
 pub(super) async fn delete(

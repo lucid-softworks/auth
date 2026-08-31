@@ -9,7 +9,7 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use rand::distr::{Alphanumeric, SampleString as _};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 pub(super) async fn create(
     service: &AuthService,
@@ -18,6 +18,7 @@ pub(super) async fn create(
     body: RegisterBody,
     oidc_config: Option<Value>,
     saml_config: Option<Value>,
+    additional_fields: Map<String, Value>,
 ) -> Response {
     let id = match service.generate_plugin_database_id("ssoProvider") {
         Ok(id) => id,
@@ -35,6 +36,7 @@ pub(super) async fn create(
             organization_id: body.organization_id,
             domain: body.domain,
             domain_verified: plugin.options().domain_verification.then_some(false),
+            additional_fields,
         })
         .await
     {
@@ -48,6 +50,14 @@ pub(super) async fn create(
         .cloned()
         .expect("SSO provider is an object");
     result.remove("id");
+    let returned = crate::additional_fields::filtered_output(
+        &plugin.options().schema.sso_provider.additional_fields,
+        provider.additional_fields.clone(),
+    );
+    for field in plugin.options().schema.sso_provider.additional_fields.keys() {
+        result.remove(field);
+    }
+    result.extend(returned);
     result.insert(
         "redirectURI".into(),
         json!(super::super::support::oidc_redirect_uri(

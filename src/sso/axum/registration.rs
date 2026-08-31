@@ -7,7 +7,7 @@ use super::support;
 use crate::{AuthService, SsoPlugin};
 use axum::{Extension, http::HeaderMap, response::Response};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::sync::Arc;
 
 #[derive(Debug, Deserialize)]
@@ -21,6 +21,8 @@ pub(super) struct RegisterBody {
     organization_id: Option<String>,
     #[serde(default)]
     override_user_info: bool,
+    #[serde(flatten)]
+    additional_fields: Map<String, Value>,
 }
 
 pub(super) async fn register(
@@ -59,6 +61,10 @@ pub(super) async fn register(
         },
         None => None,
     };
+    let additional_fields = match support::create_additional_fields(&plugin, body.additional_fields.clone()) {
+        Ok(fields) => fields,
+        Err(response) => return *response,
+    };
     persistence::create(
         &service,
         &plugin,
@@ -66,6 +72,7 @@ pub(super) async fn register(
         body,
         oidc_config,
         saml_config,
+        additional_fields,
     )
     .await
 }

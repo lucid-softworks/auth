@@ -181,6 +181,7 @@ mod tests {
                 },
                 "spMetadata": {"entityID": "sp", "privateKey": "never", "other": "kept"}
             })),
+            additional_fields: serde_json::Map::new(),
         }
     }
 

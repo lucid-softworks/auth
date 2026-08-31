@@ -102,6 +102,7 @@ impl SsoDefaultProvider {
             organization_id: None,
             domain: self.domain,
             domain_verified: domain_verification.then_some(true),
+            additional_fields: serde_json::Map::new(),
         }
     }
 }
