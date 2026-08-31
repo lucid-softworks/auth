@@ -3,6 +3,8 @@
 mod config;
 mod database;
 #[cfg(feature = "axum")]
+mod directory_pairing;
+#[cfg(feature = "axum")]
 mod dns;
 mod discovery;
 #[cfg(feature = "axum")]

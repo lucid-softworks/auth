@@ -1,4 +1,4 @@
-use super::{claims, model::DirectoryRow, store};
+use super::{claims, model::DirectoryRow, pairing, store};
 use crate::{AuthService, DashPlugin, ScimError, ScimManagedCredential, ScimScope};
 use axum::{
     Extension, Json,
@@ -15,7 +15,7 @@ use std::{collections::HashSet, sync::Arc};
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct CreateBody {
     provider_id: String,
-    pairing: Option<Value>,
+    pairing: Option<pairing::DirectoryPairing>,
     scopes: Option<Vec<String>>,
     expires_at: Option<DateTime<Utc>>,
 }
@@ -86,9 +86,13 @@ pub(crate) async fn create(
     if let Err(response) = validate_provider_id(&body.provider_id) {
         return response;
     }
-    if body.pairing.is_some() {
-        return pairing_not_implemented();
-    }
+    let pairing = match body.pairing {
+        Some(pairing) => match pairing::resolve(&service, &dash, &organization_id, pairing).await {
+            Ok(pairing) => Some(pairing),
+            Err(response) => return response,
+        },
+        None => None,
+    };
     let (scopes, expires_at) = match policy(body.scopes, body.expires_at) {
         Ok(policy) => policy,
         Err(response) => return response,
@@ -100,6 +104,7 @@ pub(crate) async fn create(
             provider_id: body.provider_id.trim(),
             actor_id: claims.actor_id.trim(),
             creation_request_id: claims.setup_operation_id.as_deref(),
+            pairing: pairing.as_ref(),
         },
     )
     .await
@@ -264,10 +269,6 @@ pub(super) fn scim_error(error: ScimError) -> Response {
 
 fn bad_request(message: &'static str) -> Response {
     super::super::support::error(StatusCode::BAD_REQUEST, "BAD_REQUEST", message)
-}
-
-fn pairing_not_implemented() -> Response {
-    bad_request("Paired directory sync requires SSO pairing support")
 }
 
 fn dynamic_error(status: StatusCode, code: &'static str, message: String) -> Response {
