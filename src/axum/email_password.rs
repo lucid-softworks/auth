@@ -198,8 +198,10 @@ fn redirect(callback_url: &str) -> Response {
 }
 
 fn redirect_error(callback_url: &str, code: &str) -> Response {
-    let separator = if callback_url.contains('?') { '&' } else { '?' };
-    redirect(&format!("{callback_url}{separator}error={code}"))
+    match crate::url_composition::append_query_params(callback_url, &[("error", code)]) {
+        Ok(location) => redirect(&location),
+        Err(error) => auth_error(error),
+    }
 }
 
 fn verification_error_code(error: &AuthError) -> Option<&'static str> {

@@ -327,8 +327,16 @@ fn redirect(target: &str) -> Response {
 }
 
 fn redirect_error(target: &str, description: &str) -> Response {
-    let separator = if target.contains('?') { '&' } else { '?' };
-    redirect(&format!("{target}{separator}error=invalid_request&error_description={description}"))
+    match crate::url_composition::append_query_params(
+        target,
+        &[
+            ("error", "invalid_request"),
+            ("error_description", description),
+        ],
+    ) {
+        Ok(location) => redirect(&location),
+        Err(_) => error("INVALID_REDIRECT", "Invalid redirect URL"),
+    }
 }
 
 fn error(code: &'static str, message: &'static str) -> Response {
