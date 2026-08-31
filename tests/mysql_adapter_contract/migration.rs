@@ -328,10 +328,12 @@ async fn static_defaults_are_safe_but_optional_unique_and_date_factories_are_not
 #[ignore = "requires MySQL in MYSQL_DATABASE_URL"]
 async fn enforces_existing_index_limits_and_bounds_new_compound_strings() {
     let unbounded = store().await;
-    sqlx::query("create table widget (id varchar(36) not null primary key, value geometry not null)")
-        .execute(unbounded.pool())
-        .await
-        .unwrap();
+    sqlx::query(
+        "create table widget (id varchar(36) not null primary key, value geometry not null)",
+    )
+    .execute(unbounded.pool())
+    .await
+    .unwrap();
     let indexed_value = || {
         catalog(
             PluginSchemaTable::new("widget")
