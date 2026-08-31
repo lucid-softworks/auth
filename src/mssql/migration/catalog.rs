@@ -1,5 +1,8 @@
 use super::{MssqlMigrationError, database};
-use crate::mssql::{MssqlPool, schema::quote, statement::MssqlStatement, value::MssqlValue};
+use crate::mssql::{
+    MssqlPool, adapter::MssqlClient, schema::quote, statement::MssqlStatement,
+    value::MssqlValue,
+};
 use std::collections::HashMap;
 use tiberius::Row;
 
@@ -33,25 +36,63 @@ impl Catalog {
             .get()
             .await
             .map_err(|error| MssqlMigrationError::Database(error.to_string()))?;
-        let schema = connection
-            .simple_query("select schema_name() as [schema]")
-            .await
-            .map_err(database)?
-            .into_row()
-            .await
-            .map_err(database)?
-            .and_then(|row| row.get::<&str, _>("schema").map(str::to_owned))
-            .filter(|schema| !schema.is_empty())
-            .unwrap_or_else(|| "dbo".into());
+        let schema = active_schema(&mut connection).await;
+        let tables = load_tables(&mut connection, &schema).await?;
+        let indexes = load_indexes(&mut connection, &schema).await?;
+        Ok(Self { tables, indexes })
+    }
 
+    pub(super) fn table(&self, name: &str) -> Option<&Table> {
+        self.tables.get(&portable(name))
+    }
+
+    pub(super) fn index(&self, table: &str, name: &str) -> Option<&Index> {
+        self.indexes.get(&(portable(table), portable(name)))
+    }
+
+    pub(super) fn has_equivalent_inline_unique(
+        &self,
+        table: &str,
+        columns: &[String],
+    ) -> bool {
+        self.indexes.values().any(|index| {
+            index.table.eq_ignore_ascii_case(table)
+                && index.unique
+                && !index.disabled
+                && !index.hypothetical
+                && !index.filtered
+                && index.columns.len() == columns.len()
+                && index
+                    .columns
+                    .iter()
+                    .zip(columns)
+                    .all(|(left, right)| left.eq_ignore_ascii_case(right))
+        })
+    }
+}
+
+async fn active_schema(connection: &mut MssqlClient) -> String {
+    let row = match connection.simple_query("select schema_name() as [schema]").await {
+        Ok(stream) => stream.into_row().await.ok().flatten(),
+        Err(_) => None,
+    };
+    row.and_then(|row| row.get::<&str, _>("schema").map(str::to_owned))
+        .filter(|schema| !schema.is_empty())
+        .unwrap_or_else(|| "dbo".into())
+}
+
+async fn load_tables(
+    connection: &mut MssqlClient,
+    schema: &str,
+) -> Result<HashMap<String, Table>, MssqlMigrationError> {
         let mut table_query = MssqlStatement::new(
             "select t.name as [table_name], c.name as [column_name], ty.name as [data_type], c.is_nullable as [is_nullable], c.max_length as [max_length] from sys.tables t join sys.schemas s on s.schema_id = t.schema_id join sys.columns c on c.object_id = t.object_id join sys.types ty on ty.user_type_id = c.user_type_id where s.name = ",
         );
         table_query
-            .bind(MssqlValue::Text(Some(schema.clone())))
+            .bind(MssqlValue::Text(Some(schema.to_owned())))
             .push(" order by t.name, c.column_id");
         let rows = table_query
-            .query(&mut connection, false)
+            .query(connection)
             .await
             .map_err(auth_error)?;
         let mut tables = HashMap::<String, Table>::new();
@@ -87,16 +128,25 @@ impl Catalog {
                     },
                 );
         }
+        Ok(tables
+            .into_iter()
+            .map(|(name, table)| (portable(&name), table))
+            .collect())
+}
 
+async fn load_indexes(
+    connection: &mut MssqlClient,
+    schema: &str,
+) -> Result<HashMap<(String, String), Index>, MssqlMigrationError> {
         let mut index_query = MssqlStatement::new(
             "select t.name as [table_name], i.name as [index_name], i.is_unique as [is_unique], i.is_disabled as [is_disabled], i.is_hypothetical as [is_hypothetical], i.has_filter as [has_filter], c.name as [column_name] from sys.indexes i join sys.tables t on t.object_id = i.object_id join sys.schemas s on s.schema_id = t.schema_id join sys.index_columns ic on ic.object_id = i.object_id and ic.index_id = i.index_id join sys.columns c on c.object_id = ic.object_id and c.column_id = ic.column_id where s.name = ",
         );
         index_query
-            .bind(MssqlValue::Text(Some(schema.clone())))
+            .bind(MssqlValue::Text(Some(schema.to_owned())))
             .push(" and i.name is not null and ic.key_ordinal > 0 order by t.name, i.name, ic.key_ordinal");
         let mut indexes = HashMap::<(String, String), Index>::new();
         for row in index_query
-            .query(&mut connection, false)
+            .query(connection)
             .await
             .map_err(auth_error)?
         {
@@ -119,42 +169,7 @@ impl Catalog {
                 .columns
                 .push(text(&row, "column_name")?);
         }
-        Ok(Self {
-            tables: tables
-                .into_iter()
-                .map(|(name, table)| (portable(&name), table))
-                .collect(),
-            indexes,
-        })
-    }
-
-    pub(super) fn table(&self, name: &str) -> Option<&Table> {
-        self.tables.get(&portable(name))
-    }
-
-    pub(super) fn index(&self, table: &str, name: &str) -> Option<&Index> {
-        self.indexes.get(&(portable(table), portable(name)))
-    }
-
-    pub(super) fn has_equivalent_inline_unique(
-        &self,
-        table: &str,
-        columns: &[String],
-    ) -> bool {
-        self.indexes.values().any(|index| {
-            index.table.eq_ignore_ascii_case(table)
-                && index.unique
-                && !index.disabled
-                && !index.hypothetical
-                && !index.filtered
-                && index.columns.len() == columns.len()
-                && index
-                    .columns
-                    .iter()
-                    .zip(columns)
-                    .all(|(left, right)| left.eq_ignore_ascii_case(right))
-        })
-    }
+        Ok(indexes)
 }
 
 impl Table {

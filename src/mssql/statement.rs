@@ -43,11 +43,7 @@ impl MssqlStatement {
     pub(super) async fn query(
         self,
         client: &mut super::adapter::MssqlClient,
-        debug_logs: bool,
     ) -> Result<Vec<Row>, AuthError> {
-        if debug_logs {
-            tracing::debug!(sql = %self.sql, "executing Better Auth MSSQL query");
-        }
         self.into_query()
             .query(client)
             .await
@@ -60,11 +56,7 @@ impl MssqlStatement {
     pub(super) async fn execute(
         self,
         client: &mut super::adapter::MssqlClient,
-        debug_logs: bool,
     ) -> Result<u64, AuthError> {
-        if debug_logs {
-            tracing::debug!(sql = %self.sql, "executing Better Auth MSSQL statement");
-        }
         self.into_query()
             .execute(client)
             .await

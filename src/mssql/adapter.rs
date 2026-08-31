@@ -124,6 +124,10 @@ impl MssqlStore {
         }
     }
 
+    pub(super) fn bind_catalog(&self, schema: Arc<AuthSchemaCatalog>) -> Result<(), AuthError> {
+        self.bind_schema(schema)
+    }
+
     pub fn resolved_schema(&self) -> Result<&ResolvedAdapterSchema, AuthError> {
         self.bound_schema().map(|schema| &schema.resolved)
     }
@@ -170,10 +174,19 @@ impl MssqlStore {
             &mut connection,
             schema,
             model,
-            record,
-            self.adapter_config.debug_logs,
+            record
         )
         .await
+    }
+
+    pub(super) async fn insert_required_record(
+        &self,
+        model: &str,
+        record: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<serde_json::Map<String, serde_json::Value>, AuthError> {
+        self.insert_record(model, record)
+            .await?
+            .ok_or_else(|| AuthError::Storage(format!("MSSQL insert into '{model}' returned no row")))
     }
 
     pub async fn find_record(
@@ -189,8 +202,7 @@ impl MssqlStore {
             schema,
             model,
             filters,
-            select,
-            self.adapter_config.debug_logs,
+            select
         )
         .await
     }
@@ -208,8 +220,7 @@ impl MssqlStore {
             schema,
             model,
             filters,
-            options,
-            self.adapter_config.debug_logs,
+            options
         )
         .await
     }
@@ -227,8 +238,7 @@ impl MssqlStore {
             schema,
             model,
             filters,
-            values,
-            self.adapter_config.debug_logs,
+            values
         )
         .await
     }
@@ -246,8 +256,7 @@ impl MssqlStore {
             schema,
             model,
             filters,
-            values,
-            self.adapter_config.debug_logs,
+            values
         )
         .await
     }
@@ -263,8 +272,7 @@ impl MssqlStore {
             &mut connection,
             schema,
             model,
-            filters,
-            self.adapter_config.debug_logs,
+            filters
         )
         .await
     }
@@ -280,8 +288,7 @@ impl MssqlStore {
             &mut connection,
             schema,
             model,
-            filters,
-            self.adapter_config.debug_logs,
+            filters
         )
         .await
     }
@@ -297,8 +304,7 @@ impl MssqlStore {
             &mut connection,
             schema,
             model,
-            filters,
-            self.adapter_config.debug_logs,
+            filters
         )
         .await
     }
@@ -318,8 +324,7 @@ impl MssqlStore {
             model,
             filters,
             increments,
-            set,
-            self.adapter_config.debug_logs,
+            set
         )
         .await
     }

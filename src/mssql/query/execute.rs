@@ -17,7 +17,6 @@ pub(in crate::mssql) async fn insert(
     schema: &MssqlSchema,
     model_name: &str,
     record: Map<String, Value>,
-    debug_logs: bool,
 ) -> Result<Option<Map<String, Value>>, AuthError> {
     let model = schema.model(model_name)?;
     let writes = model.encode_fields(record)?;
@@ -49,12 +48,47 @@ pub(in crate::mssql) async fn insert(
         query.push(")");
     }
     query
-        .query(connection, debug_logs)
+        .query(connection)
         .await?
         .into_iter()
         .next()
         .map(|row| model.decode_all(&row))
         .transpose()
+}
+
+pub(in crate::mssql) async fn insert_required(
+    connection: &mut MssqlClient,
+    schema: &MssqlSchema,
+    model_name: &str,
+    record: Map<String, Value>,
+) -> Result<Map<String, Value>, AuthError> {
+    insert(connection, schema, model_name, record)
+        .await?
+        .ok_or_else(|| {
+            AuthError::Storage(format!(
+                "MSSQL inserted '{model_name}' without returning a stored row"
+            ))
+        })
+}
+
+pub(in crate::mssql) async fn find_one_for_update(
+    connection: &mut MssqlClient,
+    schema: &MssqlSchema,
+    model_name: &str,
+    filters: &[MssqlFilter],
+    select: &[String],
+) -> Result<Option<Map<String, Value>>, AuthError> {
+    find_one_with_lock(connection, schema, model_name, filters, select, true).await
+}
+
+pub(in crate::mssql) async fn find_many_for_update(
+    connection: &mut MssqlClient,
+    schema: &MssqlSchema,
+    model_name: &str,
+    filters: &[MssqlFilter],
+    options: &MssqlFindOptions,
+) -> Result<Vec<Map<String, Value>>, AuthError> {
+    find_many_with_lock(connection, schema, model_name, filters, options, true).await
 }
 
 pub(in crate::mssql) async fn find_one(
@@ -63,7 +97,17 @@ pub(in crate::mssql) async fn find_one(
     model_name: &str,
     filters: &[MssqlFilter],
     select: &[String],
-    debug_logs: bool,
+) -> Result<Option<Map<String, Value>>, AuthError> {
+    find_one_with_lock(connection, schema, model_name, filters, select, false).await
+}
+
+async fn find_one_with_lock(
+    connection: &mut MssqlClient,
+    schema: &MssqlSchema,
+    model_name: &str,
+    filters: &[MssqlFilter],
+    select: &[String],
+    lock: bool,
 ) -> Result<Option<Map<String, Value>>, AuthError> {
     let model = schema.model(model_name)?;
     let projection = if select.is_empty() {
@@ -76,9 +120,12 @@ pub(in crate::mssql) async fn find_one(
         .push(projection)
         .push(" from ")
         .push(model.quoted_table());
+    if lock {
+        query.push(" with (updlock, holdlock)");
+    }
     predicate::push(&mut query, &model, filters)?;
     query
-        .query(connection, debug_logs)
+        .query(connection)
         .await?
         .into_iter()
         .next()
@@ -92,7 +139,17 @@ pub(in crate::mssql) async fn find_many(
     model_name: &str,
     filters: &[MssqlFilter],
     options: &MssqlFindOptions,
-    debug_logs: bool,
+) -> Result<Vec<Map<String, Value>>, AuthError> {
+    find_many_with_lock(connection, schema, model_name, filters, options, false).await
+}
+
+async fn find_many_with_lock(
+    connection: &mut MssqlClient,
+    schema: &MssqlSchema,
+    model_name: &str,
+    filters: &[MssqlFilter],
+    options: &MssqlFindOptions,
+    lock: bool,
 ) -> Result<Vec<Map<String, Value>>, AuthError> {
     let model = schema.model(model_name)?;
     let projection = if options.select.is_empty() {
@@ -110,6 +167,9 @@ pub(in crate::mssql) async fn find_many(
         .push(projection)
         .push(" from ")
         .push(model.quoted_table());
+    if lock {
+        query.push(" with (updlock, holdlock)");
+    }
     predicate::push(&mut query, &model, filters)?;
     if let Some(sort) = &options.sort {
         query
@@ -131,7 +191,7 @@ pub(in crate::mssql) async fn find_many(
             .push(" rows only");
     }
     query
-        .query(connection, debug_logs)
+        .query(connection)
         .await?
         .into_iter()
         .map(|row| decode_row(&model, &row, &options.select))
@@ -144,7 +204,6 @@ pub(in crate::mssql) async fn update_one(
     model_name: &str,
     filters: &[MssqlFilter],
     values: Map<String, Value>,
-    debug_logs: bool,
 ) -> Result<Option<Map<String, Value>>, AuthError> {
     if filters.is_empty() {
         return Ok(None);
@@ -157,8 +216,7 @@ pub(in crate::mssql) async fn update_one(
             schema,
             model_name,
             filters,
-            &[],
-            debug_logs,
+            &[]
         )
         .await;
     }
@@ -170,7 +228,7 @@ pub(in crate::mssql) async fn update_one(
         .push(model.all_projection_for("inserted"));
     predicate::push(&mut query, &model, filters)?;
     query
-        .query(connection, debug_logs)
+        .query(connection)
         .await?
         .into_iter()
         .next()
@@ -184,7 +242,6 @@ pub(in crate::mssql) async fn update_many(
     model_name: &str,
     filters: &[MssqlFilter],
     values: Map<String, Value>,
-    debug_logs: bool,
 ) -> Result<u64, AuthError> {
     let model = schema.model(model_name)?;
     let writes = model.encode_fields(values)?;
@@ -196,7 +253,7 @@ pub(in crate::mssql) async fn update_many(
     push_writes(&mut query, writes);
     predicate::push(&mut query, &model, filters)?;
     query
-        .execute(connection, debug_logs)
+        .execute(connection)
         .await
         .map(clamp_affected)
 }
@@ -206,14 +263,13 @@ pub(in crate::mssql) async fn count(
     schema: &MssqlSchema,
     model_name: &str,
     filters: &[MssqlFilter],
-    debug_logs: bool,
 ) -> Result<u64, AuthError> {
     let model = schema.model(model_name)?;
     let mut query = MssqlStatement::new("select count([id]) as [count] from ");
     query.push(model.quoted_table());
     predicate::push(&mut query, &model, filters)?;
     let row = query
-        .query(connection, debug_logs)
+        .query(connection)
         .await?
         .into_iter()
         .next()
@@ -228,96 +284,15 @@ pub(in crate::mssql) async fn delete_many(
     schema: &MssqlSchema,
     model_name: &str,
     filters: &[MssqlFilter],
-    debug_logs: bool,
 ) -> Result<u64, AuthError> {
     let model = schema.model(model_name)?;
     let mut query = MssqlStatement::new("delete from ");
     query.push(model.quoted_table());
     predicate::push(&mut query, &model, filters)?;
     query
-        .execute(connection, debug_logs)
+        .execute(connection)
         .await
         .map(clamp_affected)
-}
-
-pub(in crate::mssql) async fn consume_one(
-    connection: &mut MssqlClient,
-    schema: &MssqlSchema,
-    model_name: &str,
-    filters: &[MssqlFilter],
-    debug_logs: bool,
-) -> Result<Option<Map<String, Value>>, AuthError> {
-    let model = schema.model(model_name)?;
-    let mut query = MssqlStatement::new("delete top (1) from ");
-    query
-        .push(model.quoted_table())
-        .push(" output ")
-        .push(model.all_projection_for("deleted"));
-    predicate::push(&mut query, &model, filters)?;
-    query
-        .query(connection, debug_logs)
-        .await?
-        .into_iter()
-        .next()
-        .map(|row| model.decode_all(&row))
-        .transpose()
-}
-
-pub(in crate::mssql) async fn increment_one(
-    connection: &mut MssqlClient,
-    schema: &MssqlSchema,
-    model_name: &str,
-    filters: &[MssqlFilter],
-    increments: Map<String, Value>,
-    mut set: Map<String, Value>,
-    debug_logs: bool,
-) -> Result<Option<Map<String, Value>>, AuthError> {
-    let model = schema.model(model_name)?;
-    for field in increments.keys() {
-        set.remove(field);
-    }
-    if set.is_empty() && increments.is_empty() {
-        return find_one(
-            connection,
-            schema,
-            model_name,
-            filters,
-            &[],
-            debug_logs,
-        )
-        .await;
-    }
-    let mut query = MssqlStatement::new("update top (1) ");
-    query.push(model.quoted_table()).push(" set ");
-    let mut position = 0;
-    for (field, value) in set {
-        separator(&mut query, &mut position);
-        query
-            .push(model.quoted_column(&field)?)
-            .push(" = ")
-            .bind(model.encode(&field, value)?);
-    }
-    for (field, delta) in increments {
-        separator(&mut query, &mut position);
-        let column = model.quoted_column(&field)?;
-        query
-            .push(column)
-            .push(" = ")
-            .push(column)
-            .push(" + ")
-            .bind(model.encode(&field, delta)?);
-    }
-    query
-        .push(" output ")
-        .push(model.all_projection_for("inserted"));
-    predicate::push(&mut query, &model, filters)?;
-    query
-        .query(connection, debug_logs)
-        .await?
-        .into_iter()
-        .next()
-        .map(|row| model.decode_all(&row))
-        .transpose()
 }
 
 fn decode_row(
@@ -353,13 +328,6 @@ fn push_writes(query: &mut MssqlStatement, writes: Vec<MssqlWrite>) {
     }
 }
 
-fn separator(query: &mut MssqlStatement, position: &mut usize) {
-    if *position > 0 {
-        query.push(", ");
-    }
-    *position += 1;
-}
-
 fn integer_parameter(value: u64) -> Result<crate::mssql::value::MssqlValue, AuthError> {
     i64::try_from(value)
         .map(|value| crate::mssql::value::MssqlValue::Integer(Some(value)))
@@ -386,3 +354,6 @@ mod tests {
         );
     }
 }
+mod atomic;
+
+pub(in crate::mssql) use atomic::{consume_latest, consume_one, increment_one};
