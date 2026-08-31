@@ -1,5 +1,5 @@
 use super::http::auth_error;
-use crate::{AuthError, AuthService, TrustedOrigin, origin::safe_relative_callback};
+use crate::{AuthError, AuthService, origin::safe_relative_callback};
 use axum::{
     body::{Body, Bytes, to_bytes},
     extract::{Request, State},
@@ -13,6 +13,10 @@ use std::sync::Arc;
 const MAX_INSPECTED_BODY_BYTES: usize = 1024 * 1024;
 
 mod plugin;
+mod request_origin;
+
+pub(super) use request_origin::{origin_is_trusted, request_origin};
+use request_origin::request_host_origin;
 
 pub(super) async fn validate_browser_request(
     State(service): State<Arc<AuthService>>,
@@ -64,7 +68,8 @@ pub(super) async fn validate_browser_request(
         return auth_error(AuthError::CrossSiteNavigationLogin);
     }
 
-    let supplied_origin = request_origin(headers);
+    let origin_header = header_text(headers, header::ORIGIN.as_str());
+    let supplied_origin = origin_header.or_else(|| header_text(headers, "referer"));
     let server_to_server = is_server_to_server_oauth_path(path, service.base_path())
         || is_agent_auth_machine_path(&service, path);
     let browser_metadata_present = supplied_origin.is_some()
@@ -72,7 +77,14 @@ pub(super) async fn validate_browser_request(
             && (fetch_site.is_some() || fetch_mode.is_some() || fetch_dest.is_some()));
     let uses_cookies = headers.contains_key(header::COOKIE);
     if !is_oauth_callback && !uses_accepted_bearer && (browser_metadata_present || uses_cookies) {
-        let Some(origin) = supplied_origin.filter(|origin| *origin != "null") else {
+        let inferred_origin = (origin_header == Some("null") && fetch_site == Some("same-origin"))
+            .then(|| request_host_origin(&service, headers))
+            .flatten();
+        let Some(origin) = inferred_origin
+            .as_deref()
+            .or(supplied_origin)
+            .filter(|origin| *origin != "null")
+        else {
             return auth_error(AuthError::MissingOrigin);
         };
         if !origin_is_trusted(&service, headers, origin) {
@@ -377,30 +389,6 @@ fn is_json(headers: &HeaderMap) -> bool {
 
 fn is_safe_method(method: &Method) -> bool {
     matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS)
-}
-
-fn request_origin(headers: &HeaderMap) -> Option<&str> {
-    header_text(headers, header::ORIGIN.as_str()).or_else(|| header_text(headers, "referer"))
-}
-
-fn origin_is_trusted(service: &AuthService, headers: &HeaderMap, candidate: &str) -> bool {
-    service.trusts_origin(candidate)
-        || request_host_origin(service, headers).is_some_and(|origin| {
-            TrustedOrigin::parse(&origin).is_ok_and(|trusted| trusted.matches(candidate))
-        })
-}
-
-fn request_host_origin(service: &AuthService, headers: &HeaderMap) -> Option<String> {
-    let host = header_text(headers, header::HOST.as_str())?;
-    if host.contains(['/', '\\', '@']) {
-        return None;
-    }
-    let scheme = if service.cookie_secure() {
-        "https"
-    } else {
-        "http"
-    };
-    Some(format!("{scheme}://{host}"))
 }
 
 fn header_text<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {

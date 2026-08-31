@@ -318,13 +318,14 @@ pub(crate) fn callback_error_code(error: &AuthError) -> &'static str {
 }
 
 pub(crate) fn redirect_error(base: &str, error: &str, description: Option<&str>) -> Response {
-    let mut suffix = url::form_urlencoded::Serializer::new(String::new());
-    suffix.append_pair("error", error);
+    let mut params = vec![("error", error)];
     if let Some(description) = description {
-        suffix.append_pair("error_description", description);
+        params.push(("error_description", description));
     }
-    let separator = if base.contains('?') { '&' } else { '?' };
-    redirect(&format!("{base}{separator}{}", suffix.finish()))
+    match crate::url_composition::append_query_params(base, &params) {
+        Ok(location) => redirect(&location),
+        Err(error) => auth_error(error),
+    }
 }
 
 pub(crate) fn redirect(location: &str) -> Response {
@@ -343,4 +344,24 @@ fn clear_state_cookie(service: &AuthService, response: Response) -> Response {
             Some(0),
         ),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redirect_error;
+    use axum::http::header;
+
+    #[test]
+    fn oauth_error_query_is_inserted_before_the_fragment() {
+        let response = redirect_error(
+            "/login?lang=ko#step2",
+            "access_denied",
+            Some("consent required"),
+        );
+
+        assert_eq!(
+            response.headers()[header::LOCATION],
+            "/login?lang=ko&error=access_denied&error_description=consent+required#step2"
+        );
+    }
 }

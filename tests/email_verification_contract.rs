@@ -202,6 +202,23 @@ async fn send_route_and_redirect_errors_match_better_auth_casing() {
         "/error?error=INVALID_TOKEN"
     );
 
+    let redirected = app
+        .clone()
+        .oneshot(
+            Request::get(
+                "/api/auth/verify-email?token=invalid&callbackURL=%2Ferror%3Flang%3Dko%23retry",
+            )
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(redirected.status(), StatusCode::FOUND);
+    assert_eq!(
+        redirected.headers()[header::LOCATION],
+        "/error?lang=ko&error=INVALID_TOKEN#retry"
+    );
+
     let untrusted = app
         .clone()
         .oneshot(

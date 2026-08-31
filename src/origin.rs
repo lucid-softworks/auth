@@ -42,39 +42,34 @@ impl FromStr for TrustedOrigin {
 
 #[cfg(any(feature = "axum", test))]
 pub(crate) fn safe_relative_callback(value: &str) -> bool {
-    let Some(rest) = value.strip_prefix('/') else {
-        return false;
-    };
-    if rest.starts_with('/')
-        || rest.starts_with('\\')
-        || rest.starts_with("%2f")
-        || rest.starts_with("%5c")
+    if !value.starts_with('/')
+        || value.starts_with("//")
+        || value.contains('\\')
+        || value.chars().any(is_url_control)
     {
         return false;
     }
-    let (path, query) = rest
-        .split_once('?')
-        .map_or((rest, None), |(path, query)| (path, Some(query)));
-    valid_relative_path(path) && query.is_none_or(valid_relative_query)
-}
-
-#[cfg(any(feature = "axum", test))]
-fn valid_relative_path(value: &str) -> bool {
-    value.bytes().all(|byte| {
-        byte.is_ascii_alphanumeric()
-            || matches!(byte, b'_' | b'-' | b'.' | b'+' | b'/' | b'@' | b'{' | b'}')
-    })
-}
-
-#[cfg(any(feature = "axum", test))]
-fn valid_relative_query(value: &str) -> bool {
-    value.bytes().all(|byte| {
-        byte.is_ascii_alphanumeric()
-            || matches!(
-                byte,
-                b'_' | b'-' | b'.' | b'+' | b'/' | b'=' | b'&' | b'%' | b'@' | b'{' | b'}'
+    let path_end = value.find(['?', '#']).unwrap_or(value.len());
+    let path = &value.as_bytes()[..path_end];
+    if path.windows(3).any(|window| {
+        window[0] == b'%'
+            && matches!(window[1], b'2' | b'5')
+            && matches!(
+                (window[1], window[2].to_ascii_lowercase()),
+                (b'2', b'f') | (b'5', b'c')
             )
-    })
+    }) {
+        return false;
+    }
+    let reference = Url::parse("https://better-auth.invalid").expect("static URL is valid");
+    reference
+        .join(value)
+        .is_ok_and(|parsed| parsed.origin() == reference.origin())
+}
+
+#[cfg(any(feature = "axum", test))]
+fn is_url_control(character: char) -> bool {
+    matches!(character as u32, 0x00..=0x1f | 0x7f..=0x9f)
 }
 
 fn matches_origin_pattern(candidate: &str, pattern: &str) -> bool {
@@ -317,6 +312,11 @@ mod tests {
             "/dashboard",
             "/a/b?next=%2Fhome",
             "/done/{CHECKOUT_SESSION_ID}",
+            "/docs/!$&'()*+,;=:@~",
+            "/café/profile",
+            "/search?next=/settings?tab=security",
+            "/profile#section?tab=security",
+            "/#%2f%2fevil.com",
         ] {
             assert!(safe_relative_callback(value), "rejected {value}");
         }
@@ -327,10 +327,15 @@ mod tests {
             "/%2Fevil.test",
             "/%5cevil.test",
             "/safe%2f..%2f%2fevil.test",
-            "/path#fragment",
+            "/safe/%2F/evil.test",
+            "/safe/%5C/evil.test",
+            "/\0evil.test",
+            "/\u{7f}evil.test",
+            "/\u{85}evil.test",
             "https://evil.test",
         ] {
             assert!(!safe_relative_callback(value), "accepted {value}");
         }
     }
+
 }
