@@ -60,10 +60,12 @@ pub(super) async fn finish(
         link: None,
         anonymous_user_id: None,
     };
+    let provider_reference = super::super::super::provider_reference::current(&provider);
     super::complete_sign_in(
         service,
         plugin,
         &provider,
+        provider_reference,
         headers,
         provider_id,
         user_info,

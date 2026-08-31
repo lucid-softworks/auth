@@ -1,8 +1,7 @@
+mod resolution;
+
 use super::{AuthService, SignInResult};
-use crate::{
-    AuthError, AuthUser, AuthenticationMethod, DatabaseModel, DatabaseRecord, OAuthAccount,
-    OAuthTokens, OAuthUserInfo,
-};
+use crate::{AuthError, AuthenticationMethod, OAuthAccount, OAuthTokens, OAuthUserInfo};
 use chrono::Utc;
 
 pub(super) struct OAuthSignInPolicy {
@@ -11,31 +10,17 @@ pub(super) struct OAuthSignInPolicy {
     pub disable_sign_up: bool,
     pub require_email_verification: bool,
     pub override_user_info: bool,
+    pub selected_user: Option<OAuthSelectedUser>,
+    pub require_exact_account_binding: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct OAuthSelectedUser {
+    pub user_id: String,
+    pub update_profile: bool,
 }
 
 impl AuthService {
-    #[cfg(feature = "axum")]
-    pub(crate) async fn finish_sso_sign_in(
-        &self,
-        provider_id: &str,
-        user_info: OAuthUserInfo,
-        state: super::OAuthState,
-        disable_implicit_sign_up: bool,
-        override_user_info: bool,
-        user_agent: Option<String>,
-    ) -> Result<super::OAuthCallbackResult, AuthError> {
-        self.finish_sso_sign_in_with_tokens(
-            provider_id,
-            OAuthTokens::default(),
-            user_info,
-            state,
-            disable_implicit_sign_up,
-            override_user_info,
-            user_agent,
-        )
-        .await
-    }
-
     #[cfg(feature = "axum")]
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn finish_sso_sign_in_with_tokens(
@@ -48,6 +33,34 @@ impl AuthService {
         override_user_info: bool,
         user_agent: Option<String>,
     ) -> Result<super::OAuthCallbackResult, AuthError> {
+        self.finish_sso_sign_in_with_resolution(
+            provider_id,
+            tokens,
+            user_info,
+            state,
+            disable_implicit_sign_up,
+            override_user_info,
+            None,
+            false,
+            user_agent,
+        )
+        .await
+    }
+
+    #[cfg(feature = "axum")]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn finish_sso_sign_in_with_resolution(
+        &self,
+        provider_id: &str,
+        tokens: OAuthTokens,
+        user_info: OAuthUserInfo,
+        state: super::OAuthState,
+        disable_implicit_sign_up: bool,
+        override_user_info: bool,
+        selected_user: Option<OAuthSelectedUser>,
+        require_exact_account_binding: bool,
+        user_agent: Option<String>,
+    ) -> Result<super::OAuthCallbackResult, AuthError> {
         let (session, is_new_user) = self
             .finish_oauth_sign_in_with_policy(
                 &OAuthSignInPolicy {
@@ -56,6 +69,8 @@ impl AuthService {
                     disable_sign_up: false,
                     require_email_verification: false,
                     override_user_info,
+                    selected_user,
+                    require_exact_account_binding,
                 },
                 tokens,
                 user_info,
@@ -92,6 +107,8 @@ impl AuthService {
                 disable_sign_up: provider.disable_sign_up(),
                 require_email_verification: provider.require_email_verification(),
                 override_user_info: provider.override_user_info(),
+                selected_user: None,
+                require_exact_account_binding: false,
             },
             tokens,
             user_info,
@@ -133,6 +150,12 @@ impl AuthService {
             }
             return Err(AuthError::EmailNotVerified);
         }
+        let expected_user_id = policy
+            .selected_user
+            .as_ref()
+            .map(|selected| selected.user_id.as_str())
+            .unwrap_or(&user.id)
+            .to_owned();
         let session = self
             .create_session(
                 user,
@@ -143,165 +166,15 @@ impl AuthService {
             )
             .await
             .map_err(|_| AuthError::OAuthUnableToCreateSession)?;
-        Ok((session, is_new_user))
-    }
-
-    async fn resolve_oauth_user(
-        &self,
-        policy: &OAuthSignInPolicy,
-        user_info: OAuthUserInfo,
-        mut account: OAuthAccount,
-        request_sign_up: bool,
-        now: chrono::DateTime<Utc>,
-    ) -> Result<(AuthUser, bool), AuthError> {
-        if let Some(owner) = self
-            .store
-            .find_oauth_account_owner(&user_info.issuer, &user_info.account_id)
-            .await?
+        if policy.require_exact_account_binding
+            && session.session.session.user_id != expected_user_id
         {
-            account.id.clone_from(&owner.account.id);
-            account.user_id.clone_from(&owner.user.id);
-            account.created_at = owner.account.created_at;
-            super::account_lifecycle::preserve_oauth_tokens(&mut account, &owner.account);
-            let account = self
-                .prepare_account_update(account)
-                .await
-                .map_err(|_| AuthError::OAuthUnableToUpdateAccount)?;
-            let account = self
-                .store
-                .update_oauth_account_tokens(account)
-                .await
-                .map_err(|_| AuthError::OAuthUnableToUpdateAccount)?;
-            self.finish_account_update(&account)
-                .await
-                .map_err(|_| AuthError::OAuthUnableToUpdateAccount)?;
-            let user = if policy.override_user_info {
-                self.override_oauth_user_info(owner.user, &user_info)
-                    .await?
-            } else {
-                owner.user
-            };
-            self.persist_oauth_email_verification(&user, &user_info)
-                .await?;
-            return Ok((user, false));
+            return Err(sso_conflict(
+                "session_hook_user_conflict",
+                "Session hook changed the selected user",
+            ));
         }
-        if let Some(user) = self.store.find_user_by_email(&user_info.email).await? {
-            let trusted = self
-                .config
-                .trusted_social_providers
-                .iter()
-                .any(|trusted| trusted == &policy.provider_id);
-            let linking = &self.config.account.account_linking;
-            if !linking.enabled
-                || linking.disable_implicit_linking
-                || (!trusted && !user_info.email_verified)
-                || (linking.require_local_email_verified && !user.email_verified)
-            {
-                return Err(AuthError::OAuthAccountNotLinked);
-            }
-            account.user_id = user.id.clone();
-            let account = self.prepare_account_create(account).await?;
-            let account = self.store.link_oauth_account(account).await?;
-            self.finish_account_create(&account).await?;
-            self.persist_oauth_email_verification(&user, &user_info)
-                .await?;
-            return Ok((user, false));
-        }
-        self.create_social_user(policy, user_info, account, request_sign_up, now)
-            .await
-    }
-
-    async fn override_oauth_user_info(
-        &self,
-        mut user: AuthUser,
-        info: &OAuthUserInfo,
-    ) -> Result<AuthUser, AuthError> {
-        let additional_fields =
-            self.update_additional_fields(DatabaseModel::User, info.additional_fields.clone())?;
-        user = self
-            .store
-            .update_user_profile(
-                &user.id,
-                crate::UserProfileUpdate {
-                    name: Some(info.name.clone()),
-                    image: Some(info.image.clone()),
-                    additional_fields,
-                    ..crate::UserProfileUpdate::default()
-                },
-            )
-            .await?
-            .ok_or_else(|| AuthError::Storage("OAuth user disappeared during update".into()))?;
-        if user.email != info.email {
-            user = self
-                .store
-                .update_user_email(&user.id, &user.email, &info.email, info.email_verified)
-                .await?
-                .ok_or_else(|| AuthError::Storage("OAuth user disappeared during update".into()))?;
-        }
-        Ok(user)
-    }
-
-    async fn persist_oauth_email_verification(
-        &self,
-        user: &AuthUser,
-        user_info: &OAuthUserInfo,
-    ) -> Result<(), AuthError> {
-        if user.email_verified || !user_info.email_verified || user.email != user_info.email {
-            return Ok(());
-        }
-        let mut candidate = user.clone();
-        candidate.email_verified = true;
-        candidate.updated_at = Utc::now();
-        let candidate = self.prepare_user_update(user, candidate).await?;
-        let updated = self
-            .store
-            .update_user_email(
-                &user.id,
-                &user.email,
-                &candidate.email,
-                candidate.email_verified,
-            )
-            .await?
-            .ok_or_else(|| AuthError::Storage("OAuth user disappeared during update".into()))?;
-        self.after_database_update(&DatabaseRecord::User(updated))
-            .await
-    }
-
-    async fn create_social_user(
-        &self,
-        policy: &OAuthSignInPolicy,
-        user_info: OAuthUserInfo,
-        mut account: OAuthAccount,
-        request_sign_up: bool,
-        now: chrono::DateTime<Utc>,
-    ) -> Result<(AuthUser, bool), AuthError> {
-        if policy.disable_sign_up || (policy.disable_implicit_sign_up && !request_sign_up) {
-            return Err(AuthError::OAuthSignupDisabled);
-        }
-        let user = AuthUser {
-            id: String::new(),
-            username: None,
-            display_username: None,
-            name: user_info.name,
-            email: user_info.email,
-            email_verified: user_info.email_verified,
-            image: user_info.image,
-            additional_fields: self
-                .create_additional_fields(DatabaseModel::User, user_info.additional_fields)?,
-            role: self.default_user_role(),
-            is_anonymous: false,
-            banned: false,
-            ban_reason: None,
-            ban_expires: None,
-            created_at: now,
-            updated_at: now,
-        };
-        account.user_id.clear();
-        let owner = self
-            .create_user_and_oauth_account(user, account)
-            .await
-            .map_err(|_| AuthError::OAuthUnableToCreateUser)?;
-        Ok((owner.user, true))
+        Ok((session, is_new_user))
     }
 
     pub(super) fn oauth_account(
@@ -329,4 +202,8 @@ impl AuthService {
             updated_at: now,
         })
     }
+}
+
+fn sso_conflict(code: &'static str, message: &'static str) -> AuthError {
+    AuthError::SsoAuthenticationConflict { code, message }
 }

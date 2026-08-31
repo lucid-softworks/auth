@@ -110,6 +110,8 @@ pub(crate) use email_password::valid_email;
 pub use email_password::{EmailSignUpInput, EmailSignUpResult};
 pub use email_verification::EmailVerificationResult;
 pub use oauth::{SocialIdTokenInput, SocialSignInInput, SocialSignInResult};
+#[cfg(feature = "axum")]
+pub(crate) use oauth_identity::OAuthSelectedUser;
 pub use oauth_state::OAuthCallbackResult;
 #[cfg(feature = "axum")]
 pub(crate) use oauth_state::OAuthState;
@@ -137,6 +139,10 @@ pub struct AuthService {
 }
 
 impl AuthService {
+    pub(crate) fn database_store(&self) -> Arc<dyn AuthStore> {
+        self.store.clone()
+    }
+
     pub fn new(store: Arc<dyn AuthStore>, config: AuthConfig) -> Self {
         Self::try_new(store, config)
             .unwrap_or_else(|error| panic!("invalid authentication configuration: {error}"))

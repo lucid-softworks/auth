@@ -39,6 +39,69 @@ pub trait DatabaseTransaction: Send + Sync {
         id: &str,
     ) -> Result<Option<DatabaseRecord>, AuthError>;
 
+    async fn find_oauth_account_owner(
+        &self,
+        issuer: &str,
+        account_id: &str,
+    ) -> Result<Option<crate::OAuthAccountOwner>, AuthError> {
+        let equal = |field: &str, value: &str| DashAdapterWhere {
+            field: field.into(),
+            value: Value::String(value.into()),
+            operator: crate::DashAdapterOperator::Eq,
+            connector: None,
+        };
+        let Some(account) = self
+            .find_records(
+                "account",
+                &[equal("issuer", issuer), equal("accountId", account_id)],
+                Some(1),
+                0,
+                None,
+                &[],
+            )
+            .await?
+            .into_iter()
+            .next()
+        else {
+            return Ok(None);
+        };
+        let account: OAuthAccount = serde_json::from_value(Value::Object(account))
+            .map_err(|error| AuthError::Storage(format!("invalid transaction account row: {error}")))?;
+        let Some(DatabaseRecord::User(user)) = self
+            .find_by_id(DatabaseModel::User, &account.user_id)
+            .await?
+        else {
+            return Err(AuthError::Storage("OAuth account owner is missing".into()));
+        };
+        Ok(Some(crate::OAuthAccountOwner { account, user }))
+    }
+
+    async fn find_user_by_email(&self, email: &str) -> Result<Option<AuthUser>, AuthError> {
+        let filter = DashAdapterWhere {
+            field: "email".into(),
+            value: Value::String(email.to_lowercase()),
+            operator: crate::DashAdapterOperator::Eq,
+            connector: None,
+        };
+        let Some(user) = self
+            .find_records("user", &[filter], Some(1), 0, None, &["id".into()])
+            .await?
+            .into_iter()
+            .next()
+        else {
+            return Ok(None);
+        };
+        let id = user
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| AuthError::Storage("transaction user row has no id".into()))?;
+        match self.find_by_id(DatabaseModel::User, id).await? {
+            Some(DatabaseRecord::User(user)) => Ok(Some(user)),
+            Some(_) => unreachable!("transaction lookup preserves its model"),
+            None => Ok(None),
+        }
+    }
+
     async fn create(&self, operation: DatabaseCreateOperation)
     -> Result<DatabaseRecord, AuthError>;
 

@@ -346,6 +346,15 @@ impl AuthStore for MemoryStore {
         &self,
         session: crate::store::DatabaseCreate<AuthSession>,
     ) -> Result<AuthSession, AuthError> {
+        if let Some(transaction) = crate::database_hooks::current_transaction() {
+            return match transaction
+                .create(crate::DatabaseCreateOperation::Session(session))
+                .await?
+            {
+                crate::DatabaseRecord::Session(session) => Ok(session),
+                _ => unreachable!("transaction create preserves its model"),
+            };
+        }
         session::create(self, session).await
     }
 

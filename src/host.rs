@@ -248,8 +248,10 @@ pub use sso::{
     KeyEncryptionAlgorithm, MemorySsoStore, NewSsoProvider, SamlAlgorithmError,
     SamlAlgorithmOptions, SamlConfigurationError, SamlServiceProviderPolicy, SignatureAlgorithm,
     SsoDefaultProvider, SsoOptions, SsoPlugin, SsoPrivateKey, SsoPrivateKeyRequest,
-    SsoPrivateKeyResolver, SsoProvider, SsoProviderUpdate, SsoStore, SsoStoreError,
-    SsoProvisioningInput, SsoUserProvisioner, VERSION as SSO_VERSION,
+    SsoPrivateKeyResolver, SsoProvider, SsoProviderReference, SsoProviderSource,
+    SsoProviderUpdate, SsoProviderUserProfile, SsoProvisioningInput, SsoStore, SsoStoreError,
+    SsoUserProfilePolicy, SsoUserProvisioner, SsoUserResolution, SsoUserResolutionContext,
+    SsoUserResolutionInput, SsoUserResolver, VERSION as SSO_VERSION,
 };
 #[cfg(feature = "axum")]
 pub use sso::{

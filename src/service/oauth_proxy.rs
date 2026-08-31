@@ -68,6 +68,8 @@ impl AuthService {
                 disable_sign_up,
                 require_email_verification,
                 override_user_info: false,
+                selected_user: None,
+                require_exact_account_binding: false,
             },
             tokens,
             user_info,
