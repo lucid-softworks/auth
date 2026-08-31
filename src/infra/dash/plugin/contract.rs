@@ -6,14 +6,14 @@ fn descriptor_owns_the_exact_implemented_family() {
     let descriptor = DashPlugin::default().descriptor();
     assert_eq!(descriptor.id, "dash");
     assert_eq!(descriptor.version, "0.4.3");
-    assert_eq!(descriptor.endpoints.len(), 65);
+    assert_eq!(descriptor.endpoints.len(), 83);
     assert_eq!(
         descriptor
             .endpoints
             .iter()
             .filter(|endpoint| endpoint.method == PluginHttpMethod::Get)
             .count(),
-        25
+        29
     );
     assert_eq!(
         descriptor
@@ -21,7 +21,7 @@ fn descriptor_owns_the_exact_implemented_family() {
             .iter()
             .filter(|endpoint| endpoint.method == PluginHttpMethod::Post)
             .count(),
-        40
+        54
     );
 }
 
@@ -56,6 +56,62 @@ fn activity_interval_defaults_to_five_minutes() {
     assert_eq!(
         DashActivityTracking::default().update_interval,
         Duration::from_millis(300_000)
+    );
+}
+
+#[test]
+fn managed_directory_defaults_and_schema_match_the_artifact() {
+    let defaults = DashManagedDirectorySync::default();
+    assert!(!defaults.enabled);
+    assert!(defaults.sso_pairing);
+    assert!(defaults.membership_projection.enabled);
+    assert_eq!(defaults.membership_projection.role, "member");
+    assert!(DashPlugin::default().schema().is_empty());
+
+    let plugin = DashPlugin::new(DashOptions {
+        managed_directory_sync: DashManagedDirectorySync {
+            enabled: true,
+            ..defaults
+        },
+        ..DashOptions::default()
+    });
+    let schema = plugin.schema();
+    assert_eq!(schema.len(), 2);
+    assert_eq!(schema[0].logical_name, "directorySyncConnection");
+    assert_eq!(schema[0].fields.len(), 23);
+    assert_eq!(schema[1].logical_name, "directorySyncMembershipProvenance");
+    assert_eq!(schema[1].fields.len(), 8);
+    assert_eq!(
+        schema[0].fields["revision"].static_default_value(),
+        Some(&serde_json::json!(0))
+    );
+    assert!(!schema[0].fields["serializedSsoPairing"].returned);
+    assert!(schema[1].fields["memberId"].unique);
+}
+
+#[test]
+fn directory_control_plane_descriptor_has_the_exact_pinned_inventory() {
+    assert_eq!(endpoints::DIRECTORY_CONTROL_PLANE.len(), 18);
+    assert_eq!(
+        endpoints::DIRECTORY_CONTROL_PLANE
+            .iter()
+            .filter(|endpoint| endpoint.method == PluginHttpMethod::Get)
+            .count(),
+        4
+    );
+    assert_eq!(
+        endpoints::DIRECTORY_CONTROL_PLANE
+            .iter()
+            .filter(|endpoint| endpoint.method == PluginHttpMethod::Post)
+            .count(),
+        14
+    );
+    assert_eq!(
+        endpoints::DIRECTORY_CONTROL_PLANE
+            .iter()
+            .filter(|endpoint| endpoint.path == "/dash/organization/:id/directories")
+            .count(),
+        2
     );
 }
 

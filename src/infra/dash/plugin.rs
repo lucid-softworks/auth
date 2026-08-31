@@ -13,13 +13,16 @@ use std::{borrow::Cow, fmt, sync::Arc};
 mod contract;
 #[cfg(feature = "axum")]
 mod activity;
+mod directory_schema;
 mod endpoints;
 mod options;
 
 #[cfg(feature = "axum")]
 use activity::activity_was_recent;
 
-pub use options::{DashActivityTracking, DashOptions};
+pub use options::{
+    DashActivityTracking, DashDirectoryMembershipProjection, DashManagedDirectorySync, DashOptions,
+};
 
 const ENDPOINTS: &[PluginEndpoint] = &[
     endpoint(PluginHttpMethod::Get, "/dash/config", "getDashConfig"),
@@ -218,6 +221,7 @@ impl AuthPlugin for DashPlugin {
     fn descriptor(&self) -> PluginDescriptor {
         let mut endpoints = ENDPOINTS.to_vec();
         endpoints.extend_from_slice(endpoints::MANAGEMENT);
+        endpoints.extend_from_slice(endpoints::DIRECTORY_CONTROL_PLANE);
         PluginDescriptor {
             id: "dash",
             display_name: "Better Auth Infrastructure Dash",
@@ -256,17 +260,19 @@ impl AuthPlugin for DashPlugin {
     }
 
     fn schema(&self) -> Vec<PluginSchemaTable> {
-        self.options
-            .activity_tracking
-            .enabled
-            .then(|| {
+        let mut schema = Vec::new();
+        if self.options.activity_tracking.enabled {
+            schema.push(
                 PluginSchemaTable::new("user").field(
                     "lastActiveAt",
                     AdditionalField::new(AdditionalFieldType::Date).optional(),
-                )
-            })
-            .into_iter()
-            .collect()
+                ),
+            );
+        }
+        if self.options.managed_directory_sync.enabled {
+            schema.extend(directory_schema::tables());
+        }
+        schema
     }
 
     fn request_origin_fields(
