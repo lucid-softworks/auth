@@ -1,4 +1,5 @@
 mod config;
+mod guard;
 
 use super::{sanitize, support};
 use crate::{AuthService, SsoPlugin, SsoStoreError};
@@ -42,26 +43,27 @@ pub(super) async fn update(
         Ok(prepared) => prepared,
         Err(response) => return *response,
     };
-    let provider = match plugin
-        .store()
-        .update_guarded(
-            &provider.id,
-            &provider.provider_id,
-            prepared.update,
-            prepared.identity_boundary_changed,
-        )
-        .await
+    let provider = match guard::update(
+        &service,
+        &plugin,
+        &provider,
+        prepared.update,
+        prepared.identity_boundary_changed,
+    )
+    .await
     {
         Ok(provider) => provider,
-        Err(SsoStoreError::LinkedAccounts) => {
+        Err(crate::AuthError::SsoStore(SsoStoreError::LinkedAccounts)) => {
             return support::error(
                 StatusCode::CONFLICT,
                 "CONFLICT",
                 "Cannot change SSO provider identity fields while linked accounts exist",
             );
         }
-        Err(SsoStoreError::NotFound) => return not_found(),
-        Err(error) => return support::storage(error),
+        Err(crate::AuthError::SsoStore(SsoStoreError::NotFound)) => return not_found(),
+        Err(crate::AuthError::SsoProviderMutationRejected) => return mutation_rejected(),
+        Err(crate::AuthError::SsoStore(error)) => return support::storage(error),
+        Err(error) => return support::error(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR", error.to_string()),
     };
     Json(sanitize::provider(&provider, &support::base_url(&service))).into_response()
 }
@@ -77,17 +79,23 @@ pub(super) async fn delete(
         Ok(authorized) => authorized,
         Err(response) => return *response,
     };
-    match plugin
-        .store()
-        .delete_with_accounts(&provider.id, &provider.provider_id)
-        .await
-    {
+    match guard::delete(&service, &plugin, &provider).await {
         Ok(true) => Json(json!({"success": true})).into_response(),
-        Ok(false) | Err(SsoStoreError::NotFound) => not_found(),
-        Err(error) => support::storage(error),
+        Ok(false) | Err(crate::AuthError::SsoStore(SsoStoreError::NotFound)) => not_found(),
+        Err(crate::AuthError::SsoProviderMutationRejected) => mutation_rejected(),
+        Err(crate::AuthError::SsoStore(error)) => support::storage(error),
+        Err(error) => support::error(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR", error.to_string()),
     }
 }
 
 fn not_found() -> Response {
     support::error(StatusCode::NOT_FOUND, "NOT_FOUND", "Provider not found")
+}
+
+fn mutation_rejected() -> Response {
+    support::error(
+        StatusCode::CONFLICT,
+        "SSO_PROVIDER_MUTATION_REJECTED",
+        "SSO provider mutation is not allowed",
+    )
 }
