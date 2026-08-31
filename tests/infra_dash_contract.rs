@@ -778,7 +778,7 @@ async fn dash_sso_listing_is_tenant_bound_and_never_returns_secrets() {
         issuer: "https://foreign.example.com".into(),
         oidc_config: None,
         saml_config: None,
-        user_id,
+        user_id: user_id.clone(),
         provider_id: "foreign".into(),
         organization_id: Some("foreign-organization".into()),
         domain: "foreign.example.com".into(),
@@ -792,6 +792,76 @@ async fn dash_sso_listing_is_tenant_bound_and_never_returns_secrets() {
         0,
         json!({"organizationId": organization_id.clone()}),
     );
+
+    let created_provider = post_json(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/sso-provider/create"),
+        &organization_token,
+        json!({
+            "providerId": "dash-created",
+            "domain": "created.example.com",
+            "protocol": "OIDC",
+            "userId": user_id,
+            "oidcConfig": {
+                "clientId": "created-client",
+                "clientSecret": "created-secret",
+                "issuer": "https://created.example.com",
+                "authorizationEndpoint": "https://created.example.com/authorize",
+                "tokenEndpoint": "https://created.example.com/token",
+                "jwksEndpoint": "https://created.example.com/jwks"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(created_provider.status(), StatusCode::OK);
+    let created_provider = json_body(created_provider).await;
+    assert_eq!(created_provider["provider"]["providerId"], "dash-created");
+    assert_eq!(
+        created_provider["domainVerification"]["verificationToken"]
+            .as_str()
+            .unwrap()
+            .len(),
+        24
+    );
+    assert!(!created_provider.to_string().contains("created-secret"));
+
+    let updated_provider = post_json(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/sso-provider/update"),
+        &organization_token,
+        json!({
+            "providerId": "dash-created",
+            "domain": "updated.example.com",
+            "protocol": "OIDC",
+            "oidcConfig": {
+                "clientId": "updated-client",
+                "issuer": "https://created.example.com",
+                "authorizationEndpoint": "https://created.example.com/authorize",
+                "tokenEndpoint": "https://created.example.com/token",
+                "jwksEndpoint": "https://created.example.com/jwks"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(updated_provider.status(), StatusCode::OK);
+    let stored_created = sso
+        .find_by_provider_id("dash-created")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored_created.domain, "updated.example.com");
+    assert_eq!(
+        stored_created.oidc_config.as_ref().unwrap()["clientSecret"],
+        "created-secret"
+    );
+    let deleted_created = post_json(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/sso-provider/delete"),
+        &organization_token,
+        json!({"providerId": "dash-created"}),
+    )
+    .await;
+    assert_eq!(deleted_created.status(), StatusCode::OK);
 
     let listed = request(
         &app,

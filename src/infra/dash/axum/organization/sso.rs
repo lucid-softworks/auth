@@ -11,6 +11,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 pub(super) mod domain;
+pub(super) mod write;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

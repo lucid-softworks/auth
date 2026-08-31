@@ -1,6 +1,6 @@
 use crate::{AuthError, AuthService, SsoPlugin, SsoProvider, SsoProviderUpdate};
 
-pub(super) async fn update(
+pub(crate) async fn update(
     service: &AuthService,
     plugin: &SsoPlugin,
     accepted: &SsoProvider,
