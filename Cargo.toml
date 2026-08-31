@@ -32,6 +32,7 @@ postgres = [
     "sqlx/uuid",
 ]
 mysql = ["dep:sqlx", "sqlx/chrono", "sqlx/json", "sqlx/macros", "sqlx/mysql"]
+mongodb = ["dep:mongodb"]
 sqlite = ["dep:sqlx", "sqlx/chrono", "sqlx/json", "sqlx/sqlite"]
 d1 = ["dep:worker"]
 
@@ -87,6 +88,7 @@ samlet = { version = "0.5", default-features = false, features = ["crypto-rustcr
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 hickory-resolver = { version = "0.26.1", optional = true, features = ["system-config", "tokio"] }
 josekit = "0.10.3"
+mongodb = { version = "3.8.2", optional = true }
 tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation"] }
@@ -124,6 +126,10 @@ required-features = ["axum", "sqlite"]
 [[example]]
 name = "http_mysql"
 required-features = ["axum", "mysql"]
+
+[[example]]
+name = "http_mongodb"
+required-features = ["axum", "mongodb"]
 
 [[test]]
 name = "access_contract"
@@ -409,6 +415,10 @@ required-features = ["sqlite"]
 [[test]]
 name = "mysql_adapter_contract"
 required-features = ["mysql"]
+
+[[test]]
+name = "mongodb_adapter_contract"
+required-features = ["mongodb"]
 
 [[test]]
 name = "d1_adapter_contract"

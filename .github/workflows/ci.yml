@@ -42,6 +42,15 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      mongodb:
+        image: mongo:8.2
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping:1}).ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -72,6 +81,27 @@ jobs:
           MYSQL_ADMIN_DATABASE_URL: mysql://root:root@127.0.0.1:3306/mysql
           MYSQL_DATABASE_URL: mysql://user:password@127.0.0.1:3306/lucid_auth_test
         run: cargo test --no-default-features --features mysql --test mysql_adapter_contract -- --ignored --test-threads=1
+      - name: Lint native MongoDB storage
+        run: cargo clippy --no-default-features --features mongodb --lib --test mongodb_adapter_contract -- -D warnings
+      - name: Test native MongoDB storage
+        run: cargo test --no-default-features --features mongodb --lib --test mongodb_adapter_contract
+      - name: Start MongoDB replica-set fixture
+        run: |
+          docker run --detach --name lucid-auth-mongodb-rs --publish 27018:27018 mongo:8.2 --port 27018 --replSet rs0 --bind_ip_all
+          for attempt in {1..30}; do
+            docker exec lucid-auth-mongodb-rs mongosh --quiet --port 27018 --eval 'db.adminCommand({ping:1}).ok' && break
+            sleep 1
+          done
+          docker exec lucid-auth-mongodb-rs mongosh --quiet --port 27018 --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27018"}]})'
+          for attempt in {1..30}; do
+            test "$(docker exec lucid-auth-mongodb-rs mongosh --quiet --port 27018 --eval 'db.hello().isWritablePrimary')" = true && break
+            sleep 1
+          done
+      - name: Test live MongoDB storage
+        env:
+          MONGODB_REPLICA_SET_URI: mongodb://127.0.0.1:27018/?replicaSet=rs0
+          MONGODB_STANDALONE_URI: mongodb://127.0.0.1:27017
+        run: cargo test --no-default-features --features mongodb --test mongodb_adapter_contract -- --ignored --test-threads=1
       - name: Lint native Cloudflare D1 storage
         run: cargo clippy --no-default-features --features d1 --lib --test d1_adapter_contract -- -D warnings
       - name: Test native Cloudflare D1 storage
@@ -96,6 +126,11 @@ jobs:
         env:
           MYSQL_ORACLE_DATABASE_URL: mysql://user:password@127.0.0.1:3306/lucid_auth_test
         run: npm run test:mysql-adapter --prefix conformance
+      - name: Test the pinned Better Auth MongoDB oracle
+        env:
+          MONGODB_ORACLE_REPLICA_SET_URI: mongodb://127.0.0.1:27018/?replicaSet=rs0
+          MONGODB_ORACLE_STANDALONE_URI: mongodb://127.0.0.1:27017
+        run: npm run test:mongodb-adapter --prefix conformance
       - name: Verify the package
         run: cargo package
 

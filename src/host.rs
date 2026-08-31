@@ -82,6 +82,8 @@ pub mod axum;
 pub mod d1;
 #[cfg(feature = "mysql")]
 pub mod mysql;
+#[cfg(feature = "mongodb")]
+pub mod mongodb;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 pub mod protocol;

@@ -16,6 +16,8 @@ plugin: the client plugin and the native server plugin must both be supported.
 | PostgreSQL | `16` in CI |
 | MySQL fixture | `mysql:8.4` in CI |
 | MySQL adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1` |
+| MongoDB fixture | `mongo:8.2` standalone and single-node replica set in CI |
+| MongoDB adapter | `@better-auth/mongo-adapter` `1.7.1`; Node driver `7.1.0` oracle |
 | SQLite adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1` |
 | Cloudflare D1 adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1` |
 
@@ -29,7 +31,7 @@ lucid-auth = { git = "https://github.com/lucid-softworks/auth", rev = "d4d0e9961
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
 ```
 
-Enable `sqlite`, `mysql`, or `postgres` for a bundled SQLx store. The feature
+Enable `sqlite`, `mysql`, `mongodb`, or `postgres` for a bundled store. The feature
 surface is intentionally small:
 
 | Cargo feature | Default | Adds |
@@ -38,6 +40,7 @@ surface is intentionally small:
 | `sqlite` | no | Native local `SqliteStore` and additive schema migration |
 | `d1` | no | Native non-transactional `D1Store` and Workers D1 binding |
 | `mysql` | no | Native SQLx `MySqlStore` and additive schema migration |
+| `mongodb` | no | Native official-driver `MongoStore`, lazy indexes, optional transactions |
 | `postgres` | no | `PostgresStore`, bound-schema migration, Lucid extension operations |
 
 `--no-default-features` is useful only for native in-process service calls; it
@@ -216,6 +219,44 @@ executing them. Runtime one-time claims and increments use `FOR UPDATE` on the
 exact selected row. Values remain bound, configured identifiers are quoted,
 and the production implementation does not run mysql2, Kysely, Node, or a
 helper process.
+
+## MongoDB quickstart
+
+The optional native MongoDB backend targets `@better-auth/mongo-adapter`
+`1.7.1` through the official Rust driver. CI uses `mongo:8.2` as a reproducible
+standalone and single-node replica-set fixture; this is not a claimed MongoDB
+server-version range.
+
+For local standalone development, explicitly disable multi-operation
+transactions as required by the upstream adapter:
+
+```sh
+docker run --rm --name lucid-auth-mongodb \
+  -p 27017:27017 mongo:8.2
+
+export MONGODB_URI="mongodb://127.0.0.1:27017"
+export MONGODB_DATABASE="lucid_auth"
+export MONGODB_TRANSACTIONS=false
+cargo run --example http_mongodb --features axum,mongodb
+```
+
+Omit `MONGODB_TRANSACTIONS` for a replica-set deployment. Supplying a client
+enables transactions by default; literal `false` disables them. The adapter
+does not probe topology or add retries, read/write concerns, or transaction
+options.
+
+MongoDB creates collections on first write. The store therefore has no schema
+migration ledger or destructive reconciliation. Before create, update,
+update-many, and increment operations it lazily creates only the table-level
+indexes resolved from the bound Better Auth schema. Successful definitions are
+deduplicated across store clones, while a failed creation remains retryable.
+Models with `disableMigrations` do not receive proactive indexes.
+
+Default and database-deferred IDs use BSON `ObjectId`, UUID mode uses BSON UUID,
+and callback IDs remain strings; public records, filters, references, and joins
+always expose IDs as strings. Arrays, documents, booleans, numbers, and dates
+stay native BSON values. Serial/numeric IDs are rejected. The production path
+does not run the Node driver, JavaScript, or a helper process.
 
 ## PostgreSQL quickstart
 
