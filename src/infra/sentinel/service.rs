@@ -1,6 +1,6 @@
 use super::{SecurityAction, SecurityOptions};
 use crate::infra::dash::{
-    DashApiClient, DashRequest, InfraConnectionOptions, ResolvedConnectionOptions,
+    DashApiClient, DashKvClient, DashRequest, InfraConnectionOptions, ResolvedConnectionOptions,
 };
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
@@ -64,8 +64,9 @@ pub struct CompromisedPasswordResult {
 #[derive(Clone, Debug)]
 pub struct SentinelSecurityClient {
     api: DashApiClient,
-    connection: ResolvedConnectionOptions,
-    security: SecurityOptions,
+    pub(super) kv: DashKvClient,
+    pub(super) connection: ResolvedConnectionOptions,
+    pub(super) security: SecurityOptions,
 }
 
 impl SentinelSecurityClient {
@@ -80,6 +81,7 @@ impl SentinelSecurityClient {
     ) -> Self {
         Self {
             api: DashApiClient::new(&connection),
+            kv: DashKvClient::new(&connection),
             connection,
             security,
         }
@@ -248,6 +250,7 @@ impl SentinelSecurityClient {
             .ok()
             .and_then(|response| response.data)
     }
+
 }
 
 fn password_fingerprint(api_key: &str, password: &str) -> String {

@@ -31,7 +31,10 @@ pub use service::{
     VerdictAction,
 };
 pub use lifecycle::{FreeTrialReservation, ImpossibleTravelResult, StaleUserResult};
-pub use validation::{email_normalization_enabled, normalize_email};
+pub use validation::{
+    EmailValidationResult, email_normalization_enabled, email_validation_enabled,
+    is_valid_email_format_local, normalize_email,
+};
 
 /// Published `@better-auth/infra` compatibility target.
 pub const VERSION: &str = "0.4.3";

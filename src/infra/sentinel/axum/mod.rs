@@ -9,6 +9,7 @@ use axum::{
 };
 
 mod contract;
+mod email;
 mod http;
 
 pub(super) async fn intercept(
@@ -29,6 +30,7 @@ pub(super) async fn intercept(
         .identify(&identification_request)
         .await;
     plugin.remember_identification(&identification);
+    email::process(plugin, &mut request, &path).await?;
     if request.method() != Method::GET && contract::is_protected(&path) {
         let body = request
             .extensions()
