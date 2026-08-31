@@ -18,6 +18,8 @@ plugin: the client plugin and the native server plugin must both be supported.
 | MySQL adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1` |
 | MongoDB fixture | `mongo:8.2` standalone and single-node replica set in CI |
 | MongoDB adapter | `@better-auth/mongo-adapter` `1.7.1`; Node driver `7.1.0` oracle |
+| Microsoft SQL Server fixture | SQL Server 2022 container in CI |
+| MSSQL adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1`; Kysely `0.29.5` oracle |
 | SQLite adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1` |
 | Cloudflare D1 adapter | Better Auth / `@better-auth/kysely-adapter` `1.7.1` |
 
@@ -31,7 +33,7 @@ lucid-auth = { git = "https://github.com/lucid-softworks/auth", rev = "d4d0e9961
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
 ```
 
-Enable `sqlite`, `mysql`, `mongodb`, or `postgres` for a bundled store. The feature
+Enable `sqlite`, `mysql`, `mongodb`, `mssql`, or `postgres` for a bundled store. The feature
 surface is intentionally small:
 
 | Cargo feature | Default | Adds |
@@ -41,6 +43,7 @@ surface is intentionally small:
 | `d1` | no | Native non-transactional `D1Store` and Workers D1 binding |
 | `mysql` | no | Native SQLx `MySqlStore` and additive schema migration |
 | `mongodb` | no | Native official-driver `MongoStore`, lazy indexes, optional transactions |
+| `mssql` | no | Native Tiberius/BB8 `MssqlStore` and additive schema migration |
 | `postgres` | no | `PostgresStore`, bound-schema migration, Lucid extension operations |
 
 `--no-default-features` is useful only for native in-process service calls; it
@@ -257,6 +260,30 @@ and callback IDs remain strings; public records, filters, references, and joins
 always expose IDs as strings. Arrays, documents, booleans, numbers, and dates
 stay native BSON values. Serial/numeric IDs are rejected. The production path
 does not run the Node driver, JavaScript, or a helper process.
+
+## Microsoft SQL Server quickstart
+
+The optional `mssql` backend targets Better Auth 1.7.1's Kysely MSSQL path
+through native Tiberius and BB8. CI uses the SQL Server 2022 container as a
+reproducible fixture, not as a broader SQL Server or Azure SQL version promise.
+
+```sh
+docker run --rm --name lucid-auth-mssql \
+  -e ACCEPT_EULA=Y \
+  -e MSSQL_SA_PASSWORD='YOUR_STRONG_PASSWORD' \
+  -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest
+
+export DATABASE_URL='server=tcp:127.0.0.1,1433;database=master;user=sa;password=YOUR_STRONG_PASSWORD;TrustServerCertificate=true'
+cargo run --example http_mssql --features axum,mssql
+```
+
+The [MSSQL HTTP example](../examples/http_mssql.rs) checks connectivity, binds
+the service's exact resolved schema, and executes the additive plan before
+serving. It preserves Better Auth's default of no wrapper transaction; set
+`MSSQL_TRANSACTIONS=true` only when the application explicitly chooses one SQL
+Server transaction for multi-operation callbacks. See the
+[MSSQL deployment guide](mssql.md) for schema, transaction, and security
+boundaries.
 
 ## PostgreSQL quickstart
 

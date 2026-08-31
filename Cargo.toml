@@ -135,6 +135,10 @@ required-features = ["axum", "mysql"]
 name = "http_mongodb"
 required-features = ["axum", "mongodb"]
 
+[[example]]
+name = "http_mssql"
+required-features = ["axum", "mssql"]
+
 [[test]]
 name = "access_contract"
 required-features = ["axum"]
