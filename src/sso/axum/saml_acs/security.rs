@@ -94,8 +94,7 @@ pub(super) async fn current_provider(
     error_url: &str,
 ) -> Result<crate::SsoProvider, Box<Response>> {
     let provider = plugin
-        .store()
-        .find_by_provider_id(provider_id)
+        .find_auth_provider(provider_id)
         .await
         .map_err(|error| Box::new(super::support::storage(error)))?
         .ok_or_else(|| {

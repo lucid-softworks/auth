@@ -8,7 +8,8 @@ pub(super) async fn resolve(
     plugin: &SsoPlugin,
     body: &SignInBody,
 ) -> Result<SsoProvider, Box<Response>> {
-    if body.email.is_none()
+    if plugin.options().default_sso.is_empty()
+        && body.email.is_none()
         && body.organization_slug.is_none()
         && body.domain.is_none()
         && body.provider_id.is_none()
@@ -45,9 +46,9 @@ pub(super) async fn resolve(
         )));
     }
     let provider = if let Some(provider_id) = body.provider_id.as_deref() {
-        plugin.store().find_by_provider_id(provider_id).await
+        plugin.find_auth_provider(provider_id).await
     } else {
-        let providers = plugin.store().list().await;
+        let providers = plugin.auth_providers().await;
         providers.map(|providers| {
             if let Some(organization_id) = organization_id.as_deref() {
                 providers

@@ -93,7 +93,7 @@ async fn create_state(
 ) -> Result<SavedState, Box<Response>> {
     let state = random_string(32);
     let code_verifier = random_string(128);
-    let reference = super::super::super::provider_reference::persisted(provider);
+    let reference = super::super::super::provider_reference::current(provider);
     let state_data = OAuthState {
         oauth_state: Some(state.clone()),
         callback_url: body.callback_url.clone(),

@@ -89,7 +89,7 @@ async fn handle_with_state(
         });
         return redirect_error(&error_url, error, description);
     }
-    let provider = match plugin.store().find_by_provider_id(provider_id).await {
+    let provider = match plugin.find_auth_provider(provider_id).await {
         Ok(Some(provider)) => provider,
         Ok(None) => return redirect_error(&error_url, "invalid_provider", "provider not found"),
         Err(error) => return support::storage(error),

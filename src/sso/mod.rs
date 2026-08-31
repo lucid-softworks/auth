@@ -17,7 +17,7 @@ mod schema;
 mod store;
 mod timestamp;
 
-pub use config::SsoOptions;
+pub use config::{SsoDefaultProvider, SsoOptions};
 pub use database::DatabaseSsoStore;
 #[cfg(feature = "axum")]
 pub use dns::{SsoDnsResolver, SystemSsoDnsResolver};

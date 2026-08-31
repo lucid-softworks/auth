@@ -20,7 +20,7 @@ const ALGORITHMS: &[&str] = &[
     "EdDSA",
 ];
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct SsoPrivateKey {
     pub private_key_jwk: Option<Value>,
     pub private_key_pem: Option<String>,

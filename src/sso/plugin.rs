@@ -102,6 +102,51 @@ impl SsoPlugin {
         &self.store
     }
 
+    #[cfg(feature = "axum")]
+    pub(crate) async fn find_auth_provider(
+        &self,
+        provider_id: &str,
+    ) -> Result<Option<super::SsoProvider>, super::SsoStoreError> {
+        if let Some(provider) = self
+            .options
+            .default_sso
+            .iter()
+            .find(|provider| provider.provider_id == provider_id)
+        {
+            return Ok(Some(
+                provider
+                    .clone()
+                    .into_provider(self.options.domain_verification),
+            ));
+        }
+        self.store.find_by_provider_id(provider_id).await
+    }
+
+    #[cfg(feature = "axum")]
+    pub(crate) async fn auth_providers(
+        &self,
+    ) -> Result<Vec<super::SsoProvider>, super::SsoStoreError> {
+        let mut providers = self
+            .options
+            .default_sso
+            .iter()
+            .cloned()
+            .map(|provider| provider.into_provider(self.options.domain_verification))
+            .collect::<Vec<_>>();
+        let default_ids = providers
+            .iter()
+            .map(|provider| provider.provider_id.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        providers.extend(
+            self.store
+                .list()
+                .await?
+                .into_iter()
+                .filter(|provider| !default_ids.contains(&provider.provider_id)),
+        );
+        Ok(providers)
+    }
+
     pub fn with_private_key_resolver(mut self, resolver: Arc<dyn SsoPrivateKeyResolver>) -> Self {
         self.private_key_resolver = Some(resolver);
         self
@@ -119,7 +164,12 @@ impl SsoPlugin {
 
     #[cfg(feature = "axum")]
     pub(crate) fn has_private_key_source(&self, provider_id: &str) -> bool {
-        self.default_private_keys.contains_key(provider_id) || self.private_key_resolver.is_some()
+        self.options
+            .default_sso
+            .iter()
+            .any(|provider| provider.provider_id == provider_id && provider.private_key.is_some())
+            || self.default_private_keys.contains_key(provider_id)
+            || self.private_key_resolver.is_some()
     }
 
     #[cfg(feature = "axum")]
@@ -127,6 +177,15 @@ impl SsoPlugin {
         &self,
         request: SsoPrivateKeyRequest,
     ) -> Result<Option<SsoPrivateKey>, crate::AuthError> {
+        if let Some(material) = self
+            .options
+            .default_sso
+            .iter()
+            .find(|provider| provider.provider_id == request.provider_id)
+            .and_then(|provider| provider.private_key.as_ref())
+        {
+            return Ok(Some(material.clone()));
+        }
         if let Some(material) = self.default_private_keys.get(&request.provider_id) {
             return Ok(Some(material.clone()));
         }

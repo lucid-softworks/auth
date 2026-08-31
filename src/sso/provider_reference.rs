@@ -16,6 +16,7 @@ pub(super) struct ProviderReference {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum ProviderSource {
+    Configured,
     Persisted {
         #[serde(rename = "recordId")]
         record_id: String,
@@ -33,6 +34,19 @@ pub(super) fn persisted(provider: &SsoProvider) -> ProviderReference {
 }
 
 #[cfg(feature = "axum")]
+pub(super) fn current(provider: &SsoProvider) -> ProviderReference {
+    if provider.id == format!("default-sso:{}", provider.provider_id) {
+        ProviderReference {
+            provider_id: provider.provider_id.clone(),
+            source: ProviderSource::Configured,
+            authentication_configuration_fingerprint: fingerprint(provider),
+        }
+    } else {
+        persisted(provider)
+    }
+}
+
+#[cfg(feature = "axum")]
 pub(super) fn parse(value: &Value) -> Option<ProviderReference> {
     serde_json::from_value(value.clone()).ok()
 }
@@ -44,7 +58,7 @@ impl ProviderReference {
     }
 
     pub(super) fn is_current(&self, provider: &SsoProvider) -> bool {
-        self == &persisted(provider)
+        self == &current(provider)
     }
 }
 
@@ -195,5 +209,17 @@ mod tests {
         let mut changed_trust = provider();
         changed_trust.saml_config.as_mut().unwrap()["cert"] = json!("new certificate");
         assert_ne!(fingerprint(&changed_trust), baseline);
+    }
+
+    #[cfg(feature = "axum")]
+    #[test]
+    fn configured_providers_have_no_persisted_record_identity() {
+        let mut provider = provider();
+        provider.id = "default-sso:acme".into();
+        let reference = current(&provider);
+        assert_eq!(
+            serde_json::to_value(reference).unwrap()["source"],
+            json!({"type": "configured"})
+        );
     }
 }
