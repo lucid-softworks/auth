@@ -13,9 +13,11 @@ use josekit::{
 };
 use lucid_auth::{
     AdditionalField, AdditionalFieldType, AuthConfig, AuthService, AuthStore, DatabaseModel,
-    DatabaseRecord, EmailSignUpInput, MemorySsoStore, MemoryStore, NewSsoProvider,
+    DatabaseRecord, EmailSignUpInput, MemoryOrganizationStore, MemorySsoStore, MemoryStore,
+    NewSsoProvider, OrganizationDataStore, OrganizationMemberStore, OrganizationPlugin,
     SamlAlgorithmOptions, SignatureAlgorithm, SsoDefaultProvider, SsoDnsResolver, SsoOptions,
-    SsoPlugin, SsoPrivateKey, SsoProviderMutationGuard, SsoProviderMutationGuardContext,
+    SsoOrganizationRole, SsoOrganizationRoleInput, SsoOrganizationRoleResolver, SsoPlugin,
+    SsoPrivateKey, SsoProviderMutationGuard, SsoProviderMutationGuardContext,
     SsoProviderMutationGuardInput, SsoProviderUpdate, SsoProvisioningInput, SsoStore,
     SsoUserProfilePolicy, SsoUserProvisioner, SsoUserResolution, SsoUserResolutionContext,
     SsoUserResolutionInput, SsoUserResolver,
@@ -36,6 +38,7 @@ struct Fixture {
     other_cookie: String,
     dns: Arc<FixtureDnsResolver>,
     providers: Arc<MemorySsoStore>,
+    organizations: Option<Arc<MemoryOrganizationStore>>,
 }
 
 #[derive(Default)]
@@ -125,13 +128,34 @@ async fn fixture_with_private_key(
     trusted_origins: &[&str],
     private_key: Option<SsoPrivateKey>,
 ) -> Fixture {
-    fixture_with_extensions(options, trusted_origins, private_key, None, None, None).await
+    fixture_with_extensions(
+        options,
+        trusted_origins,
+        private_key,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
 }
 
 async fn fixture_with_mutation_guard(guard: Arc<dyn SsoProviderMutationGuard>) -> Fixture {
-    fixture_with_extensions(SsoOptions::default(), &[], None, None, None, Some(guard)).await
+    fixture_with_extensions(
+        SsoOptions::default(),
+        &[],
+        None,
+        None,
+        None,
+        Some(guard),
+        None,
+        None,
+    )
+    .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn fixture_with_extensions(
     options: SsoOptions,
     trusted_origins: &[&str],
@@ -139,6 +163,8 @@ async fn fixture_with_extensions(
     provisioner: Option<Arc<dyn SsoUserProvisioner>>,
     resolver: Option<Arc<dyn SsoUserResolver>>,
     mutation_guard: Option<Arc<dyn SsoProviderMutationGuard>>,
+    organization_role_resolver: Option<Arc<dyn SsoOrganizationRoleResolver>>,
+    organizations: Option<Arc<MemoryOrganizationStore>>,
 ) -> Fixture {
     let mut config = AuthConfig::new([31_u8; 32]).unwrap();
     config.email_and_password.enabled = true;
@@ -163,7 +189,15 @@ async fn fixture_with_extensions(
     if let Some(mutation_guard) = mutation_guard {
         plugin = plugin.with_provider_mutation_guard(mutation_guard);
     }
+    if let Some(role_resolver) = organization_role_resolver {
+        plugin = plugin.with_organization_role_resolver(role_resolver);
+    }
     config.add_plugin(plugin).unwrap();
+    if let Some(organizations) = &organizations {
+        config
+            .add_plugin(OrganizationPlugin::new(organizations.clone()))
+            .unwrap();
+    }
     let auth_store = Arc::new(MemoryStore::default());
     let service = Arc::new(AuthService::new(auth_store.clone(), config));
     let owner = account(&service, "owner@example.com").await;
@@ -218,6 +252,7 @@ async fn fixture_with_extensions(
         other_cookie: cookie(&service, &other.0),
         dns,
         providers,
+        organizations,
     }
 }
 
@@ -245,6 +280,22 @@ struct MutationGuardRecorder {
     target_user_id: RwLock<Option<String>>,
     reject_delete: AtomicBool,
     calls: tokio::sync::Mutex<Vec<SsoProviderMutationGuardInput>>,
+}
+
+#[derive(Default)]
+struct OrganizationRoleRecorder {
+    calls: tokio::sync::Mutex<Vec<SsoOrganizationRoleInput>>,
+}
+
+#[async_trait]
+impl SsoOrganizationRoleResolver for OrganizationRoleRecorder {
+    async fn role(
+        &self,
+        input: SsoOrganizationRoleInput,
+    ) -> Result<SsoOrganizationRole, lucid_auth::AuthError> {
+        self.calls.lock().await.push(input);
+        Ok(SsoOrganizationRole::Admin)
+    }
 }
 
 #[async_trait]
@@ -849,6 +900,27 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
 
     let provisioning = Arc::new(ProvisioningRecorder::default());
     let resolver = Arc::new(TransactionalResolver::default());
+    let role_resolver = Arc::new(OrganizationRoleRecorder::default());
+    let organizations = Arc::new(MemoryOrganizationStore::default());
+    let organization_id = || {
+        Ok(lucid_auth::PreparedDatabaseId::Value(
+            lucid_auth::DatabaseIdValue::String("enterprise-org".into()),
+        ))
+    };
+    organizations
+        .raw_insert_organization(
+            lucid_auth::Organization {
+                id: String::new(),
+                name: "Enterprise".into(),
+                slug: "enterprise".into(),
+                logo: None,
+                metadata: None,
+                created_at: chrono::Utc::now(),
+            },
+            &organization_id,
+        )
+        .await
+        .unwrap();
     let fixture = fixture_with_extensions(
         SsoOptions {
             trust_email_verified: true,
@@ -861,6 +933,8 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
         Some(provisioning.clone()),
         Some(resolver.clone()),
         None,
+        Some(role_resolver.clone()),
+        Some(organizations.clone()),
     )
     .await;
     *resolver.target_user_id.write().await = Some(fixture.other_user_id.clone());
@@ -879,6 +953,7 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
                     "pkce": true,
                     "scopes": ["openid", "email"]
                 }))),
+                organization_id: Some(Some("enterprise-org".into())),
                 ..SsoProviderUpdate::default()
             },
         )
@@ -972,6 +1047,28 @@ async fn oidc_callback_exchanges_code_and_creates_a_native_session() {
         Some("valid-code")
     );
     drop(calls);
+    let member = fixture
+        .organizations
+        .as_ref()
+        .unwrap()
+        .find_member("enterprise-org", &fixture.other_user_id)
+        .await
+        .unwrap()
+        .expect("provider-bound organization membership");
+    assert_eq!(member.role, "admin");
+    let role_calls = role_resolver.calls.lock().await;
+    assert_eq!(role_calls.len(), 1);
+    assert_eq!(role_calls[0].user_info["sub"], "enterprise-user-1");
+    assert_eq!(
+        role_calls[0]
+            .tokens
+            .as_ref()
+            .unwrap()
+            .access_token
+            .as_deref(),
+        Some("valid-code")
+    );
+    drop(role_calls);
     let resolutions = resolver.calls.lock().await;
     assert_eq!(resolutions.len(), 1);
     let SsoUserResolutionInput::Oidc {
@@ -1344,6 +1441,8 @@ async fn saml_acs_verifies_a_signed_assertion_creates_a_session_and_rejects_repl
         None,
         Some(provisioning.clone()),
         Some(resolver.clone()),
+        None,
+        None,
         None,
     )
     .await;

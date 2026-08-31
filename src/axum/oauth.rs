@@ -233,6 +233,16 @@ async fn oauth_success_response(
     linked_user_id: Option<String>,
     result: crate::OAuthCallbackResult,
 ) -> Response {
+    if let Some(session) = result.session.as_ref()
+        && let Err(error) = service
+            .assign_sso_organization_by_domain(&session.session.user)
+            .await
+    {
+        tracing::error!(
+            error = %error,
+            "committed OAuth login after SSO organization after-hook failed"
+        );
+    }
     let response = redirect(&result.redirect_url);
     let response = match result.session {
         Some(ref session) => {
