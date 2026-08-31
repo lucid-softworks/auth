@@ -125,6 +125,34 @@ impl MySqlStore {
         self.bound_schema().map(|schema| &schema.resolved)
     }
 
+    /// Derives an additive Better Auth 1.7.1 migration plan from live MySQL
+    /// metadata without executing it.
+    pub async fn migration_plan(
+        &self,
+        schema: Arc<AuthSchemaCatalog>,
+        mode: crate::mysql::MySqlMigrationMode,
+    ) -> Result<crate::mysql::MySqlMigrationPlan, crate::mysql::MySqlMigrationError> {
+        self.bind_schema(schema).map_err(|error| {
+            crate::mysql::MySqlMigrationError::Configuration(error.to_string())
+        })?;
+        let bound = self.bound_schema().map_err(|error| {
+            crate::mysql::MySqlMigrationError::Configuration(error.to_string())
+        })?;
+        crate::mysql::migration::plan(&self.pool, &bound.resolved, &bound.physical, mode).await
+    }
+
+    /// Plans and executes each additive statement sequentially.
+    pub async fn migrate(
+        &self,
+        schema: Arc<AuthSchemaCatalog>,
+    ) -> Result<crate::mysql::MySqlMigrationPlan, crate::mysql::MySqlMigrationError> {
+        let plan = self
+            .migration_plan(schema, crate::mysql::MySqlMigrationMode::Execute)
+            .await?;
+        plan.run(&self.pool).await?;
+        Ok(plan)
+    }
+
     pub(super) fn physical_schema(&self) -> Result<&super::schema::MySqlSchema, AuthError> {
         self.bound_schema().map(|schema| &schema.physical)
     }

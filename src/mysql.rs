@@ -5,11 +5,15 @@
 //! preserve that timezone and pass [`MySqlStore::ready`] before serving.
 
 mod adapter;
+mod migration;
 mod query;
 mod schema;
 mod value;
 
 pub use adapter::{MySqlAdapterConfig, MySqlStore};
+pub use migration::{
+    MySqlMigrationError, MySqlMigrationMode, MySqlMigrationPlan, MySqlMigrationStep,
+};
 pub use query::{
     MySqlComparisonMode, MySqlFilter, MySqlFilterConnector, MySqlFilterOperator,
     MySqlFindOptions, MySqlSort, MySqlSortDirection, MySqlTransaction,

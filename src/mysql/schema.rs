@@ -12,7 +12,16 @@ pub(super) struct MySqlSchema {
 
 #[derive(Clone)]
 pub(super) struct PhysicalModel {
+    pub(super) table: String,
     pub(super) quoted_table: String,
+    pub(super) id_type: DatabaseIdType,
+    pub(super) columns: IndexMap<String, PhysicalColumn>,
+    pub(super) disable_migrations: bool,
+}
+
+#[derive(Clone)]
+pub(super) struct PhysicalColumn {
+    pub(super) field: crate::AdditionalField,
 }
 
 #[derive(Clone)]
@@ -44,13 +53,24 @@ impl MySqlSchema {
         for (logical_model, table) in schema.catalog().tables() {
             let physical_model = schema.adapter_model_name(table);
             let mut logical_columns = IndexMap::new();
-            models
+            let model = models
                 .entry(physical_model.clone())
                 .or_insert_with(|| PhysicalModel {
+                    table: physical_model.clone(),
                     quoted_table: quote(&physical_model),
+                    id_type: table.id_type,
+                    columns: IndexMap::new(),
+                    disable_migrations: false,
                 });
+            model.disable_migrations |= table.disable_migrations;
             for (logical_field, field) in &table.fields {
                 let physical_field = schema.adapter_field_name(logical_field, field).to_owned();
+                model.columns.insert(
+                    physical_field.clone(),
+                    PhysicalColumn {
+                        field: field.clone(),
+                    },
+                );
                 logical_columns.insert(
                     logical_field.clone(),
                     LogicalColumn {
@@ -92,6 +112,10 @@ impl MySqlSchema {
             models,
             logical_models,
         })
+    }
+
+    pub(super) fn models(&self) -> impl Iterator<Item = &PhysicalModel> {
+        self.models.values()
     }
 
     pub(super) fn model(&self, logical: &str) -> Result<MySqlModel<'_>, AuthError> {
@@ -153,9 +177,10 @@ impl MySqlModel<'_> {
         fields
             .into_iter()
             .map(|field| {
+                let definition = self.logical.columns.get(field);
                 Ok(format!(
                     "{} as {}",
-                    self.quoted_column(field)?,
+                    projection_column(self.quoted_column(field)?, definition),
                     quote(field)
                 ))
             })
@@ -169,7 +194,13 @@ impl MySqlModel<'_> {
                 self.logical
                     .columns
                     .iter()
-                    .map(|(logical, column)| format!("{} as {}", column.quoted, quote(logical))),
+                    .map(|(logical, column)| {
+                        format!(
+                            "{} as {}",
+                            projection_column(&column.quoted, Some(column)),
+                            quote(logical)
+                        )
+                    }),
             )
             .collect::<Vec<_>>()
             .join(", ")
@@ -234,6 +265,21 @@ impl MySqlModel<'_> {
             "MySQL schema model '{}' has no logical field '{logical}'",
             self.logical_name
         ))
+    }
+}
+
+fn projection_column(column: &str, field: Option<&LogicalColumn>) -> String {
+    if field.is_some_and(|field| {
+        matches!(
+            field.field_type,
+            AdditionalFieldType::Json
+                | AdditionalFieldType::StringArray
+                | AdditionalFieldType::NumberArray
+        )
+    }) {
+        format!("cast({column} as char)")
+    } else {
+        column.to_owned()
     }
 }
 

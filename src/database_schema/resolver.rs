@@ -121,7 +121,12 @@ impl ResolvedAdapterSchema {
             .unwrap_or(logical)
     }
 
-    #[cfg(any(feature = "postgres", feature = "sqlite", feature = "d1"))]
+    #[cfg(any(
+        feature = "postgres",
+        feature = "mysql",
+        feature = "sqlite",
+        feature = "d1"
+    ))]
     pub(crate) fn adapter_reference_names(
         &self,
         model: &str,

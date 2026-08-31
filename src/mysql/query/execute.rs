@@ -250,7 +250,8 @@ pub(in crate::mysql) async fn count(
         .fetch_one(connection)
         .await
         .map_err(storage)?
-        .try_get::<u64, _>("count")
+        .try_get::<i64, _>("count")
+        .map(|count| count as u64)
         .map_err(storage)
 }
 
