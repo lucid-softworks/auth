@@ -11,7 +11,7 @@ limitations, upgrade audit, and links to every tracked gap.
 
 ## Start here
 
-- [Install and run memory, D1, SQLite, MySQL, or PostgreSQL storage](docs/installation.md)
+- [Install and run memory, D1, SQLite, MySQL, MongoDB, MSSQL, or PostgreSQL storage](docs/installation.md)
 - [Connect React, Vue, Svelte, Solid, vanilla, SSR, and extension clients](docs/frameworks.md)
 - [Connect the pinned Electron main, preload, renderer, and browser-proxy clients](docs/frameworks.md#electron)
 - [Review the production proxy, TLS, cookie, CORS, secret, and migration checklist](docs/production.md)
@@ -75,6 +75,21 @@ cargo run --example http_mongodb --features axum,mongodb
 `_id`, and lazily creates resolved table-level indexes before writes. See the
 [MongoDB quickstart](docs/installation.md#mongodb-quickstart) for replica-set,
 ID-strategy, and migration boundaries.
+
+Microsoft SQL Server deployments use the native Tiberius/BB8 backend and an
+ADO-style connection string. Better Auth leaves MSSQL multi-operation adapter
+transactions disabled unless the wrapper explicitly enables them:
+
+```sh
+export DATABASE_URL='server=tcp:127.0.0.1,1433;database=lucid_auth;user=sa;password=YOUR_PASSWORD;TrustServerCertificate=true'
+cargo run --example http_mssql --features axum,mssql
+```
+
+`MssqlStore` uses bound parameters and bracket-quotes schema-derived
+identifiers, implements SQL Server `OUTPUT`/`TOP`/`OFFSET ... FETCH` behavior,
+and applies an introspection-based additive migration plan. See the
+[MSSQL deployment guide](docs/mssql.md) before enabling transactions or
+executing a plan.
 
 The currently supported surface covers:
 

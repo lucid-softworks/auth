@@ -1,7 +1,7 @@
 # Production deployment checklist
 
 Use this checklist after the [installation guide](installation.md). The runnable
-SQLite, MySQL, and PostgreSQL examples demonstrate the correct startup order, but production hosts
+SQLite, MySQL, MSSQL, and PostgreSQL examples demonstrate the correct startup order, but production hosts
 must supply their own process supervision, TLS edge, observability, and secret
 management.
 
@@ -100,7 +100,8 @@ proxy trust.
 
 ## Database storage and migrations
 
-- Use D1 for Cloudflare, SQLite for a local single-host database, or MySQL/PostgreSQL for conventional
+- Use D1 for Cloudflare, SQLite for a local single-host database, MongoDB for a
+  document backend, or MySQL/MSSQL/PostgreSQL for conventional
   multi-instance deployments. `MemoryStore` is
   process-local and loses users, sessions, challenges, and rate limits on exit.
 - For SQLite, construct `SqliteStore` with the same resolved service schema and
@@ -122,6 +123,11 @@ proxy trust.
   pool that changes the timezone. Review compile-mode unsafe changes before
   running the sequential additive plan; it has no ledger, whole-plan
   transaction, retry loop, rename, drop, rewrite, or backfill behavior.
+- For MSSQL, preserve the default `transaction: false` unless callbacks must
+  explicitly share one transaction. Review compile-mode drift and unsafe
+  changes before the sequential additive plan. It has no ledger, retry,
+  destructive reconciliation, or isolation policy; follow the
+  [MSSQL security and migration guide](mssql.md).
 - Apply `store.migrate_all(&service.plugin_migrations())` and require its schema
   report to be compatible before PostgreSQL traffic reaches a new version. Use the
   read-only `diagnose_schema` API for readiness checks and drift inspection.

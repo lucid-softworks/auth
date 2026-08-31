@@ -2,6 +2,7 @@ use super::{AuthSchemaCatalog, SchemaFingerprint, SchemaTable};
 #[cfg(any(
     feature = "postgres",
     feature = "mysql",
+    feature = "mssql",
     feature = "mongodb",
     feature = "sqlite",
     feature = "d1"
@@ -93,6 +94,7 @@ impl ResolvedAdapterSchema {
     #[cfg(any(
         feature = "postgres",
         feature = "mysql",
+        feature = "mssql",
         feature = "mongodb",
         feature = "sqlite",
         feature = "d1"
@@ -108,6 +110,7 @@ impl ResolvedAdapterSchema {
     #[cfg(any(
         feature = "postgres",
         feature = "mysql",
+        feature = "mssql",
         feature = "mongodb",
         feature = "sqlite",
         feature = "d1"
@@ -127,6 +130,7 @@ impl ResolvedAdapterSchema {
     #[cfg(any(
         feature = "postgres",
         feature = "mysql",
+        feature = "mssql",
         feature = "sqlite",
         feature = "d1"
     ))]

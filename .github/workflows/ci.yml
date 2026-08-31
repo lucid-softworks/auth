@@ -51,6 +51,18 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: "LucidAuth_Mssql_CI_Test!"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'LucidAuth_Mssql_CI_Test!' -C -Q 'select 1' || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -102,6 +114,14 @@ jobs:
           MONGODB_REPLICA_SET_URI: mongodb://127.0.0.1:27018/?replicaSet=rs0
           MONGODB_STANDALONE_URI: mongodb://127.0.0.1:27017
         run: cargo test --no-default-features --features mongodb --test mongodb_adapter_contract -- --ignored --test-threads=1
+      - name: Lint native Microsoft SQL Server storage
+        run: cargo clippy --no-default-features --features mssql --lib -- -D warnings
+      - name: Test native Microsoft SQL Server storage
+        run: cargo test --no-default-features --features mssql --lib
+      - name: Test live Microsoft SQL Server storage
+        env:
+          MSSQL_DATABASE_URL: "server=tcp:127.0.0.1,1433;database=master;user=sa;password=LucidAuth_Mssql_CI_Test!;TrustServerCertificate=true"
+        run: cargo test --no-default-features --features mssql --lib mssql::migration::contract -- --ignored --test-threads=1
       - name: Lint native Cloudflare D1 storage
         run: cargo clippy --no-default-features --features d1 --lib --test d1_adapter_contract -- -D warnings
       - name: Test native Cloudflare D1 storage
@@ -131,6 +151,10 @@ jobs:
           MONGODB_ORACLE_REPLICA_SET_URI: mongodb://127.0.0.1:27018/?replicaSet=rs0
           MONGODB_ORACLE_STANDALONE_URI: mongodb://127.0.0.1:27017
         run: npm run test:mongodb-adapter --prefix conformance
+      - name: Test the pinned Better Auth Microsoft SQL Server oracle
+        env:
+          MSSQL_ORACLE_DATABASE_URL: "server=tcp:127.0.0.1,1433;database=master;user=sa;password=LucidAuth_Mssql_CI_Test!;TrustServerCertificate=true"
+        run: npm run test:mssql-adapter --prefix conformance
       - name: Verify the package
         run: cargo package
 
