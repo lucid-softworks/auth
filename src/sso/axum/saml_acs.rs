@@ -1,4 +1,5 @@
 pub(super) mod config;
+mod idp_initiated;
 mod profile;
 mod security;
 
@@ -53,6 +54,16 @@ pub(super) async fn post(
     let relay_state = match body.relay_state.as_deref().filter(|state| !state.is_empty()) {
         Some(state) => state,
         None => {
+            if plugin.options().saml_allow_idp_initiated {
+                return idp_initiated::finish(
+                    &service,
+                    &plugin,
+                    &headers,
+                    &provider_id,
+                    body.saml_response,
+                )
+                .await;
+            }
             return support::error(
                 StatusCode::BAD_REQUEST,
                 "BAD_REQUEST",
