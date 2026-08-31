@@ -1,14 +1,14 @@
 use lucid_auth::{
     AccessStore, AccountDeleteOutcome, AdditionalField, AdditionalFieldType, AdminPlugin,
     AgentAuthConfig, AgentAuthPlugin, AnonymousPlugin, AuditPlugin, AuthConfig, AuthError,
-    AuthService, AuthSession, AuthStore, AuthUser, AuthenticationMethod, GuestCapabilityPlugin,
-    LastLoginMethodConfig, LastLoginMethodPlugin, MultiSessionPlugin, NewPasswordUser,
-    OAuthAccount, OAuthAccountStore, OAuthTokenUpdateOutcome, OperatorSecurityConfig,
-    OperatorSecurityPlugin, OrganizationDynamicAccessControlConfig, OrganizationPlugin,
-    OrganizationPluginConfig, OrganizationTeamsConfig, OwnerPolicyPlugin, PasskeyConfig,
-    PasskeyPlugin, PluginMigration, PluginMigrationContribution, PostgresAgentAuthStore,
-    RateLimitStorageMode, StepUpPolicyConfig, StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin,
-    UsernamePlugin, postgres::PostgresStore,
+    AuthService, AuthSession, AuthStore, AuthUser, AuthenticationMethod, DatabaseSsoStore,
+    GuestCapabilityPlugin, LastLoginMethodConfig, LastLoginMethodPlugin, MultiSessionPlugin,
+    NewPasswordUser, OAuthAccount, OAuthAccountStore, OAuthTokenUpdateOutcome,
+    OperatorSecurityConfig, OperatorSecurityPlugin, OrganizationDynamicAccessControlConfig,
+    OrganizationPlugin, OrganizationPluginConfig, OrganizationTeamsConfig, OwnerPolicyPlugin,
+    PasskeyConfig, PasskeyPlugin, PluginMigration, PluginMigrationContribution,
+    PostgresAgentAuthStore, RateLimitStorageMode, SsoOptions, SsoPlugin, StepUpPolicyConfig,
+    StepUpPolicyPlugin, TwoFactorConfig, TwoFactorPlugin, UsernamePlugin, postgres::PostgresStore,
 };
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
@@ -72,6 +72,8 @@ mod session_refresh;
 mod signup;
 #[path = "postgres_contract/siwe.rs"]
 mod siwe;
+#[path = "postgres_contract/sso.rs"]
+mod sso;
 #[path = "postgres_contract/step_up.rs"]
 mod step_up;
 #[path = "postgres_contract/support.rs"]
@@ -159,6 +161,7 @@ async fn run_authentication_contracts(
     last_login_method::assert_http_round_trip(service, store, &user.id).await?;
     session_refresh::assert_atomic(service, store).await?;
     organization::assert_persistence(service, store, &signed_in.session).await?;
+    sso::assert_persistence(store, &user.id).await?;
     admin::assert_query_and_update(service, &signed_in.session).await?;
     account_update::assert_persistence(service, store, &signed_in.session, pool).await?;
     let step_up_session = step_up::authenticate_fixture(service, store).await?;
@@ -234,6 +237,19 @@ fn contract_service(
         "timezone".into(),
         AdditionalField::new(AdditionalFieldType::String).optional(),
     );
+    let mut sso_options = SsoOptions::default();
+    sso_options.schema.sso_provider.model_name = Some("enterpriseProviders".into());
+    sso_options.schema.sso_provider.fields.provider_id = Some("providerKey".into());
+    sso_options.schema.sso_provider.additional_fields.insert(
+        "tenantCode".into(),
+        AdditionalField::new(AdditionalFieldType::String)
+            .optional()
+            .field_name("tenant_code"),
+    );
+    config.add_plugin(SsoPlugin::with_store(
+        sso_options,
+        Arc::new(DatabaseSsoStore::new(store.clone())),
+    ))?;
     config.user.additional_fields.insert(
         "department".into(),
         AdditionalField::new(AdditionalFieldType::String).optional(),
