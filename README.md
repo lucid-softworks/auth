@@ -95,74 +95,36 @@ executing a plan.
 
 The currently supported surface covers:
 
-- `getSession` and `useSession`
-- core email/password signup, signin, and current-password verification
-- stateless HS256 email verification with a native async delivery callback
-- enumeration-resistant password-reset email and single-use reset redemption
-- the complete official `emailOTPClient` surface as an optional native plugin
-- the complete official `phoneNumberClient` surface as an optional native plugin
-- the official Google `oneTapClient` callback surface as an optional native plugin
-- the complete official `multiSessionClient` surface as an optional native plugin
-- the complete official `lastLoginMethodClient` surface as an optional native plugin
-- the official `jwtClient` token/JWKS surface as an optional native plugin
-- the complete official `oneTimeTokenClient` surface as an optional native plugin
-- the official `@better-auth/electron` main-process, preload, renderer, and
-  browser-proxy flow as an optional native plugin
-- standalone and OAuth Provider device authorization through the official
-  `deviceAuthorizationClient` and `oauthDeviceAuthorizationClient`
-- the complete Better Auth username lifecycle as an optional native plugin
-- sign-out
-- the complete official anonymous client lifecycle as an optional native plugin
-- the complete `@better-auth/passkey` client surface as an optional native plugin
-- the complete official `twoFactorClient` surface as an optional native plugin,
-  including TOTP, delivered OTP, backup codes, and trusted devices
-- password changes plus current-user session listing and revocation
-- typed current-user and current-session additional-field updates
-- immediate, verified, and current-address-confirmed email changes
-- password, fresh-session, and email-confirmed current-user deletion
-- native social OAuth/OIDC sign-in and callbacks for every Better Auth 1.7.2
-  built-in provider, with issuer-qualified accounts and optional provider-token encryption
-- preview/development OAuth through the production callback deployment with the
-  optional OAuth Proxy server plugin and ordinary `signIn.social` client
-- Expo native cookie/deep-link transport through the pinned
-  `@better-auth/expo@1.7.2` client and optional `ExpoPlugin`, while Expo web
-  remains ordinary browser behavior
-- the complete official `oauthProviderClient` management surface plus the
-  native OAuth 2.0/OIDC authorization-server protocol as an optional plugin
-- the `@better-auth/mcp` authorization preset, protected-resource discovery,
-  and Bearer/DPoP request verification for application-owned MCP routes
-- the complete linked-account lifecycle: `listAccounts`, `linkSocial`,
-  `unlinkAccount`, `accountInfo`, `getAccessToken`, and `refreshToken`
-- passkey rename and removal
-- all 15 official admin-client methods, including configurable permissions,
-  filtering, additional fields, session revocation, bans, and impersonation
-- the complete official `organizationClient` surface as an optional native plugin,
-  including invitations, teams, custom roles, and organization-owned API keys
-- the official `@better-auth/sso@1.7.2` server and `ssoClient` boundary for
-  OIDC and SAML provider management, sign-in, domain verification, and SLO
-- the server-only `@better-auth/scim@1.7.2` inbound Users/Groups service,
-  discovery documents, identity/projection callbacks, and optional managed catalog
-- optional HIBP Pwned Passwords screening with Better Auth-compatible errors
-- Better Auth request rate limiting with global, special-route, plugin, and custom rules
-- optional operator-security policy for managed password replacement and local recovery
-- the complete user-owned `@better-auth/api-key` client surface as an optional
-  native plugin, including pagination, metadata, permissions, quotas, rate limits,
-  configuration profiles, and API-key-backed sessions
-- Better Auth-compatible cookies and response shapes for the supported routes
-- native, dependency-ordered plugin routes, middleware, hooks, migrations, and
-  client compatibility metadata
-- the Better Auth Open API schema endpoint and Scalar reference page as an
-  optional server-only native plugin
-- Dub signup lead attribution as an optional native plugin matching
-  `@dub/better-auth@0.0.6`
-- the standalone managed email client from `@better-auth/infra@0.4.3`
-- the standalone managed SMS client from `@better-auth/infra@0.4.3`
-- the 26 hosted-management and four local-session event-query routes from
-  `@better-auth/infra@0.4.3`, plus their shared connection, hosted-JWT, and
-  request-identification substrate
-- the server, browser, and React Native/Expo Sentinel security boundary from
-  `@better-auth/infra@0.4.3`, including identification, fixed remote policy,
-  validation, lifecycle checks, telemetry, and proof-of-work challenges
+#### Coverage map
+
+- **Core authentication** Sessions, email/password, verification, recovery,
+  account lifecycle, social sign-in, and linked accounts. See
+  [Core client API](COMPATIBILITY.md#core-client-api).
+- **Authentication plugins** OTP, phone number, username, passkeys, two-factor,
+  anonymous users, multi-session, JWT, and one-time tokens. See
+  [Authentication plugins](COMPATIBILITY.md#authentication-plugins).
+- **Authorization and tenancy** Admin operations, organizations, invitations,
+  teams, custom roles, and organization-owned credentials. See
+  [Authorization and management plugins](COMPATIBILITY.md#authorization-and-management-plugins).
+- **Enterprise and machine identity** SSO, SCIM, OAuth/OIDC provider and device
+  flows, API keys, and MCP authorization. See [Enterprise SSO](COMPATIBILITY.md#enterprise-sso-172),
+  [SCIM](COMPATIBILITY.md#scim-172), and [API and token plugins](COMPATIBILITY.md#api-and-token-plugins).
+- **Application platforms** Browser clients, Expo and React Native, Electron,
+  Google One Tap, and development OAuth proxying. See [Expo and React Native](#expo-and-react-native)
+  and [Electron](#electron).
+- **Security and developer tooling** Pwned-password screening, rate limits,
+  operator security, plugin hooks and migrations, OpenAPI, and test helpers. See
+  [Security, utility, and developer plugins](COMPATIBILITY.md#security-utility-and-developer-plugins).
+- **Payments and attribution** Stripe, Polar, Autumn, Creem, Dodo Payments,
+  Commet, Chargebee, and Dub. See
+  [Payments and analytics](COMPATIBILITY.md#payments-analytics-and-better-auth-infrastructure).
+- **Managed infrastructure** Better Auth Infrastructure Dash, Sentinel,
+  managed email, and managed SMS. See
+  [Better Auth Infrastructure](COMPATIBILITY.md#payments-analytics-and-better-auth-infrastructure).
+
+The [compatibility matrix](COMPATIBILITY.md) remains the source of truth for
+method-level status, upstream versions, verification evidence, and intentional
+boundaries.
 
 The library keeps authentication protocol details separate from host-product
 authorization. Core principals contain actor, subject, session, and credential
