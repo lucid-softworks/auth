@@ -1,6 +1,6 @@
 use crate::support::{replica_store, standalone_store};
 use lucid_auth::{
-    AdditionalField, AdditionalFieldType, PluginSchemaTable,
+    AdditionalField, AdditionalFieldType, DatabaseSchemaIndex, PluginSchemaTable,
     mongodb::{
         MongoComparisonMode, MongoFilter, MongoFilterConnector, MongoFilterOperator,
         MongoFindOptions, MongoSort, MongoSortDirection, MongoStore,
@@ -11,10 +11,8 @@ use serde_json::{Map, Value, json};
 
 fn table() -> PluginSchemaTable {
     PluginSchemaTable::new("counter")
-        .field(
-            "name",
-            AdditionalField::new(AdditionalFieldType::String).unique(true),
-        )
+        .index(DatabaseSchemaIndex::new(["name"]).unique(true))
+        .field("name", AdditionalField::new(AdditionalFieldType::String))
         .field("value", AdditionalField::new(AdditionalFieldType::Number))
         .field("active", AdditionalField::new(AdditionalFieldType::Boolean))
         .field("when", AdditionalField::new(AdditionalFieldType::Date))

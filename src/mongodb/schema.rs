@@ -73,13 +73,6 @@ impl MongoSchema {
                         .cloned()
                         .unwrap_or_default(),
                 );
-                indexes.extend(
-                    schema
-                        .field_indexes_by_table()
-                        .get(&physical_model)
-                        .cloned()
-                        .unwrap_or_default(),
-                );
                 deduplicate_indexes(&mut indexes);
                 PhysicalModel {
                     collection: physical_model.clone(),
