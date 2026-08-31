@@ -5,6 +5,7 @@
 //! database lifecycle hooks, but no endpoint, table, migration, or rate rule.
 
 mod options;
+mod phone;
 mod plugin;
 mod pow;
 mod service;
@@ -21,6 +22,7 @@ pub use options::{
     GeoAction, GeoBlockingOptions, ImpossibleTravelOptions, SecurityAction, SecurityOptions,
     SentinelOptions, StaleUsersOptions, ThresholdConfig, VelocityOptions,
 };
+pub use phone::is_valid_phone;
 pub use plugin::SentinelPlugin;
 pub use pow::{
     CHALLENGE_TTL, DEFAULT_DIFFICULTY, PoWChallenge, PoWSolution, decode_pow_challenge,

@@ -11,6 +11,7 @@ use axum::{
 mod contract;
 mod email;
 mod http;
+mod phone;
 
 pub(super) async fn intercept(
     service: &crate::AuthService,
@@ -31,6 +32,7 @@ pub(super) async fn intercept(
         .await;
     plugin.remember_identification(&identification);
     email::process(plugin, &mut request, &path).await?;
+    phone::process(plugin, &request, &path)?;
     if request.method() != Method::GET && contract::is_protected(&path) {
         let body = request
             .extensions()
