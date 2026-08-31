@@ -4,7 +4,8 @@ use lucid_auth::{
     AdditionalField, AdditionalFieldType, AuthError, DashAdapterWhere, PluginSchemaTable,
     mysql::{
         MySqlAdapterConfig, MySqlComparisonMode, MySqlFilter, MySqlFilterConnector,
-        MySqlFilterOperator, MySqlMigrationMode, MySqlStore,
+        MySqlFilterOperator, MySqlFindOptions, MySqlMigrationMode, MySqlSort, MySqlSortDirection,
+        MySqlStore,
     },
     run_database_transaction,
 };
@@ -84,6 +85,123 @@ async fn round_trips_schema_values_and_bound_predicates() {
 
 #[tokio::test]
 #[ignore = "requires MySQL in MYSQL_DATABASE_URL"]
+async fn supports_every_predicate_grouping_selection_sorting_and_pagination() {
+    let store = store().await;
+    for (id, name, value, note) in [
+        ("one", "Alpha", 4, None),
+        ("two", "Beta", 7, Some("second")),
+        ("three", "Alpine", 9, Some("third")),
+    ] {
+        let mut value_record = record(id, name, value);
+        value_record.insert("note".into(), json!(note));
+        store.insert_record("counter", value_record).await.unwrap();
+    }
+
+    for (operator, value, expected) in [
+        (MySqlFilterOperator::Eq, json!(7), 1),
+        (MySqlFilterOperator::Ne, json!(7), 2),
+        (MySqlFilterOperator::Gt, json!(7), 1),
+        (MySqlFilterOperator::Gte, json!(7), 2),
+        (MySqlFilterOperator::Lt, json!(7), 1),
+        (MySqlFilterOperator::Lte, json!(7), 2),
+        (MySqlFilterOperator::In, json!([4, 9]), 2),
+        (MySqlFilterOperator::NotIn, json!([4, 9]), 1),
+    ] {
+        assert_eq!(
+            store
+                .count_records("counter", &[filter("value", value, operator)])
+                .await
+                .unwrap(),
+            expected,
+            "operator {operator:?}",
+        );
+    }
+    for (operator, value, expected) in [
+        (MySqlFilterOperator::Contains, json!("ph"), 1),
+        (MySqlFilterOperator::StartsWith, json!("Al"), 2),
+        (MySqlFilterOperator::EndsWith, json!("ta"), 1),
+    ] {
+        assert_eq!(
+            store
+                .count_records("counter", &[filter("name", value, operator)])
+                .await
+                .unwrap(),
+            expected,
+            "operator {operator:?}",
+        );
+    }
+    assert_eq!(
+        store
+            .count_records(
+                "counter",
+                &[
+                    filter("note", Value::Null, MySqlFilterOperator::Eq),
+                    filter("value", json!(5), MySqlFilterOperator::Gt),
+                ],
+            )
+            .await
+            .unwrap(),
+        0,
+    );
+    assert_eq!(
+        store
+            .count_records(
+                "counter",
+                &[
+                    filter("note", Value::Null, MySqlFilterOperator::Ne),
+                    filter("value", json!(5), MySqlFilterOperator::Gt),
+                ],
+            )
+            .await
+            .unwrap(),
+        2,
+    );
+
+    let mut insensitive = filter("name", json!(["ALPHA", "NOPE"]), MySqlFilterOperator::In);
+    insensitive.mode = MySqlComparisonMode::Insensitive;
+    assert_eq!(
+        store
+            .count_records("counter", &[insensitive])
+            .await
+            .unwrap(),
+        1
+    );
+    let grouped = [
+        filter("value", json!(5), MySqlFilterOperator::Gt),
+        with_connector(
+            filter("name", json!("Al"), MySqlFilterOperator::StartsWith),
+            MySqlFilterConnector::Or,
+        ),
+    ];
+    assert_eq!(store.count_records("counter", &grouped).await.unwrap(), 1);
+
+    let page = store
+        .find_records(
+            "counter",
+            &[],
+            &MySqlFindOptions {
+                select: vec!["name".into(), "value".into()],
+                sort: Some(MySqlSort {
+                    field: "value".into(),
+                    direction: MySqlSortDirection::Descending,
+                }),
+                limit: Some(1),
+                offset: Some(1),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        page,
+        vec![Map::from_iter([
+            ("name".into(), json!("Beta")),
+            ("value".into(), json!(7))
+        ])]
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MySQL in MYSQL_DATABASE_URL"]
 async fn atomic_increment_and_consume_return_each_row_once() {
     let store = store().await;
     store
@@ -117,6 +235,60 @@ async fn atomic_increment_and_consume_return_each_row_once() {
             .unwrap()
             .is_none()
     );
+}
+
+#[tokio::test]
+#[ignore = "requires MySQL in MYSQL_DATABASE_URL"]
+async fn separate_connections_serialize_increment_and_consume() {
+    let store = store().await;
+    store
+        .insert_record("counter", record("counter", "Concurrent", 0))
+        .await
+        .unwrap();
+    let mut increments = Vec::new();
+    for _ in 0..12 {
+        let store = store.clone();
+        increments.push(tokio::spawn(async move {
+            store
+                .increment_record(
+                    "counter",
+                    &[MySqlFilter::equal("id", json!("counter"))],
+                    Map::from_iter([("value".into(), json!(1))]),
+                    Map::new(),
+                )
+                .await
+        }));
+    }
+    for increment in increments {
+        increment.await.unwrap().unwrap().unwrap();
+    }
+    assert_eq!(
+        store
+            .find_record(
+                "counter",
+                &[MySqlFilter::equal("id", json!("counter"))],
+                &[],
+            )
+            .await
+            .unwrap()
+            .unwrap()["value"],
+        12,
+    );
+
+    let mut consumers = Vec::new();
+    for _ in 0..8 {
+        let store = store.clone();
+        consumers.push(tokio::spawn(async move {
+            store
+                .consume_record("counter", &[MySqlFilter::equal("id", json!("counter"))])
+                .await
+        }));
+    }
+    let mut consumed = 0;
+    for consumer in consumers {
+        consumed += usize::from(consumer.await.unwrap().unwrap().is_some());
+    }
+    assert_eq!(consumed, 1);
 }
 
 #[tokio::test]
@@ -224,4 +396,19 @@ fn equal(field: &str, value: Value) -> DashAdapterWhere {
         operator: Default::default(),
         connector: None,
     }
+}
+
+fn filter(field: &str, value: Value, operator: MySqlFilterOperator) -> MySqlFilter {
+    MySqlFilter {
+        field: field.into(),
+        value,
+        operator,
+        connector: MySqlFilterConnector::And,
+        mode: MySqlComparisonMode::Sensitive,
+    }
+}
+
+fn with_connector(mut filter: MySqlFilter, connector: MySqlFilterConnector) -> MySqlFilter {
+    filter.connector = connector;
+    filter
 }

@@ -252,6 +252,23 @@ async fn readiness_preserves_utc_and_foreign_keys() {
     assert_foreign_key_rejection(&store).await;
 }
 
+#[tokio::test]
+#[ignore = "requires MySQL in MYSQL_DATABASE_URL"]
+async fn readiness_rejects_a_caller_pool_with_non_utc_sessions() {
+    let pool = pool(1).await;
+    sqlx::query("set session time_zone = '+01:00'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let store = MySqlStore::new(pool, MySqlAdapterConfig::default());
+    let error = store.ready().await.unwrap_err();
+    assert!(matches!(
+        error,
+        lucid_auth::AuthError::InvalidConfiguration(message)
+            if message.contains("must be +00:00") && message.contains("+01:00")
+    ));
+}
+
 async fn assert_foreign_key_rejection(store: &MySqlStore) {
     let now = Utc::now();
     let error = store

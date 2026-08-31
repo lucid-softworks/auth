@@ -323,3 +323,107 @@ async fn static_defaults_are_safe_but_optional_unique_and_date_factories_are_not
     assert!(!compiled.compiled_sql().contains("default 'same'"));
     assert!(compiled.compiled_sql().contains("CURRENT_TIMESTAMP(3)"));
 }
+
+#[tokio::test]
+#[ignore = "requires MySQL in MYSQL_DATABASE_URL"]
+async fn enforces_existing_index_limits_and_bounds_new_compound_strings() {
+    let unbounded = store().await;
+    sqlx::query("create table widget (id varchar(36) not null primary key, value geometry not null)")
+        .execute(unbounded.pool())
+        .await
+        .unwrap();
+    let indexed_value = || {
+        catalog(
+            PluginSchemaTable::new("widget")
+                .field("value", AdditionalField::new(AdditionalFieldType::String))
+                .index(DatabaseSchemaIndex::new(["value"]).named("widget_value_idx")),
+            [61; 32],
+        )
+    };
+    let unbounded_error = unbounded
+        .migration_plan(indexed_value(), MySqlMigrationMode::Compile)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(
+            &unbounded_error,
+            MySqlMigrationError::Conflict(message)
+                if message.contains("no finite discovered character bound")
+        ),
+        "unexpected error: {unbounded_error:?}"
+    );
+
+    let oversized = store().await;
+    sqlx::query(
+        "create table widget (id varchar(36) not null primary key, first varchar(500) not null, second varchar(500) not null)",
+    )
+    .execute(oversized.pool())
+    .await
+    .unwrap();
+    let oversized_schema = catalog(
+        PluginSchemaTable::new("widget")
+            .field("first", AdditionalField::new(AdditionalFieldType::String))
+            .field("second", AdditionalField::new(AdditionalFieldType::String))
+            .index(DatabaseSchemaIndex::new(["first", "second"]).named("widget_pair_idx")),
+        [61; 32],
+    );
+    assert!(matches!(
+        oversized
+            .migration_plan(oversized_schema, MySqlMigrationMode::Compile)
+            .await,
+        Err(MySqlMigrationError::Conflict(message))
+            if message.contains("4000 bytes") && message.contains("3072-byte limit")
+    ));
+
+    let mixed = store().await;
+    sqlx::query(
+        "create table widget (id varchar(36) not null primary key, existing varchar(100) not null)",
+    )
+    .execute(mixed.pool())
+    .await
+    .unwrap();
+    let mixed_schema = catalog(
+        PluginSchemaTable::new("widget")
+            .field(
+                "existing",
+                AdditionalField::new(AdditionalFieldType::String),
+            )
+            .field("added", AdditionalField::new(AdditionalFieldType::String))
+            .index(DatabaseSchemaIndex::new(["existing", "added"]).named("widget_mixed_idx")),
+        [61; 32],
+    );
+    let mixed_plan = mixed
+        .migration_plan(mixed_schema, MySqlMigrationMode::Execute)
+        .await
+        .unwrap();
+    assert!(
+        mixed_plan
+            .compiled_sql()
+            .contains("add column `added` varchar(191) not null")
+    );
+    assert!(
+        mixed_plan
+            .compiled_sql()
+            .contains("create index `widget_mixed_idx`")
+    );
+
+    let generated = store().await;
+    let mut table = PluginSchemaTable::new("widget");
+    for field in ["one", "two", "three", "four", "five"] {
+        table = table.field(field, AdditionalField::new(AdditionalFieldType::String));
+    }
+    table = table.index(
+        DatabaseSchemaIndex::new(["one", "two", "three", "four", "five"]).named("widget_five_idx"),
+    );
+    let generated_plan = generated
+        .migration_plan(catalog(table, [61; 32]), MySqlMigrationMode::Compile)
+        .await
+        .unwrap();
+    assert_eq!(
+        generated_plan
+            .compiled_sql()
+            .matches("varchar(153)")
+            .count(),
+        5
+    );
+}

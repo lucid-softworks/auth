@@ -2,10 +2,10 @@ use crate::support::pool;
 use chrono::{Duration, Utc};
 use lucid_auth::mysql::{MySqlAdapterConfig, MySqlStore};
 use lucid_auth::{
-    ApiKey, ApiKeyConfiguration, ApiKeyPlugin, ApiKeyStore, AuthConfig, AuthService, AuthSession,
-    AuthStore, AuthUser, DatabaseCreate, DatabaseCreateOperation, DatabaseIdGeneration,
-    DatabaseIdInput, DatabaseIdPlan, DatabaseRecord, OAuthAccount, OAuthAccountStore,
-    VerificationStore, VerificationValue, run_database_transaction,
+    ApiKey, ApiKeyConfiguration, ApiKeyPlugin, ApiKeyStore, AuthConfig, AuthError, AuthService,
+    AuthSession, AuthStore, AuthUser, DatabaseCreate, DatabaseCreateOperation,
+    DatabaseIdGeneration, DatabaseIdInput, DatabaseIdPlan, DatabaseRecord, OAuthAccount,
+    OAuthAccountStore, VerificationStore, VerificationValue, run_database_transaction,
 };
 use serde_json::Map;
 use std::sync::Arc;
@@ -140,6 +140,22 @@ async fn core_rows_use_bound_schema_and_transient_plugin_defaults() {
         store.find_session("token-1").await.unwrap().unwrap().1,
         stored
     );
+}
+
+#[tokio::test]
+#[ignore = "requires MySQL in MYSQL_DATABASE_URL"]
+async fn duplicate_user_email_is_classified_as_a_domain_conflict() {
+    let store = store().await;
+    let now = Utc::now();
+    store
+        .create_user_without_account(create("user", "user-1", user(now)))
+        .await
+        .unwrap();
+    let error = store
+        .create_user_without_account(create("user", "user-2", user(now)))
+        .await
+        .unwrap_err();
+    assert!(matches!(error, AuthError::UserAlreadyExists));
 }
 
 #[tokio::test]
