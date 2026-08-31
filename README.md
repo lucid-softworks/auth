@@ -118,6 +118,9 @@ The currently supported surface covers:
 - the 26 hosted-management and four local-session event-query routes from
   `@better-auth/infra@0.4.3`, plus their shared connection, hosted-JWT, and
   request-identification substrate
+- the server, browser, and React Native/Expo Sentinel security boundary from
+  `@better-auth/infra@0.4.3`, including identification, fixed remote policy,
+  validation, lifecycle checks, telemetry, and proof-of-work challenges
 
 The library keeps authentication protocol details separate from host-product
 authorization. Core principals contain actor, subject, session, and credential
@@ -233,8 +236,8 @@ resolver.
 
 There is intentionally no separate `oauth2Config`, JavaScript sidecar, provider
 SDK, secret-vault abstraction, background provisioning queue, or implicit SCIM
-email link. Hosted directory/SSO administration belongs to the separate Dash
-control-plane work tracked by [#92](https://github.com/lucid-softworks/auth/issues/92).
+email link. Hosted directory/SSO administration belongs to the separately
+configured Dash control plane rather than `SsoPlugin` itself.
 See [Enterprise SSO 1.7.1](COMPATIBILITY.md#enterprise-sso-171) for the exact
 boundary.
 
@@ -972,6 +975,92 @@ store them immediately and do not log them. Organization, provider, domain,
 directory, actor, user, and membership identifiers cross the configured
 Infrastructure/identity-provider boundaries.
 See the [exact Dash core and substrate compatibility boundary](COMPATIBILITY.md#dash-core-routes-043).
+
+### Better Auth Infrastructure Sentinel
+
+`SentinelPlugin` matches the server `sentinel()` export from the immutable
+`@better-auth/infra@0.4.3` artifact when composed with Better Auth 1.7.1. It
+adds request and database lifecycle hooks, the `__infra-rid` request-id cookie,
+and remote security evaluation; it adds no endpoint, schema, migration, rate
+rule, durable local decision store, or local audit log.
+
+Install and configure the server package separately:
+
+```sh
+npm install --save-exact better-auth@1.7.1 @better-auth/infra@0.4.3
+```
+
+```rust
+use lucid_auth::{
+    AuthConfig,
+    infra::{
+        dash::InfraConnectionOptions,
+        sentinel::{SecurityOptions, SentinelOptions, SentinelPlugin},
+    },
+};
+
+let mut auth = AuthConfig::new([42_u8; 32])?;
+auth.add_plugin(SentinelPlugin::new(SentinelOptions {
+    connection: InfraConnectionOptions {
+        api_key: Some(std::env::var("BETTER_AUTH_API_KEY")?),
+        ..InfraConnectionOptions::default()
+    },
+    security: SecurityOptions::default(),
+}))?;
+```
+
+Browser applications install the official client from its authoritative
+`@better-auth/infra/client` entry point:
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { sentinelClient } from "@better-auth/infra/client";
+
+export const authClient = createAuthClient({
+  plugins: [sentinelClient()],
+});
+```
+
+React Native and Expo applications use the distinct native entry point. The
+published package marks AsyncStorage, Expo Constants, Expo Crypto, and Expo
+Device as optional peers; install the ones used by the application. Provide
+explicit async storage for a stable per-install visitor ID when possible, and
+ensure either `globalThis.crypto.getRandomValues` or Expo Crypto is available.
+Sentinel deliberately refuses `Math.random` as a secure-RNG fallback.
+
+```sh
+npx expo install @react-native-async-storage/async-storage expo-constants expo-crypto expo-device
+```
+
+```ts
+import { createAuthClient } from "better-auth/client";
+import { sentinelNativeClient } from "@better-auth/infra/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+export const authClient = createAuthClient({
+  plugins: [sentinelNativeClient({ storage: AsyncStorage })],
+});
+```
+
+Sentinel is a remote security boundary. Browser/native fingerprint components,
+stable visitor and request IDs, IP/location, identifiers, account IDs, email
+addresses, user agents, security outcomes, and keyed failed-password
+fingerprints can leave the application. The KV origin receives identify
+payloads and lookups plus email-validity requests. The Infra API origin receives
+security checks, cooldown lookups, failed-attempt state, PoW generation,
+impossible-travel/location state, free-trial reservations, breached-password
+prefixes, stale-user checks, policy resolution, and security telemetry. Stale
+account notifications additionally use the managed email service. Review
+consent, privacy notice, retention, residency, processor terms, and applicable
+regional requirements before enabling the plugin.
+
+A missing API key emits the published startup warning; there is no configurable
+global outage policy. General checks, cooldown lookup, challenge generation,
+failed-attempt tracking, impossible-travel, breached-password, stale-user, and
+email-validation failures retain their individual 0.4.3 fallbacks, many of
+which allow the request. Free-trial protection is the important exception: it
+blocks account creation when enabled but no bound identification exists. See
+the [exact Sentinel compatibility and egress boundary](COMPATIBILITY.md#sentinel-043).
 
 ### Better Auth Infrastructure managed email
 
