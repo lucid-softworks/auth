@@ -19,22 +19,15 @@ impl SecurityStore for MySqlStore {
         longest_window: u64,
     ) -> Result<RateLimitOutcome, AuthError> {
         let schema = self.physical_schema()?;
-        let mut connection = self.pool.acquire().await.map_err(storage)?;
-        sqlx::query("begin immediate")
-            .execute(&mut *connection)
-            .await
-            .map_err(storage)?;
-        let result = consume(&mut connection, schema, id, key, now, rule, longest_window).await;
+        let mut transaction = self.pool.begin().await.map_err(storage)?;
+        let result = consume(&mut transaction, schema, id, key, now, rule, longest_window).await;
         match result {
             Ok(outcome) => {
-                sqlx::query("commit")
-                    .execute(&mut *connection)
-                    .await
-                    .map_err(storage)?;
+                transaction.commit().await.map_err(storage)?;
                 Ok(outcome)
             }
             Err(error) => {
-                let _ = sqlx::query("rollback").execute(&mut *connection).await;
+                let _ = transaction.rollback().await;
                 Err(error)
             }
         }
@@ -42,7 +35,7 @@ impl SecurityStore for MySqlStore {
 }
 
 async fn consume(
-    connection: &mut sqlx::pool::PoolConnection<sqlx::MySql>,
+    connection: &mut sqlx::Transaction<'_, sqlx::MySql>,
     schema: &super::schema::MySqlSchema,
     id: &dyn DatabaseIdSupplier,
     key: &str,
@@ -93,7 +86,7 @@ async fn consume(
 }
 
 async fn update(
-    connection: &mut sqlx::pool::PoolConnection<sqlx::MySql>,
+    connection: &mut sqlx::Transaction<'_, sqlx::MySql>,
     schema: &super::schema::MySqlSchema,
     key: &str,
     count: i64,

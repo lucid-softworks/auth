@@ -170,36 +170,58 @@ async fn record_failure(
     let model = schema.model("twoFactor")?;
     let failures = model.quoted_column("failedVerificationCount")?;
     let locked = model.quoted_column("lockedUntil")?;
-    let mut query = QueryBuilder::<MySql>::new("update ");
-    query
+    let mut transaction = store.pool.begin().await.map_err(storage)?;
+    let mut select = QueryBuilder::<MySql>::new("select ");
+    select
+        .push(failures)
+        .push(" from ")
+        .push(model.quoted_table())
+        .push(" where ")
+        .push(model.quoted_column("userId")?)
+        .push(" = ");
+    model
+        .encode("userId", json!(user_id))?
+        .push_bind(&mut select);
+    select.push(" limit 1 for update");
+    let Some(current) = select
+        .build_query_scalar::<i64>()
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(storage)?
+    else {
+        transaction.commit().await.map_err(storage)?;
+        return Ok(false);
+    };
+    let next = current.saturating_add(1);
+    let mut update = QueryBuilder::<MySql>::new("update ");
+    update
         .push(model.quoted_table())
         .push(" set ")
         .push(failures)
         .push(" = ")
-        .push(failures)
-        .push(" + 1, ")
+        .push_bind(next)
+        .push(", ")
         .push(locked)
-        .push(" = case when ")
-        .push(failures)
-        .push(" + 1 >= ")
-        .push_bind(i64::from(max_attempts))
-        .push(" then ");
-    model
-        .encode("lockedUntil", json!(locked_until))?
-        .push_bind(&mut query);
-    query.push(" else ").push(locked).push(" end where ");
-    query.push(model.quoted_column("userId")?).push(" = ");
+        .push(" = ");
+    if next >= i64::from(max_attempts) {
+        model
+            .encode("lockedUntil", json!(locked_until))?
+            .push_bind(&mut update);
+    } else {
+        update.push(locked);
+    }
+    update.push(" where ");
+    update.push(model.quoted_column("userId")?).push(" = ");
     model
         .encode("userId", json!(user_id))?
-        .push_bind(&mut query);
-    query.push(" returning ").push(failures);
-    let mut connection = store.pool.acquire().await.map_err(storage)?;
-    let count: Option<i64> = query
-        .build_query_scalar()
-        .fetch_optional(&mut *connection)
+        .push_bind(&mut update);
+    update
+        .build()
+        .execute(&mut *transaction)
         .await
         .map_err(storage)?;
-    Ok(count.is_some_and(|count| count >= i64::from(max_attempts)))
+    transaction.commit().await.map_err(storage)?;
+    Ok(next >= i64::from(max_attempts))
 }
 
 fn all_values(record: &TwoFactorRecord) -> Map<String, Value> {

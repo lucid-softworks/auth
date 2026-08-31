@@ -9,30 +9,21 @@ use crate::{
     mysql::{MySqlFilter, MySqlFindOptions, MySqlStore, query::execute},
 };
 use serde_json::{Map, Value, json};
-use sqlx::{MySqlConnection, pool::PoolConnection};
+use sqlx::{MySql, MySqlConnection, Transaction};
 use std::collections::HashMap;
 
 pub(super) async fn begin_immediate(
     store: &MySqlStore,
-) -> Result<PoolConnection<sqlx::MySql>, AuthError> {
-    let mut connection = store.pool.acquire().await.map_err(storage)?;
-    sqlx::query("begin immediate")
-        .execute(&mut *connection)
-        .await
-        .map_err(storage)?;
-    Ok(connection)
+) -> Result<Transaction<'static, MySql>, AuthError> {
+    store.pool.begin().await.map_err(storage)
 }
 
-pub(super) async fn commit(connection: &mut PoolConnection<sqlx::MySql>) -> Result<(), AuthError> {
-    sqlx::query("commit")
-        .execute(&mut **connection)
-        .await
-        .map(|_| ())
-        .map_err(storage)
+pub(super) async fn commit(connection: Transaction<'static, MySql>) -> Result<(), AuthError> {
+    connection.commit().await.map_err(storage)
 }
 
-pub(super) async fn rollback(connection: &mut PoolConnection<sqlx::MySql>) {
-    let _ = sqlx::query("rollback").execute(&mut **connection).await;
+pub(super) async fn rollback(connection: Transaction<'static, MySql>) {
+    let _ = connection.rollback().await;
 }
 
 pub(super) async fn load_snapshot(

@@ -22,15 +22,9 @@ pub(super) async fn transition(
     }
     .await;
     match work {
-        Ok(result) => match record::commit(&mut connection).await {
-            Ok(()) => Ok(result),
-            Err(error) => {
-                record::rollback(&mut connection).await;
-                Err(error)
-            }
-        },
+        Ok(result) => record::commit(connection).await.map(|()| result),
         Err(error) => {
-            record::rollback(&mut connection).await;
+            record::rollback(connection).await;
             Err(error)
         }
     }

@@ -30,6 +30,11 @@ pub(super) fn create_table(
             false,
         )?);
     }
+    for (column, physical) in &model.columns {
+        if physical.field.references.is_some() {
+            definitions.push(reference_definition(schema, column, &physical.field)?);
+        }
+    }
     Ok(format!(
         "create table {} ({})",
         model.quoted_table,
@@ -62,16 +67,9 @@ pub(super) fn column_definition(
         definition.push_str(" default ");
         definition.push_str(&default);
     }
-    if let Some(reference) = &field.references {
-        let (table, target) = schema
-            .adapter_reference_names(&reference.model, &reference.field)
-            .map_err(|error| MySqlMigrationError::Configuration(error.to_string()))?;
-        definition.push_str(&format!(
-            " references {} ({}){}",
-            quote(&table),
-            quote(&target),
-            on_delete(reference.on_delete)
-        ));
+    if add_column && field.references.is_some() {
+        definition.push_str(", add ");
+        definition.push_str(&reference_definition(schema, column, field)?);
     }
     Ok(definition)
 }
@@ -175,17 +173,23 @@ fn sql_type(
     column: &str,
     field: &AdditionalField,
 ) -> String {
-    if let Some(id_type) = field.references.as_ref().and_then(|reference| {
-        (reference.field == "id")
-            .then(|| {
-                schema
-                    .catalog()
-                    .table(&reference.model)
-                    .map(|table| table.id_type)
-            })
-            .flatten()
-    }) {
-        return id_type_sql(id_type).into();
+    if let Some(reference) = &field.references
+        && let Some(table) = schema.catalog().table(&reference.model)
+    {
+        if reference.field == "id" {
+            return id_type_sql(table.id_type).into();
+        }
+        if let Some(target) = table.fields.get(&reference.field)
+            && target.field_type == AdditionalFieldType::String
+        {
+            return if target.unique || target.index {
+                format!("varchar({MYSQL_GENERATED_INDEX_STRING_LENGTH})")
+            } else if target.sortable {
+                "varchar(255)".into()
+            } else {
+                "text".into()
+            };
+        }
     }
     match field.field_type {
         AdditionalFieldType::String => generated_string_length(schema, model, column)
@@ -200,6 +204,24 @@ fn sql_type(
         AdditionalFieldType::Number => "integer".into(),
         AdditionalFieldType::Date => "timestamp(3)".into(),
     }
+}
+
+fn reference_definition(
+    schema: &ResolvedAdapterSchema,
+    column: &str,
+    field: &AdditionalField,
+) -> Result<String, MySqlMigrationError> {
+    let reference = field.references.as_ref().expect("reference is present");
+    let (table, target) = schema
+        .adapter_reference_names(&reference.model, &reference.field)
+        .map_err(|error| MySqlMigrationError::Configuration(error.to_string()))?;
+    Ok(format!(
+        "foreign key ({}) references {} ({}){}",
+        quote(column),
+        quote(&table),
+        quote(&target),
+        on_delete(reference.on_delete)
+    ))
 }
 
 fn id_type_sql(id_type: DatabaseIdType) -> &'static str {

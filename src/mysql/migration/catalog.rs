@@ -68,7 +68,7 @@ impl Catalog {
             let name: String = row.try_get(1)?;
             let unique = row.try_get::<i64, _>(2)? == 0;
             let column = row.try_get::<Option<String>, _>(4)?;
-            let sub_part = row.try_get::<Option<u64>, _>(5)?;
+            let sub_part = row.try_get::<Option<i64>, _>(5)?;
             let expression = row.try_get::<Option<String>, _>(6)?;
             let index = indexes
                 .entry((table.clone(), portable(&name)))
