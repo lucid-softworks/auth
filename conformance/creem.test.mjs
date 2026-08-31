@@ -89,7 +89,7 @@ describe("@creem_io/better-auth@1.1.4 executable oracle", () => {
     expect(await packageVersion("@creem_io/better-auth")).toBe("1.1.4");
     expect(await packageVersion("creem")).toBe("1.6.0");
     expect(await packageVersion("@creem_io/webhook-types")).toBe("1.0.0");
-    expect(await packageVersion("better-auth")).toBe("1.7.1");
+    expect(await packageVersion("better-auth")).toBe("1.7.2");
     expect(await packageVersion("zod")).toBe("4.4.3");
     expect(Object.keys(creemRoot).sort()).toEqual([
       "cancelSubscription", "checkSubscriptionAccess", "createCheckout",

@@ -465,3 +465,32 @@ async fn migration_rejects_a_conflicting_d1_index() {
     assert!(error.to_string().contains("counter_label_idx"));
     assert!(error.to_string().contains("does not match"));
 }
+
+#[tokio::test]
+async fn programmatic_migration_recognizes_an_existing_d1_index() {
+    let database = Arc::new(MigrationFixtureD1 {
+        columns: vec![
+            pragma_column("id", "TEXT", true, true),
+            pragma_column("label", "TEXT", true, false),
+            pragma_column("count", "INTEGER", true, false),
+        ],
+        index_list: vec![Map::from_iter([
+            ("name".into(), json!("counter_label_idx")),
+            ("unique".into(), json!(0)),
+            ("partial".into(), json!(0)),
+        ])],
+        index_columns: vec![Map::from_iter([
+            ("seqno".into(), json!(0)),
+            ("cid".into(), json!(1)),
+            ("name".into(), json!("label")),
+        ])],
+        populated: false,
+    });
+    let plan = D1Store::new(database, D1AdapterConfig::default())
+        .migration_plan(schema(), D1MigrationMode::Compile)
+        .await
+        .unwrap();
+    assert!(!plan.compiled_sql().contains("counter_label_idx"));
+    assert!(plan.warnings().is_empty());
+    assert!(plan.unsafe_changes().is_empty());
+}

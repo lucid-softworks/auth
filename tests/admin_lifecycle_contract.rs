@@ -311,6 +311,41 @@ async fn custom_permissions_and_banned_message_match_admin_configuration() {
 }
 
 #[tokio::test]
+async fn permanent_reban_clears_a_previous_temporary_expiry() {
+    let app = application().await;
+    let (_, owner_cookie) = sign_in(&app, "luna", "password").await;
+    let member = create_user(&app, &owner_cookie, "temporary_ban", "user").await;
+    let user_id = member["user"]["id"].as_str().unwrap();
+
+    let (status, temporary) = request_json(
+        &app,
+        Request::post("/api/auth/admin/ban-user")
+            .header(header::COOKIE, &owner_cookie)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                json!({ "userId": user_id, "banExpiresIn": 3_600 }).to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{temporary}");
+    assert!(temporary["user"]["banExpires"].is_string());
+
+    let (status, permanent) = request_json(
+        &app,
+        Request::post("/api/auth/admin/ban-user")
+            .header(header::COOKIE, owner_cookie)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(json!({ "userId": user_id }).to_string()))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{permanent}");
+    assert_eq!(permanent["user"]["banned"], true);
+    assert!(permanent["user"]["banExpires"].is_null());
+}
+
+#[tokio::test]
 async fn core_only_omits_admin_routes_and_user_fields() {
     let mut config = AuthConfig::new([45_u8; 32]).unwrap();
     config.trust_origin("http://localhost").unwrap();

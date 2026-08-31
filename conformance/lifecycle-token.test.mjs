@@ -27,10 +27,10 @@ const updateRoutes = await readFile(
   "utf8",
 );
 
-describe("Better Auth 1.7.1 core lifecycle token oracle", () => {
+describe("Better Auth 1.7.2 core lifecycle token oracle", () => {
   test("pins the packages and base-62 ID generator", () => {
-    expect(packageMetadata.version).toBe("1.7.1");
-    expect(coreMetadata.version).toBe("1.7.1");
+    expect(packageMetadata.version).toBe("1.7.2");
+    expect(coreMetadata.version).toBe("1.7.2");
     for (const size of [24, 32]) {
       const values = Array.from({ length: 128 }, () => generateId(size));
       expect(values.every((value) => value.length === size)).toBe(true);

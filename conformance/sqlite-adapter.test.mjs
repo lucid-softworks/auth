@@ -104,9 +104,9 @@ async function oracle(database) {
   })(options(database));
 }
 
-describe("@better-auth/kysely-adapter 1.7.1 local SQLite oracle", () => {
+describe("@better-auth/kysely-adapter 1.7.2 local SQLite oracle", () => {
   test("pins recognized local driver families and explicit Kysely transaction policy", async () => {
-    expect(packageMetadata.version).toBe("1.7.1");
+    expect(packageMetadata.version).toBe("1.7.2");
     expect(getKyselyDatabaseType({ aggregate() {} })).toBe("sqlite");
     expect(getKyselyDatabaseType({ fileControl() {} })).toBe("sqlite");
     expect(

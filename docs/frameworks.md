@@ -1,10 +1,10 @@
 # Better Auth client and framework guide
 
-lucid-auth targets the official Better Auth `1.7.1` HTTP clients. Install that
+lucid-auth targets the official Better Auth `1.7.2` HTTP clients. Install that
 version exactly and select the client entry point for the UI framework:
 
 ```sh
-npm install --save-exact better-auth@1.7.1
+npm install --save-exact better-auth@1.7.2
 ```
 
 | UI | Import |
@@ -101,7 +101,7 @@ standard browser client does not silently become a bearer-token client.
 Pin the official packages and let Expo select SDK-compatible peer versions:
 
 ```sh
-npm install --save-exact better-auth@1.7.1 @better-auth/expo@1.7.1
+npm install --save-exact better-auth@1.7.2 @better-auth/expo@1.7.2
 npx expo install expo-constants expo-linking expo-network expo-secure-store expo-web-browser
 ```
 
@@ -168,13 +168,13 @@ device store, or retry behavior; see [#77](https://github.com/lucid-softworks/au
 
 ## Electron
 
-The official `@better-auth/electron@1.7.1` main-process client, preload bridge,
+The official `@better-auth/electron@1.7.2` main-process client, preload bridge,
 storage adapter, and browser proxy are supported by the optional native
 `ElectronPlugin`. Install the exact packages; the published Electron package
 requires Node 22 or newer and Electron 36 or newer:
 
 ```sh
-npm install --save-exact better-auth@1.7.1 @better-auth/electron@1.7.1
+npm install --save-exact better-auth@1.7.2 @better-auth/electron@1.7.2
 npm install electron conf
 ```
 

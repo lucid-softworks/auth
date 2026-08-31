@@ -41,7 +41,7 @@ describe("@dub/better-auth@0.0.6 immutable artifact oracle", () => {
       integrity: "sha512-l7k1PVro6Ib6buBvB/ONlHl1xBH/nU0nbF9m0NawMYNeGhJwmw73JTg6HbhuBgfSRuzZUhI4jRhnldPzejWubg==",
       sha1: "f485a7d08bdaee68284eff90b22a069b3b542c88",
     });
-    expect((await packageJson("better-auth")).version).toBe("1.7.1");
+    expect((await packageJson("better-auth")).version).toBe("1.7.2");
     expect((await packageJson("better-call")).version).toBe("1.4.0");
     expect((await packageJson("zod")).version).toBe("4.4.3");
     expect((await packageJson("dub")).version).toBe("0.66.5");

@@ -20,7 +20,7 @@ fn webhook_only_plugin_metadata_matches_1_7_1() {
     let descriptor = plugin.descriptor();
 
     assert_eq!(descriptor.id, "stripe");
-    assert_eq!(descriptor.version, "1.7.1");
+    assert_eq!(descriptor.version, "1.7.2");
     assert_eq!(descriptor.endpoints.len(), 1);
     assert_eq!(descriptor.endpoints[0].path, "/stripe/webhook");
     assert_eq!(descriptor.endpoints[0].method, PluginHttpMethod::Post);
@@ -32,9 +32,9 @@ fn webhook_only_plugin_metadata_matches_1_7_1() {
     assert_eq!(client.package, "@better-auth/stripe");
     assert_eq!(client.import_path, "@better-auth/stripe/client");
     assert_eq!(client.factory, "stripeClient");
-    assert_eq!(client.better_auth_version, Some("1.7.1"));
+    assert_eq!(client.better_auth_version, Some("1.7.2"));
     assert_eq!(client.client_id, Some("stripe-client"));
-    assert_eq!(client.client_version, Some("1.7.1"));
+    assert_eq!(client.client_version, Some("1.7.2"));
 }
 
 #[test]

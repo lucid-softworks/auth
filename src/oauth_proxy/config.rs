@@ -61,7 +61,7 @@ impl fmt::Debug for OAuthProxyVersionedSecret {
     }
 }
 
-/// Better Auth 1.7.1 OAuth proxy options.
+/// Better Auth 1.7.2 OAuth proxy options.
 #[derive(Clone)]
 pub struct OAuthProxyConfig {
     /// Explicit URL for the current (usually preview) environment.

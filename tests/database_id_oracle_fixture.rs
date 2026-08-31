@@ -29,7 +29,7 @@ struct SerialCoercion {
 }
 
 fn oracle() -> Oracle {
-    serde_json::from_str(include_str!("../conformance/id-strategy-oracle-1.7.1.json")).unwrap()
+    serde_json::from_str(include_str!("../conformance/id-strategy-oracle-1.7.2.json")).unwrap()
 }
 
 fn id_input(case: &SerialCoercion) -> DatabaseIdInput {
@@ -46,7 +46,7 @@ fn id_input(case: &SerialCoercion) -> DatabaseIdInput {
 #[test]
 fn pinned_oracle_drives_builtin_and_serial_id_edges() {
     let oracle = oracle();
-    assert_eq!(oracle.better_auth_version, "1.7.1");
+    assert_eq!(oracle.better_auth_version, "1.7.2");
     let generated = generate_database_id(lucid_auth::DatabaseIdGenerationSize::Omitted).unwrap();
     assert_eq!(generated.len(), oracle.default_length);
     assert!(generated.bytes().all(|byte| byte.is_ascii_alphanumeric()));

@@ -70,7 +70,7 @@ async function session(auth, { authorization, cookie } = {}) {
 function pluginMetadataConformance() {
   const plugin = bearer();
   assert.equal(plugin.id, "bearer");
-  assert.equal(plugin.version, "1.7.1");
+  assert.equal(plugin.version, "1.7.2");
   assert.equal(plugin.options, undefined);
   assert.deepEqual(Object.keys(plugin.hooks), ["before", "after"]);
   assert.equal(plugin.hooks.before.length, 1);

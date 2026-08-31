@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use chrono::Duration;
 use url::Url;
 
-/// Better Auth 1.7.1's complete built-in social-provider vocabulary.
+/// Better Auth 1.7.2's complete built-in social-provider vocabulary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinProviderKind {
     Apple,

@@ -39,7 +39,7 @@ pub trait DeviceAuthorizationStore: Send + Sync {
         polled_at: DateTime<Utc>,
     ) -> Result<Option<DeviceCode>, AuthError>;
 
-    /// Ordinary decision update, matching Better Auth 1.7.1's non-CAS write.
+    /// Ordinary decision update, matching Better Auth 1.7.2's non-CAS write.
     async fn update_device_code_status(
         &self,
         id: &str,

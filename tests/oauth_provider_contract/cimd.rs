@@ -138,6 +138,14 @@ fn metadata_response(client_id: &str, name: &str, cache_control: &str) -> CimdFe
     }
 }
 
+fn metadata_response_with_grants(client_id: &str, grants: &[&str]) -> CimdFetchResponse {
+    let mut response = metadata_response(client_id, "CIMD grants", "max-age=60");
+    let mut metadata: Value = serde_json::from_slice(&response.body).unwrap();
+    metadata["grant_types"] = json!(grants);
+    response.body = serde_json::to_vec(&metadata).unwrap();
+    response
+}
+
 async fn authorize(app: &Router, client_id: &str) -> (StatusCode, HeaderMap, Vec<u8>) {
     let query = url::form_urlencoded::Serializer::new(String::new())
         .append_pair("response_type", "code")
@@ -213,6 +221,31 @@ async fn discovery_is_advertised_and_persists_once_for_a_fresh_cache_hit() {
     assert!(stored.client_secret.is_none());
     assert!(stored.application_type.is_none());
     assert!(stored.client_credentials_scopes.is_empty());
+}
+
+#[tokio::test]
+async fn cimd_grants_intersect_with_provider_support_instead_of_requiring_equality() {
+    let client_id = "https://metadata.example/grant-intersection.json";
+    let fetcher = RecordedFetcher::new([metadata_response_with_grants(
+        client_id,
+        &["authorization_code", "unsupported_custom_grant"],
+    )]);
+    let fixture = fixture_with_cimd(CimdOptions::new(Arc::new(fetcher))).await;
+
+    assert_eq!(
+        authorize(&fixture.app, client_id).await.0,
+        StatusCode::FOUND
+    );
+    let stored = fixture
+        .oauth
+        .find_oauth_client(client_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        stored.grant_types.unwrap(),
+        ["authorization_code", "unsupported_custom_grant"]
+    );
 }
 
 #[tokio::test]

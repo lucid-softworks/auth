@@ -129,7 +129,7 @@ impl MySqlStore {
         self.bound_schema().map(|schema| &schema.resolved)
     }
 
-    /// Derives an additive Better Auth 1.7.1 migration plan from live MySQL
+    /// Derives an additive Better Auth 1.7.2 migration plan from live MySQL
     /// metadata without executing it.
     pub async fn migration_plan(
         &self,

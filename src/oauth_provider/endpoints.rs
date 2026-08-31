@@ -11,7 +11,7 @@ macro_rules! endpoint {
     };
 }
 
-/// Better Auth 1.7.1 OAuth Provider endpoint surface.
+/// Better Auth 1.7.2 OAuth Provider endpoint surface.
 ///
 /// Endpoints accepting more than one method have one descriptor per method so
 /// hosts can register and authorize each wire operation independently.

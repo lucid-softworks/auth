@@ -1,5 +1,5 @@
 {
-  "betterAuthVersion": "1.7.1",
+  "betterAuthVersion": "1.7.2",
   "defaultLength": 32,
   "testUtilsFallbackLength": 24,
   "alphabetProbe": "azAZ09",

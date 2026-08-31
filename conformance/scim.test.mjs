@@ -47,11 +47,11 @@ const coreModels = {
   scimGroupMember: 5,
 };
 
-describe("@better-auth/scim@1.7.1 artifact oracle", () => {
+describe("@better-auth/scim@1.7.2 artifact oracle", () => {
   test("pins the immutable package, exports, and missing subpaths", async () => {
     const pkg = await packageJson("@better-auth/scim");
     const locked = (await packageLock()).packages["node_modules/@better-auth/scim"];
-    expect(pkg.version).toBe("1.7.1");
+    expect(pkg.version).toBe("1.7.2");
     expect(pkg.exports).toEqual({
       ".": {
         "dev-source": "./src/index.ts",
@@ -60,12 +60,12 @@ describe("@better-auth/scim@1.7.1 artifact oracle", () => {
       },
     });
     expect(locked.resolved).toBe(
-      "https://registry.npmjs.org/@better-auth/scim/-/scim-1.7.1.tgz",
+      "https://registry.npmjs.org/@better-auth/scim/-/scim-1.7.2.tgz",
     );
     expect(locked.integrity).toBe(
-      "sha512-bpOPVnYYTUROAJZU0ViL1jXHXoUulVn0Gl3HLN8Epj00Yqob4+rhf3XqVmc/2bi3TY40rmZIlsf1mXQhRdFd1w==",
+      "sha512-RBwVN189w37xwK0n+mRgARTmJFCriOsMVCbe7Bzeyak6esSg9kTGeCUmGtfgwOKJ3jJWQkeAQdWw7VRJ/HOG6w==",
     );
-    expect("715077319aeba4a35f114f7dfc2a8e0523aa9f6f").toHaveLength(40);
+    expect("355453253ecb71653faa0423c97721a53615487d").toHaveLength(40);
     expect(Object.keys(scimModule).sort()).toEqual([
       "SCIM_MANAGED_CREATION_REQUEST_ID_CONFLICT",
       "acquireActiveSCIMUserLink",
@@ -75,7 +75,7 @@ describe("@better-auth/scim@1.7.1 artifact oracle", () => {
 
   test("publishes the exact descriptor and endpoint inventory", () => {
     const plugin = scimModule.scim(staticOptions);
-    expect({ id: plugin.id, version: plugin.version }).toEqual({ id: "scim", version: "1.7.1" });
+    expect({ id: plugin.id, version: plugin.version }).toEqual({ id: "scim", version: "1.7.2" });
     expect(Object.entries(plugin.endpoints).map(([name, endpoint]) => [
       name,
       endpoint.path ?? null,

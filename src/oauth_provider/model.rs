@@ -19,7 +19,7 @@ pub struct OAuthProviderClient {
     pub user_id: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
-    /// RFC 7591 client-secret expiry. Better Auth 1.7.1 omits this value from
+    /// RFC 7591 client-secret expiry. Better Auth 1.7.2 omits this value from
     /// its adapter schema, so adapter-backed reads return `None`.
     pub expires_at: Option<DateTime<Utc>>,
     pub name: Option<String>,

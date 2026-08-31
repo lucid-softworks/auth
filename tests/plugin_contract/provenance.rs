@@ -14,10 +14,10 @@ fn serialized_descriptors_distinguish_client_server_and_extension_provenance() {
         pinned["provenance"],
         json!({
             "classification": "pinnedBetterAuthPort",
-            "betterAuthVersion": "1.7.1",
+            "betterAuthVersion": "1.7.2",
             "server": {
                 "package": "better-auth",
-                "version": "1.7.1",
+                "version": "1.7.2",
                 "importPath": "better-auth/plugins",
                 "export": "username",
             },
@@ -68,7 +68,7 @@ fn startup_rejects_incomplete_or_contradictory_provenance_claims() {
     let mut version_mismatch = descriptor("version-mismatch", &[], &[], &[]);
     version_mismatch.provenance = PluginProvenance::better_auth(PluginArtifactMetadata::new(
         "better-auth",
-        "1.7.1",
+        "1.7.2",
         "better-auth/plugins",
         "fixture",
     ));

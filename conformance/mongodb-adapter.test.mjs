@@ -64,7 +64,7 @@ async function reset(db) {
   await db.dropDatabase();
 }
 
-suite("@better-auth/mongo-adapter 1.7.1 oracle", () => {
+suite("@better-auth/mongo-adapter 1.7.2 oracle", () => {
   beforeEach(async () => {
     await Promise.all([reset(standaloneDb), reset(replicaDb)]);
   });
@@ -73,7 +73,7 @@ suite("@better-auth/mongo-adapter 1.7.1 oracle", () => {
   });
 
   test("pins the driver, capabilities, coercion, regex, and lazy index artifact", () => {
-    expect(adapterPackage.version).toBe("1.7.1");
+    expect(adapterPackage.version).toBe("1.7.2");
     expect(driverPackage.version).toBe("7.1.0");
     expect(artifact).toContain('mapKeysTransformInput: { id: "_id" }');
     expect(artifact).toContain("supportsArrays: true");

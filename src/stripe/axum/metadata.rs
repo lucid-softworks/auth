@@ -164,7 +164,7 @@ pub const STRIPE_SUBSCRIPTION_ENDPOINTS: &[StripeEndpointMetadata] = &[
     },
 ];
 
-/// The only paths explicitly declared by `stripeClient` 1.7.1. All other
+/// The only paths explicitly declared by `stripeClient` 1.7.2. All other
 /// client methods are inferred from server endpoint metadata.
 pub const STRIPE_CLIENT_PATH_METHODS: &[(&str, PluginHttpMethod)] = &[
     ("/subscription/billing-portal", PluginHttpMethod::Post),

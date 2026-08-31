@@ -74,17 +74,17 @@ async function endpointError(endpoint, query) {
   throw new Error("expected endpoint to reject");
 }
 
-describe("@better-auth/expo@1.7.1 immutable artifact", () => {
+describe("@better-auth/expo@1.7.2 immutable artifact", () => {
   test("pins registry metadata, exact exports, dependencies, and package surface", async () => {
     const pkg = await packageJson();
     const lock = await packageLock();
     const locked = lock.packages["node_modules/@better-auth/expo"];
 
-    expect(pkg.version).toBe("1.7.1");
-    expect(locked.resolved).toBe("https://registry.npmjs.org/@better-auth/expo/-/expo-1.7.1.tgz");
-    expect(locked.integrity).toBe("sha512-Cnq6Zx58p3c9wGslQMv7Q1gkLxRqs3WMxQ0YamNdxp0430fzY/bsYwchT+5SXotm+yw088krkiiBqrVAU4tymw==");
-    expect({ sha1: "faf8b98b8edad797e5baaeaa55f65690bc407d33" }).toEqual({
-      sha1: "faf8b98b8edad797e5baaeaa55f65690bc407d33",
+    expect(pkg.version).toBe("1.7.2");
+    expect(locked.resolved).toBe("https://registry.npmjs.org/@better-auth/expo/-/expo-1.7.2.tgz");
+    expect(locked.integrity).toBe("sha512-rdlU+ziUYqMIeMOS2b5fsozyClxvNInI7xDp+eL1xFtRyXAPBeU2y38GSXPn9/MiJT9+30mmvKZm+Kwy3lQqjw==");
+    expect({ sha1: "0a9cc04c7008f7eeaa7370d266b0ecb6f1a47cb3" }).toEqual({
+      sha1: "0a9cc04c7008f7eeaa7370d266b0ecb6f1a47cb3",
     });
     expect(pkg.dependencies).toEqual({
       "@better-fetch/fetch": "1.3.1",
@@ -109,7 +109,7 @@ describe("@better-auth/expo@1.7.1 immutable artifact", () => {
     expect(Object.keys(plugin)).toEqual([
       "id", "version", "init", "onRequest", "hooks", "endpoints", "options",
     ]);
-    expect(plugin).toMatchObject({ id: "expo", version: "1.7.1", options });
+    expect(plugin).toMatchObject({ id: "expo", version: "1.7.2", options });
     expect(Object.keys(plugin.endpoints)).toEqual(["expoAuthorizationProxy"]);
     const endpoint = plugin.endpoints.expoAuthorizationProxy;
     expect(endpoint.path).toBe("/expo-authorization-proxy");
@@ -120,7 +120,7 @@ describe("@better-auth/expo@1.7.1 immutable artifact", () => {
   });
 });
 
-describe("@better-auth/expo@1.7.1 server behavior", () => {
+describe("@better-auth/expo@1.7.2 server behavior", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
   });
@@ -244,7 +244,7 @@ describe("@better-auth/expo@1.7.1 server behavior", () => {
   });
 });
 
-describe("@better-auth/expo@1.7.1 native client interoperability", () => {
+describe("@better-auth/expo@1.7.2 native client interoperability", () => {
   test("pins cookie filtering, deletion, normalization, and chunk commits", async () => {
     expect(clientExports.normalizeCookieName("tenant:auth:cookie")).toBe("tenant_auth_cookie");
     expect(clientExports.hasBetterAuthCookies(
@@ -321,7 +321,7 @@ describe("@better-auth/expo@1.7.1 native client interoperability", () => {
     const storage = memoryStorage();
     const plugin = pluginExports.lastLoginMethodClient({ storage, storagePrefix: "oracle" });
     expect(plugin.id).toBe("last-login-method-expo");
-    expect(plugin.version).toBe("1.7.1");
+    expect(plugin.version).toBe("1.7.2");
     expect(plugin).not.toHaveProperty("endpoints");
     await plugin.fetchPlugins[0].hooks.onResponse({
       request: { url: "https://auth.example/api/auth/sign-in/email" },

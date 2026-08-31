@@ -1,4 +1,4 @@
-//! Better Auth 1.7.1 generic OAuth plugin compatibility.
+//! Better Auth 1.7.2 generic OAuth plugin compatibility.
 
 mod authorization;
 mod discovery;

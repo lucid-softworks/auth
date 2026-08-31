@@ -79,7 +79,7 @@ async function exportsAndPresetContract() {
       new URL("node_modules/@better-auth/mcp/package.json", import.meta.url),
     ),
   );
-  assert.equal(packageJson.version, "1.7.1");
+  assert.equal(packageJson.version, "1.7.2");
   assert.deepEqual(Object.keys(packageJson.exports), ["."]);
   assert.deepEqual(
     Object.keys(await import("@better-auth/mcp")).sort(),
@@ -99,7 +99,7 @@ async function exportsAndPresetContract() {
     clientRegistrationDefaultResources: ["https://resource.example/other"],
   });
   assert.equal(plugin.id, "oauth-provider");
-  assert.equal(plugin.version, "1.7.1");
+  assert.equal(plugin.version, "1.7.2");
   assert.equal(plugin.options.refreshTokenReuseInterval, 30);
   assert.deepEqual(plugin.options.resources, [
     existingResource,

@@ -12,7 +12,7 @@ fn descriptor_defaults_and_validation_match_the_upstream_plugin() {
     let descriptor = OAuthProviderPlugin::in_memory(provider).descriptor();
     assert_eq!(descriptor.id, "oauth-provider");
     assert_eq!(descriptor.dependencies, &["jwt"]);
-    assert_eq!(descriptor.version, "1.7.1");
+    assert_eq!(descriptor.version, "1.7.2");
     assert_eq!(
         descriptor.client.unwrap().package,
         "@better-auth/oauth-provider"

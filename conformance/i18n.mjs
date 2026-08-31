@@ -10,7 +10,7 @@ import * as i18nClientExports from "@better-auth/i18n/client";
 import { i18nClient } from "@better-auth/i18n/client";
 import * as localeExports from "@better-auth/i18n/locales";
 
-const packageVersion = "1.7.1";
+const packageVersion = "1.7.2";
 const catalogLocales = [
   "ar",
   "bn",

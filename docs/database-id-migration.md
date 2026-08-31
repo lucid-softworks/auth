@@ -1,7 +1,7 @@
 # Migrating database ID strategies
 
 This is a breaking migration for applications created before lucid-auth matched
-Better Auth 1.7.1's `advanced.database.generateId` contract. The old lucid
+Better Auth 1.7.2's `advanced.database.generateId` contract. The old lucid
 default generated UUIDs and exposed UUID-specific configuration and Rust types.
 The Better Auth default generates 32-character `a-zA-Z0-9` strings instead.
 

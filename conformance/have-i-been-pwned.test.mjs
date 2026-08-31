@@ -70,7 +70,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("better-auth@1.7.1 Have I Been Pwned oracle", () => {
+describe("better-auth@1.7.2 Have I Been Pwned oracle", () => {
   test("snapshots exports, descriptor, error code, and server-only surface", () => {
     const options = {
       customPasswordCompromisedMessage: "Choose another password",
@@ -85,7 +85,7 @@ describe("better-auth@1.7.1 Have I Been Pwned oracle", () => {
     expect(plugin).toMatchObject({
       id: "have-i-been-pwned",
       options,
-      version: "1.7.1",
+      version: "1.7.2",
     });
     expect(Object.keys(plugin)).toEqual([
       "id",

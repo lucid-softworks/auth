@@ -374,7 +374,7 @@ async fn core_routes_use_managed_jwt_policy_and_return_dash_shapes() {
     let config = request(&app, "/api/auth/dash/config", &old_token).await;
     assert_eq!(config.status(), StatusCode::OK);
     let config = json_body(config).await;
-    assert_eq!(config["version"], "1.7.1");
+    assert_eq!(config["version"], "1.7.2");
     assert!(!config.to_string().contains("managed-contract-key"));
     assert_eq!(jti_checks.load(Ordering::SeqCst), 1);
 

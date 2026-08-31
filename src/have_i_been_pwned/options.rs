@@ -10,7 +10,7 @@ pub const DEFAULT_PATHS: &[&str] = &[
     "/admin/set-user-password",
 ];
 
-/// Better Auth 1.7.1 `HaveIBeenPwnedOptions`.
+/// Better Auth 1.7.2 `HaveIBeenPwnedOptions`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HaveIBeenPwnedOptions {
     /// Checks are disabled only when explicitly set to `Some(false)`.
@@ -49,7 +49,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_replacement_and_message_truthiness_match_171() {
+    fn defaults_replacement_and_message_truthiness_match_172() {
         let defaults = HaveIBeenPwnedOptions::default();
         assert_eq!(defaults.paths(), DEFAULT_PATHS);
         assert_eq!(

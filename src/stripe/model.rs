@@ -220,7 +220,7 @@ mod tests {
             annual_discount_price_id: None,
             annual_discount_lookup_key: None,
             limits: None,
-            group: Some("unused-in-1.7.1".into()),
+            group: Some("unused-in-1.7.2".into()),
             seat_price_id: None,
             proration_behavior: ProrationBehavior::default(),
             line_items: vec![],

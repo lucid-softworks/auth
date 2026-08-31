@@ -56,11 +56,11 @@ impl DatabaseHooks for HookCounts {
 }
 
 #[tokio::test]
-async fn metadata_and_option_gates_match_test_utils_171() {
+async fn metadata_and_option_gates_match_test_utils_172() {
     let plugin = TestUtilsPlugin::default();
     let descriptor = plugin.descriptor();
     assert_eq!(descriptor.id, "test-utils");
-    assert_eq!(descriptor.version, "1.7.1");
+    assert_eq!(descriptor.version, "1.7.2");
     assert!(descriptor.dependencies.is_empty());
     assert!(descriptor.endpoints.is_empty());
     assert!(descriptor.cookies.is_empty());

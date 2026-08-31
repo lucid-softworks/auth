@@ -4,7 +4,7 @@ use crate::AxumPluginRoute;
 
 use super::super::{OAuthProviderConfig, OAuthProviderStore};
 
-/// Better Auth 1.7.1 marks every OAuth resource-management endpoint as
+/// Better Auth 1.7.2 marks every OAuth resource-management endpoint as
 /// `SERVER_ONLY`. Consequently none of them is installed in the native HTTP
 /// router: direct requests must resolve to 404 just as they do upstream.
 ///

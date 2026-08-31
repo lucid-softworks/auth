@@ -15,7 +15,7 @@ import { getMigrations } from "better-auth/db/migration";
 import { generateDrizzleSchema } from "./node_modules/@better-auth/drizzle-adapter/dist/generate-drizzle-schema-huQqmolx.mjs";
 
 const expected = JSON.parse(
-  await readFile(new URL("schema-oracle-1.7.1.json", import.meta.url), "utf8"),
+  await readFile(new URL("schema-oracle-1.7.2.json", import.meta.url), "utf8"),
 );
 const betterAuthPackage = JSON.parse(
   await readFile(new URL("node_modules/better-auth/package.json", import.meta.url), "utf8"),
@@ -159,7 +159,7 @@ function recordingAdapter() {
   };
 }
 
-describe("Better Auth 1.7.1 database schema oracle", () => {
+describe("Better Auth 1.7.2 database schema oracle", () => {
   test("pins the package and generic getSchema order, fields, references, and indexes", () => {
     expect(betterAuthPackage.version).toBe(expected.betterAuthVersion);
     const schema = getSchema(options());

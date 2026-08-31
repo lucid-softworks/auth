@@ -111,7 +111,7 @@ fn descriptor_is_the_exact_server_only_plugin_surface() {
 
     assert_eq!(descriptor.id, "have-i-been-pwned");
     assert_eq!(descriptor.display_name, "Have I Been Pwned");
-    assert_eq!(descriptor.version, "1.7.1");
+    assert_eq!(descriptor.version, "1.7.2");
     assert!(descriptor.dependencies.is_empty());
     assert!(descriptor.conflicts.is_empty());
     assert!(descriptor.endpoints.is_empty());

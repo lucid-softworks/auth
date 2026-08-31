@@ -58,7 +58,7 @@ function sessionCookie(response) {
 function pluginConformance() {
   const plugin = deviceAuthorization();
   assert.equal(plugin.id, "device-authorization");
-  assert.equal(plugin.version, "1.7.1");
+  assert.equal(plugin.version, "1.7.2");
   assert.deepEqual(endpointContract(plugin), [
     ["deviceCode", "/device/code", "POST"],
     ["deviceToken", "/device/token", "POST"],
@@ -108,7 +108,7 @@ function pluginConformance() {
 
   const client = deviceAuthorizationClient();
   assert.equal(client.id, "device-authorization");
-  assert.equal(client.version, "1.7.1");
+  assert.equal(client.version, "1.7.2");
   assert.deepEqual(client.pathMethods, {
     "/device/code": "POST",
     "/device/token": "POST",

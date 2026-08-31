@@ -183,7 +183,7 @@ async function callSuccess(endpoint, query, session) {
   });
 }
 
-describe("@better-auth/stripe@1.7.1 oracle", () => {
+describe("@better-auth/stripe@1.7.2 oracle", () => {
   test("pins the published plugin and oracle SDK versions", async () => {
     const pluginPackage = JSON.parse(
       await readFile(
@@ -198,7 +198,7 @@ describe("@better-auth/stripe@1.7.1 oracle", () => {
       ),
     );
 
-    expect(pluginPackage.version).toBe("1.7.1");
+    expect(pluginPackage.version).toBe("1.7.2");
     expect(pluginPackage.peerDependencies.stripe).toBe(
       "^18 || ^19 || ^20 || ^21 || ^22",
     );
@@ -218,7 +218,7 @@ describe("@better-auth/stripe@1.7.1 oracle", () => {
       "options",
       "$ERROR_CODES",
     ]);
-    expect(plugin).toMatchObject({ id: "stripe", version: "1.7.1" });
+    expect(plugin).toMatchObject({ id: "stripe", version: "1.7.2" });
     expect(plugin.options).toBe(options);
     expect(client).toMatchObject({
       id: "stripe-client",
@@ -226,7 +226,7 @@ describe("@better-auth/stripe@1.7.1 oracle", () => {
         "/subscription/billing-portal": "POST",
         "/subscription/restore": "POST",
       },
-      version: "1.7.1",
+      version: "1.7.2",
     });
     expect(Object.keys(client)).toEqual([
       "id",

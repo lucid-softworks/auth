@@ -5,7 +5,7 @@ the official Better Auth JavaScript client. It implements a deliberately
 tested Better Auth-compatible HTTP and session surface without executing or
 embedding a JavaScript authentication server.
 
-The compatibility target is Better Auth `1.7.1`. See the
+The compatibility target is Better Auth `1.7.2`. See the
 [compatibility matrix](COMPATIBILITY.md) for method-level coverage, known
 limitations, upgrade audit, and links to every tracked gap.
 
@@ -20,7 +20,7 @@ limitations, upgrade audit, and links to every tracked gap.
 - [Enable Agent Auth and review its exact server/client boundary](COMPATIBILITY.md#agent-auth)
 
 The crate targets Rust 1.90 and Axum 0.8. The official client must be pinned to
-Better Auth 1.7.1. From a checkout, this starts the CI-compiled memory example:
+Better Auth 1.7.2. From a checkout, this starts the CI-compiled memory example:
 
 ```sh
 export BETTER_AUTH_SECRET="$(openssl rand -base64 32)"
@@ -31,7 +31,7 @@ cargo run --example http_memory --features axum
 
 For durable local storage without a separate database server, enable `sqlite`
 and run the native SQLx example. The store consumes the same resolved Better
-Auth schema as the service and performs additive Better Auth 1.7.1 migrations:
+Auth schema as the service and performs additive Better Auth 1.7.2 migrations:
 
 ```sh
 export DATABASE_URL="sqlite://lucid-auth.db"
@@ -118,12 +118,12 @@ The currently supported surface covers:
 - typed current-user and current-session additional-field updates
 - immediate, verified, and current-address-confirmed email changes
 - password, fresh-session, and email-confirmed current-user deletion
-- native social OAuth/OIDC sign-in and callbacks for every Better Auth 1.7.1
+- native social OAuth/OIDC sign-in and callbacks for every Better Auth 1.7.2
   built-in provider, with issuer-qualified accounts and optional provider-token encryption
 - preview/development OAuth through the production callback deployment with the
   optional OAuth Proxy server plugin and ordinary `signIn.social` client
 - Expo native cookie/deep-link transport through the pinned
-  `@better-auth/expo@1.7.1` client and optional `ExpoPlugin`, while Expo web
+  `@better-auth/expo@1.7.2` client and optional `ExpoPlugin`, while Expo web
   remains ordinary browser behavior
 - the complete official `oauthProviderClient` management surface plus the
   native OAuth 2.0/OIDC authorization-server protocol as an optional plugin
@@ -136,9 +136,9 @@ The currently supported surface covers:
   filtering, additional fields, session revocation, bans, and impersonation
 - the complete official `organizationClient` surface as an optional native plugin,
   including invitations, teams, custom roles, and organization-owned API keys
-- the official `@better-auth/sso@1.7.1` server and `ssoClient` boundary for
+- the official `@better-auth/sso@1.7.2` server and `ssoClient` boundary for
   OIDC and SAML provider management, sign-in, domain verification, and SLO
-- the server-only `@better-auth/scim@1.7.1` inbound Users/Groups service,
+- the server-only `@better-auth/scim@1.7.2` inbound Users/Groups service,
   discovery documents, identity/projection callbacks, and optional managed catalog
 - optional HIBP Pwned Passwords screening with Better Auth-compatible errors
 - Better Auth request rate limiting with global, special-route, plugin, and custom rules
@@ -170,7 +170,7 @@ core-only principals leave it unset.
 ### Database ID strategies
 
 `AuthConfig::database_id_generation` is the exact native equivalent of Better
-Auth 1.7.1's `advanced.database.generateId`. The default is not UUID: it creates
+Auth 1.7.2's `advanced.database.generateId`. The default is not UUID: it creates
 32-character `a-zA-Z0-9` IDs in the application.
 
 ```rust
@@ -237,7 +237,7 @@ running migrations.
 
 ### Enterprise SSO
 
-`SsoPlugin` targets the immutable `@better-auth/sso@1.7.1` package. It exposes
+`SsoPlugin` targets the immutable `@better-auth/sso@1.7.2` package. It exposes
 the official `signIn.sso` and provider-management client methods, both OIDC
 callback paths, SAML metadata/ACS/SLO routes, and the two domain-verification
 methods only when domain verification is enabled. Durable deployments can use
@@ -278,7 +278,7 @@ There is intentionally no separate `oauth2Config`, JavaScript sidecar, provider
 SDK, secret-vault abstraction, background provisioning queue, or implicit SCIM
 email link. Hosted directory/SSO administration belongs to the separately
 configured Dash control plane rather than `SsoPlugin` itself.
-See [Enterprise SSO 1.7.1](COMPATIBILITY.md#enterprise-sso-171) for the exact
+See [Enterprise SSO 1.7.2](COMPATIBILITY.md#enterprise-sso-172) for the exact
 boundary.
 
 ### SCIM provisioning
@@ -325,7 +325,7 @@ own resolver transaction to acquire an exact active external-ID link.
 This implementation intentionally has no compatibility migration from older
 `scimProvider`, Account-backed, Organization-backed, or legacy bearer shapes.
 Existing directories must follow a coordinated cutover and fully reprovision
-Users and Groups. See [SCIM 1.7.1](COMPATIBILITY.md#scim-171) for the exact
+Users and Groups. See [SCIM 1.7.2](COMPATIBILITY.md#scim-172) for the exact
 supported and unsupported boundary.
 
 ### Expo and React Native
@@ -344,7 +344,7 @@ config.add_plugin(ExpoPlugin::default())?;
 Install the pinned official client in the Expo application:
 
 ```sh
-npm install --save-exact better-auth@1.7.1 @better-auth/expo@1.7.1
+npm install --save-exact better-auth@1.7.2 @better-auth/expo@1.7.2
 npx expo install expo-constants expo-linking expo-network expo-secure-store expo-web-browser
 ```
 
@@ -376,7 +376,7 @@ boundary.
 Install the exact client package and enable its native server counterpart:
 
 ```sh
-npm install --save-exact better-auth@1.7.1 @better-auth/electron@1.7.1
+npm install --save-exact better-auth@1.7.2 @better-auth/electron@1.7.2
 ```
 
 ```rust
@@ -454,7 +454,7 @@ for the audited boundary and issue link.
 
 ### Polar billing
 
-Polar support is opt-in and pins Better Auth `1.7.1`,
+Polar support is opt-in and pins Better Auth `1.7.2`,
 `@polar-sh/better-auth@1.8.4`, and `@polar-sh/sdk@0.47.1`. Configure only the
 feature factories used by the application; an empty feature list is valid, and
 repeating one feature uses the last configuration, matching the adapter:
@@ -519,7 +519,7 @@ for the exact endpoint, webhook, lifecycle, and recovery boundary.
 
 ### Autumn billing
 
-Autumn support is opt-in and pins Better Auth `1.7.1`, `autumn-js@1.2.53`,
+Autumn support is opt-in and pins Better Auth `1.7.2`, `autumn-js@1.2.53`,
 and its generated SDK metadata version `0.10.18`. By default, customers are
 resolved from the authenticated user and the provider key is read from
 `AUTUMN_SECRET_KEY`:
@@ -568,14 +568,14 @@ export const autumn = createAutumnClient({
 The plugin exposes exactly Autumn's 15 camelCase POST endpoints. It owns no
 local billing models or migrations, accepts no client-selected customer, and
 adds no retries or idempotency behavior. Provider-produced errors intentionally
-retain Autumn's Better Auth 1.7.1 outer-HTTP-200 envelope; public request-schema
+retain Autumn's Better Auth 1.7.2 outer-HTTP-200 envelope; public request-schema
 errors remain HTTP 400. See the
 [Autumn compatibility row](COMPATIBILITY.md#payments-analytics-and-better-auth-infrastructure)
 for the complete transport, identity, fail-open, and exclusion boundary.
 
 ### Creem billing
 
-Creem support is opt-in and pins Better Auth `1.7.1`,
+Creem support is opt-in and pins Better Auth `1.7.2`,
 `@creem_io/better-auth@1.1.4`, `creem@1.6.0`,
 `@creem_io/webhook-types@1.0.0`, and the conformance oracle's `zod@4.4.3`.
 Keep the API key and webhook secret in server-only environment variables. The
@@ -653,7 +653,7 @@ boundary, including the intentional per-plugin schema-isolation improvement.
 
 ### Dodo Payments billing
 
-Dodo Payments support is opt-in and pins Better Auth `1.7.1`,
+Dodo Payments support is opt-in and pins Better Auth `1.7.2`,
 `@dodopayments/better-auth@1.6.5`, `@dodopayments/core@0.3.14`, and
 `dodopayments@2.47.0`. It requires a Dodo Payments account and a server-only
 live or test API key; enable only the endpoint groups the application uses:
@@ -735,7 +735,7 @@ for the exact checkout, lifecycle, provider, webhook, and exclusion boundary.
 
 ### Commet billing
 
-Commet support is opt-in and pins Better Auth `1.7.1`,
+Commet support is opt-in and pins Better Auth `1.7.2`,
 `@commet/better-auth@8.1.0`, and `@commet/node@9.1.0`. It requires a server-only
 Commet API key beginning with `ck_` and exposes only the endpoint groups
 selected by the application. `CommetProviderConfig::new` validates that key and
@@ -799,7 +799,7 @@ callback, and exclusion boundary.
 
 ### Chargebee billing
 
-Chargebee support is opt-in and pins Better Auth `1.7.1`, the
+Chargebee support is opt-in and pins Better Auth `1.7.2`, the
 Chargebee-maintained `@chargebee/better-auth@1.2.0`, and its
 `chargebee@3.23.1` runtime. The plugin is fully native: inject an application
 implementation of `ChargebeeClient` that performs the required Chargebee API
@@ -880,7 +880,7 @@ route, lifecycle, schema, webhook, and conformance boundary.
 
 ### Dub lead attribution
 
-Dub support is opt-in and pins Better Auth `1.7.1`,
+Dub support is opt-in and pins Better Auth `1.7.2`,
 `@dub/better-auth@0.0.6`, and `dub@0.66.5`. Inject only the application-owned
 native lead transport that the adapter needs; lucid-auth does not start Node,
 embed JavaScript, or expose Dub credentials to requests:
@@ -921,7 +921,7 @@ the pinned adapter.
 Do not install a Dub browser client for this target. Although upstream docs
 show `@dub/better-auth/client`, version 0.0.6 does not export that subpath.
 Its only server route, `POST /api/auth/dub/link`, also cannot complete OAuth
-under Better Auth 1.7.1: without OAuth configuration it returns 404, and with
+under Better Auth 1.7.2: without OAuth configuration it returns 404, and with
 configuration it reaches an upstream missing-endpoint error and returns an
 empty 500. Lucid-auth reproduces those observable outcomes and does not invent
 a callback route or repaired client contract. See the
@@ -1019,7 +1019,7 @@ See the [exact Dash core and substrate compatibility boundary](COMPATIBILITY.md#
 ### Better Auth Infrastructure Sentinel
 
 `SentinelPlugin` matches the server `sentinel()` export from the immutable
-`@better-auth/infra@0.4.3` artifact when composed with Better Auth 1.7.1. It
+`@better-auth/infra@0.4.3` artifact when composed with Better Auth 1.7.2. It
 adds request and database lifecycle hooks, the `__infra-rid` request-id cookie,
 and remote security evaluation; it adds no endpoint, schema, migration, rate
 rule, durable local decision store, or local audit log.
@@ -1027,7 +1027,7 @@ rule, durable local decision store, or local audit log.
 Install and configure the server package separately:
 
 ```sh
-npm install --save-exact better-auth@1.7.1 @better-auth/infra@0.4.3
+npm install --save-exact better-auth@1.7.2 @better-auth/infra@0.4.3
 ```
 
 ```rust
@@ -1249,7 +1249,7 @@ config.add_plugin(
 
 Generic providers use only `signIn.social` and `/callback/:id`; there is no
 generic-OAuth client plugin or plugin-specific route. `GenericOAuthConfig`
-supports Better Auth 1.7.1 discovery, explicit endpoint precedence, stable
+supports Better Auth 1.7.2 discovery, explicit endpoint precedence, stable
 subject/issuer resolvers, PKCE, OIDC nonce/JWKS verification, every token
 endpoint authentication method (including callback-driven
 `private_key_jwt`), custom token/user/profile callbacks, static or
@@ -1338,7 +1338,7 @@ in-process `AuthService` calls are outside the HTTP limiter, matching Better
 Auth server-side API behavior.
 
 Captcha protection is an optional native server plugin. Choose one of the four
-closed Better Auth 1.7.1 provider variants and register it normally:
+closed Better Auth 1.7.2 provider variants and register it normally:
 
 ```rust
 use lucid_auth::{CaptchaConfig, CaptchaPlugin, CloudflareTurnstileOptions};
@@ -1375,7 +1375,7 @@ support `site_key`. All providers support replacement endpoints and a non-empty
 for the exact supported boundary and pinned upstream evidence.
 
 i18n error messages are an optional native plugin matching
-`@better-auth/i18n@1.7.1`. Select any built-in catalogs (or supply exact custom
+`@better-auth/i18n@1.7.2`. Select any built-in catalogs (or supply exact custom
 locale/error-code maps), configure the ordered detection strategies, and
 register it normally:
 
@@ -1394,7 +1394,7 @@ i18n.locale_cookie = "locale".into();
 config.add_plugin(I18nPlugin::new(i18n)?)?;
 ```
 
-The bundled `I18nLocales` contains the exact 22 published 1.7.1 catalogs. The
+The bundled `I18nLocales` contains the exact 22 published 1.7.2 catalogs. The
 plugin translates only marked Better Auth API errors, preserving their status
 and code while adding `originalMessage`; it does not translate arbitrary JSON,
 successful responses, or OAuth protocol errors. Locale keys are matched
@@ -1419,7 +1419,7 @@ config.add_plugin(HaveIBeenPwnedPlugin::new(HaveIBeenPwnedOptions {
 }))?;
 ```
 
-Those are the complete Better Auth 1.7.1 options. `Some(false)` disables checks;
+Those are the complete Better Auth 1.7.2 options. `Some(false)` disables checks;
 an explicitly supplied `paths` list replaces the defaults exactly, so an empty
 list screens no paths; and an empty custom message falls back to Better Auth's
 official message. Matching is exact and request-path scoped. Direct native hash
@@ -1453,7 +1453,7 @@ let json = serde_json::to_string_pretty(&document)?;
 ```
 
 The reference path, Scalar theme, CSP nonce, and UI availability use only the
-Better Auth 1.7.1 options:
+Better Auth 1.7.2 options:
 
 ```rust
 use lucid_auth::{OpenApiConfig, OpenApiPlugin, OpenApiTheme};
@@ -1469,7 +1469,7 @@ config.add_plugin(OpenApiPlugin::new(OpenApiConfig {
 Set `disable_default_reference` to `true` to return Better Auth's empty JSON
 404 from the UI route while keeping `/open-api/generate-schema` enabled. The
 schema route is fixed, both plugin routes are hidden from their own document,
-and Better Auth 1.7.1 provides no `openAPIClient` browser plugin. See the
+and Better Auth 1.7.2 provides no `openAPIClient` browser plugin. See the
 [compatibility matrix](COMPATIBILITY.md#security-utility-and-developer-plugins)
 for the exact generation boundary.
 
@@ -1552,7 +1552,7 @@ The bundled stores persist that logical field in existing user additional-field
 storage, so this plugin has no standalone migration. The cookie is plaintext by
 design; custom method names must not contain secrets or sensitive attributes.
 `cookie_name`, floating-point `max_age`, and the user schema field name follow
-Better Auth 1.7.1, including URI encoding and its 400-day cookie limit. The
+Better Auth 1.7.2, including URI encoding and its 400-day cookie limit. The
 official client reads and compares the cookie synchronously and can clear it;
 its optional `domain` setting affects clearing only.
 
@@ -1563,7 +1563,7 @@ providers:
 config.add_plugin(OAuthPopupPlugin)?;
 ```
 
-Use Better Auth's official 1.7.1 browser plugin:
+Use Better Auth's official 1.7.2 browser plugin:
 
 ```ts
 import { createAuthClient } from "better-auth/client";
@@ -1592,7 +1592,7 @@ The marker intentionally is not bound into OAuth state, is not revalidated on
 the callback, and uses one fixed cookie. Concurrent popup starts can therefore
 overwrite each other's opener marker. Database OAuth state remains one-time;
 encrypted cookie state keeps Better Auth's normal ten-minute replay window.
-These are the Better Auth 1.7.1 protocol boundaries rather than extra Lucid
+These are the Better Auth 1.7.2 protocol boundaries rather than extra Lucid
 behavior. Per-cookie naming and attributes can be set with
 `config.cookies.plugin["oauth_popup"]`; `max_age` and `partitioned` follow
 Better Call's merge and serialization rules. Generated official-client popup
@@ -1645,20 +1645,20 @@ payload older than `max_age` or over ten seconds in the future, consumes the
 original OAuth state, creates the ordinary account/session, and redirects to
 the state-bound callback or new-user URL.
 
-Database-backed OAuth state is atomically consumed. Better Auth 1.7.1's cookie
+Database-backed OAuth state is atomically consumed. Better Auth 1.7.2's cookie
 state strategy only expires its response cookie and does not add a separate
 server-side replay record. Request-derived preview origins are accepted only
 when trusted; explicit `current_url`, supported hosting-platform URLs, and the
 configured base URL provide the remaining upstream resolution order.
 
-Matching Better Auth 1.7.1, OAuth Proxy forwards neither an OIDC nonce,
+Matching Better Auth 1.7.2, OAuth Proxy forwards neither an OIDC nonce,
 callback `iss`, OAuth `device_id`, nor a provider `error_description` across
 the proxy hop. It adds no dedicated client factory, plugin-owned cookie,
 schema, migration, rate limit, or error-code table; its only route is
 `GET /oauth-proxy-callback`.
 
 OAuth Provider is the independent authorization-server plugin matching
-`@better-auth/oauth-provider@1.7.1`. The JWT plugin owns provider signing keys;
+`@better-auth/oauth-provider@1.7.2`. The JWT plugin owns provider signing keys;
 the OAuth Provider plugin owns its seven models, routes, rate limits, and schema:
 
 ```rust
@@ -1715,7 +1715,7 @@ HTTP, and device authorization is a separate plugin. See the
 [compatibility matrix](COMPATIBILITY.md) for the precise boundary.
 
 Client ID Metadata Document discovery matches the server-only
-`@better-auth/cimd@1.7.1` companion. Install it with OAuth Provider and supply
+`@better-auth/cimd@1.7.2` companion. Install it with OAuth Provider and supply
 the required metadata-resource transport; there is no CIMD browser plugin,
 client factory, HTTP endpoint, or Dynamic Client Registration alias:
 
@@ -1746,7 +1746,7 @@ operators should also use `metadata_document_url_policy`, conservative fetch
 budgets, and an origin allowlist when their deployment has a narrower trust
 boundary.
 
-MCP support matches the authorization boundary of `@better-auth/mcp@1.7.1`.
+MCP support matches the authorization boundary of `@better-auth/mcp@1.7.2`.
 It is an OAuth Provider preset and RFC 9728 protected-resource server, not an
 MCP transport: it binds issued tokens to one configured MCP resource, links
 newly registered clients to that resource, serves both root-mounted protected
@@ -1833,7 +1833,7 @@ match verifier.verify(&McpProtectedRequest {
 }
 ```
 
-Device Authorization is a separate plugin matching Better Auth 1.7.1. For a
+Device Authorization is a separate plugin matching Better Auth 1.7.2. For a
 standalone first-party device flow, install it without OAuth Provider:
 
 ```rust
@@ -1903,7 +1903,7 @@ Bearer session authentication is a separate, optional server plugin:
 config.add_plugin(BearerPlugin::default())?;
 ```
 
-Better Auth 1.7.1 has no `bearerClient()` factory. Use the ordinary client fetch
+Better Auth 1.7.2 has no `bearerClient()` factory. Use the ordinary client fetch
 configuration with the complete signed value returned in `set-auth-token`:
 
 ```ts
@@ -1936,7 +1936,7 @@ against JWKS. Bearer does not accept those JWTs; it transports Better Auth
 session credentials. OAuth Popup uses this plugin only for a cross-origin
 embedded client that cannot rely on its partitioned browser cookie.
 
-JWT is an independent optional plugin. Its default is Better Auth 1.7.1 EdDSA
+JWT is an independent optional plugin. Its default is Better Auth 1.7.2 EdDSA
 with an Ed25519 key, a 15-minute token lifetime, `GET /jwks`, and authenticated
 `GET /token`:
 
@@ -2003,7 +2003,7 @@ through `OneTimeTokenConfig`.
 The token is a portable bearer credential, not a purpose- or user-bound proof.
 Redemption returns and optionally binds the originating session even when the
 browser already has a different session. It has no payload, origin, IP, or
-freshness policy. Matching Better Auth 1.7.1 exactly, redemption burns the token
+freshness policy. Matching Better Auth 1.7.2 exactly, redemption burns the token
 before session lookup; missing and expired sessions therefore cannot be retried.
 The pinned implementation also queues the referenced session cookie before its
 expired-session rejection and can issue a successor `set-ott` header when that
@@ -2011,7 +2011,7 @@ hook is enabled. Applications should use short expiries, hashed storage, secure
 transport, and avoid enabling the response header unless that exchange flow is
 required.
 
-Lucid deliberately does not reproduce five pinned 1.7.1 bugs: an expired/null
+Lucid deliberately does not reproduce five pinned 1.7.2 bugs: an expired/null
 session cannot receive `set-auth-jwt`; schema remapping is instance-local;
 token responses and errors are never cacheable; private JWKs are redacted from
 ordinary diagnostics even when storage encryption is disabled; and service
@@ -2096,7 +2096,7 @@ before the new-address verification is sent. Email normalization, uniqueness,
 stateless signed tokens, callback URLs, and session-cookie refresh are enforced
 in every mode. The two current phases use the exact
 `change-email-confirmation` and `change-email-verification` claims; the Better
-Auth 1.7.1 legacy token branch remains distinct.
+Auth 1.7.2 legacy token branch remains distinct.
 
 Better Auth anonymous users are an optional plugin and their routes and
 `isAnonymous` user field are absent until it is registered:
@@ -2294,7 +2294,7 @@ authentication origin and base path.
 stateless HS256 JWTs signed with the current configured secret. Newly issued
 tokens contain lowercase email, numeric `iat`/`exp`, and only the
 `{"alg":"HS256"}` protected header; they create no verification record.
-Expiry has no clock leeway, while the shipped 1.7.1 verifier accepts a validly
+Expiry has no clock leeway, while the shipped 1.7.2 verifier accepts a validly
 signed token with absent temporal claims and validates them when present.
 
 Password reset delivery is supplied by implementing `PasswordResetEmailSender`
@@ -2328,7 +2328,7 @@ email links, and deletion links; no legacy lookup aliases are retained.
 
 Magic Link is an optional native plugin. Implement `MagicLinkSender`, construct
 `MagicLinkConfig`, and register `MagicLinkPlugin` with `AuthConfig::add_plugin`.
-Its two routes work with Better Auth 1.7.1's official `magicLinkClient`:
+Its two routes work with Better Auth 1.7.2's official `magicLinkClient`:
 
 ```rust
 let mut magic_link = MagicLinkConfig::new(Arc::new(MyMagicLinkSender));
@@ -2344,7 +2344,7 @@ email, verification URL, token, metadata, and a narrowed request context.
 exact casing, and all redirects pass the configured trusted-origin policy.
 
 Email OTP is also optional. Implement `EmailOtpSender` and register the plugin;
-the official Better Auth 1.7.1 `emailOTPClient` then supports verification,
+the official Better Auth 1.7.2 `emailOTPClient` then supports verification,
 passwordless sign-in/signup, password reset, and configured email changes:
 
 ```rust
@@ -2380,7 +2380,7 @@ let phone_number = PhoneNumberConfig {
 config.add_plugin(PhoneNumberPlugin::new(store.clone(), phone_number))?;
 ```
 
-The official Better Auth 1.7.1 `phoneNumberClient` supports opaque phone strings
+The official Better Auth 1.7.2 `phoneNumberClient` supports opaque phone strings
 by default; format validation is opt-in through `PhoneNumberValidator`. Its
 defaults are six numeric digits, a 300-second expiry, three attempts, optional
 signup after verification, and password-based `signIn.phoneNumber`. OTP
@@ -2410,7 +2410,7 @@ let one_tap = OneTapConfig::default();
 config.add_plugin(OneTapPlugin::new(one_tap))?;
 ```
 
-Register Better Auth 1.7.1's client plugin with the same Google web client ID:
+Register Better Auth 1.7.2's client plugin with the same Google web client ID:
 
 ```ts
 import { createAuthClient } from "better-auth/client";
@@ -2434,7 +2434,7 @@ the non-FedCM prompt behavior supported by the official client. Prompt mode
 retries with a one-second base delay for up to five attempts by default, while
 button mode renders Google's button instead. The official client also prevents
 silent Google access after sign-out. An action-level `nonce` is forwarded to
-Google Identity Services only; Better Auth 1.7.1 does not send it to or validate
+Google Identity Services only; Better Auth 1.7.2 does not send it to or validate
 it at the callback route.
 
 `callbackURL` is validated by the server's trusted-origin policy, but the
@@ -2467,7 +2467,7 @@ checksummed address, numeric chain ID, and Better Auth's CAIP-122 projection.
 The nonce is stored for 15 minutes and is consumed as soon as a syntactically
 valid nonce is parsed, before domain, address, chain, time, or signature checks.
 This ordering and the deliberately narrow message parser match Better Auth
-1.7.1 exactly.
+1.7.2 exactly.
 
 Use the official client without a Lucid-specific adapter:
 
@@ -2513,7 +2513,7 @@ let organization = OrganizationPluginConfig {
 config.add_plugin(OrganizationPlugin::with_config(organizations, organization))?;
 ```
 
-The plugin implements every Better Auth 1.7.1 `organizationClient` method for
+The plugin implements every Better Auth 1.7.2 `organizationClient` method for
 organizations, active state, members, invitations, teams, permissions, and
 dynamic roles. Limits and last-owner rules are enforced atomically. Invitation
 delivery, creation policy, and all documented organization/member/invitation/team
@@ -2533,7 +2533,7 @@ config.add_plugin(ApiKeyPlugin::new(api_keys))?;
 ```
 
 The official `apiKeyClient` create/get/list/update/delete methods work against
-the Better Auth 1.7.1 paths and schemas. Server-only verification and expired-key
+the Better Auth 1.7.2 paths and schemas. Server-only verification and expired-key
 cleanup remain native `AuthService` methods and are not mounted as HTTP routes.
 Secrets use Better Auth's 64-character
 letter-only default generator, optional prefixes, and SHA-256 base64url hashing;
@@ -2548,7 +2548,7 @@ Set `enable_session_for_api_keys` to accept the configured headers (default
 `x-api-key`) as Better Auth sessions. Header arrays, synchronous custom getters,
 async validators, callback order/count, multiple named configurations, custom
 key generation, starting-character display, expiry bounds/defaults, metadata,
-permissions, refills, and per-key rate limits match `@better-auth/api-key@1.7.1`.
+permissions, refills, and per-key rate limits match `@better-auth/api-key@1.7.2`.
 Set `storage` to `ApiKeyStorage::SecondaryStorage` for the exact secondary-only
 record keys and serialization; set `fallback_to_database` for Better Auth's
 database-authoritative read-through cache. `custom_storage` takes precedence
@@ -2775,7 +2775,7 @@ not a supported compatibility mode.
 
 ## OpenTelemetry instrumentation
 
-Lucid-auth automatically emits Better Auth 1.7.1-compatible OpenTelemetry
+Lucid-auth automatically emits Better Auth 1.7.2-compatible OpenTelemetry
 spans through the application's global provider. There is no auth option or
 instrumentation plugin to install. Applications own provider, exporter,
 sampler, and propagation configuration; with the default no-op provider, auth
@@ -2790,7 +2790,7 @@ global::set_tracer_provider(provider);
 // Construct AuthService normally after application telemetry is configured.
 ```
 
-The instrumentation scope is `better-auth` version `1.7.1`. It emits only the
+The instrumentation scope is `better-auth` version `1.7.2`. It emits only the
 pinned low-cardinality endpoint, contributed plugin lifecycle, logical adapter,
 and database-hook families. It does not record request bodies, queries,
 cookies, tokens, credentials, email addresses, database statements, provider

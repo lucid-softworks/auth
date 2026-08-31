@@ -1,4 +1,4 @@
-//! Better Auth 1.7.1 Client ID Metadata Document compatibility.
+//! Better Auth 1.7.2 Client ID Metadata Document compatibility.
 
 mod cache;
 mod discovery;
@@ -28,7 +28,7 @@ pub use discovery::{CimdClientDiscovery, create_cimd_client_discovery};
 pub use plugin::{CimdPlugin, cimd};
 
 /// Published `@better-auth/cimd` compatibility version.
-pub const CIMD_VERSION: &str = "1.7.1";
+pub const CIMD_VERSION: &str = "1.7.2";
 pub use fetch::{
     CimdFetchError, CimdFetchRequest, CimdFetchResponse, CimdMetadataResourceFetcher,
 };

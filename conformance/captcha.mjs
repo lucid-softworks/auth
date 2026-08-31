@@ -119,7 +119,7 @@ function pluginMetadataConformance() {
   };
   const plugin = captcha(options);
   assert.equal(plugin.id, "captcha");
-  assert.equal(plugin.version, "1.7.1");
+  assert.equal(plugin.version, "1.7.2");
   assert.equal(plugin.options, options);
   assert.deepEqual(
     Object.fromEntries(
@@ -878,7 +878,7 @@ async function pinnedSourceConformance() {
   const packageMetadata = JSON.parse(
     await readFile(new URL("node_modules/better-auth/package.json", import.meta.url)),
   );
-  assert.equal(packageMetadata.version, "1.7.1");
+  assert.equal(packageMetadata.version, "1.7.2");
 
   const captchaSource = await readFile(
     new URL("node_modules/better-auth/dist/plugins/captcha/index.mjs", import.meta.url),

@@ -40,7 +40,7 @@ describe("@commet/better-auth@8.1.0 composition oracle", () => {
   test("pins package versions, both Better Call resolutions, and exports", async () => {
     expect(await packageVersion("@commet/better-auth")).toBe("8.1.0");
     expect(await packageVersion("@commet/node")).toBe("9.1.0");
-    expect(await packageVersion("better-auth")).toBe("1.7.1");
+    expect(await packageVersion("better-auth")).toBe("1.7.2");
     expect(await packageVersion("better-call-1-3")).toBe("1.3.6");
     expect(await packageVersion("better-call")).toBe("1.4.0");
     expect(await packageVersion("zod")).toBe("4.4.3");

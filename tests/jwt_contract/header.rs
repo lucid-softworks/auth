@@ -20,7 +20,7 @@ impl AuthPlugin for ExistingExposeHeader {
         PluginDescriptor {
             id: "jwt-header-fixture",
             display_name: "JWT header fixture",
-            version: "1.7.1",
+            version: "1.7.2",
             provenance: lucid_auth::PluginProvenance::lucid_extension(),
             dependencies: &[],
             conflicts: &[],

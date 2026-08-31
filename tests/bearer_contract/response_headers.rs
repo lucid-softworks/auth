@@ -12,7 +12,7 @@ impl AuthPlugin for ResponseHeadersPlugin {
         PluginDescriptor {
             id: "bearer-response-fixture",
             display_name: "Bearer response fixture",
-            version: "1.7.1",
+            version: "1.7.2",
             provenance: PluginProvenance::lucid_extension(),
             dependencies: &[],
             conflicts: &[],

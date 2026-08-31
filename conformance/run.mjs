@@ -439,8 +439,8 @@ async function conformance(origin) {
     ],
   });
 
-  await runCase("Better Auth 1.7.1 baseline", async () => {
-    assert.equal(betterAuthPackage.version, "1.7.1");
+  await runCase("Better Auth 1.7.2 baseline", async () => {
+    assert.equal(betterAuthPackage.version, "1.7.2");
     assert.equal(passkeyPackage.version, betterAuthPackage.version);
     assert.equal(apiKeyPackage.version, betterAuthPackage.version);
     const response = await transport.fetch(`${origin}/__conformance__/version`);

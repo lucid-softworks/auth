@@ -42,7 +42,7 @@ impl AuthPlugin for MetadataFixturePlugin {
         PluginDescriptor {
             id: "fixture-plugin",
             display_name: "Fixture plugin",
-            version: "1.7.1",
+            version: "1.7.2",
             provenance: lucid_auth::PluginProvenance::lucid_extension(),
             dependencies: &[],
             conflicts: &[],
@@ -151,7 +151,7 @@ pub(super) async fn body(response: axum::response::Response) -> Vec<u8> {
 }
 
 #[test]
-fn defaults_themes_and_descriptor_match_better_auth_171() {
+fn defaults_themes_and_descriptor_match_better_auth_172() {
     assert_eq!(OpenApiPlugin::default().config(), &OpenApiConfig::default());
     assert_eq!(OpenApiConfig::default().path, "/reference");
     assert!(!OpenApiConfig::default().disable_default_reference);
@@ -189,7 +189,7 @@ fn defaults_themes_and_descriptor_match_better_auth_171() {
     );
     let descriptor = OpenApiPlugin::default().descriptor();
     assert_eq!(descriptor.id, "open-api");
-    assert_eq!(descriptor.version, "1.7.1");
+    assert_eq!(descriptor.version, "1.7.2");
     assert_eq!(descriptor.endpoints.len(), 2);
     assert_eq!(descriptor.endpoints[0].path, "/open-api/generate-schema");
     assert_eq!(descriptor.endpoints[1].path, "/reference");
@@ -211,7 +211,7 @@ fn explicit_path_parameters_replace_inference_without_duplication() {
             PluginDescriptor {
                 id: "explicit",
                 display_name: "Explicit",
-                version: "1.7.1",
+                version: "1.7.2",
                 provenance: lucid_auth::PluginProvenance::lucid_extension(),
                 dependencies: &[],
                 conflicts: &[],

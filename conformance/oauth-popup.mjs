@@ -607,14 +607,14 @@ async function clientConformance() {
 export async function oauthPopupConformance() {
   const serverPlugin = oauthPopup();
   assert.equal(serverPlugin.id, "oauth-popup");
-  assert.equal(serverPlugin.version, "1.7.1");
+  assert.equal(serverPlugin.version, "1.7.2");
   assert.deepEqual(Object.keys(serverPlugin.endpoints), ["oauthPopupStart"]);
   assert.equal(serverPlugin.endpoints.oauthPopupStart.path, "/oauth-popup/start");
   assert.deepEqual(serverPlugin.$ERROR_CODES, OAUTH_POPUP_ERROR_CODES);
 
   const clientPlugin = oauthPopupClient();
   assert.equal(clientPlugin.id, "oauth-popup");
-  assert.equal(clientPlugin.version, "1.7.1");
+  assert.equal(clientPlugin.version, "1.7.2");
   assert.deepEqual(clientPlugin.$ERROR_CODES, OAUTH_POPUP_ERROR_CODES);
   assert.equal(clientPlugin.fetchPlugins[0].id, "better-auth-popup-bearer");
   assert.equal(clientPlugin.fetchPlugins[0].name, "Popup Bearer");

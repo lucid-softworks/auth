@@ -132,7 +132,7 @@ function installEmbedDom(origin = "https://app.example.test") {
 }
 
 describe("@polar-sh/better-auth@1.8.4 oracle", () => {
-  test("pins the adapter and SDK selected with Better Auth 1.7.1", async () => {
+  test("pins the adapter and SDK selected with Better Auth 1.7.2", async () => {
     const adapterPackage = JSON.parse(
       await readFile(
         new URL("node_modules/@polar-sh/better-auth/package.json", import.meta.url),

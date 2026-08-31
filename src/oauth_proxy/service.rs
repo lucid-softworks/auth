@@ -116,7 +116,7 @@ pub(crate) async fn provider_callback(
         Ok(tokens) => tokens,
         Err(_) => return Some(proxy_error(error_url, "invalid_code")),
     };
-    // Better Auth 1.7.1 intentionally does not forward the stored nonce here.
+    // Better Auth 1.7.2 intentionally does not forward the stored nonce here.
     let user_info = match provider.get_user_info(&tokens, None, provider_user).await {
         Ok(user_info) => user_info,
         Err(_) => return Some(proxy_error(error_url, "unable_to_get_user_info")),

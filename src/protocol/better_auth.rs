@@ -2,7 +2,7 @@ use crate::{AuthSession, AuthUser, SessionWithUser, StoredPasskey};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-pub const COMPATIBLE_BETTER_AUTH_VERSION: &str = "1.7.1";
+pub const COMPATIBLE_BETTER_AUTH_VERSION: &str = "1.7.2";
 pub const SESSION_COOKIE_NAME: &str = "better-auth.session_token";
 pub const PASSKEY_CHALLENGE_COOKIE_NAME: &str = "better-auth.better-auth-passkey";
 

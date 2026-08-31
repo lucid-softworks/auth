@@ -1,7 +1,7 @@
 # Microsoft SQL Server storage
 
 The optional `mssql` feature is a native, in-process implementation of Better
-Auth `1.7.1`'s `type: "mssql"` Kysely adapter path. Production code uses
+Auth `1.7.2`'s `type: "mssql"` Kysely adapter path. Production code uses
 Tiberius through a BB8 pool; Kysely, Tedious, Node, and helper processes appear
 only in the pinned conformance oracle.
 

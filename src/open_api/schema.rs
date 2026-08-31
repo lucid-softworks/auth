@@ -332,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn pipes_wrappers_metadata_and_bounds_match_171() {
+    fn pipes_wrappers_metadata_and_bounds_match_172() {
         let bounded = schema(FieldSchemaKind::String {
             min_length: Some(2),
             max_length: Some(9),

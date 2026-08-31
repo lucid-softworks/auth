@@ -79,7 +79,7 @@ describe("@dub/better-auth@0.0.6 lead lifecycle oracle", () => {
     expect(setCookie).not.toHaveBeenCalled();
   });
 
-  test("swallows a rejected provider, ignores its response, and emits the pathless deletion", async () => {
+  test("swallows a rejected provider, honors the disabled logger, and emits the pathless deletion", async () => {
     const lead = vi.fn(async () => { throw new Error("provider unavailable"); });
     const server = authServer({ dubClient: fakeDub({ lead }) });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -94,7 +94,7 @@ describe("@dub/better-auth@0.0.6 lead lifecycle oracle", () => {
     expect(server.db.user).toHaveLength(1);
     expect(server.db.account).toHaveLength(1);
     expect(server.db.session).toHaveLength(1);
-    expect(errorSpy).toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
     errorSpy.mockRestore();
   });
 

@@ -1,4 +1,4 @@
-//! Better Auth 1.7.1 OpenTelemetry instrumentation.
+//! Better Auth 1.7.2 OpenTelemetry instrumentation.
 //!
 //! Instrumentation is automatic and uses the application's global
 //! OpenTelemetry provider. This module never installs a provider, exporter,
@@ -21,7 +21,7 @@ pub use span::{
 pub(crate) use store::InstrumentedAuthStore;
 
 pub const INSTRUMENTATION_SCOPE: &str = "better-auth";
-pub const INSTRUMENTATION_VERSION: &str = "1.7.1";
+pub const INSTRUMENTATION_VERSION: &str = "1.7.2";
 
 pub async fn with_adapter_operation<T, E, F>(
     operation: AdapterOperation,
