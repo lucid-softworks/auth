@@ -139,6 +139,7 @@ pub struct AuthService {
 }
 
 impl AuthService {
+    #[cfg(feature = "axum")]
     pub(crate) fn database_store(&self) -> Arc<dyn AuthStore> {
         self.store.clone()
     }

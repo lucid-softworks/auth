@@ -1,8 +1,13 @@
+#[cfg(any(feature = "axum", test))]
 use super::SsoProvider;
+#[cfg(any(feature = "axum", test))]
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
+#[cfg(any(feature = "axum", test))]
 use serde_json::{Map, Value, json};
+#[cfg(any(feature = "axum", test))]
 use sha2::{Digest as _, Sha256};
+#[cfg(any(feature = "axum", test))]
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,8 +28,10 @@ pub enum SsoProviderSource {
     },
 }
 
+#[cfg(feature = "axum")]
 pub(super) type ProviderReference = SsoProviderReference;
 
+#[cfg(any(feature = "axum", test))]
 pub(super) fn persisted(provider: &SsoProvider) -> SsoProviderReference {
     SsoProviderReference {
         provider_id: provider.provider_id.clone(),
@@ -64,6 +71,7 @@ impl SsoProviderReference {
     }
 }
 
+#[cfg(any(feature = "axum", test))]
 fn fingerprint(provider: &SsoProvider) -> String {
     let mut authentication = Map::new();
     authentication.insert("domain".into(), json!(provider.domain));
@@ -82,12 +90,14 @@ fn fingerprint(provider: &SsoProvider) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(canonical.as_bytes()))
 }
 
+#[cfg(any(feature = "axum", test))]
 fn without_oidc_secret(config: &Value) -> Value {
     let mut config = config.as_object().cloned().unwrap_or_default();
     config.remove("clientSecret");
     Value::Object(config)
 }
 
+#[cfg(any(feature = "axum", test))]
 fn without_saml_private_keys(config: &Value) -> Value {
     let mut config = config.as_object().cloned().unwrap_or_default();
     config.remove("privateKey");
@@ -111,6 +121,7 @@ fn without_saml_private_keys(config: &Value) -> Value {
     Value::Object(config)
 }
 
+#[cfg(any(feature = "axum", test))]
 fn remove_nested_private_keys(config: &mut Map<String, Value>) {
     for field in [
         "privateKey",
@@ -122,6 +133,7 @@ fn remove_nested_private_keys(config: &mut Map<String, Value>) {
     }
 }
 
+#[cfg(any(feature = "axum", test))]
 fn canonical(value: &Value) -> String {
     match value {
         Value::Null => "null".into(),

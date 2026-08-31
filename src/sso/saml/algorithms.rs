@@ -50,6 +50,7 @@ impl DataEncryptionAlgorithm {
     pub const AES_256_GCM: &'static str = "http://www.w3.org/2009/xmlenc11#aes256-gcm";
 }
 
+#[cfg(any(feature = "axum", test))]
 pub(super) fn normalize_signature(algorithm: &str) -> &str {
     match algorithm.to_ascii_lowercase().as_str() {
         "sha1" | "rsa-sha1" => SignatureAlgorithm::RSA_SHA1,
@@ -63,6 +64,7 @@ pub(super) fn normalize_signature(algorithm: &str) -> &str {
     }
 }
 
+#[cfg(any(feature = "axum", test))]
 pub(super) fn normalize_digest(algorithm: &str) -> &str {
     match algorithm.to_ascii_lowercase().as_str() {
         "sha1" => DigestAlgorithm::SHA1,
@@ -73,6 +75,7 @@ pub(super) fn normalize_digest(algorithm: &str) -> &str {
     }
 }
 
+#[cfg(any(feature = "axum", test))]
 pub(super) fn secure_signatures() -> &'static [&'static str] {
     &[
         SignatureAlgorithm::RSA_SHA256,
@@ -84,6 +87,7 @@ pub(super) fn secure_signatures() -> &'static [&'static str] {
     ]
 }
 
+#[cfg(any(feature = "axum", test))]
 pub(super) fn secure_digests() -> &'static [&'static str] {
     &[
         DigestAlgorithm::SHA256,
