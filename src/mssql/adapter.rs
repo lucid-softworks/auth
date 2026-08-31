@@ -5,6 +5,8 @@ use crate::{
 use bb8_tiberius::ConnectionManager;
 use std::sync::{Arc, OnceLock};
 
+pub(super) type MssqlClient = bb8_tiberius::rt::Client;
+
 /// A Tokio/Tiberius SQL Server connection pool.
 pub type MssqlPool = bb8::Pool<ConnectionManager>;
 
@@ -24,7 +26,12 @@ pub struct MssqlAdapterConfig {
 pub struct MssqlStore {
     pub(super) pool: MssqlPool,
     adapter_config: MssqlAdapterConfig,
-    schema: Arc<OnceLock<ResolvedAdapterSchema>>,
+    schema: Arc<OnceLock<BoundMssqlSchema>>,
+}
+
+struct BoundMssqlSchema {
+    resolved: ResolvedAdapterSchema,
+    physical: super::schema::MssqlSchema,
 }
 
 impl MssqlStore {
@@ -97,15 +104,20 @@ impl MssqlStore {
         )
         .map_err(|error| AuthError::InvalidConfiguration(error.to_string()))?;
         let requested = resolved.fingerprint().clone();
+        let bound = BoundMssqlSchema {
+            physical: super::schema::MssqlSchema::new(&resolved)?,
+            resolved,
+        };
         if let Some(bound) = self.schema.get() {
-            return compare(bound.fingerprint(), &requested);
+            return compare(bound.resolved.fingerprint(), &requested);
         }
-        match self.schema.set(resolved) {
+        match self.schema.set(bound) {
             Ok(()) => Ok(()),
             Err(_) => compare(
                 self.schema
                     .get()
                     .expect("a failed OnceLock set has a winning value")
+                    .resolved
                     .fingerprint(),
                 &requested,
             ),
@@ -113,6 +125,206 @@ impl MssqlStore {
     }
 
     pub fn resolved_schema(&self) -> Result<&ResolvedAdapterSchema, AuthError> {
+        self.bound_schema().map(|schema| &schema.resolved)
+    }
+
+    /// Derives Better Auth's additive introspection plan without executing it.
+    pub async fn migration_plan(
+        &self,
+        schema: Arc<AuthSchemaCatalog>,
+        mode: super::MssqlMigrationMode,
+    ) -> Result<super::MssqlMigrationPlan, super::MssqlMigrationError> {
+        self.bind_schema(schema)
+            .map_err(|error| super::MssqlMigrationError::Configuration(error.to_string()))?;
+        let bound = self
+            .schema
+            .get()
+            .ok_or_else(|| super::MssqlMigrationError::Configuration("schema is not bound".into()))?;
+        super::migration::plan(&self.pool, &bound.resolved, &bound.physical, mode).await
+    }
+
+    /// Plans and executes each additive statement sequentially.
+    pub async fn migrate(
+        &self,
+        schema: Arc<AuthSchemaCatalog>,
+    ) -> Result<super::MssqlMigrationPlan, super::MssqlMigrationError> {
+        let plan = self
+            .migration_plan(schema, super::MssqlMigrationMode::Execute)
+            .await?;
+        plan.run(&self.pool).await?;
+        Ok(plan)
+    }
+
+    pub(super) fn physical_schema(&self) -> Result<&super::schema::MssqlSchema, AuthError> {
+        self.bound_schema().map(|schema| &schema.physical)
+    }
+
+    pub async fn insert_record(
+        &self,
+        model: &str,
+        record: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        let schema = self.physical_schema()?;
+        let mut connection = self.pool.get().await.map_err(storage)?;
+        super::query::execute::insert(
+            &mut connection,
+            schema,
+            model,
+            record,
+            self.adapter_config.debug_logs,
+        )
+        .await
+    }
+
+    pub async fn find_record(
+        &self,
+        model: &str,
+        filters: &[super::MssqlFilter],
+        select: &[String],
+    ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        let schema = self.physical_schema()?;
+        let mut connection = self.pool.get().await.map_err(storage)?;
+        super::query::execute::find_one(
+            &mut connection,
+            schema,
+            model,
+            filters,
+            select,
+            self.adapter_config.debug_logs,
+        )
+        .await
+    }
+
+    pub async fn find_records(
+        &self,
+        model: &str,
+        filters: &[super::MssqlFilter],
+        options: &super::MssqlFindOptions,
+    ) -> Result<Vec<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        let schema = self.physical_schema()?;
+        let mut connection = self.pool.get().await.map_err(storage)?;
+        super::query::execute::find_many(
+            &mut connection,
+            schema,
+            model,
+            filters,
+            options,
+            self.adapter_config.debug_logs,
+        )
+        .await
+    }
+
+    pub async fn update_record(
+        &self,
+        model: &str,
+        filters: &[super::MssqlFilter],
+        values: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        let schema = self.physical_schema()?;
+        let mut connection = self.pool.get().await.map_err(storage)?;
+        super::query::execute::update_one(
+            &mut connection,
+            schema,
+            model,
+            filters,
+            values,
+            self.adapter_config.debug_logs,
+        )
+        .await
+    }
+
+    pub async fn update_records(
+        &self,
+        model: &str,
+        filters: &[super::MssqlFilter],
+        values: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<u64, AuthError> {
+        let schema = self.physical_schema()?;
+        let mut connection = self.pool.get().await.map_err(storage)?;
+        super::query::execute::update_many(
+            &mut connection,
+            schema,
+            model,
+            filters,
+            values,
+            self.adapter_config.debug_logs,
+        )
+        .await
+    }
+
+    pub async fn count_records(
+        &self,
+        model: &str,
+        filters: &[super::MssqlFilter],
+    ) -> Result<u64, AuthError> {
+        let schema = self.physical_schema()?;
+        let mut connection = self.pool.get().await.map_err(storage)?;
+        super::query::execute::count(
+            &mut connection,
+            schema,
+            model,
+            filters,
+            self.adapter_config.debug_logs,
+        )
+        .await
+    }
+
+    pub async fn delete_records(
+        &self,
+        model: &str,
+        filters: &[super::MssqlFilter],
+    ) -> Result<u64, AuthError> {
+        let schema = self.physical_schema()?;
+        let mut connection = self.pool.get().await.map_err(storage)?;
+        super::query::execute::delete_many(
+            &mut connection,
+            schema,
+            model,
+            filters,
+            self.adapter_config.debug_logs,
+        )
+        .await
+    }
+
+    pub async fn consume_record(
+        &self,
+        model: &str,
+        filters: &[super::MssqlFilter],
+    ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        let schema = self.physical_schema()?;
+        let mut connection = self.pool.get().await.map_err(storage)?;
+        super::query::execute::consume_one(
+            &mut connection,
+            schema,
+            model,
+            filters,
+            self.adapter_config.debug_logs,
+        )
+        .await
+    }
+
+    pub async fn increment_record(
+        &self,
+        model: &str,
+        filters: &[super::MssqlFilter],
+        increments: serde_json::Map<String, serde_json::Value>,
+        set: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AuthError> {
+        let schema = self.physical_schema()?;
+        let mut connection = self.pool.get().await.map_err(storage)?;
+        super::query::execute::increment_one(
+            &mut connection,
+            schema,
+            model,
+            filters,
+            increments,
+            set,
+            self.adapter_config.debug_logs,
+        )
+        .await
+    }
+
+    fn bound_schema(&self) -> Result<&BoundMssqlSchema, AuthError> {
         self.schema.get().ok_or_else(|| {
             AuthError::InvalidConfiguration(
                 "MSSQL adapter schema is not bound to an AuthService".into(),
