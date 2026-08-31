@@ -33,7 +33,7 @@ pub(super) fn build(
     generic.override_user_info = config
         .get("overrideUserInfo")
         .and_then(Value::as_bool)
-        .unwrap_or(false);
+        .unwrap_or(options.default_override_user_info);
     generic.disable_implicit_sign_up = options.disable_implicit_sign_up;
     generic.get_user_info = generic
         .user_info_url

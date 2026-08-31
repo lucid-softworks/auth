@@ -249,7 +249,7 @@ pub use sso::{
     SamlAlgorithmOptions, SamlConfigurationError, SamlServiceProviderPolicy, SignatureAlgorithm,
     SsoDefaultProvider, SsoOptions, SsoPlugin, SsoPrivateKey, SsoPrivateKeyRequest,
     SsoPrivateKeyResolver, SsoProvider, SsoProviderUpdate, SsoStore, SsoStoreError,
-    VERSION as SSO_VERSION,
+    SsoProvisioningInput, SsoUserProvisioner, VERSION as SSO_VERSION,
 };
 #[cfg(feature = "axum")]
 pub use sso::{

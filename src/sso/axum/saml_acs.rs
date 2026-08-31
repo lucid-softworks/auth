@@ -161,28 +161,18 @@ async fn finish(
             );
         }
     };
-    let result = match service
-        .finish_sso_sign_in(
-            provider_id,
-            user_info,
-            state,
-            plugin.options().disable_implicit_sign_up,
-            crate::axum::http::user_agent(headers),
-        )
-        .await
-    {
-        Ok(result) => result,
-        Err(error) => {
-            let (code, description) = callback::exchange::callback_error(&error);
-            return failure(&error_url, code, description);
-        }
-    };
-    if plugin.options().saml_enable_single_logout
-        && let Some(sign_in) = result.session.as_ref()
-    {
-        security::remember_session(service, provider_id, &session, sign_in).await;
-    }
-    let response = callback::exchange::success(service, headers, provider_id, result).await;
+    let response = complete_sign_in(
+        service,
+        plugin,
+        &provider,
+        headers,
+        provider_id,
+        user_info,
+        state,
+        &session,
+        &error_url,
+    )
+    .await;
     crate::axum::http::with_cookie(
         response,
         crate::axum::http::serialize_cookie(
@@ -191,6 +181,55 @@ async fn finish(
             Some(0),
         ),
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn complete_sign_in(
+    service: &AuthService,
+    plugin: &SsoPlugin,
+    provider: &crate::SsoProvider,
+    headers: &HeaderMap,
+    provider_id: &str,
+    user_info: crate::OAuthUserInfo,
+    state: OAuthState,
+    saml_session: &SsoSession,
+    error_url: &str,
+) -> Response {
+    let provisioning_user_info = user_info.clone();
+    let result = match service
+        .finish_sso_sign_in(
+            provider_id,
+            user_info,
+            state,
+            plugin.options().disable_implicit_sign_up,
+            plugin.options().default_override_user_info,
+            crate::axum::http::user_agent(headers),
+        )
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            let (code, description) = callback::exchange::callback_error(&error);
+            return failure(error_url, code, description);
+        }
+    };
+    if let Err(response) = callback::exchange::provision(
+        plugin,
+        provider,
+        &provisioning_user_info,
+        None,
+        &result,
+    )
+    .await
+    {
+        return *response;
+    }
+    if plugin.options().saml_enable_single_logout
+        && let Some(sign_in) = result.session.as_ref()
+    {
+        security::remember_session(service, provider_id, saml_session, sign_in).await;
+    }
+    callback::exchange::success(service, headers, provider_id, result).await
 }
 
 #[allow(clippy::too_many_arguments)]

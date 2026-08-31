@@ -40,6 +40,10 @@ impl SsoDefaultProvider {
 pub struct SsoOptions {
     /// Non-persisted providers selected before database providers.
     pub default_sso: Vec<SsoDefaultProvider>,
+    /// Updates existing user profile fields from provider data by default.
+    pub default_override_user_info: bool,
+    /// Runs the provisioning callback after every login instead of only registration.
+    pub provision_user_on_every_login: bool,
     /// Enables the two published DNS domain-verification endpoints and field.
     pub domain_verification: bool,
     /// Maximum providers one user may register. Upstream defaults to ten.
@@ -76,6 +80,8 @@ impl Default for SsoOptions {
     fn default() -> Self {
         Self {
             default_sso: Vec::new(),
+            default_override_user_info: false,
+            provision_user_on_every_login: false,
             domain_verification: false,
             providers_limit: 10,
             saml_enable_single_logout: false,

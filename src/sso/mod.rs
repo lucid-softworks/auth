@@ -9,6 +9,7 @@ mod discovery;
 mod axum;
 mod plugin;
 mod private_key;
+mod provisioning;
 #[cfg(feature = "axum")]
 mod oidc_provider;
 mod provider_reference;
@@ -31,6 +32,7 @@ pub use discovery::{
 };
 pub use plugin::SsoPlugin;
 pub use private_key::{SsoPrivateKey, SsoPrivateKeyRequest, SsoPrivateKeyResolver};
+pub use provisioning::{SsoProvisioningInput, SsoUserProvisioner};
 pub use saml::{
     DataEncryptionAlgorithm, DeprecatedAlgorithmBehavior, DigestAlgorithm,
     KeyEncryptionAlgorithm, SamlAlgorithmError, SamlAlgorithmOptions, SamlConfigurationError,

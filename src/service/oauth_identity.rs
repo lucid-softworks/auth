@@ -21,6 +21,31 @@ impl AuthService {
         user_info: OAuthUserInfo,
         state: super::OAuthState,
         disable_implicit_sign_up: bool,
+        override_user_info: bool,
+        user_agent: Option<String>,
+    ) -> Result<super::OAuthCallbackResult, AuthError> {
+        self.finish_sso_sign_in_with_tokens(
+            provider_id,
+            OAuthTokens::default(),
+            user_info,
+            state,
+            disable_implicit_sign_up,
+            override_user_info,
+            user_agent,
+        )
+        .await
+    }
+
+    #[cfg(feature = "axum")]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn finish_sso_sign_in_with_tokens(
+        &self,
+        provider_id: &str,
+        tokens: OAuthTokens,
+        user_info: OAuthUserInfo,
+        state: super::OAuthState,
+        disable_implicit_sign_up: bool,
+        override_user_info: bool,
         user_agent: Option<String>,
     ) -> Result<super::OAuthCallbackResult, AuthError> {
         let (session, is_new_user) = self
@@ -30,9 +55,9 @@ impl AuthService {
                     disable_implicit_sign_up,
                     disable_sign_up: false,
                     require_email_verification: false,
-                    override_user_info: false,
+                    override_user_info,
                 },
-                OAuthTokens::default(),
+                tokens,
                 user_info,
                 state.request_sign_up,
                 None,
