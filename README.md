@@ -96,6 +96,8 @@ The currently supported surface covers:
   filtering, additional fields, session revocation, bans, and impersonation
 - the complete official `organizationClient` surface as an optional native plugin,
   including invitations, teams, custom roles, and organization-owned API keys
+- the official `@better-auth/sso@1.7.1` server and `ssoClient` boundary for
+  OIDC and SAML provider management, sign-in, domain verification, and SLO
 - the server-only `@better-auth/scim@1.7.1` inbound Users/Groups service,
   discovery documents, identity/projection callbacks, and optional managed catalog
 - optional HIBP Pwned Passwords screening with Better Auth-compatible errors
@@ -189,6 +191,52 @@ and the complete memory/PostgreSQL boundary. Existing installations that used
 the former UUID default must follow the
 [breaking database ID migration guide](docs/database-id-migration.md) before
 running migrations.
+
+### Enterprise SSO
+
+`SsoPlugin` targets the immutable `@better-auth/sso@1.7.1` package. It exposes
+the official `signIn.sso` and provider-management client methods, both OIDC
+callback paths, SAML metadata/ACS/SLO routes, and the two domain-verification
+methods only when domain verification is enabled. Durable deployments can use
+`DatabaseSsoStore`; memory remains useful for tests and configured `defaultSSO`
+providers take precedence without being persisted.
+
+```rust
+use lucid_auth::{DatabaseSsoStore, SsoOptions, SsoPlugin};
+use std::sync::Arc;
+
+config.add_plugin(SsoPlugin::with_store(
+    SsoOptions {
+        domain_verification: true,
+        ..SsoOptions::default()
+    },
+    Arc::new(DatabaseSsoStore::new(auth_store.clone())),
+))?;
+```
+
+OIDC supports discovery or explicit endpoints, PKCE, client-secret basic/post,
+private-key JWT, verified ID tokens, UserInfo, mapped profiles, and the shared
+or provider-specific callback. SAML supports generated or supplied metadata,
+signing and encryption keys, signature/digest/encryption policy, bounded signed
+assertions, request correlation, replay prevention, IdP initiation when opted
+in, and optional single logout. Provider configuration is stored as the same
+plaintext JSON strings used upstream; list/get/update responses still redact
+client secrets, certificates, and private keys. Protect the database and its
+backups accordingly.
+
+Provider schema remapping and additional fields follow the package's top-level
+precedence and input/returned rules. `resolveUser` and mutation guards execute
+inside native adapter transactions. Provisioning runs after authentication;
+when the Organization plugin is installed, provider-bound and unambiguous
+verified-domain memberships honor pending invitations and the configured role
+resolver.
+
+There is intentionally no separate `oauth2Config`, JavaScript sidecar, provider
+SDK, secret-vault abstraction, background provisioning queue, or implicit SCIM
+email link. Hosted directory/SSO administration belongs to the separate Dash
+control-plane work tracked by [#92](https://github.com/lucid-softworks/auth/issues/92).
+See [Enterprise SSO 1.7.1](COMPATIBILITY.md#enterprise-sso-171) for the exact
+boundary.
 
 ### SCIM provisioning
 
