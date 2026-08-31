@@ -120,6 +120,10 @@ impl MySqlStore {
         }
     }
 
+    pub(super) fn bind_catalog(&self, schema: Arc<AuthSchemaCatalog>) -> Result<(), AuthError> {
+        self.bind_schema(schema)
+    }
+
     /// Returns the bound shared schema descriptor.
     pub fn resolved_schema(&self) -> Result<&ResolvedAdapterSchema, AuthError> {
         self.bound_schema().map(|schema| &schema.resolved)

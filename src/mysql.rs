@@ -4,11 +4,30 @@
 //! connections with a `+00:00` session timezone. Caller-supplied pools must
 //! preserve that timezone and pass [`MySqlStore::ready`] before serving.
 
+mod access;
 mod adapter;
+mod agent_auth;
+mod api_key;
+mod codec;
+mod dash;
+mod device_authorization;
+mod jwt;
 mod migration;
+mod oauth;
+mod oauth_provider;
+mod organization;
+mod passkey;
+mod phone_number;
 mod query;
 mod schema;
+mod security;
+mod session;
+mod siwe;
+mod transaction;
+mod two_factor;
+mod user;
 mod value;
+mod verification;
 
 pub use adapter::{MySqlAdapterConfig, MySqlStore};
 pub use migration::{

@@ -104,6 +104,16 @@ impl MySqlStore {
         execute::insert(&mut connection, schema, model, record).await
     }
 
+    pub(super) async fn insert_required_record(
+        &self,
+        model: &str,
+        record: Map<String, Value>,
+    ) -> Result<Map<String, Value>, AuthError> {
+        let schema = self.physical_schema()?;
+        let mut connection = self.pool.acquire().await.map_err(storage)?;
+        execute::insert_required(&mut connection, schema, model, record).await
+    }
+
     pub async fn find_record(
         &self,
         model: &str,

@@ -1,102 +1,18 @@
+mod atomic;
+mod insert;
+
+pub(in crate::mysql) use atomic::{
+    consume_latest, consume_one, consume_one_in_transaction, increment_one,
+    increment_one_in_transaction,
+};
+pub(in crate::mysql) use insert::{insert, insert_required};
+
 use super::{MySqlFilter, MySqlFilterConnector, MySqlFilterOperator, MySqlFindOptions, MySqlSortDirection, predicate};
-use crate::{AuthError, DatabaseIdType, mysql::schema::MySqlSchema};
+use crate::{AuthError, mysql::schema::MySqlSchema};
 use serde_json::{Map, Value};
-use sqlx::{Connection, MySql, MySqlConnection, QueryBuilder, Row, Transaction};
+use sqlx::{MySql, MySqlConnection, QueryBuilder, Row};
 
 const JAVASCRIPT_MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
-
-pub(in crate::mysql) async fn insert(
-    connection: &mut MySqlConnection,
-    schema: &MySqlSchema,
-    model_name: &str,
-    record: Map<String, Value>,
-) -> Result<Option<Map<String, Value>>, AuthError> {
-    let model = schema.model(model_name)?;
-    let writes = model.encode_fields(record.clone())?;
-    let mut query = QueryBuilder::<MySql>::new("insert into ");
-    query.push(model.quoted_table());
-    if writes.is_empty() {
-        query.push(" () values ()");
-    } else {
-        query.push(" (");
-        for (position, write) in writes.iter().enumerate() {
-            if position > 0 {
-                query.push(", ");
-            }
-            query.push(&write.quoted_column);
-        }
-        query.push(") values (");
-        for (position, write) in writes.into_iter().enumerate() {
-            if position > 0 {
-                query.push(", ");
-            }
-            write.value.push_bind(&mut query);
-        }
-        query.push(")");
-    }
-    query.build().execute(&mut *connection).await.map_err(storage)?;
-
-    if let Some(id) = record.get("id").filter(|value| truthy(value)) {
-        return find_one(
-            connection,
-            schema,
-            model_name,
-            &[MySqlFilter::equal("id", id.clone())],
-            &[],
-        )
-        .await;
-    }
-    if model.id_type() == DatabaseIdType::Serial {
-        let id = sqlx::query_scalar::<_, u64>("select last_insert_id()")
-            .fetch_one(&mut *connection)
-            .await
-            .map_err(storage)?;
-        if id != 0 {
-            return find_one(
-                connection,
-                schema,
-                model_name,
-                &[MySqlFilter::equal("id", Value::String(id.to_string()))],
-                &[],
-            )
-            .await;
-        }
-    }
-    if let Some((field, value)) = model.first_unique_value(&record) {
-        return find_one(
-            connection,
-            schema,
-            model_name,
-            &[MySqlFilter::equal(field, value)],
-            &[],
-        )
-        .await;
-    }
-    let filters = record
-        .into_iter()
-        .map(|(field, value)| MySqlFilter::equal(field, value))
-        .collect::<Vec<_>>();
-    if !filters.is_empty() {
-        let matches = find_many(
-            connection,
-            schema,
-            model_name,
-            &filters,
-            &MySqlFindOptions {
-                limit: Some(2),
-                ..MySqlFindOptions::default()
-            },
-        )
-        .await?;
-        if matches.len() == 1 {
-            return Ok(matches.into_iter().next());
-        }
-    }
-    tracing::warn!(
-        "[Kysely Adapter] Unable to safely identify the inserted \"{model_name}\" row on MySQL. Enable Better Auth ID generation or use generateId: \"serial\" for reliable behavior."
-    );
-    Ok(None)
-}
 
 pub(in crate::mysql) async fn find_one(
     connection: &mut MySqlConnection,
@@ -273,146 +189,6 @@ pub(in crate::mysql) async fn delete_many(
         .map_err(storage)
 }
 
-pub(in crate::mysql) async fn consume_one(
-    connection: &mut MySqlConnection,
-    schema: &MySqlSchema,
-    model_name: &str,
-    filters: &[MySqlFilter],
-) -> Result<Option<Map<String, Value>>, AuthError> {
-    let mut transaction = connection.begin().await.map_err(storage)?;
-    let result = consume_one_in_transaction(&mut transaction, schema, model_name, filters).await;
-    finish(transaction, result).await
-}
-
-pub(in crate::mysql) async fn consume_one_in_transaction(
-    transaction: &mut Transaction<'_, MySql>,
-    schema: &MySqlSchema,
-    model_name: &str,
-    filters: &[MySqlFilter],
-) -> Result<Option<Map<String, Value>>, AuthError> {
-    let model = schema.model(model_name)?;
-    let mut select = QueryBuilder::<MySql>::new("select ");
-    select
-        .push(model.all_projection())
-        .push(" from ")
-        .push(model.quoted_table());
-    predicate::push(&mut select, &model, filters)?;
-    select.push(" limit 1 for update");
-    let Some(row) = select
-        .build()
-        .fetch_optional(&mut **transaction)
-        .await
-        .map_err(storage)?
-    else {
-        return Ok(None);
-    };
-    let record = model.decode_all(&row)?;
-    let id = record
-        .get("id")
-        .cloned()
-        .ok_or_else(|| AuthError::Storage("locked MySQL row has no id".into()))?;
-    let deleted = delete_many(
-        transaction,
-        schema,
-        model_name,
-        &[MySqlFilter::equal("id", id)],
-    )
-    .await?;
-    Ok((deleted > 0).then_some(record))
-}
-
-pub(in crate::mysql) async fn increment_one(
-    connection: &mut MySqlConnection,
-    schema: &MySqlSchema,
-    model_name: &str,
-    filters: &[MySqlFilter],
-    increments: Map<String, Value>,
-    set: Map<String, Value>,
-) -> Result<Option<Map<String, Value>>, AuthError> {
-    let mut transaction = connection.begin().await.map_err(storage)?;
-    let result = increment_one_in_transaction(
-        &mut transaction,
-        schema,
-        model_name,
-        filters,
-        increments,
-        set,
-    )
-    .await;
-    finish(transaction, result).await
-}
-
-pub(in crate::mysql) async fn increment_one_in_transaction(
-    transaction: &mut Transaction<'_, MySql>,
-    schema: &MySqlSchema,
-    model_name: &str,
-    filters: &[MySqlFilter],
-    increments: Map<String, Value>,
-    mut set: Map<String, Value>,
-) -> Result<Option<Map<String, Value>>, AuthError> {
-    let model = schema.model(model_name)?;
-    let mut select = QueryBuilder::<MySql>::new("select `id` as `id` from ");
-    select.push(model.quoted_table());
-    predicate::push(&mut select, &model, filters)?;
-    select.push(" limit 1 for update");
-    let Some(row) = select
-        .build()
-        .fetch_optional(&mut **transaction)
-        .await
-        .map_err(storage)?
-    else {
-        return Ok(None);
-    };
-    let id = crate::mysql::value::decode_id(&row, "id", model.id_type())?;
-    for field in increments.keys() {
-        set.remove(field);
-    }
-    let mut update = QueryBuilder::<MySql>::new("update ");
-    update.push(model.quoted_table()).push(" set ");
-    let mut assignments = 0;
-    for (field, value) in set {
-        push_separator(&mut update, &mut assignments);
-        update.push(model.quoted_column(&field)?).push(" = ");
-        model.encode(&field, value)?.push_bind(&mut update);
-    }
-    for (field, delta) in increments {
-        push_separator(&mut update, &mut assignments);
-        let column = model.quoted_column(&field)?;
-        update.push(column).push(" = ").push(column).push(" + ");
-        model.encode(&field, delta)?.push_bind(&mut update);
-    }
-    if assignments == 0 {
-        return find_one(
-            transaction,
-            schema,
-            model_name,
-            &[MySqlFilter::equal("id", id)],
-            &[],
-        )
-        .await;
-    }
-    let mut exact_filters = filters.to_vec();
-    exact_filters.push(MySqlFilter::equal("id", id.clone()));
-    predicate::push(&mut update, &model, &exact_filters)?;
-    let affected = update
-        .build()
-        .execute(&mut **transaction)
-        .await
-        .map_err(storage)?
-        .rows_affected();
-    if affected == 0 {
-        return Ok(None);
-    }
-    find_one(
-        transaction,
-        schema,
-        model_name,
-        &[MySqlFilter::equal("id", id)],
-        &[],
-    )
-    .await
-}
-
 fn update_lookup(
     filters: &[MySqlFilter],
     values: &Map<String, Value>,
@@ -471,42 +247,8 @@ fn push_writes(
     }
 }
 
-fn push_separator(query: &mut QueryBuilder<'_, MySql>, assignments: &mut usize) {
-    if *assignments > 0 {
-        query.push(", ");
-    }
-    *assignments += 1;
-}
-
-fn truthy(value: &Value) -> bool {
-    match value {
-        Value::Null | Value::Bool(false) => false,
-        Value::Number(number) => number.as_f64() != Some(0.0),
-        Value::String(value) => !value.is_empty(),
-        Value::Array(_) | Value::Object(_) | Value::Bool(true) => true,
-    }
-}
-
 fn clamp_affected(value: u64) -> u64 {
     value.min(JAVASCRIPT_MAX_SAFE_INTEGER)
-}
-
-async fn finish<T>(
-    transaction: Transaction<'_, MySql>,
-    result: Result<T, AuthError>,
-) -> Result<T, AuthError> {
-    match result {
-        Ok(value) => {
-            transaction.commit().await.map_err(storage)?;
-            Ok(value)
-        }
-        Err(error) => {
-            if let Err(rollback) = transaction.rollback().await {
-                tracing::warn!(error = %rollback, "failed to roll back MySQL adapter transaction");
-            }
-            Err(error)
-        }
-    }
 }
 
 fn storage(error: sqlx::Error) -> AuthError {

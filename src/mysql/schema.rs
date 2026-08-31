@@ -136,6 +136,9 @@ impl MySqlSchema {
         })
     }
 
+    pub(super) fn has_model(&self, logical: &str) -> bool {
+        self.logical_models.contains_key(logical)
+    }
 }
 
 impl MySqlModel<'_> {
@@ -145,6 +148,10 @@ impl MySqlModel<'_> {
 
     pub(super) fn id_type(&self) -> DatabaseIdType {
         self.logical.id_type
+    }
+
+    pub(super) fn has_field(&self, logical: &str) -> bool {
+        logical == "id" || self.logical.columns.contains_key(logical)
     }
 
     pub(super) fn quoted_column(&self, logical: &str) -> Result<&str, AuthError> {
