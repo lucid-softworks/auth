@@ -2,6 +2,12 @@ pub(super) mod config;
 mod idp_initiated;
 mod profile;
 mod security;
+#[cfg(all(
+    test,
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod encrypted_contract;
 
 use super::{callback, support};
 use crate::{AuthService, SsoPlugin, service::OAuthState};
