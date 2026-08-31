@@ -87,6 +87,9 @@ impl SsoPlugin {
     }
 
     pub fn with_store(options: SsoOptions, store: Arc<dyn SsoStore>) -> Self {
+        if let Err(error) = super::schema::validate(&options) {
+            panic!("{error}");
+        }
         Self {
             options,
             store,
@@ -340,7 +343,7 @@ impl AuthPlugin for SsoPlugin {
     }
 
     fn schema(&self) -> Vec<crate::PluginSchemaTable> {
-        vec![super::schema::table(self.options.domain_verification)]
+        vec![super::schema::table(&self.options)]
     }
 
     fn request_security(
