@@ -28,6 +28,7 @@ pub(super) async fn intercept(
         .identification_service()
         .identify(&identification_request)
         .await;
+    plugin.remember_identification(&identification);
     if request.method() != Method::GET && contract::is_protected(&path) {
         let body = request
             .extensions()
@@ -71,6 +72,7 @@ pub(super) async fn after_response(
         response.headers_mut().append(header::SET_COOKIE, value);
     }
     track_password_attempt(plugin, request, &context, response.status()).await;
+    plugin.forget_identification(context.request_id.as_deref());
     response
 }
 
