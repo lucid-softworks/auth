@@ -403,5 +403,9 @@ name = "sqlite_adapter_contract"
 required-features = ["sqlite"]
 
 [[test]]
+name = "mysql_adapter_contract"
+required-features = ["mysql"]
+
+[[test]]
 name = "d1_adapter_contract"
 required-features = ["d1"]
