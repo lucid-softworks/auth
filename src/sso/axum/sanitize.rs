@@ -15,7 +15,7 @@ const URI_COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'(')
     .remove(b')');
 
-pub(super) fn provider(
+pub(crate) fn provider(
     provider: &SsoProvider,
     base_url: &str,
     additional_fields: &crate::AdditionalFieldSet,
