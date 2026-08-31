@@ -39,6 +39,8 @@ pub(super) fn routes(plugin: Arc<DashPlugin>) -> Vec<AxumPluginRoute> {
         route("/dash/organization/resend-invitation", post(invitation::resend).layer(Extension(plugin.clone()))),
         route("/dash/organization/check-user-by-email", post(invitation::check_user_by_email).layer(Extension(plugin.clone()))),
         route("/dash/organization/{id}/sso-providers", get(sso::list).layer(Extension(plugin.clone()))),
+        route("/dash/organization/{id}/sso-provider/create", post(sso::write::create).layer(Extension(plugin.clone()))),
+        route("/dash/organization/{id}/sso-provider/update", post(sso::write::update).layer(Extension(plugin.clone()))),
         route("/dash/organization/{id}/sso-provider/request-verification-token", post(sso::domain::request_verification_token).layer(Extension(plugin.clone()))),
         route("/dash/organization/{id}/sso-provider/verify-domain", post(sso::domain::verify).layer(Extension(plugin.clone()))),
         route("/dash/organization/{id}/sso-provider/delete", post(sso::delete).layer(Extension(plugin.clone()))),
