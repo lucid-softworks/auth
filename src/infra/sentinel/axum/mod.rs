@@ -10,6 +10,7 @@ use axum::{
 
 mod contract;
 mod email;
+mod evaluation;
 mod http;
 mod phone;
 mod stale;
@@ -76,6 +77,9 @@ pub(super) async fn after_response(
         && let Some(value) = http::cookie_header(cookie)
     {
         response.headers_mut().append(header::SET_COOKIE, value);
+    }
+    if let Some(evaluation) = evaluation::prepare(plugin, request, &context, &response) {
+        evaluation.emit(plugin, request, &context).await;
     }
     if response
         .extensions()

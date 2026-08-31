@@ -29,12 +29,16 @@ const AUTH_PATHS: &[&str] = &[
     "/email-otp/send-verification-otp",
 ];
 
+pub(super) fn is_email_path(path: &str) -> bool {
+    REGISTRATION_PATHS.contains(&path) || AUTH_PATHS.contains(&path)
+}
+
 pub(super) async fn process(
     plugin: &SentinelPlugin,
     request: &mut Request,
     path: &str,
 ) -> Result<(), Response> {
-    if !REGISTRATION_PATHS.contains(&path) && !AUTH_PATHS.contains(&path) {
+    if !is_email_path(path) {
         return Ok(());
     }
     let mut body = request
