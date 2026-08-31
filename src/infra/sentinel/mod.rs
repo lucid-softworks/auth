@@ -11,6 +11,7 @@ mod pow;
 mod service;
 mod validation;
 mod lifecycle;
+mod notifications;
 mod database;
 
 #[cfg(feature = "axum")]

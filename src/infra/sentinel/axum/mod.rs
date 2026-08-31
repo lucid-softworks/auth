@@ -12,6 +12,7 @@ mod contract;
 mod email;
 mod http;
 mod phone;
+mod stale;
 
 pub(super) async fn intercept(
     service: &crate::AuthService,
@@ -70,14 +71,35 @@ pub(super) async fn after_response(
         .identification_service()
         .identify(&identification_request)
         .await;
+    response = stale::process(service, plugin, request, &context, response).await;
     if let Some(cookie) = IdentificationService::cookie_after(&identification_request, &context)
         && let Some(value) = http::cookie_header(cookie)
     {
         response.headers_mut().append(header::SET_COOKIE, value);
     }
-    track_password_attempt(plugin, request, &context, response.status()).await;
+    if response
+        .extensions()
+        .get::<stale::StaleAccountBlocked>()
+        .is_some()
+    {
+        clear_password_attempt(plugin, request).await;
+    } else {
+        track_password_attempt(plugin, request, &context, response.status()).await;
+    }
     plugin.forget_identification(context.request_id.as_deref());
     response
+}
+
+async fn clear_password_attempt(plugin: &SentinelPlugin, request: &crate::PluginRequestContext) {
+    let Some(body) = request.body.as_ref() else {
+        return;
+    };
+    if let Some(login_id) = contract::login_identifier(&request.path, body) {
+        plugin
+            .security_client()
+            .clear_failed_attempts(login_id)
+            .await;
+    }
 }
 
 async fn enforce_security(
