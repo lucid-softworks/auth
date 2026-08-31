@@ -21,6 +21,27 @@ pub(in crate::mysql) async fn find_one(
     filters: &[MySqlFilter],
     select: &[String],
 ) -> Result<Option<Map<String, Value>>, AuthError> {
+    find_one_with_lock(connection, schema, model_name, filters, select, false).await
+}
+
+pub(in crate::mysql) async fn find_one_for_update(
+    connection: &mut MySqlConnection,
+    schema: &MySqlSchema,
+    model_name: &str,
+    filters: &[MySqlFilter],
+    select: &[String],
+) -> Result<Option<Map<String, Value>>, AuthError> {
+    find_one_with_lock(connection, schema, model_name, filters, select, true).await
+}
+
+async fn find_one_with_lock(
+    connection: &mut MySqlConnection,
+    schema: &MySqlSchema,
+    model_name: &str,
+    filters: &[MySqlFilter],
+    select: &[String],
+    for_update: bool,
+) -> Result<Option<Map<String, Value>>, AuthError> {
     let model = schema.model(model_name)?;
     let projection = if select.is_empty() {
         model.all_projection()
@@ -34,6 +55,9 @@ pub(in crate::mysql) async fn find_one(
         .push(model.quoted_table());
     predicate::push(&mut query, &model, filters)?;
     query.push(" limit 1");
+    if for_update {
+        query.push(" for update");
+    }
     let Some(row) = query
         .build()
         .fetch_optional(connection)
@@ -55,6 +79,27 @@ pub(in crate::mysql) async fn find_many(
     model_name: &str,
     filters: &[MySqlFilter],
     options: &MySqlFindOptions,
+) -> Result<Vec<Map<String, Value>>, AuthError> {
+    find_many_with_lock(connection, schema, model_name, filters, options, false).await
+}
+
+pub(in crate::mysql) async fn find_many_for_update(
+    connection: &mut MySqlConnection,
+    schema: &MySqlSchema,
+    model_name: &str,
+    filters: &[MySqlFilter],
+    options: &MySqlFindOptions,
+) -> Result<Vec<Map<String, Value>>, AuthError> {
+    find_many_with_lock(connection, schema, model_name, filters, options, true).await
+}
+
+async fn find_many_with_lock(
+    connection: &mut MySqlConnection,
+    schema: &MySqlSchema,
+    model_name: &str,
+    filters: &[MySqlFilter],
+    options: &MySqlFindOptions,
+    for_update: bool,
 ) -> Result<Vec<Map<String, Value>>, AuthError> {
     let model = schema.model(model_name)?;
     let projection = if options.select.is_empty() {
@@ -84,6 +129,9 @@ pub(in crate::mysql) async fn find_many(
     }
     if let Some(offset) = options.offset {
         query.push(" offset ").push_bind(offset);
+    }
+    if for_update {
+        query.push(" for update");
     }
     let rows = query.build().fetch_all(connection).await.map_err(storage)?;
     if options.select.is_empty() {

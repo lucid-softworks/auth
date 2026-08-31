@@ -43,7 +43,7 @@ impl OrganizationRoleStore for MySqlStore {
         .await;
         let inserted = match inserted {
             Ok(record) => record,
-            Err(AuthError::Storage(message)) if message.contains("UNIQUE constraint failed") => {
+            Err(error) if crate::mysql::error::is_unique_violation(&error) => {
                 transaction.rollback().await.map_err(super::storage)?;
                 return Ok(false);
             }

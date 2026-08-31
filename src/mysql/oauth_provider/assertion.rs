@@ -22,7 +22,7 @@ impl OAuthProviderAssertionStore for MySqlStore {
         )?;
         match self.insert_required_record("oauthClientAssertion", values).await {
             Ok(_) => Ok(true),
-            Err(AuthError::Storage(message)) if message.contains("UNIQUE constraint failed") => {
+            Err(error) if crate::mysql::error::is_unique_violation(&error) => {
                 Ok(false)
             }
             Err(error) => Err(error),

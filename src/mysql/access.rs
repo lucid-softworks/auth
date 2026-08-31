@@ -227,7 +227,7 @@ fn comparison(field: &str, value: Value, operator: MySqlFilterOperator) -> MySql
 
 fn user_update_error(error: AuthError) -> AuthError {
     match error {
-        AuthError::Storage(message) if message.contains("UNIQUE constraint failed") => {
+        error if crate::mysql::error::is_unique_violation(&error) => {
             AuthError::UserAlreadyExistsEmail
         }
         error => error,

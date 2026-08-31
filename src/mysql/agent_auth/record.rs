@@ -133,7 +133,7 @@ async fn load<T>(
     model: &str,
     decode: fn(Map<String, Value>) -> Result<T, AuthError>,
 ) -> Result<HashMap<String, T>, AuthError> {
-    execute::find_many(
+    execute::find_many_for_update(
         connection,
         schema,
         model,

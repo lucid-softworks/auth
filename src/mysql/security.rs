@@ -52,7 +52,7 @@ async fn consume(
     let mut expired = MySqlFilter::equal("lastRequest", json!(now_ms.saturating_sub(prune_ms)));
     expired.operator = MySqlFilterOperator::Lt;
     execute::delete_many(connection, schema, "rateLimit", &[expired]).await?;
-    let current = execute::find_one(
+    let current = execute::find_one_for_update(
         connection,
         schema,
         "rateLimit",

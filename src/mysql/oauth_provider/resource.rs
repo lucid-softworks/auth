@@ -34,7 +34,7 @@ impl OAuthProviderResourceStore for MySqlStore {
         let values = record(self, "oauthResource", &resource, Some(id.prepare()?), [])?;
         match self.insert_required_record("oauthResource", values).await {
             Ok(row) => codec::decode("oauthResource", row).map(Some),
-            Err(AuthError::Storage(message)) if message.contains("UNIQUE constraint failed") => {
+            Err(error) if crate::mysql::error::is_unique_violation(&error) => {
                 Ok(None)
             }
             Err(error) => Err(error),
@@ -155,7 +155,7 @@ impl OAuthProviderResourceStore for MySqlStore {
             Ok(row) => {
                 OAuthClientResourceLinkOutcome::Linked(codec::decode("oauthClientResource", row)?)
             }
-            Err(AuthError::Storage(message)) if message.contains("UNIQUE constraint failed") => {
+            Err(error) if crate::mysql::error::is_unique_violation(&error) => {
                 let existing = execute::find_one(
                     &mut transaction,
                     schema,

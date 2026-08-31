@@ -29,7 +29,7 @@ impl DeviceAuthorizationStore for MySqlStore {
         let record = codec::create_record(self, "deviceCode", &code.record, &id)?;
         match self.insert_required_record("deviceCode", record).await {
             Ok(record) => codec::decode("deviceCode", record).map(DeviceCodeCreateOutcome::Created),
-            Err(AuthError::Storage(message)) if message.contains("UNIQUE constraint failed") => {
+            Err(error) if crate::mysql::error::is_unique_violation(&error) => {
                 Ok(DeviceCodeCreateOutcome::UniqueConflict)
             }
             Err(error) => Err(error),

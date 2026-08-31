@@ -336,7 +336,7 @@ pub(super) fn fixed_user_field(field: &str) -> bool {
 
 fn user_insert_error(error: AuthError) -> AuthError {
     match error {
-        AuthError::Storage(message) if message.contains("UNIQUE constraint failed") => {
+        error if crate::mysql::error::is_unique_violation(&error) => {
             AuthError::UserAlreadyExists
         }
         error => error,
@@ -345,7 +345,7 @@ fn user_insert_error(error: AuthError) -> AuthError {
 
 fn user_update_error(error: AuthError) -> AuthError {
     match error {
-        AuthError::Storage(message) if message.contains("UNIQUE constraint failed") => {
+        error if crate::mysql::error::is_unique_violation(&error) => {
             AuthError::UserAlreadyExistsEmail
         }
         error => error,

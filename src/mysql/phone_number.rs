@@ -32,7 +32,7 @@ impl PhoneNumberStore for MySqlStore {
         let record = codec::create_record(self, "user", &user, &id)?;
         match self.insert_required_record("user", record).await {
             Ok(record) => codec::decode("user", record).map(PhoneNumberWriteOutcome::Written),
-            Err(AuthError::Storage(message)) if message.contains("UNIQUE constraint failed") => {
+            Err(error) if crate::mysql::error::is_unique_violation(&error) => {
                 if self.find_user_by_phone_number(&phone).await?.is_some() {
                     Ok(PhoneNumberWriteOutcome::AlreadyExists)
                 } else {
@@ -61,7 +61,7 @@ impl PhoneNumberStore for MySqlStore {
         {
             Ok(Some(record)) => codec::decode("user", record).map(PhoneNumberWriteOutcome::Written),
             Ok(None) => Ok(PhoneNumberWriteOutcome::NotFound),
-            Err(AuthError::Storage(message)) if message.contains("UNIQUE constraint failed") => {
+            Err(error) if crate::mysql::error::is_unique_violation(&error) => {
                 Ok(PhoneNumberWriteOutcome::AlreadyExists)
             }
             Err(error) => Err(error),

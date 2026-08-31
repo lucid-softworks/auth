@@ -278,7 +278,7 @@ fn date(
 }
 fn account_error(error: AuthError) -> AuthError {
     match error {
-        AuthError::Storage(message) if message.contains("UNIQUE constraint failed") => {
+        error if crate::mysql::error::is_unique_violation(&error) => {
             AuthError::UserAlreadyExists
         }
         error => error,

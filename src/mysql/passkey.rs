@@ -10,7 +10,7 @@ pub(super) async fn save(
     let record = codec::create_record(store, "passkey", &passkey, &id)?;
     match store.insert_required_record("passkey", record).await {
         Ok(record) => codec::decode("passkey", record),
-        Err(AuthError::Storage(error)) if error.contains("UNIQUE constraint failed") => {
+        Err(error) if crate::mysql::error::is_unique_violation(&error) => {
             Err(AuthError::CredentialAlreadyRegistered)
         }
         Err(error) => Err(error),

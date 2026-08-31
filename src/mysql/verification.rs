@@ -36,7 +36,7 @@ impl VerificationStore for MySqlStore {
     ) -> Result<Option<VerificationValue>, AuthError> {
         match self.create_verification(value).await {
             Ok(value) => Ok(Some(value)),
-            Err(AuthError::Storage(error)) if error.contains("UNIQUE constraint failed") => {
+            Err(error) if crate::mysql::error::is_unique_violation(&error) => {
                 Ok(None)
             }
             Err(error) => Err(error),

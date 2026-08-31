@@ -11,6 +11,7 @@ mod api_key;
 mod codec;
 mod dash;
 mod device_authorization;
+mod error;
 mod jwt;
 mod migration;
 mod oauth;
