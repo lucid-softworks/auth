@@ -192,10 +192,13 @@ impl AuthPlugin for SsoPlugin {
         method: PluginHttpMethod,
         path: &str,
     ) -> crate::PluginRequestSecurity {
-        let is_acs = path
-            .strip_prefix("/sso/saml2/sp/acs/")
-            .is_some_and(|provider_id| !provider_id.is_empty() && !provider_id.contains('/'));
-        if method == PluginHttpMethod::Post && is_acs {
+        let is_idp_post = ["/sso/saml2/sp/acs/", "/sso/saml2/sp/slo/"]
+            .iter()
+            .any(|prefix| {
+                path.strip_prefix(prefix)
+                    .is_some_and(|provider_id| !provider_id.is_empty() && !provider_id.contains('/'))
+            });
+        if method == PluginHttpMethod::Post && is_idp_post {
             crate::PluginRequestSecurity::RawPublic
         } else {
             crate::PluginRequestSecurity::Browser

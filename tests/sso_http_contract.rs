@@ -1849,3 +1849,92 @@ async fn saml_metadata_is_public_and_supports_generated_and_custom_documents() {
     .unwrap();
     assert_eq!(body, custom);
 }
+
+#[tokio::test]
+async fn saml_single_logout_is_opt_in_and_initiates_a_bound_redirect_request() {
+    let disabled = fixture().await;
+    let (status, body) = post(
+        disabled.app,
+        "/api/auth/sso/saml2/logout/acme-sso%21",
+        Some(&disabled.owner_cookie),
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["code"], "SINGLE_LOGOUT_NOT_ENABLED");
+
+    const CERTIFICATE: &str = include_str!("fixtures/saml_signing_cert.pem");
+    let fixture = fixture_with_options(SsoOptions {
+        saml_enable_single_logout: true,
+        ..SsoOptions::default()
+    })
+    .await;
+    fixture
+        .providers
+        .create(NewSsoProvider {
+            id: "slo-row".into(),
+            issuer: "https://sp.example.com/entity".into(),
+            oidc_config: None,
+            saml_config: Some(json!({
+                "issuer": "https://sp.example.com/entity",
+                "entryPoint": "https://idp.example.com/sso",
+                "cert": CERTIFICATE,
+                "idpMetadata": {
+                    "entityID": "https://idp.example.com/entity",
+                    "singleLogoutService": [{
+                        "Binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect",
+                        "Location": "https://idp.example.com/logout"
+                    }]
+                }
+            })),
+            user_id: "slo-owner".into(),
+            provider_id: "saml-slo".into(),
+            organization_id: None,
+            domain: "slo.example.com".into(),
+            domain_verified: None,
+        })
+        .await
+        .unwrap();
+    let response = fixture
+        .app
+        .oneshot(
+            Request::post("/api/auth/sso/saml2/logout/saml-slo")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ORIGIN, "https://example.com")
+                .header(header::COOKIE, &fixture.owner_cookie)
+                .body(Body::from(
+                    json!({"callbackURL": "/signed-out"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FOUND);
+    let location = url::Url::parse(response.headers()[header::LOCATION].to_str().unwrap()).unwrap();
+    assert_eq!(
+        location.origin().ascii_serialization(),
+        "https://idp.example.com"
+    );
+    assert_eq!(location.path(), "/logout");
+    assert!(location.query_pairs().any(|(key, _)| key == "SAMLRequest"));
+    assert_eq!(
+        location
+            .query_pairs()
+            .find(|(key, _)| key == "RelayState")
+            .unwrap()
+            .1,
+        "/signed-out"
+    );
+    assert!(
+        response
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .any(|value| {
+                value
+                    .to_str()
+                    .unwrap()
+                    .contains("better-auth.session_token=;")
+            })
+    );
+}

@@ -1,4 +1,4 @@
-mod config;
+pub(super) mod config;
 mod profile;
 mod security;
 
@@ -166,6 +166,11 @@ async fn finish(
             return failure(&error_url, code, description);
         }
     };
+    if plugin.options().saml_enable_single_logout
+        && let Some(sign_in) = result.session.as_ref()
+    {
+        security::remember_session(service, provider_id, &session, sign_in).await;
+    }
     let response = callback::exchange::success(service, headers, provider_id, result).await;
     crate::axum::http::with_cookie(
         response,
