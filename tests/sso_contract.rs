@@ -364,6 +364,7 @@ async fn memory_provider_catalog_enforces_identity_and_ordering() {
         organization_id: Some("organization".into()),
         domain: "example.com".into(),
         domain_verified: Some(false),
+        additional_fields: serde_json::Map::new(),
     };
     let created = store.create(provider.clone()).await.unwrap();
     assert_eq!(created.provider_id, "workforce");

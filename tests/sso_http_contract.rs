@@ -12,12 +12,13 @@ use josekit::{
     jws::{self, JwsHeader, RS256},
 };
 use lucid_auth::{
-    AuthConfig, AuthService, AuthStore, DatabaseModel, DatabaseRecord, EmailSignUpInput,
-    MemorySsoStore, MemoryStore, NewSsoProvider, SamlAlgorithmOptions, SignatureAlgorithm,
-    SsoDefaultProvider, SsoDnsResolver, SsoOptions, SsoPlugin, SsoPrivateKey,
-    SsoProviderMutationGuard, SsoProviderMutationGuardContext, SsoProviderMutationGuardInput,
-    SsoProviderUpdate, SsoProvisioningInput, SsoStore, SsoUserProfilePolicy, SsoUserProvisioner,
-    SsoUserResolution, SsoUserResolutionContext, SsoUserResolutionInput, SsoUserResolver,
+    AdditionalField, AdditionalFieldType, AuthConfig, AuthService, AuthStore, DatabaseModel,
+    DatabaseRecord, EmailSignUpInput, MemorySsoStore, MemoryStore, NewSsoProvider,
+    SamlAlgorithmOptions, SignatureAlgorithm, SsoDefaultProvider, SsoDnsResolver, SsoOptions,
+    SsoPlugin, SsoPrivateKey, SsoProviderMutationGuard, SsoProviderMutationGuardContext,
+    SsoProviderMutationGuardInput, SsoProviderUpdate, SsoProvisioningInput, SsoStore,
+    SsoUserProfilePolicy, SsoUserProvisioner, SsoUserResolution, SsoUserResolutionContext,
+    SsoUserResolutionInput, SsoUserResolver,
 };
 use serde_json::{Value, json};
 use std::sync::{
@@ -187,6 +188,7 @@ async fn fixture_with_extensions(
             organization_id: None,
             domain: "example.com".into(),
             domain_verified: Some(!domain_verification),
+            additional_fields: serde_json::Map::new(),
         })
         .await
         .unwrap();
@@ -204,6 +206,7 @@ async fn fixture_with_extensions(
             organization_id: None,
             domain: "other.example.com".into(),
             domain_verified: domain_verification.then_some(false),
+            additional_fields: serde_json::Map::new(),
         })
         .await
         .unwrap();
@@ -463,6 +466,110 @@ async fn provider_catalog_requires_a_session_and_returns_only_owned_sanitized_en
     let serialized = provider.to_string();
     assert!(!serialized.contains("never-return-this"));
     assert!(!serialized.contains("clientSecret"));
+}
+
+#[tokio::test]
+async fn provider_additional_fields_enforce_input_transforms_and_returned_policy() {
+    let mut options = SsoOptions::default();
+    options.schema.sso_provider.additional_fields.insert(
+        "tenantCode".into(),
+        AdditionalField::new(AdditionalFieldType::String)
+            .transform_input(Arc::new(|value: Value| {
+                Ok(Value::String(
+                    value.as_str().unwrap_or_default().to_ascii_uppercase(),
+                ))
+            }))
+            .transform_output(Arc::new(|value: Value| {
+                Ok(Value::String(format!(
+                    "tenant:{}",
+                    value.as_str().unwrap_or_default()
+                )))
+            })),
+    );
+    options.schema.sso_provider.additional_fields.insert(
+        "internalNote".into(),
+        AdditionalField::new(AdditionalFieldType::String)
+            .optional()
+            .input(false),
+    );
+    options.schema.sso_provider.additional_fields.insert(
+        "secretTag".into(),
+        AdditionalField::new(AdditionalFieldType::String)
+            .optional()
+            .returned(false),
+    );
+    let fixture = fixture_with_options(options).await;
+    let registration = json!({
+        "providerId": "additional-fields",
+        "issuer": "https://fields.example.com",
+        "domain": "fields.example.com",
+        "oidcConfig": {
+            "clientId": "fields-client",
+            "clientSecret": "fields-secret",
+            "authorizationEndpoint": "https://fields.example.com/authorize",
+            "tokenEndpoint": "https://fields.example.com/token",
+            "jwksEndpoint": "https://fields.example.com/jwks",
+            "skipDiscovery": true
+        },
+        "tenantCode": "blue",
+        "secretTag": "classified",
+        "unknownField": "stripped"
+    });
+
+    let mut blocked = registration.clone();
+    blocked["providerId"] = json!("blocked-fields");
+    blocked["internalNote"] = Value::Null;
+    let (status, body) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/register",
+        Some(&fixture.owner_cookie),
+        blocked,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["message"], "internalNote is not allowed to be set");
+
+    let (status, created) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/register",
+        Some(&fixture.owner_cookie),
+        registration,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    assert_eq!(created["tenantCode"], "tenant:BLUE");
+    assert!(created.get("secretTag").is_none());
+    assert!(created.get("unknownField").is_none());
+    let stored = fixture
+        .providers
+        .find_by_provider_id("additional-fields")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.additional_fields["tenantCode"], "BLUE");
+    assert_eq!(stored.additional_fields["secretTag"], "classified");
+    assert!(!stored.additional_fields.contains_key("unknownField"));
+
+    let (status, updated) = post(
+        fixture.app.clone(),
+        "/api/auth/sso/update-provider",
+        Some(&fixture.owner_cookie),
+        json!({"providerId": "additional-fields", "tenantCode": "green"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["tenantCode"], "tenant:GREEN");
+    assert!(updated.get("secretTag").is_none());
+
+    let (status, blocked) = post(
+        fixture.app,
+        "/api/auth/sso/update-provider",
+        Some(&fixture.owner_cookie),
+        json!({"providerId": "additional-fields", "internalNote": null}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(blocked["message"], "internalNote is not allowed to be set");
 }
 
 #[tokio::test]
@@ -993,6 +1100,7 @@ async fn saml_provider_catalog_returns_safe_certificate_summaries() {
             organization_id: None,
             domain: "saml.example.com".into(),
             domain_verified: None,
+            additional_fields: serde_json::Map::new(),
         })
         .await
         .unwrap();
@@ -1044,6 +1152,7 @@ async fn saml_sign_in_builds_a_bound_redirect_authn_request() {
             organization_id: None,
             domain: "saml-runtime.example.com".into(),
             domain_verified: None,
+            additional_fields: serde_json::Map::new(),
         })
         .await
         .unwrap();
@@ -2093,6 +2202,7 @@ async fn saml_metadata_is_public_and_supports_generated_and_custom_documents() {
             organization_id: None,
             domain: "example.com".into(),
             domain_verified: None,
+            additional_fields: serde_json::Map::new(),
         })
         .await
         .unwrap();
@@ -2157,6 +2267,7 @@ async fn saml_metadata_is_public_and_supports_generated_and_custom_documents() {
             organization_id: None,
             domain: "custom.example.com".into(),
             domain_verified: None,
+            additional_fields: serde_json::Map::new(),
         })
         .await
         .unwrap();
@@ -2224,6 +2335,7 @@ async fn saml_single_logout_is_opt_in_and_initiates_a_bound_redirect_request() {
             organization_id: None,
             domain: "slo.example.com".into(),
             domain_verified: None,
+            additional_fields: serde_json::Map::new(),
         })
         .await
         .unwrap();

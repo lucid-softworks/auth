@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use tokio::sync::Mutex;
 
@@ -16,6 +16,8 @@ pub struct SsoProvider {
     pub organization_id: Option<String>,
     pub domain: String,
     pub domain_verified: Option<bool>,
+    #[serde(flatten)]
+    pub additional_fields: Map<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -29,6 +31,7 @@ pub struct NewSsoProvider {
     pub organization_id: Option<String>,
     pub domain: String,
     pub domain_verified: Option<bool>,
+    pub additional_fields: Map<String, Value>,
 }
 
 impl NewSsoProvider {
@@ -43,6 +46,7 @@ impl NewSsoProvider {
             organization_id: self.organization_id,
             domain: self.domain,
             domain_verified: self.domain_verified,
+            additional_fields: self.additional_fields,
         }
     }
 }
@@ -56,6 +60,7 @@ pub struct SsoProviderUpdate {
     pub organization_id: Option<Option<String>>,
     pub domain: Option<String>,
     pub domain_verified: Option<bool>,
+    pub additional_fields: Map<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -190,6 +195,7 @@ impl SsoStore for MemorySsoStore {
         provider.organization_id = update.organization_id.unwrap_or(existing.organization_id);
         provider.domain = update.domain.unwrap_or(existing.domain);
         provider.domain_verified = update.domain_verified.or(existing.domain_verified);
+        provider.additional_fields.extend(update.additional_fields);
         Ok(provider.clone())
     }
 

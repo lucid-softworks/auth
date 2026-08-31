@@ -33,7 +33,11 @@ pub(super) async fn list(
     let mut accessible = Vec::new();
     for provider in providers {
         if support::has_access(&service, &provider, &session.user.id).await {
-            accessible.push(sanitize::provider(&provider, &base_url));
+            accessible.push(sanitize::provider(
+                &provider,
+                &base_url,
+                &plugin.options().schema.sso_provider.additional_fields,
+            ));
         }
     }
     Json(json!({"providers": accessible})).into_response()
@@ -67,5 +71,10 @@ pub(super) async fn get(
             "You don't have access to this provider",
         );
     }
-    Json(sanitize::provider(&provider, &support::base_url(&service))).into_response()
+    Json(sanitize::provider(
+        &provider,
+        &support::base_url(&service),
+        &plugin.options().schema.sso_provider.additional_fields,
+    ))
+    .into_response()
 }

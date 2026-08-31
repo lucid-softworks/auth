@@ -15,7 +15,11 @@ const URI_COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'(')
     .remove(b')');
 
-pub(super) fn provider(provider: &SsoProvider, base_url: &str) -> Value {
+pub(super) fn provider(
+    provider: &SsoProvider,
+    base_url: &str,
+    additional_fields: &crate::AdditionalFieldSet,
+) -> Value {
     let mut output = Map::new();
     output.insert("providerId".into(), json!(provider.provider_id));
     output.insert(
@@ -47,6 +51,10 @@ pub(super) fn provider(provider: &SsoProvider, base_url: &str) -> Value {
             utf8_percent_encode(&provider.provider_id, URI_COMPONENT)
         )),
     );
+    output.extend(crate::additional_fields::filtered_output(
+        additional_fields,
+        provider.additional_fields.clone(),
+    ));
     Value::Object(output)
 }
 

@@ -1,9 +1,10 @@
 #![cfg(all(feature = "axum", feature = "sqlite"))]
 
 use lucid_auth::{
-    AuthConfig, AuthService, DatabaseCreate, DatabaseIdGeneration, DatabaseIdInput, DatabaseIdPlan,
-    DatabaseSsoStore, EmailSignUpInput, NewSsoProvider, OAuthAccount, OAuthAccountStore,
-    SsoOptions, SsoPlugin, SsoProviderUpdate, SsoStore, SsoStoreError, run_database_transaction,
+    AdditionalField, AdditionalFieldType, AuthConfig, AuthService, DatabaseCreate,
+    DatabaseIdGeneration, DatabaseIdInput, DatabaseIdPlan, DatabaseSsoStore, EmailSignUpInput,
+    NewSsoProvider, OAuthAccount, OAuthAccountStore, SsoOptions, SsoPlugin, SsoProviderUpdate,
+    SsoStore, SsoStoreError, run_database_transaction,
     sqlite::{SqliteAdapterConfig, SqliteStore},
 };
 use sqlx::sqlite::SqlitePoolOptions;
@@ -18,7 +19,12 @@ async fn provider_catalog_round_trips_through_native_sqlite_transactions() {
         .unwrap();
     let auth_store = Arc::new(SqliteStore::new(pool, SqliteAdapterConfig::default()));
     let sso_store = Arc::new(DatabaseSsoStore::new(auth_store.clone()));
-    let plugin = SsoPlugin::with_store(SsoOptions::default(), sso_store.clone());
+    let mut options = SsoOptions::default();
+    options.schema.sso_provider.additional_fields.insert(
+        "tenantCode".into(),
+        AdditionalField::new(AdditionalFieldType::String).optional(),
+    );
+    let plugin = SsoPlugin::with_store(options, sso_store.clone());
     let mut config = AuthConfig::new([137_u8; 32]).unwrap();
     config.set_base_url("https://example.com").unwrap();
     config.email_and_password.enabled = true;
@@ -63,10 +69,15 @@ async fn provider_catalog_round_trips_through_native_sqlite_transactions() {
             organization_id: Some("organization".into()),
             domain: "example.com".into(),
             domain_verified: None,
+            additional_fields: serde_json::Map::from_iter([(
+                "tenantCode".into(),
+                serde_json::json!("blue"),
+            )]),
         })
         .await
         .unwrap();
     assert_eq!(created.provider_id, "workforce");
+    assert_eq!(created.additional_fields["tenantCode"], "blue");
     assert_eq!(
         sso_store.find_by_provider_id("workforce").await.unwrap(),
         Some(created.clone())
@@ -141,6 +152,10 @@ async fn provider_catalog_round_trips_through_native_sqlite_transactions() {
             "workforce",
             SsoProviderUpdate {
                 domain: Some("login.example.com".into()),
+                additional_fields: serde_json::Map::from_iter([(
+                    "tenantCode".into(),
+                    serde_json::json!("green"),
+                )]),
                 ..SsoProviderUpdate::default()
             },
             false,
@@ -148,6 +163,7 @@ async fn provider_catalog_round_trips_through_native_sqlite_transactions() {
         .await
         .unwrap();
     assert_eq!(updated.domain, "login.example.com");
+    assert_eq!(updated.additional_fields["tenantCode"], "green");
     assert_eq!(sso_store.list().await.unwrap(), vec![updated.clone()]);
     assert!(
         sso_store
