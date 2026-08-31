@@ -194,6 +194,24 @@ pub(super) async fn bind(
     .await
 }
 
+pub(super) async fn release_reservation(
+    store: Arc<dyn AuthStore>,
+    row: &DirectoryRow,
+) -> Result<(), AuthError> {
+    let filters = vec![
+        equal("id", row.id.clone()),
+        equal("revision", 0_u64),
+        equal_value("connectionId", Value::Null),
+    ];
+    run_database_transaction(store.as_ref(), move |transaction| {
+        Box::pin(async move {
+            transaction.delete_records(MODEL, &filters).await?;
+            Ok(())
+        })
+    })
+    .await
+}
+
 pub(super) async fn touch_active(
     store: Arc<dyn AuthStore>,
     row: &DirectoryRow,

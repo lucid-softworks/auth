@@ -886,11 +886,12 @@ a callback route or repaired client contract. See the
 
 ### Better Auth Infrastructure Dash
 
-`DashPlugin` installs the 61 implemented `/dash/*` routes published by
+`DashPlugin` installs all 79 `/dash/*` routes published by
 `@better-auth/infra@0.4.3`, including configuration/validation, user CRUD and
 NDJSON export, account/password/session management, impersonation, moderation,
 analytics, email actions, the five-action raw adapter endpoint, organization,
-member, invitation and team management, and managed two-factor setup. Managed
+member, invitation and team management, managed two-factor setup, and the exact
+SSO, domain-verification, legacy-directory, and managed-SCIM control plane. Managed
 JWT authorization is mandatory for the administrative routes;
 `/dash/validate` alone skips the JTI lookup. The four browser invitation
 completion routes instead use managed invitation tokens or the local social
@@ -915,7 +916,7 @@ routes remain server-only and are not extra browser actions.
 
 ```rust
 use lucid_auth::{
-    AuthConfig, DashActivityTracking, DashOptions, DashPlugin,
+    AuthConfig, DashActivityTracking, DashManagedDirectorySync, DashOptions, DashPlugin,
     InfraConnectionOptions,
 };
 use std::time::Duration;
@@ -929,6 +930,10 @@ auth.add_plugin(DashPlugin::new(DashOptions {
     activity_tracking: DashActivityTracking {
         enabled: true,
         update_interval: Duration::from_secs(300),
+    },
+    managed_directory_sync: DashManagedDirectorySync {
+        enabled: true,
+        ..DashManagedDirectorySync::default()
     },
 }))?;
 ```
@@ -956,6 +961,16 @@ expiration, acceptance, and one-time handoff redemption send the configured
 API key and invitation payload to the Dash API origin. TOTP secrets and backup
 codes remain encrypted in the native two-factor store and are returned in
 plaintext only by their pinned initial-generation responses.
+Managed directory setup requires the native organization and managed SCIM
+plugins. Optional SSO pairing binds one persisted provider to one active
+directory, rejects authentication-boundary provider changes while paired, and
+links sign-ins only through active SCIM external-ID provenance. SCIM user state
+projects membership with created-versus-observed ownership, so deprovisioning
+never removes a membership that predated directory sync. Create/recovery and
+rotation responses are the only places that return plaintext SCIM tokens;
+store them immediately and do not log them. Organization, provider, domain,
+directory, actor, user, and membership identifiers cross the configured
+Infrastructure/identity-provider boundaries.
 See the [exact Dash core and substrate compatibility boundary](COMPATIBILITY.md#dash-core-routes-043).
 
 ### Better Auth Infrastructure managed email

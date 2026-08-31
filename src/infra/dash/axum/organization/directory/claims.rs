@@ -66,6 +66,45 @@ pub(super) async fn authorize<'a>(
     Ok((scim, claims))
 }
 
+pub(super) fn managed_mode(service: &AuthService, dash: &DashPlugin) -> bool {
+    dash.options().managed_directory_sync.enabled
+        && service
+            .scim_plugin()
+            .is_some_and(|scim| scim.options().managed_connections.is_some())
+}
+
+#[allow(
+    clippy::result_large_err,
+    reason = "the error is an exact Axum response returned directly by the route"
+)]
+pub(super) async fn unconstrained(
+    dash: &DashPlugin,
+    headers: &HeaderMap,
+) -> Result<(), Response> {
+    claims::<serde_json::Value>(dash, headers).await.map(|_| ())
+}
+
+#[allow(
+    clippy::result_large_err,
+    reason = "the error is an exact Axum response returned directly by the route"
+)]
+pub(super) async fn legacy(
+    service: &AuthService,
+    dash: &DashPlugin,
+    headers: &HeaderMap,
+) -> Result<(), Response> {
+    organization_plugin(service)?;
+    let claims = claims::<super::super::support::OrganizationClaims>(dash, headers).await?;
+    if claims.organization_id.trim().is_empty() {
+        return Err(error(
+            StatusCode::UNAUTHORIZED,
+            "UNAUTHORIZED",
+            "Invalid organization authorization",
+        ));
+    }
+    Ok(())
+}
+
 impl DirectoryClaims {
     fn valid_for(&self, organization_id: &str) -> bool {
         self.purpose == "directory-sync-management"

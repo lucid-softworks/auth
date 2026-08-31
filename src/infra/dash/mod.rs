@@ -13,6 +13,8 @@ mod identification;
 mod jwt;
 mod model;
 mod plugin;
+#[cfg(feature = "axum")]
+pub(crate) mod membership_projection;
 mod projection;
 mod tracking;
 

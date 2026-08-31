@@ -11,11 +11,12 @@ use josekit::{
     jws::{self, JwsHeader, RS256},
 };
 use lucid_auth::{
-    AuthConfig, AuthService, DashManagedDirectorySync, DashOptions, DashPlugin,
-    InfraConnectionOptions, MemoryOrganizationStore, MemorySsoStore, MemoryStore,
-    MemoryTwoFactorStore, NewPasswordUser, NewSsoProvider, OrganizationPlugin,
-    OrganizationPluginConfig, ScimManagedConnectionOptions, ScimOptions, ScimPlugin, SsoOptions,
-    SsoPlugin, SsoStore, TwoFactorConfig, TwoFactorPlugin,
+    AuthConfig, AuthService, DashAdapterWhere, DashManagedDirectorySync, DashOptions, DashPlugin,
+    DatabaseScimStore, InfraConnectionOptions, MemoryOrganizationStore, MemorySsoStore,
+    MemoryStore, MemoryTwoFactorStore, NewPasswordUser, NewSsoProvider, OrganizationPlugin,
+    OrganizationPluginConfig, SCIM_MEDIA_TYPE, SCIM_USER_SCHEMA, ScimManagedConnectionOptions,
+    ScimOptions, ScimPlugin, SsoOptions, SsoPlugin, SsoStore, TwoFactorConfig, TwoFactorPlugin,
+    run_database_transaction,
 };
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -134,6 +135,7 @@ async fn fixture() -> (
     Arc<Mutex<Vec<Value>>>,
     Arc<Mutex<Vec<Value>>>,
     Arc<MemorySsoStore>,
+    Arc<MemoryStore>,
     tokio::task::JoinHandle<()>,
 ) {
     let mut private_key = Jwk::generate_rsa_key(2_048).unwrap();
@@ -168,6 +170,7 @@ async fn fixture() -> (
     let server = tokio::spawn(async move { axum::serve(listener, managed).await.unwrap() });
 
     let mut config = AuthConfig::new([b'D'; 32]).unwrap();
+    let auth_store = Arc::new(MemoryStore::default());
     config.set_base_url("http://localhost").unwrap();
     config.email_and_password.enabled = true;
     let mut organization_config = OrganizationPluginConfig::default();
@@ -197,12 +200,15 @@ async fn fixture() -> (
         .unwrap();
     config
         .add_plugin(
-            ScimPlugin::in_memory(ScimOptions {
-                managed_connections: Some(ScimManagedConnectionOptions::new(
-                    "dash-managed-scim-secret-at-least-32-bytes",
-                )),
-                ..ScimOptions::default()
-            })
+            ScimPlugin::new(
+                ScimOptions {
+                    managed_connections: Some(ScimManagedConnectionOptions::new(
+                        "dash-managed-scim-secret-at-least-32-bytes",
+                    )),
+                    ..ScimOptions::default()
+                },
+                Arc::new(DatabaseScimStore::new(auth_store.clone())),
+            )
             .unwrap(),
         )
         .unwrap();
@@ -220,7 +226,7 @@ async fn fixture() -> (
             ..DashOptions::default()
         }))
         .unwrap();
-    let service = Arc::new(AuthService::new(Arc::new(MemoryStore::default()), config));
+    let service = Arc::new(AuthService::new(auth_store.clone(), config));
     service
         .provision_password_user(NewPasswordUser {
             username: "luna".into(),
@@ -239,6 +245,7 @@ async fn fixture() -> (
         tracked_events,
         invitation_requests,
         sso_store,
+        auth_store,
         server,
     )
 }
@@ -302,6 +309,19 @@ async fn json_body(response: axum::response::Response) -> Value {
     serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap()
 }
 
+async fn generic_count(
+    store: Arc<MemoryStore>,
+    model: &str,
+    where_clause: Vec<DashAdapterWhere>,
+) -> u64 {
+    let model = model.to_owned();
+    run_database_transaction(store.as_ref(), move |database| {
+        Box::pin(async move { database.count_records(&model, &where_clause).await })
+    })
+    .await
+    .unwrap()
+}
+
 async fn wait_for_events(events: &Arc<Mutex<Vec<Value>>>, expected: usize) -> Vec<Value> {
     for _ in 0..100 {
         let snapshot = events.lock().unwrap().clone();
@@ -338,8 +358,17 @@ async fn local_cookie(app: &Router) -> String {
 
 #[tokio::test]
 async fn core_routes_use_managed_jwt_policy_and_return_dash_shapes() {
-    let (app, private_key, jti_checks, _event_queries, _tracked_events, _invites, _sso, server) =
-        fixture().await;
+    let (
+        app,
+        private_key,
+        jti_checks,
+        _event_queries,
+        _tracked_events,
+        _invites,
+        _sso,
+        _store,
+        server,
+    ) = fixture().await;
     let old_token = token(&private_key, 60);
 
     let config = request(&app, "/api/auth/dash/config", &old_token).await;
@@ -377,8 +406,17 @@ async fn core_routes_use_managed_jwt_policy_and_return_dash_shapes() {
 
 #[tokio::test]
 async fn core_routes_reject_missing_managed_authorization() {
-    let (app, _private_key, _jti_checks, _event_queries, _tracked_events, _invites, _sso, server) =
-        fixture().await;
+    let (
+        app,
+        _private_key,
+        _jti_checks,
+        _event_queries,
+        _tracked_events,
+        _invites,
+        _sso,
+        _store,
+        server,
+    ) = fixture().await;
     let response = app
         .oneshot(
             Request::get("/api/auth/dash/config")
@@ -397,8 +435,17 @@ async fn core_routes_reject_missing_managed_authorization() {
 
 #[tokio::test]
 async fn event_queries_use_local_sessions_transform_and_filter_remote_records() {
-    let (app, _private_key, _jti_checks, event_queries, _tracked_events, _invites, _sso, server) =
-        fixture().await;
+    let (
+        app,
+        _private_key,
+        _jti_checks,
+        event_queries,
+        _tracked_events,
+        _invites,
+        _sso,
+        _store,
+        server,
+    ) = fixture().await;
     let cookie = local_cookie(&app).await;
 
     let response = app
@@ -467,8 +514,17 @@ async fn event_queries_use_local_sessions_transform_and_filter_remote_records() 
 
 #[tokio::test]
 async fn auth_hooks_project_exact_events_once_and_ignore_remote_500s() {
-    let (app, _private_key, _jti_checks, _event_queries, tracked_events, _invites, _sso, server) =
-        fixture().await;
+    let (
+        app,
+        _private_key,
+        _jti_checks,
+        _event_queries,
+        tracked_events,
+        _invites,
+        _sso,
+        _store,
+        server,
+    ) = fixture().await;
     assert!(tracked_events.lock().unwrap().is_empty());
 
     let response = app
@@ -523,8 +579,17 @@ async fn auth_hooks_project_exact_events_once_and_ignore_remote_500s() {
 
 #[tokio::test]
 async fn organization_hooks_project_in_order_and_keep_remote_failures_non_fatal() {
-    let (app, _private_key, _jti_checks, _event_queries, tracked_events, _invites, _sso, server) =
-        fixture().await;
+    let (
+        app,
+        _private_key,
+        _jti_checks,
+        _event_queries,
+        tracked_events,
+        _invites,
+        _sso,
+        _store,
+        server,
+    ) = fixture().await;
     let cookie = local_cookie(&app).await;
     wait_for_events(&tracked_events, 2).await;
     tracked_events.lock().unwrap().clear();
@@ -561,8 +626,17 @@ async fn organization_hooks_project_in_order_and_keep_remote_failures_non_fatal(
 
 #[tokio::test]
 async fn managed_organization_team_and_two_factor_routes_use_native_stores() {
-    let (app, private_key, _jti_checks, _event_queries, _tracked_events, _invites, _sso, server) =
-        fixture().await;
+    let (
+        app,
+        private_key,
+        _jti_checks,
+        _event_queries,
+        _tracked_events,
+        _invites,
+        _sso,
+        _store,
+        server,
+    ) = fixture().await;
     let base_token = token(&private_key, 0);
     let users = request(&app, "/api/auth/dash/list-users", &base_token).await;
     assert_eq!(users.status(), StatusCode::OK);
@@ -733,7 +807,8 @@ async fn managed_organization_team_and_two_factor_routes_use_native_stores() {
 
 #[tokio::test]
 async fn dash_sso_listing_is_tenant_bound_and_never_returns_secrets() {
-    let (app, private_key, _jti, _queries, _events, _invites, sso, server) = fixture().await;
+    let (app, private_key, _jti, _queries, _events, _invites, sso, _store, server) =
+        fixture().await;
     let base_token = token(&private_key, 0);
     let users = request(&app, "/api/auth/dash/list-users", &base_token).await;
     let user_id = json_body(users).await["users"][0]["id"]
@@ -957,7 +1032,8 @@ async fn dash_sso_listing_is_tenant_bound_and_never_returns_secrets() {
 
 #[tokio::test]
 async fn managed_directory_routes_bind_scim_and_protect_one_time_credentials() {
-    let (app, private_key, _jti, _queries, _events, _invites, _sso, server) = fixture().await;
+    let (app, private_key, _jti, _queries, _events, _invites, _sso, store, server) =
+        fixture().await;
     let base_token = token(&private_key, 0);
     let users = request(&app, "/api/auth/dash/list-users", &base_token).await;
     let user_id = json_body(users).await["users"][0]["id"]
@@ -1035,16 +1111,109 @@ async fn managed_directory_routes_bind_scim_and_protect_one_time_credentials() {
     assert_eq!(created.headers()[header::PRAGMA], "no-cache");
     let created = json_body(created).await;
     let connection_id = created["connectionId"].as_str().unwrap().to_owned();
-    let credential_id = created["credential"]["credentialId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let first_token = created["scimToken"].as_str().unwrap().to_owned();
+    assert!(created["credential"]["credentialId"].as_str().is_some());
+    let mut first_token = created["scimToken"].as_str().unwrap().to_owned();
     assert!(connection_id.starts_with("ba_scim_connection_"));
     assert!(first_token.starts_with("ba_scim_credential_"));
     assert_eq!(created["credentials"].as_array().unwrap().len(), 1);
     assert_eq!(created["pairingEnforced"], true);
     assert_eq!(created["pairing"]["ssoProviderId"], "directory-login");
+
+    let provisioned = app
+        .clone()
+        .oneshot(
+            Request::post("/api/auth/scim/v2/Users")
+                .header(header::AUTHORIZATION, format!("Bearer {first_token}"))
+                .header(header::CONTENT_TYPE, SCIM_MEDIA_TYPE)
+                .body(Body::from(
+                    json!({
+                        "schemas": [SCIM_USER_SCHEMA],
+                        "externalId": "directory-subject",
+                        "userName": "provisioned@example.com",
+                        "name": {"formatted": "Provisioned User"},
+                        "emails": [{"value": "provisioned@example.com", "type": "work", "primary": true}],
+                        "active": true
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(provisioned.status(), StatusCode::CREATED);
+    let provisioned_id = json_body(provisioned).await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let organization_filter = || {
+        vec![DashAdapterWhere {
+            field: "organizationId".into(),
+            value: json!(organization_id),
+            operator: Default::default(),
+            connector: None,
+        }]
+    };
+    assert_eq!(
+        generic_count(store.clone(), "member", organization_filter()).await,
+        1
+    );
+    assert_eq!(
+        generic_count(
+            store.clone(),
+            "directorySyncMembershipProvenance",
+            organization_filter(),
+        )
+        .await,
+        1
+    );
+    let deprovisioned = app
+        .clone()
+        .oneshot(
+            Request::delete(format!("/api/auth/scim/v2/Users/{provisioned_id}"))
+                .header(header::AUTHORIZATION, format!("Bearer {first_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(deprovisioned.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        generic_count(store.clone(), "member", organization_filter()).await,
+        0
+    );
+    assert_eq!(
+        generic_count(
+            store.clone(),
+            "directorySyncMembershipProvenance",
+            organization_filter(),
+        )
+        .await,
+        0
+    );
+
+    let recovered = post_json(
+        &app,
+        &format!("/api/auth/dash/organization/{organization_id}/directories"),
+        &setup_token,
+        json!({
+            "providerId": "entra",
+            "pairing": {
+                "ssoProviderId": "directory-login",
+                "protocol": "oidc",
+                "externalIdSource": {"kind": "subject"}
+            }
+        }),
+    )
+    .await;
+    assert_eq!(recovered.status(), StatusCode::OK);
+    let recovered = json_body(recovered).await;
+    assert_eq!(recovered["connectionId"], connection_id);
+    assert_ne!(recovered["scimToken"], first_token);
+    first_token = recovered["scimToken"].as_str().unwrap().to_owned();
+    let credential_id = recovered["credential"]["credentialId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
 
     let guarded_delete = post_json(
         &app,
@@ -1186,6 +1355,7 @@ async fn public_invitation_acceptance_uses_managed_egress_and_mints_local_sessio
         _tracked_events,
         invitation_requests,
         _sso,
+        _store,
         server,
     ) = fixture().await;
     let response = app
@@ -1233,8 +1403,17 @@ async fn public_invitation_acceptance_uses_managed_egress_and_mints_local_sessio
 
 #[tokio::test]
 async fn social_create_no_session_invitation_revokes_the_local_session() {
-    let (app, _private_key, _jti_checks, _event_queries, _tracked_events, _invites, _sso, server) =
-        fixture().await;
+    let (
+        app,
+        _private_key,
+        _jti_checks,
+        _event_queries,
+        _tracked_events,
+        _invites,
+        _sso,
+        _store,
+        server,
+    ) = fixture().await;
     let cookie = local_cookie(&app).await;
     let response = app
         .clone()
