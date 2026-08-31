@@ -4,7 +4,7 @@ use crate::infra::dash::{
 use axum::{
     body::{Body, to_bytes},
     extract::Request,
-    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header},
     response::Response,
 };
 
@@ -26,6 +26,39 @@ pub(super) async fn capture_json_body(mut request: Request) -> Result<Request, R
     }
     *request.body_mut() = Body::from(bytes);
     Ok(request)
+}
+
+pub(super) fn replace_json_body(request: &mut Request, value: serde_json::Value) {
+    let bytes = serde_json::to_vec(&value).expect("captured JSON is serializable");
+    request
+        .extensions_mut()
+        .insert(crate::plugin::CapturedPluginRequestBody(value));
+    *request.body_mut() = Body::from(bytes);
+}
+
+pub(super) fn replace_query_value(request: &mut Request, field: &str, value: &str) {
+    let mut pairs: Vec<(String, String)> = request
+        .uri()
+        .query()
+        .map(|query| {
+            url::form_urlencoded::parse(query.as_bytes())
+                .map(|(name, value)| (name.into_owned(), value.into_owned()))
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Some((_, current)) = pairs.iter_mut().find(|(name, _)| name == field) {
+        *current = value.to_owned();
+    } else {
+        pairs.push((field.to_owned(), value.to_owned()));
+    }
+    let query = url::form_urlencoded::Serializer::new(String::new())
+        .extend_pairs(pairs)
+        .finish();
+    let mut parts = request.uri().clone().into_parts();
+    parts.path_and_query = format!("{}?{query}", request.uri().path()).parse().ok();
+    if let Ok(uri) = Uri::from_parts(parts) {
+        *request.uri_mut() = uri;
+    }
 }
 
 pub(super) fn identification_request(
@@ -142,4 +175,22 @@ pub(super) fn relative_path(path: &str, base_path: &str) -> String {
         .filter(|relative| relative.starts_with('/'))
         .unwrap_or(path)
         .to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn query_replacement_preserves_other_values() {
+        let mut request = Request::builder()
+            .uri("/sign-in/email?email=Old%40Example.com&callbackURL=%2Faccount")
+            .body(Body::empty())
+            .unwrap();
+        replace_query_value(&mut request, "email", "new@example.com");
+        assert_eq!(
+            request.uri().query(),
+            Some("email=new%40example.com&callbackURL=%2Faccount")
+        );
+    }
 }
