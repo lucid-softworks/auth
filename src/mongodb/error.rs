@@ -45,3 +45,23 @@ impl From<MongoAdapterError> for AuthError {
         Self::Storage(format!("{}: {}", error.code.as_str(), error.message))
     }
 }
+
+pub(super) fn is_unique_violation(error: &AuthError) -> bool {
+    matches!(error, AuthError::Storage(message) if message.contains("E11000") && message.contains("duplicate key"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_unique_violation;
+    use crate::AuthError;
+
+    #[test]
+    fn classifies_mongodb_duplicate_key_errors_only() {
+        assert!(is_unique_violation(&AuthError::Storage(
+            "E11000 duplicate key error collection: auth.user".into(),
+        )));
+        assert!(!is_unique_violation(&AuthError::Storage(
+            "timed out selecting a server".into(),
+        )));
+    }
+}

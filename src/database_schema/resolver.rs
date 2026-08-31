@@ -127,7 +127,6 @@ impl ResolvedAdapterSchema {
     #[cfg(any(
         feature = "postgres",
         feature = "mysql",
-        feature = "mongodb",
         feature = "sqlite",
         feature = "d1"
     ))]

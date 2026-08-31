@@ -118,30 +118,40 @@ pub struct MongoFindOptions {
 }
 
 /// Explicit MongoDB transaction. Dropping the value ends its session.
-pub struct MongoTransaction<'a> {
-    pub(super) session: mongodb::ClientSession,
-    pub(super) store: &'a super::MongoStore,
+pub struct MongoTransaction {
+    pub(super) session: Option<mongodb::ClientSession>,
+    pub(super) store: super::MongoStore,
     finished: bool,
 }
 
+pub(in crate::mongodb) trait MongoExecution {
+    fn parts(&mut self) -> (&super::MongoStore, Option<&mut mongodb::ClientSession>);
+}
+
+impl MongoExecution for MongoTransaction {
+    fn parts(&mut self) -> (&super::MongoStore, Option<&mut mongodb::ClientSession>) {
+        (&self.store, self.session.as_mut())
+    }
+}
+
 impl super::MongoStore {
-    pub async fn begin(&self) -> Result<MongoTransaction<'_>, AuthError> {
-        if !self.transactions_enabled() {
-            return Err(AuthError::InvalidConfiguration(
-                "MongoDB transactions require a client and transaction must not be false".into(),
-            ));
-        }
-        let mut session = self
-            .client
-            .as_ref()
-            .expect("enabled MongoDB transactions have a client")
-            .start_session()
-            .await
-            .map_err(storage)?;
-        session.start_transaction().await.map_err(storage)?;
+    pub async fn begin(&self) -> Result<MongoTransaction, AuthError> {
+        let session = if self.transactions_enabled() {
+            let mut session = self
+                .client
+                .as_ref()
+                .expect("enabled MongoDB transactions have a client")
+                .start_session()
+                .await
+                .map_err(storage)?;
+            session.start_transaction().await.map_err(storage)?;
+            Some(session)
+        } else {
+            None
+        };
         Ok(MongoTransaction {
             session,
-            store: self,
+            store: self.clone(),
             finished: false,
         })
     }
@@ -151,7 +161,7 @@ impl super::MongoStore {
         model: &str,
         record: Map<String, Value>,
     ) -> Result<Option<Map<String, Value>>, AuthError> {
-        execute::insert(self, None, model, record).await
+        execute::insert_with_session(self, None, model, record).await
     }
 
     pub(super) async fn insert_required_record(
@@ -170,7 +180,7 @@ impl super::MongoStore {
         filters: &[MongoFilter],
         select: &[String],
     ) -> Result<Option<Map<String, Value>>, AuthError> {
-        execute::find_one(self, None, model, filters, select, &[]).await
+        execute::find_one_with_session(self, None, model, filters, select, &[]).await
     }
 
     pub async fn find_records(
@@ -179,7 +189,7 @@ impl super::MongoStore {
         filters: &[MongoFilter],
         options: &MongoFindOptions,
     ) -> Result<Vec<Map<String, Value>>, AuthError> {
-        execute::find_many(self, None, model, filters, options).await
+        execute::find_many_with_session(self, None, model, filters, options).await
     }
 
     pub async fn update_record(
@@ -188,7 +198,7 @@ impl super::MongoStore {
         filters: &[MongoFilter],
         values: Map<String, Value>,
     ) -> Result<Option<Map<String, Value>>, AuthError> {
-        execute::update_one(self, None, model, filters, values).await
+        execute::update_one_with_session(self, None, model, filters, values).await
     }
 
     pub async fn update_records(
@@ -197,7 +207,7 @@ impl super::MongoStore {
         filters: &[MongoFilter],
         values: Map<String, Value>,
     ) -> Result<u64, AuthError> {
-        execute::update_many(self, None, model, filters, values).await
+        execute::update_many_with_session(self, None, model, filters, values).await
     }
 
     pub async fn count_records(
@@ -205,7 +215,7 @@ impl super::MongoStore {
         model: &str,
         filters: &[MongoFilter],
     ) -> Result<u64, AuthError> {
-        execute::count(self, None, model, filters).await
+        execute::count_with_session(self, None, model, filters).await
     }
 
     pub async fn delete_record(
@@ -213,7 +223,7 @@ impl super::MongoStore {
         model: &str,
         filters: &[MongoFilter],
     ) -> Result<(), AuthError> {
-        execute::delete_one(self, None, model, filters).await
+        execute::delete_one_with_session(self, None, model, filters).await
     }
 
     pub async fn delete_records(
@@ -221,7 +231,7 @@ impl super::MongoStore {
         model: &str,
         filters: &[MongoFilter],
     ) -> Result<u64, AuthError> {
-        execute::delete_many(self, None, model, filters).await
+        execute::delete_many_with_session(self, None, model, filters).await
     }
 
     pub async fn consume_record(
@@ -229,7 +239,7 @@ impl super::MongoStore {
         model: &str,
         filters: &[MongoFilter],
     ) -> Result<Option<Map<String, Value>>, AuthError> {
-        execute::consume_one(self, None, model, filters).await
+        execute::consume_one_with_session(self, None, model, filters).await
     }
 
     pub async fn increment_record(
@@ -239,17 +249,17 @@ impl super::MongoStore {
         increments: Map<String, Value>,
         set: Map<String, Value>,
     ) -> Result<Option<Map<String, Value>>, AuthError> {
-        execute::increment_one(self, None, model, filters, increments, set).await
+        execute::increment_one_with_session(self, None, model, filters, increments, set).await
     }
 }
 
-impl MongoTransaction<'_> {
+impl MongoTransaction {
     pub async fn insert_record(
         &mut self,
         model: &str,
         record: Map<String, Value>,
     ) -> Result<Option<Map<String, Value>>, AuthError> {
-        execute::insert(self.store, Some(&mut self.session), model, record).await
+        execute::insert_with_session(&self.store, self.session.as_mut(), model, record).await
     }
 
     pub async fn find_record(
@@ -258,7 +268,7 @@ impl MongoTransaction<'_> {
         filters: &[MongoFilter],
         select: &[String],
     ) -> Result<Option<Map<String, Value>>, AuthError> {
-        execute::find_one(self.store, Some(&mut self.session), model, filters, select, &[]).await
+        execute::find_one_with_session(&self.store, self.session.as_mut(), model, filters, select, &[]).await
     }
 
     pub async fn update_record(
@@ -267,7 +277,7 @@ impl MongoTransaction<'_> {
         filters: &[MongoFilter],
         values: Map<String, Value>,
     ) -> Result<Option<Map<String, Value>>, AuthError> {
-        execute::update_one(self.store, Some(&mut self.session), model, filters, values).await
+        execute::update_one_with_session(&self.store, self.session.as_mut(), model, filters, values).await
     }
 
     pub async fn delete_records(
@@ -275,7 +285,7 @@ impl MongoTransaction<'_> {
         model: &str,
         filters: &[MongoFilter],
     ) -> Result<u64, AuthError> {
-        execute::delete_many(self.store, Some(&mut self.session), model, filters).await
+        execute::delete_many_with_session(&self.store, self.session.as_mut(), model, filters).await
     }
 
     pub async fn consume_record(
@@ -283,7 +293,7 @@ impl MongoTransaction<'_> {
         model: &str,
         filters: &[MongoFilter],
     ) -> Result<Option<Map<String, Value>>, AuthError> {
-        execute::consume_one(self.store, Some(&mut self.session), model, filters).await
+        execute::consume_one_with_session(&self.store, self.session.as_mut(), model, filters).await
     }
 
     pub async fn increment_record(
@@ -293,9 +303,9 @@ impl MongoTransaction<'_> {
         increments: Map<String, Value>,
         set: Map<String, Value>,
     ) -> Result<Option<Map<String, Value>>, AuthError> {
-        execute::increment_one(
-            self.store,
-            Some(&mut self.session),
+        execute::increment_one_with_session(
+            &self.store,
+            self.session.as_mut(),
             model,
             filters,
             increments,
@@ -305,13 +315,17 @@ impl MongoTransaction<'_> {
     }
 
     pub async fn commit(mut self) -> Result<(), AuthError> {
-        self.session.commit_transaction().await.map_err(storage)?;
+        if let Some(session) = &mut self.session {
+            session.commit_transaction().await.map_err(storage)?;
+        }
         self.finished = true;
         Ok(())
     }
 
     pub async fn rollback(mut self) -> Result<(), AuthError> {
-        self.session.abort_transaction().await.map_err(storage)?;
+        if let Some(session) = &mut self.session {
+            session.abort_transaction().await.map_err(storage)?;
+        }
         self.finished = true;
         Ok(())
     }

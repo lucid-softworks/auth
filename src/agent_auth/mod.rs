@@ -26,7 +26,7 @@ pub use callbacks::*;
 pub use config::*;
 pub use error::*;
 pub use event::*;
-#[cfg(any(feature = "mysql", feature = "sqlite"))]
+#[cfg(any(feature = "mysql", feature = "mongodb", feature = "sqlite"))]
 pub(crate) use memory::AgentAuthSnapshot;
 pub use memory::MemoryAgentAuthStore;
 pub use model::*;

@@ -14,7 +14,10 @@ use serde_json::{Map, Value};
 
 const JAVASCRIPT_MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
-pub(in crate::mongodb) async fn insert(
+mod compat;
+pub(in crate::mongodb) use compat::*;
+
+pub(in crate::mongodb) async fn insert_with_session(
     store: &MongoStore,
     session: Option<&mut ClientSession>,
     model_name: &str,
@@ -33,7 +36,7 @@ pub(in crate::mongodb) async fn insert(
     model.decode(document).map(Some)
 }
 
-pub(in crate::mongodb) async fn find_one(
+pub(in crate::mongodb) async fn find_one_with_session(
     store: &MongoStore,
     session: Option<&mut ClientSession>,
     model_name: &str,
@@ -60,7 +63,7 @@ pub(in crate::mongodb) async fn find_one(
         .transpose()
 }
 
-pub(in crate::mongodb) async fn find_many(
+pub(in crate::mongodb) async fn find_many_with_session(
     store: &MongoStore,
     session: Option<&mut ClientSession>,
     model_name: &str,
@@ -106,7 +109,7 @@ pub(in crate::mongodb) async fn find_many(
         .collect()
 }
 
-pub(in crate::mongodb) async fn count(
+pub(in crate::mongodb) async fn count_with_session(
     store: &MongoStore,
     session: Option<&mut ClientSession>,
     model_name: &str,
@@ -115,7 +118,7 @@ pub(in crate::mongodb) async fn count(
     let model = store.physical_schema()?.model(model_name)?;
     let pipeline = vec![
         doc! { "$match": predicate::build(&model, filters)? },
-        doc! { "$count": "total" },
+        doc! { "$count_with_session": "total" },
     ];
     let documents = aggregate(collection(store, &model), pipeline, session).await?;
     Ok(documents
@@ -126,7 +129,7 @@ pub(in crate::mongodb) async fn count(
         .min(JAVASCRIPT_MAX_SAFE_INTEGER))
 }
 
-pub(in crate::mongodb) async fn update_one(
+pub(in crate::mongodb) async fn update_one_with_session(
     store: &MongoStore,
     session: Option<&mut ClientSession>,
     model_name: &str,
@@ -140,7 +143,7 @@ pub(in crate::mongodb) async fn update_one(
     ensure_indexes(store, &model).await?;
     let values = model.encode_fields(values)?;
     if values.is_empty() {
-        return find_one(store, session, model_name, filters, &[], &[]).await;
+        return find_one_with_session(store, session, model_name, filters, &[], &[]).await;
     }
     let filter = predicate::build(&model, filters)?;
     let collection = collection(store, &model);
@@ -159,7 +162,7 @@ pub(in crate::mongodb) async fn update_one(
     result.map(|document| model.decode(document)).transpose()
 }
 
-pub(in crate::mongodb) async fn update_many(
+pub(in crate::mongodb) async fn update_many_with_session(
     store: &MongoStore,
     session: Option<&mut ClientSession>,
     model_name: &str,
@@ -185,7 +188,7 @@ pub(in crate::mongodb) async fn update_many(
     Ok(result.modified_count.min(JAVASCRIPT_MAX_SAFE_INTEGER))
 }
 
-pub(in crate::mongodb) async fn delete_one(
+pub(in crate::mongodb) async fn delete_one_with_session(
     store: &MongoStore,
     session: Option<&mut ClientSession>,
     model_name: &str,
@@ -202,7 +205,7 @@ pub(in crate::mongodb) async fn delete_one(
     Ok(())
 }
 
-pub(in crate::mongodb) async fn delete_many(
+pub(in crate::mongodb) async fn delete_many_with_session(
     store: &MongoStore,
     session: Option<&mut ClientSession>,
     model_name: &str,
@@ -219,7 +222,7 @@ pub(in crate::mongodb) async fn delete_many(
     Ok(result.deleted_count.min(JAVASCRIPT_MAX_SAFE_INTEGER))
 }
 
-pub(in crate::mongodb) async fn consume_one(
+pub(in crate::mongodb) async fn consume_one_with_session(
     store: &MongoStore,
     session: Option<&mut ClientSession>,
     model_name: &str,
@@ -228,7 +231,7 @@ pub(in crate::mongodb) async fn consume_one(
     consume_one_sorted(store, session, model_name, filters, None).await
 }
 
-pub(in crate::mongodb) async fn consume_latest(
+pub(in crate::mongodb) async fn consume_latest_with_session(
     store: &MongoStore,
     session: Option<&mut ClientSession>,
     model_name: &str,
@@ -265,7 +268,7 @@ async fn consume_one_sorted(
     result.map(|document| model.decode(document)).transpose()
 }
 
-pub(in crate::mongodb) async fn increment_one(
+pub(in crate::mongodb) async fn increment_one_with_session(
     store: &MongoStore,
     session: Option<&mut ClientSession>,
     model_name: &str,
@@ -276,7 +279,7 @@ pub(in crate::mongodb) async fn increment_one(
     let model = store.physical_schema()?.model(model_name)?;
     ensure_indexes(store, &model).await?;
     if increments.is_empty() && set.is_empty() {
-        return find_one(store, session, model_name, filters, &[], &[]).await;
+        return find_one_with_session(store, session, model_name, filters, &[], &[]).await;
     }
     let mut update = Document::new();
     if !increments.is_empty() {

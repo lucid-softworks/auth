@@ -147,6 +147,10 @@ impl MongoSchema {
             id_encoding: self.id_encoding,
         })
     }
+
+    pub(super) fn has_model(&self, logical: &str) -> bool {
+        self.logical_models.contains_key(logical)
+    }
 }
 
 impl MongoModel<'_> {
@@ -175,6 +179,10 @@ impl MongoModel<'_> {
             .get(logical)
             .map(|column| column.physical.as_str())
             .ok_or_else(|| self.unknown_field(logical))
+    }
+
+    pub(super) fn quoted_column(&self, logical: &str) -> Result<&str, AuthError> {
+        self.physical_field(logical)
     }
 
     pub(super) fn is_id(&self, logical: &str) -> Result<bool, AuthError> {
