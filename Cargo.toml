@@ -127,6 +127,10 @@ required-features = ["axum", "sqlite"]
 name = "http_mysql"
 required-features = ["axum", "mysql"]
 
+[[example]]
+name = "http_mongodb"
+required-features = ["axum", "mongodb"]
+
 [[test]]
 name = "access_contract"
 required-features = ["axum"]

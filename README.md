@@ -60,6 +60,22 @@ export DATABASE_URL="mysql://user:password@127.0.0.1:3306/lucid_auth"
 cargo run --example http_mysql --features axum,mysql
 ```
 
+MongoDB deployments can use the official Rust driver backend. A supplied
+client enables multi-operation transactions by default, so standalone local
+servers must explicitly set `MONGODB_TRANSACTIONS=false`:
+
+```sh
+export MONGODB_URI="mongodb://127.0.0.1:27017"
+export MONGODB_DATABASE="lucid_auth"
+export MONGODB_TRANSACTIONS=false
+cargo run --example http_mongodb --features axum,mongodb
+```
+
+`MongoStore` persists native BSON values, maps Better Auth `id` to MongoDB
+`_id`, and lazily creates resolved table-level indexes before writes. See the
+[MongoDB quickstart](docs/installation.md#mongodb-quickstart) for replica-set,
+ID-strategy, and migration boundaries.
+
 The currently supported surface covers:
 
 - `getSession` and `useSession`
