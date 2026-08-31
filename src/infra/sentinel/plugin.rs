@@ -1,12 +1,18 @@
 use super::{SentinelOptions, SentinelSecurityClient, VERSION};
 #[cfg(feature = "axum")]
 use crate::infra::dash::IdentificationService;
+use crate::infra::dash::IdentificationContext;
 use crate::{
     AuthPlugin, PluginArtifactMetadata, PluginClientMetadata, PluginCookie, PluginDescriptor,
     PluginProvenance,
 };
 use async_trait::async_trait;
-use std::{borrow::Cow, fmt, sync::Arc};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    fmt,
+    sync::{Arc, Mutex},
+};
 
 const COOKIES: &[PluginCookie] = &[PluginCookie {
     name: "__infra-rid",
@@ -18,6 +24,15 @@ pub struct SentinelPlugin {
     security: SentinelSecurityClient,
     #[cfg(feature = "axum")]
     identification: IdentificationService,
+    request_identifications: Arc<Mutex<HashMap<String, IdentificationContext>>>,
+    reservations: Arc<Mutex<HashMap<String, ReservationContext>>>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct ReservationContext {
+    pub visitor_id: String,
+    pub reservation_id: String,
+    pub request_id: Option<String>,
 }
 
 impl SentinelPlugin {
@@ -34,6 +49,8 @@ impl SentinelPlugin {
             security,
             #[cfg(feature = "axum")]
             identification,
+            request_identifications: Arc::new(Mutex::new(HashMap::new())),
+            reservations: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -48,6 +65,46 @@ impl SentinelPlugin {
     #[cfg(feature = "axum")]
     pub(crate) fn identification_service(&self) -> &IdentificationService {
         &self.identification
+    }
+
+    pub(super) fn remember_identification(&self, context: &IdentificationContext) {
+        if let Some(request_id) = context.request_id.as_ref() {
+            self.request_identifications
+                .lock()
+                .expect("Sentinel request context lock is not poisoned")
+                .insert(request_id.clone(), context.clone());
+        }
+    }
+
+    pub(super) fn request_identification(&self, request_id: &str) -> Option<IdentificationContext> {
+        self.request_identifications
+            .lock()
+            .expect("Sentinel request context lock is not poisoned")
+            .get(request_id)
+            .cloned()
+    }
+
+    pub(super) fn forget_identification(&self, request_id: Option<&str>) {
+        if let Some(request_id) = request_id {
+            self.request_identifications
+                .lock()
+                .expect("Sentinel request context lock is not poisoned")
+                .remove(request_id);
+        }
+    }
+
+    pub(super) fn remember_reservation(&self, request_id: String, context: ReservationContext) {
+        self.reservations
+            .lock()
+            .expect("Sentinel reservation lock is not poisoned")
+            .insert(request_id, context);
+    }
+
+    pub(super) fn take_reservation(&self, request_id: &str) -> Option<ReservationContext> {
+        self.reservations
+            .lock()
+            .expect("Sentinel reservation lock is not poisoned")
+            .remove(request_id)
     }
 
     /// Metadata for the separately published React Native/Expo client.
@@ -107,6 +164,10 @@ impl AuthPlugin for SentinelPlugin {
                 .with_identity("sentinel", VERSION),
             ),
         }
+    }
+
+    fn database_hooks(&self) -> Option<&dyn crate::DatabaseHooks> {
+        Some(self)
     }
 
     #[cfg(feature = "axum")]
