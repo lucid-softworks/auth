@@ -1,9 +1,3 @@
-//! Sentinel security primitives matching `@better-auth/infra@0.4.3`.
-//!
-//! The public proof-of-work helpers are native, in-process equivalents of the
-//! package's root exports. Server, browser, and native client compatibility
-//! build on this module without spawning a JavaScript runtime.
-
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -42,7 +36,7 @@ pub async fn solve_pow_challenge(challenge: &PoWChallenge) -> PoWSolution {
             };
         }
         counter = counter.saturating_add(1);
-        if counter % 1_000 == 0 {
+        if counter.is_multiple_of(1_000) {
             tokio::task::yield_now().await;
         }
     }
