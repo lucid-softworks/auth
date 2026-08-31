@@ -67,6 +67,7 @@ impl SentinelPlugin {
         &self.identification
     }
 
+    #[cfg(feature = "axum")]
     pub(super) fn remember_identification(&self, context: &IdentificationContext) {
         if let Some(request_id) = context.request_id.as_ref() {
             self.request_identifications
@@ -84,6 +85,7 @@ impl SentinelPlugin {
             .cloned()
     }
 
+    #[cfg(feature = "axum")]
     pub(super) fn forget_identification(&self, request_id: Option<&str>) {
         if let Some(request_id) = request_id {
             self.request_identifications
