@@ -354,7 +354,7 @@ async fn ordinary_social_flow_uses_generic_provider_for_database_and_cookie_stat
     let (corrupt_cookie, corrupt_state) =
         begin_generic_flow(&corrupt_app, OAuthStateStrategy::Database).await;
     let mut verification = corrupt_store
-        .find_verification(&corrupt_state)
+        .find_verification(&format!("auth-state:{corrupt_state}"))
         .await
         .unwrap()
         .unwrap();

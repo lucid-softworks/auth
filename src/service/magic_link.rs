@@ -10,6 +10,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 const TOKEN_ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const IDENTIFIER_PREFIX: &str = "magic-link:";
 
 pub(crate) struct MagicLinkRequest {
     pub email: String,
@@ -223,12 +224,12 @@ pub(crate) async fn magic_link_identifier(
     storage: &MagicLinkTokenStorage,
     token: &str,
 ) -> Result<String, AuthError> {
+    let purpose_bound_token = format!("{IDENTIFIER_PREFIX}{token}");
     match storage {
-        MagicLinkTokenStorage::Plain => Ok(token.to_owned()),
-        MagicLinkTokenStorage::Hashed => {
-            Ok(URL_SAFE_NO_PAD.encode(Sha256::digest(token.as_bytes())))
-        }
-        MagicLinkTokenStorage::Custom(hasher) => hasher.hash(token).await,
+        MagicLinkTokenStorage::Plain => Ok(purpose_bound_token),
+        MagicLinkTokenStorage::Hashed => Ok(URL_SAFE_NO_PAD
+            .encode(Sha256::digest(purpose_bound_token.as_bytes()))),
+        MagicLinkTokenStorage::Custom(hasher) => hasher.hash(&purpose_bound_token).await,
     }
 }
 
@@ -260,5 +261,15 @@ mod tests {
             .unwrap();
         assert_eq!(hashed.len(), 43);
         assert_ne!(hashed, token);
+        assert_eq!(
+            hashed,
+            URL_SAFE_NO_PAD.encode(Sha256::digest(format!("magic-link:{token}").as_bytes()))
+        );
+        assert_eq!(
+            magic_link_identifier(&MagicLinkTokenStorage::Plain, &token)
+                .await
+                .unwrap(),
+            format!("magic-link:{token}")
+        );
     }
 }

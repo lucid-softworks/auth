@@ -11,6 +11,8 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+const STATE_IDENTIFIER_PREFIX: &str = "auth-state:";
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SocialSignInInput {
@@ -193,7 +195,7 @@ impl AuthService {
         }
         let now = Utc::now();
         self.create_verification_record(VerificationValue::new(
-            state,
+            oauth_state_identifier(state),
             serde_json::to_string(value).map_err(|_| AuthError::OAuthStateMismatch)?,
             now + Duration::minutes(10),
         ))
@@ -222,7 +224,7 @@ impl AuthService {
             return Ok(state_data);
         }
         let value = self
-            .find_verification_value(state)
+            .find_verification_value(&oauth_state_identifier(state))
             .await?
             .ok_or(AuthError::OAuthStateMismatch)?;
         let state_data: OAuthState = serde_json::from_str(&value.value)
@@ -235,7 +237,7 @@ impl AuthService {
         if self.config.account.store_state_strategy == crate::OAuthStateStrategy::Cookie {
             return Ok(());
         }
-        self.consume_verification_record(state, Utc::now())
+        self.consume_verification_record(&oauth_state_identifier(state), Utc::now())
             .await?
             .ok_or(AuthError::OAuthStateMismatch)
             .map(|_| ())
@@ -373,4 +375,27 @@ fn random_oauth_string(length: usize) -> String {
     (0..length)
         .map(|_| ALPHABET[rng.random_range(0..ALPHABET.len())] as char)
         .collect()
+}
+
+fn oauth_state_identifier(state: &str) -> String {
+    format!("{STATE_IDENTIFIER_PREFIX}{state}")
+}
+
+#[cfg(all(test, feature = "axum"))]
+mod tests {
+    use super::*;
+    use crate::{MagicLinkTokenStorage, service::magic_link::magic_link_identifier};
+
+    #[tokio::test]
+    async fn verification_identifiers_are_bound_to_their_purpose() {
+        let token = "shared-public-value";
+        let oauth = oauth_state_identifier(token);
+        let magic_link = magic_link_identifier(&MagicLinkTokenStorage::Plain, token)
+            .await
+            .unwrap();
+
+        assert_eq!(oauth, "auth-state:shared-public-value");
+        assert_eq!(magic_link, "magic-link:shared-public-value");
+        assert_ne!(oauth, magic_link);
+    }
 }
