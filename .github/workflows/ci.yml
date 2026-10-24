@@ -9,27 +9,80 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  checks:
-    name: Checks
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt -- --check
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Lint the core feature set
+        run: cargo clippy --no-default-features --all-targets -- -D warnings
+      - name: Lint all features
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  tests:
+    name: Test (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: core
+            cache_key: core
+            command: cargo test --no-default-features --all-targets
+          - name: all features
+            cache_key: all-features
+            command: cargo test --all-targets --all-features
+          - name: SQLite isolation
+            cache_key: sqlite
+            command: cargo test --no-default-features --features sqlite --lib --test sqlite_adapter_contract
+          - name: Cloudflare D1 isolation
+            cache_key: d1
+            command: cargo test --no-default-features --features d1 --lib --test d1_adapter_contract
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: tests-${{ matrix.cache_key }}
+      - run: ${{ matrix.command }}
+
+  d1-wasm:
+    name: Cloudflare D1 Workers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --no-default-features --features d1 --target wasm32-unknown-unknown
+
+  mysql:
+    name: MySQL
     runs-on: ubuntu-latest
     services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: lucid_auth_test
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_USER: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d lucid_auth_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
       mysql:
         image: mysql:8.4
         env:
@@ -44,6 +97,30 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: conformance/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test live MySQL storage
+        env:
+          MYSQL_ADMIN_DATABASE_URL: mysql://root:root@127.0.0.1:3306/mysql
+          MYSQL_DATABASE_URL: mysql://user:password@127.0.0.1:3306/lucid_auth_test
+        run: cargo test --no-default-features --features mysql --test mysql_adapter_contract -- --ignored --test-threads=1
+      - run: npm ci --prefix conformance --ignore-scripts
+      - name: Test the pinned Better Auth MySQL oracle
+        env:
+          MYSQL_ORACLE_DATABASE_URL: mysql://user:password@127.0.0.1:3306/lucid_auth_test
+        run: npm run test:mysql-adapter --prefix conformance
+
+  mongodb:
+    name: MongoDB
+    runs-on: ubuntu-latest
+    services:
       mongodb:
         image: mongo:8.2
         ports:
@@ -53,6 +130,43 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: conformance/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Start MongoDB replica-set fixture
+        run: |
+          docker run --detach --name lucid-auth-mongodb-rs --publish 27018:27018 mongo:8.2 --port 27018 --replSet rs0 --bind_ip_all
+          for _ in {1..30}; do
+            docker exec lucid-auth-mongodb-rs mongosh --quiet --port 27018 --eval 'db.adminCommand({ping:1}).ok' && break
+            sleep 1
+          done
+          docker exec lucid-auth-mongodb-rs mongosh --quiet --port 27018 --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27018"}]})'
+          for _ in {1..30}; do
+            test "$(docker exec lucid-auth-mongodb-rs mongosh --quiet --port 27018 --eval 'db.hello().isWritablePrimary')" = true && break
+            sleep 1
+          done
+      - name: Test live MongoDB storage
+        env:
+          MONGODB_REPLICA_SET_URI: mongodb://127.0.0.1:27018/?replicaSet=rs0
+          MONGODB_STANDALONE_URI: mongodb://127.0.0.1:27017
+        run: cargo test --no-default-features --features mongodb --test mongodb_adapter_contract -- --ignored --test-threads=1
+      - run: npm ci --prefix conformance --ignore-scripts
+      - name: Test the pinned Better Auth MongoDB oracle
+        env:
+          MONGODB_ORACLE_REPLICA_SET_URI: mongodb://127.0.0.1:27018/?replicaSet=rs0
+          MONGODB_ORACLE_STANDALONE_URI: mongodb://127.0.0.1:27017
+        run: npm run test:mongodb-adapter --prefix conformance
+
+  mssql:
+    name: Microsoft SQL Server
+    runs-on: ubuntu-latest
+    services:
       mssql:
         image: mcr.microsoft.com/mssql/server:2022-latest
         env:
@@ -73,92 +187,70 @@ jobs:
           cache: npm
           cache-dependency-path: conformance/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-          targets: wasm32-unknown-unknown
-      - name: Check formatting
-        run: cargo fmt -- --check
-      - name: Lint the core feature set
-        run: cargo clippy --no-default-features --all-targets -- -D warnings
-      - name: Test the core feature set
-        run: cargo test --no-default-features --all-targets
-      - name: Lint native SQLite storage
-        run: cargo clippy --no-default-features --features sqlite --lib --test sqlite_adapter_contract -- -D warnings
-      - name: Test native SQLite storage
-        run: cargo test --no-default-features --features sqlite --lib --test sqlite_adapter_contract
-      - name: Lint native MySQL storage
-        run: cargo clippy --no-default-features --features mysql --lib --test mysql_adapter_contract -- -D warnings
-      - name: Test native MySQL storage
-        run: cargo test --no-default-features --features mysql --lib --test mysql_adapter_contract
-      - name: Test live MySQL storage
-        env:
-          MYSQL_ADMIN_DATABASE_URL: mysql://root:root@127.0.0.1:3306/mysql
-          MYSQL_DATABASE_URL: mysql://user:password@127.0.0.1:3306/lucid_auth_test
-        run: cargo test --no-default-features --features mysql --test mysql_adapter_contract -- --ignored --test-threads=1
-      - name: Lint native MongoDB storage
-        run: cargo clippy --no-default-features --features mongodb --lib --test mongodb_adapter_contract -- -D warnings
-      - name: Test native MongoDB storage
-        run: cargo test --no-default-features --features mongodb --lib --test mongodb_adapter_contract
-      - name: Start MongoDB replica-set fixture
-        run: |
-          docker run --detach --name lucid-auth-mongodb-rs --publish 27018:27018 mongo:8.2 --port 27018 --replSet rs0 --bind_ip_all
-          for attempt in {1..30}; do
-            docker exec lucid-auth-mongodb-rs mongosh --quiet --port 27018 --eval 'db.adminCommand({ping:1}).ok' && break
-            sleep 1
-          done
-          docker exec lucid-auth-mongodb-rs mongosh --quiet --port 27018 --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27018"}]})'
-          for attempt in {1..30}; do
-            test "$(docker exec lucid-auth-mongodb-rs mongosh --quiet --port 27018 --eval 'db.hello().isWritablePrimary')" = true && break
-            sleep 1
-          done
-      - name: Test live MongoDB storage
-        env:
-          MONGODB_REPLICA_SET_URI: mongodb://127.0.0.1:27018/?replicaSet=rs0
-          MONGODB_STANDALONE_URI: mongodb://127.0.0.1:27017
-        run: cargo test --no-default-features --features mongodb --test mongodb_adapter_contract -- --ignored --test-threads=1
-      - name: Lint native Microsoft SQL Server storage
-        run: cargo clippy --no-default-features --features mssql --lib -- -D warnings
-      - name: Test native Microsoft SQL Server storage
-        run: cargo test --no-default-features --features mssql --lib
+      - uses: Swatinem/rust-cache@v2
       - name: Test live Microsoft SQL Server storage
         env:
           MSSQL_DATABASE_URL: "server=tcp:127.0.0.1,1433;database=master;user=sa;password=LucidAuth_Mssql_CI_Test!;TrustServerCertificate=true"
         run: cargo test --no-default-features --features mssql --lib mssql::migration::contract -- --ignored --test-threads=1
-      - name: Lint native Cloudflare D1 storage
-        run: cargo clippy --no-default-features --features d1 --lib --test d1_adapter_contract -- -D warnings
-      - name: Test native Cloudflare D1 storage
-        run: cargo test --no-default-features --features d1 --lib --test d1_adapter_contract
-      - name: Check Cloudflare D1 Workers package
-        run: cargo check --no-default-features --features d1 --target wasm32-unknown-unknown
-      - name: Lint all features
-        run: cargo clippy --all-targets --all-features -- -D warnings
-      - name: Test all features
-        run: cargo test --all-targets --all-features
-      - name: Test PostgreSQL persistence
-        env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/lucid_auth_test
-        run: |
-          cargo test --features postgres --test postgres_contract -- --ignored
-          cargo test --features postgres --test scim_postgres_contract -- --ignored
-      - name: Install official Better Auth clients
-        run: npm ci --prefix conformance --ignore-scripts
-      - name: Test the official Better Auth clients
-        run: npm test --prefix conformance
-      - name: Test the pinned Better Auth MySQL oracle
-        env:
-          MYSQL_ORACLE_DATABASE_URL: mysql://user:password@127.0.0.1:3306/lucid_auth_test
-        run: npm run test:mysql-adapter --prefix conformance
-      - name: Test the pinned Better Auth MongoDB oracle
-        env:
-          MONGODB_ORACLE_REPLICA_SET_URI: mongodb://127.0.0.1:27018/?replicaSet=rs0
-          MONGODB_ORACLE_STANDALONE_URI: mongodb://127.0.0.1:27017
-        run: npm run test:mongodb-adapter --prefix conformance
+      - run: npm ci --prefix conformance --ignore-scripts
       - name: Test the pinned Better Auth Microsoft SQL Server oracle
         env:
           MSSQL_ORACLE_DATABASE_URL: "server=tcp:127.0.0.1,1433;database=master;user=sa;password=LucidAuth_Mssql_CI_Test!;TrustServerCertificate=true"
         run: npm run test:mssql-adapter --prefix conformance
-      - name: Verify the package
-        run: cargo package
+
+  postgres:
+    name: PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: lucid_auth_test
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d lucid_auth_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test PostgreSQL persistence
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/lucid_auth_test
+        run: cargo test --features postgres --test postgres_contract --test scim_postgres_contract -- --ignored
+
+  conformance:
+    name: Better Auth conformance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: conformance/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            conformance/server -> target
+      - run: npm ci --prefix conformance --ignore-scripts
+      - run: npm test --prefix conformance
+
+  package:
+    name: Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo package
 
   msrv:
     name: Rust 1.90
@@ -168,3 +260,28 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.90
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --all-targets --all-features
+
+  checks:
+    name: Checks
+    if: always()
+    needs:
+      - format
+      - lint
+      - tests
+      - d1-wasm
+      - mysql
+      - mongodb
+      - mssql
+      - postgres
+      - conformance
+      - package
+      - msrv
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify every check passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            test "$result" = success
+          done
